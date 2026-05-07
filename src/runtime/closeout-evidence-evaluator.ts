@@ -131,6 +131,16 @@ const blocker = (
   message
 });
 
+const pushUniqueBlocker = (
+  blockers: CloseoutEvidenceEvaluation["blockers"],
+  nextBlocker: CloseoutEvidenceEvaluation["blockers"][number]
+): void => {
+  if (blockers.some((existingBlocker) => existingBlocker.blocker_code === nextBlocker.blocker_code)) {
+    return;
+  }
+  blockers.push(nextBlocker);
+};
+
 export const evaluateCloseoutEvidence = (
   input: EvaluateCloseoutEvidenceInput
 ): CloseoutEvidenceEvaluation => {
@@ -175,6 +185,144 @@ export const evaluateCloseoutEvidence = (
         multiRoundBlocker.message
       )
   );
+
+  if (routeRole !== "primary") {
+    pushUniqueBlocker(
+      blockers,
+      blocker("non_primary_route", "route", "closeout evidence must come from the primary route")
+    );
+  }
+
+  if (pathKind !== "api") {
+    pushUniqueBlocker(
+      blockers,
+      blocker("non_api_path", "route", "closeout evidence must come from an API path")
+    );
+  }
+
+  if (evidenceStatus !== "success") {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "evidence_not_success",
+        "route",
+        "closeout evidence must report a success status"
+      )
+    );
+  }
+
+  if (evidenceClass === "dom_state_extraction") {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "dom_state_not_full_closeout",
+        "route",
+        "DOM or page-state extraction cannot satisfy the full closeout bar"
+      )
+    );
+  }
+
+  if (evidenceClass === "active_api_fetch_fallback") {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "active_fetch_not_admitted",
+        "route",
+        "active API fetch fallback is not admitted as primary closeout evidence"
+      )
+    );
+  } else if (
+    evidenceClass !== "passive_api_capture" &&
+    evidenceClass !== "humanized_action" &&
+    evidenceClass !== "dom_state_extraction"
+  ) {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "unsupported_evidence_class",
+        "route",
+        "closeout evidence must use an admitted evidence_class"
+      )
+    );
+  }
+
+  if (!latestHeadAvailable) {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "missing_latest_head",
+        "freshness",
+        "latest-head closeout evidence requires both the expected and observed head sha"
+      )
+    );
+  } else if (!latestHeadMatches) {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "stale_head",
+        "freshness",
+        "closeout evidence must be bound to the current latest head"
+      )
+    );
+  }
+
+  if (!runMatches) {
+    pushUniqueBlocker(
+      blockers,
+      blocker("stale_run", "freshness", "closeout evidence must be bound to the current run")
+    );
+  }
+
+  if (!artifactMatches) {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "stale_artifact",
+        "freshness",
+        "closeout evidence must be bound to the current artifact identity"
+      )
+    );
+  }
+
+  if (!profileBound) {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "missing_profile_binding",
+        "binding",
+        "closeout evidence must be bound to the expected profile"
+      )
+    );
+  }
+
+  if (!tabBound) {
+    pushUniqueBlocker(
+      blockers,
+      blocker("missing_tab_binding", "binding", "closeout evidence must be bound to the expected tab")
+    );
+  }
+
+  if (!pageBound) {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "missing_page_binding",
+        "binding",
+        "closeout evidence must be bound to the expected page URL"
+      )
+    );
+  }
+
+  if (!actionBound) {
+    pushUniqueBlocker(
+      blockers,
+      blocker(
+        "missing_action_binding",
+        "binding",
+        "closeout evidence must be bound to the expected action reference"
+      )
+    );
+  }
 
   const passed = blockers.length === 0;
 

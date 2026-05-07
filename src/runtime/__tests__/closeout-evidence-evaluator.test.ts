@@ -100,6 +100,23 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("fails when deterministic rounds pass but the singleton evidence is stale", () => {
+    const input = withPassingRounds(baseInput());
+    input.evidence.head_sha = "deadbeef";
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      reproduced_multi_round: true,
+      freshness: {
+        latest_head_matches: false
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "stale_head" })
+      ])
+    });
+  });
+
   it.each([
     {
       name: "non-primary route",
