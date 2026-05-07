@@ -32,6 +32,14 @@ const inferArtifactFamilyPrefix = (artifactIdentity) => {
     }
     return artifactIdentity.slice(0, lastSeparatorIndex + 1);
 };
+const inferProviderScopedArtifactPrefix = (input) => {
+    if (input.expectedRunId === null ||
+        input.expectedArtifactIdentity === null ||
+        !input.expectedArtifactIdentity.startsWith(`${input.expectedRunId}:`)) {
+        return null;
+    }
+    return `${input.expectedRunId}:`;
+};
 const matchesExpectedArtifactIdentity = (input) => {
     if (input.observedArtifactIdentity === null) {
         return false;
@@ -40,6 +48,11 @@ const matchesExpectedArtifactIdentity = (input) => {
         return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
     }
     if (input.expectedArtifactIdentity === input.observedArtifactIdentity) {
+        return true;
+    }
+    if (input.expectedProviderScopedArtifactPrefix !== null &&
+        input.observedArtifactIdentity.startsWith(input.expectedProviderScopedArtifactPrefix) &&
+        input.observedArtifactIdentity.length > input.expectedProviderScopedArtifactPrefix.length) {
         return true;
     }
     if (input.expectedArtifactFamilyPrefix === null) {
@@ -76,6 +89,10 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
     ]);
     const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
+    const expectedProviderScopedArtifactPrefix = inferProviderScopedArtifactPrefix({
+        expectedRunId,
+        expectedArtifactIdentity
+    });
     const expectedProfileRef = normalizeString(input.expected.profile_ref);
     const expectedPageUrl = normalizeString(input.expected.page_url);
     const expectedActionRef = normalizeString(input.expected.action_ref);
@@ -131,6 +148,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             expectedArtifactIdentities,
             expectedArtifactIdentity,
             expectedArtifactFamilyPrefix,
+            expectedProviderScopedArtifactPrefix,
             observedArtifactIdentity
         })) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
@@ -171,6 +189,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
                 expectedArtifactIdentities,
                 expectedArtifactIdentity,
                 expectedArtifactFamilyPrefix,
+                expectedProviderScopedArtifactPrefix,
                 observedArtifactIdentity
             }) &&
             matchesExpectedString(expectedProfileRef, observedProfileRef) &&

@@ -119,6 +119,69 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("supports provider-scoped artifact identities when only singular expected artifact_identity is provided", () => {
+    const expected: CloseoutMultiRoundExpectedBinding = {
+      ...expectedBinding(),
+      run_id: "gha:23953203650:1",
+      artifact_identity: "gha:23953203650:1:live-evidence-round-1.log",
+      artifact_identities: undefined
+    };
+    const firstRound = {
+      ...successRound("gha:23953203650:1:live-evidence-round-1.log"),
+      run_id: "gha:23953203650:1"
+    };
+    const secondRound = {
+      ...successRound("gha:23953203650:1:live-evidence-round-2.log"),
+      run_id: "gha:23953203650:1"
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [firstRound, secondRound]
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
+      expected_artifact_observed: true,
+      blockers: []
+    });
+  });
+
+  it("rejects provider-scoped artifacts from a different run when only singular artifact_identity is provided", () => {
+    const expected: CloseoutMultiRoundExpectedBinding = {
+      ...expectedBinding(),
+      run_id: "gha:23953203650:1",
+      artifact_identity: "gha:23953203650:1:live-evidence-round-1.log",
+      artifact_identities: undefined
+    };
+    const firstRound = {
+      ...successRound("gha:23953203650:1:live-evidence-round-1.log"),
+      run_id: "gha:23953203650:1"
+    };
+    const staleArtifactRound = {
+      ...successRound("gha:23953203650:0:live-evidence-round-2.log"),
+      run_id: "gha:23953203650:1"
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [firstRound, staleArtifactRound]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it.each([
     {
       name: "single round",
