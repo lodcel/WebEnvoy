@@ -116,6 +116,30 @@ const matchesExpectedString = (
   return normalizedExpected !== null && normalizedObserved !== null && normalizedExpected === normalizedObserved;
 };
 
+const normalizeStringArray = (value: string[] | null | undefined): string[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => normalizeString(item))
+        .filter((item): item is string => item !== null)
+    : [];
+
+const matchesExpectedArtifactIdentity = (
+  expectedArtifactIdentity: string | null | undefined,
+  expectedArtifactIdentities: string[] | null | undefined,
+  observedArtifactIdentity: string | null | undefined
+): boolean => {
+  const normalizedObserved = normalizeString(observedArtifactIdentity);
+  if (normalizedObserved === null) {
+    return false;
+  }
+
+  if (matchesExpectedString(expectedArtifactIdentity, normalizedObserved)) {
+    return true;
+  }
+
+  return normalizeStringArray(expectedArtifactIdentities).includes(normalizedObserved);
+};
+
 const matchesExpectedInteger = (
   expected: number | null | undefined,
   observed: number | null | undefined
@@ -164,7 +188,11 @@ export const evaluateCloseoutEvidence = (
   const latestHeadAvailable = expectedLatestHeadSha !== null && observedHeadSha !== null;
   const latestHeadMatches = latestHeadAvailable && expectedLatestHeadSha === observedHeadSha;
   const runMatches = matchesExpectedString(expectedRunId, observedRunId);
-  const artifactMatches = matchesExpectedString(expectedArtifactIdentity, observedArtifactIdentity);
+  const artifactMatches = matchesExpectedArtifactIdentity(
+    expectedArtifactIdentity,
+    input.expected.artifact_identities,
+    observedArtifactIdentity
+  );
   const profileBound = matchesExpectedString(expectedProfileRef, observedProfileRef);
   const tabBound = matchesExpectedInteger(
     input.expected.target_tab_id,

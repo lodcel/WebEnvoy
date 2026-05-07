@@ -117,6 +117,20 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("accepts singleton evidence bound to any expected artifact_identities current artifact", () => {
+    const input = withPassingRounds(baseInput());
+    input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2";
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: [],
+      freshness: {
+        artifact_matches: true
+      }
+    });
+  });
+
   it.each([
     {
       name: "non-primary route",
