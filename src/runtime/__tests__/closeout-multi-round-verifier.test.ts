@@ -77,6 +77,25 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("passes with singular expected artifact_identity when rounds are otherwise fresh and distinct", () => {
+    const expected = expectedBinding();
+    delete expected.artifact_identities;
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: successRounds()
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
+      expected_artifact_observed: true,
+      blockers: []
+    });
+  });
+
   it.each([
     {
       name: "single round",

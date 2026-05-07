@@ -36,8 +36,10 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
     const expectedLatestHeadSha = normalizeString(input.expected.latest_head_sha);
     const expectedRunId = normalizeString(input.expected.run_id);
     const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
+    const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
+    const explicitArtifactContract = explicitArtifactIdentities.length > 0;
     const expectedArtifactIdentities = new Set([
-        ...normalizeStringArray(input.expected.artifact_identities),
+        ...explicitArtifactIdentities,
         ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
     ]);
     const expectedProfileRef = normalizeString(input.expected.profile_ref);
@@ -90,7 +92,8 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         if (observedArtifactIdentity === null) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must have an artifact identity"));
         }
-        else if (!expectedArtifactIdentities.has(observedArtifactIdentity)) {
+        else if (explicitArtifactContract &&
+            !expectedArtifactIdentities.has(observedArtifactIdentity)) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
         }
         else if (artifactIdentities.has(observedArtifactIdentity)) {
@@ -124,7 +127,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             expectedLatestHeadSha === observedHeadSha &&
             matchesExpectedString(expectedRunId, observedRunId) &&
             observedArtifactIdentity !== null &&
-            expectedArtifactIdentities.has(observedArtifactIdentity) &&
+            (!explicitArtifactContract || expectedArtifactIdentities.has(observedArtifactIdentity)) &&
             matchesExpectedString(expectedProfileRef, observedProfileRef) &&
             matchesExpectedInteger(input.expected.target_tab_id, evidenceRound.target_tab_id) &&
             matchesExpectedString(expectedPageUrl, observedPageUrl) &&
@@ -139,7 +142,6 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         pushUniqueBlocker(blockers, blocker("missing_multi_round_evidence", "route", "closeout evidence must include at least two distinct successful rounds"));
     }
     if (expectedArtifactIdentity === null ||
-        expectedArtifactIdentities.size < REQUIRED_SUCCESS_ROUNDS ||
         !expectedArtifactObserved) {
         pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "multi-round closeout evidence must include the current artifact identity"));
     }
