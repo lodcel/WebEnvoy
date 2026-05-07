@@ -17,6 +17,39 @@ const normalizeStringArray = (value) => Array.isArray(value)
         .map((item) => normalizeString(item))
         .filter((item) => item !== null)
     : [];
+const ARTIFACT_ROUND_SEGMENT_PATTERN = /^(round|attempt)-\d+$/;
+const inferArtifactFamilyPrefix = (artifactIdentity) => {
+    if (artifactIdentity === null) {
+        return null;
+    }
+    const lastSeparatorIndex = artifactIdentity.lastIndexOf("/");
+    if (lastSeparatorIndex < 0) {
+        return null;
+    }
+    const lastSegment = artifactIdentity.slice(lastSeparatorIndex + 1);
+    if (!ARTIFACT_ROUND_SEGMENT_PATTERN.test(lastSegment)) {
+        return null;
+    }
+    return artifactIdentity.slice(0, lastSeparatorIndex + 1);
+};
+const matchesExpectedArtifactIdentity = (input) => {
+    if (input.observedArtifactIdentity === null) {
+        return false;
+    }
+    if (input.explicitArtifactContract) {
+        return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
+    }
+    if (input.expectedArtifactIdentity === input.observedArtifactIdentity) {
+        return true;
+    }
+    if (input.expectedArtifactFamilyPrefix === null) {
+        return false;
+    }
+    if (!input.observedArtifactIdentity.startsWith(input.expectedArtifactFamilyPrefix)) {
+        return false;
+    }
+    return ARTIFACT_ROUND_SEGMENT_PATTERN.test(input.observedArtifactIdentity.slice(input.expectedArtifactFamilyPrefix.length));
+};
 const blocker = (blocker_code, blocker_layer, message) => ({
     blocker_code,
     blocker_layer,
@@ -42,6 +75,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         ...explicitArtifactIdentities,
         ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
     ]);
+    const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
     const expectedProfileRef = normalizeString(input.expected.profile_ref);
     const expectedPageUrl = normalizeString(input.expected.page_url);
     const expectedActionRef = normalizeString(input.expected.action_ref);
@@ -92,8 +126,13 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         if (observedArtifactIdentity === null) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must have an artifact identity"));
         }
-        else if (explicitArtifactContract &&
-            !expectedArtifactIdentities.has(observedArtifactIdentity)) {
+        else if (!matchesExpectedArtifactIdentity({
+            explicitArtifactContract,
+            expectedArtifactIdentities,
+            expectedArtifactIdentity,
+            expectedArtifactFamilyPrefix,
+            observedArtifactIdentity
+        })) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
         }
         else if (artifactIdentities.has(observedArtifactIdentity)) {
@@ -127,7 +166,13 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             expectedLatestHeadSha === observedHeadSha &&
             matchesExpectedString(expectedRunId, observedRunId) &&
             observedArtifactIdentity !== null &&
-            (!explicitArtifactContract || expectedArtifactIdentities.has(observedArtifactIdentity)) &&
+            matchesExpectedArtifactIdentity({
+                explicitArtifactContract,
+                expectedArtifactIdentities,
+                expectedArtifactIdentity,
+                expectedArtifactFamilyPrefix,
+                observedArtifactIdentity
+            }) &&
             matchesExpectedString(expectedProfileRef, observedProfileRef) &&
             matchesExpectedInteger(input.expected.target_tab_id, evidenceRound.target_tab_id) &&
             matchesExpectedString(expectedPageUrl, observedPageUrl) &&

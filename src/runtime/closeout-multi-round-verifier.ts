@@ -89,6 +89,55 @@ const normalizeStringArray = (value: string[] | null | undefined): string[] =>
         .filter((item): item is string => item !== null)
     : [];
 
+const ARTIFACT_ROUND_SEGMENT_PATTERN = /^(round|attempt)-\d+$/;
+
+const inferArtifactFamilyPrefix = (artifactIdentity: string | null): string | null => {
+  if (artifactIdentity === null) {
+    return null;
+  }
+  const lastSeparatorIndex = artifactIdentity.lastIndexOf("/");
+  if (lastSeparatorIndex < 0) {
+    return null;
+  }
+  const lastSegment = artifactIdentity.slice(lastSeparatorIndex + 1);
+  if (!ARTIFACT_ROUND_SEGMENT_PATTERN.test(lastSegment)) {
+    return null;
+  }
+  return artifactIdentity.slice(0, lastSeparatorIndex + 1);
+};
+
+const matchesExpectedArtifactIdentity = (input: {
+  explicitArtifactContract: boolean;
+  expectedArtifactIdentities: Set<string>;
+  expectedArtifactIdentity: string | null;
+  expectedArtifactFamilyPrefix: string | null;
+  observedArtifactIdentity: string | null;
+}): boolean => {
+  if (input.observedArtifactIdentity === null) {
+    return false;
+  }
+
+  if (input.explicitArtifactContract) {
+    return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
+  }
+
+  if (input.expectedArtifactIdentity === input.observedArtifactIdentity) {
+    return true;
+  }
+
+  if (input.expectedArtifactFamilyPrefix === null) {
+    return false;
+  }
+
+  if (!input.observedArtifactIdentity.startsWith(input.expectedArtifactFamilyPrefix)) {
+    return false;
+  }
+
+  return ARTIFACT_ROUND_SEGMENT_PATTERN.test(
+    input.observedArtifactIdentity.slice(input.expectedArtifactFamilyPrefix.length)
+  );
+};
+
 const blocker = (
   blocker_code: CloseoutMultiRoundVerifierBlockerCode,
   blocker_layer: CloseoutMultiRoundVerifierBlockerLayer,
@@ -132,6 +181,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
     ...explicitArtifactIdentities,
     ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
   ]);
+  const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
   const expectedProfileRef = normalizeString(input.expected.profile_ref);
   const expectedPageUrl = normalizeString(input.expected.page_url);
   const expectedActionRef = normalizeString(input.expected.action_ref);
@@ -251,8 +301,13 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
         )
       );
     } else if (
-      explicitArtifactContract &&
-      !expectedArtifactIdentities.has(observedArtifactIdentity)
+      !matchesExpectedArtifactIdentity({
+        explicitArtifactContract,
+        expectedArtifactIdentities,
+        expectedArtifactIdentity,
+        expectedArtifactFamilyPrefix,
+        observedArtifactIdentity
+      })
     ) {
       pushUniqueBlocker(
         blockers,
@@ -336,7 +391,13 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
       expectedLatestHeadSha === observedHeadSha &&
       matchesExpectedString(expectedRunId, observedRunId) &&
       observedArtifactIdentity !== null &&
-      (!explicitArtifactContract || expectedArtifactIdentities.has(observedArtifactIdentity)) &&
+      matchesExpectedArtifactIdentity({
+        explicitArtifactContract,
+        expectedArtifactIdentities,
+        expectedArtifactIdentity,
+        expectedArtifactFamilyPrefix,
+        observedArtifactIdentity
+      }) &&
       matchesExpectedString(expectedProfileRef, observedProfileRef) &&
       matchesExpectedInteger(input.expected.target_tab_id, evidenceRound.target_tab_id) &&
       matchesExpectedString(expectedPageUrl, observedPageUrl) &&

@@ -96,6 +96,29 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("rejects stale artifact identities when only singular expected artifact_identity is provided", () => {
+    const expected = expectedBinding();
+    delete expected.artifact_identities;
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [
+          successRound("artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1"),
+          successRound("artifact/xhs-closeout-evidence/run-closeout-evidence-old/round-2")
+        ]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it.each([
     {
       name: "single round",
