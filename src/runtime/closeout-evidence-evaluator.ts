@@ -1,3 +1,8 @@
+import {
+  verifyCloseoutMultiRoundEvidence,
+  type CloseoutMultiRoundEvidenceRound
+} from "./closeout-multi-round-verifier.js";
+
 export type CloseoutEvidenceDecision = "PASS" | "FAIL";
 
 export type CloseoutEvidenceBlockerCode =
@@ -24,6 +29,7 @@ export interface EvaluateCloseoutEvidenceInput {
     latest_head_sha: string | null;
     run_id: string | null;
     artifact_identity: string | null;
+    artifact_identities?: string[] | null;
     profile_ref: string | null;
     target_tab_id: number | null;
     page_url: string | null;
@@ -43,6 +49,7 @@ export interface EvaluateCloseoutEvidenceInput {
     page_url: string | null;
     action_ref: string | null;
   };
+  evidence_rounds?: CloseoutMultiRoundEvidenceRound[] | null;
 }
 
 export interface CloseoutEvidenceEvaluation {
@@ -85,6 +92,11 @@ export interface CloseoutEvidenceEvaluation {
     expected_action_ref: string | null;
     observed_action_ref: string | null;
   };
+  multi_round: {
+    accepted_round_count: number;
+    unique_artifact_count: number;
+    expected_artifact_observed: boolean;
+  };
 }
 
 const normalizeString = (value: string | null | undefined): string | null => {
@@ -119,15 +131,6 @@ const blocker = (
   message
 });
 
-const isAdmittedEvidenceClass = (evidenceClass: string | null): boolean =>
-  evidenceClass === "passive_api_capture" || evidenceClass === "humanized_action";
-
-const isRecognizedEvidenceClass = (evidenceClass: string | null): boolean =>
-  evidenceClass === "passive_api_capture" ||
-  evidenceClass === "humanized_action" ||
-  evidenceClass === "dom_state_extraction" ||
-  evidenceClass === "active_api_fetch_fallback";
-
 export const evaluateCloseoutEvidence = (
   input: EvaluateCloseoutEvidenceInput
 ): CloseoutEvidenceEvaluation => {
@@ -159,138 +162,19 @@ export const evaluateCloseoutEvidence = (
   );
   const pageBound = matchesExpectedString(expectedPageUrl, observedPageUrl);
   const actionBound = matchesExpectedString(expectedActionRef, observedActionRef);
+  const multiRoundVerification = verifyCloseoutMultiRoundEvidence({
+    expected: input.expected,
+    evidence_rounds: input.evidence_rounds ?? [input.evidence]
+  });
 
-  const blockers: CloseoutEvidenceEvaluation["blockers"] = [];
-
-  if (routeRole !== "primary") {
-    blockers.push(
-      blocker("non_primary_route", "route", "closeout evidence must come from the primary route")
-    );
-  }
-
-  if (pathKind !== "api") {
-    blockers.push(
-      blocker("non_api_path", "route", "closeout evidence must come from an API path")
-    );
-  }
-
-  if (evidenceStatus !== "success") {
-    blockers.push(
+  const blockers: CloseoutEvidenceEvaluation["blockers"] = multiRoundVerification.blockers.map(
+    (multiRoundBlocker) =>
       blocker(
-        "evidence_not_success",
-        "route",
-        "closeout evidence must report a success status"
+        multiRoundBlocker.blocker_code,
+        multiRoundBlocker.blocker_layer,
+        multiRoundBlocker.message
       )
-    );
-  }
-
-  if (evidenceClass === "dom_state_extraction") {
-    blockers.push(
-      blocker(
-        "dom_state_not_full_closeout",
-        "route",
-        "DOM or page-state extraction cannot satisfy the full closeout bar"
-      )
-    );
-  }
-
-  if (evidenceClass === "active_api_fetch_fallback") {
-    blockers.push(
-      blocker(
-        "active_fetch_not_admitted",
-        "route",
-        "active API fetch fallback is not admitted as primary closeout evidence"
-      )
-    );
-  } else if (evidenceClass === null || !isRecognizedEvidenceClass(evidenceClass)) {
-    blockers.push(
-      blocker(
-        "unsupported_evidence_class",
-        "route",
-        "closeout evidence must use an admitted evidence_class"
-      )
-    );
-  }
-
-  if (!input.evidence.reproduced_multi_round) {
-    blockers.push(
-      blocker(
-        "missing_multi_round_evidence",
-        "route",
-        "closeout evidence must be reproduced across multiple rounds"
-      )
-    );
-  }
-
-  if (!latestHeadAvailable) {
-    blockers.push(
-      blocker(
-        "missing_latest_head",
-        "freshness",
-        "latest-head closeout evidence requires both the expected and observed head sha"
-      )
-    );
-  } else if (!latestHeadMatches) {
-    blockers.push(
-      blocker(
-        "stale_head",
-        "freshness",
-        "closeout evidence must be bound to the current latest head"
-      )
-    );
-  }
-
-  if (!runMatches) {
-    blockers.push(
-      blocker("stale_run", "freshness", "closeout evidence must be bound to the current run")
-    );
-  }
-
-  if (!artifactMatches) {
-    blockers.push(
-      blocker(
-        "stale_artifact",
-        "freshness",
-        "closeout evidence must be bound to the current artifact identity"
-      )
-    );
-  }
-
-  if (!profileBound) {
-    blockers.push(
-      blocker(
-        "missing_profile_binding",
-        "binding",
-        "closeout evidence must be bound to the expected profile"
-      )
-    );
-  }
-
-  if (!tabBound) {
-    blockers.push(
-      blocker("missing_tab_binding", "binding", "closeout evidence must be bound to the expected tab")
-    );
-  }
-
-  if (!pageBound) {
-    blockers.push(
-      blocker(
-        "missing_page_binding",
-        "binding",
-        "closeout evidence must be bound to the expected page URL"
-      )
-    );
-  }
-
-  if (!actionBound) {
-    blockers.push(
-      blocker(
-        "missing_action_binding",
-        "binding",
-        "closeout evidence must be bound to the expected action reference"
-      )
-    );
-  }
+  );
 
   const passed = blockers.length === 0;
 
@@ -308,7 +192,7 @@ export const evaluateCloseoutEvidence = (
     path_kind: pathKind,
     evidence_status: evidenceStatus,
     evidence_class: evidenceClass,
-    reproduced_multi_round: input.evidence.reproduced_multi_round,
+    reproduced_multi_round: multiRoundVerification.reproduced_multi_round,
     freshness: {
       latest_head_available: latestHeadAvailable,
       latest_head_matches: latestHeadMatches,
@@ -334,6 +218,11 @@ export const evaluateCloseoutEvidence = (
       observed_page_url: observedPageUrl,
       expected_action_ref: expectedActionRef,
       observed_action_ref: observedActionRef
+    },
+    multi_round: {
+      accepted_round_count: multiRoundVerification.accepted_round_count,
+      unique_artifact_count: multiRoundVerification.unique_artifact_count,
+      expected_artifact_observed: multiRoundVerification.expected_artifact_observed
     }
   };
 };

@@ -9,7 +9,11 @@ const baseInput = (): EvaluateCloseoutEvidenceInput => ({
   expected: {
     latest_head_sha: "15a4e0bd5371178933fd23cac0311181db5bfde5",
     run_id: "run-closeout-evidence-001",
-    artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001",
+    artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
+    artifact_identities: [
+      "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
+      "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+    ],
     profile_ref: "profile/xhs_001",
     target_tab_id: 88,
     page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
@@ -23,7 +27,7 @@ const baseInput = (): EvaluateCloseoutEvidenceInput => ({
     reproduced_multi_round: true,
     head_sha: "15a4e0bd5371178933fd23cac0311181db5bfde5",
     run_id: "run-closeout-evidence-001",
-    artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001",
+    artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
     profile_ref: "profile/xhs_001",
     target_tab_id: 88,
     page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
@@ -31,9 +35,20 @@ const baseInput = (): EvaluateCloseoutEvidenceInput => ({
   }
 });
 
+const withPassingRounds = (input: EvaluateCloseoutEvidenceInput): EvaluateCloseoutEvidenceInput => {
+  input.evidence_rounds = [
+    { ...input.evidence },
+    {
+      ...input.evidence,
+      artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+    }
+  ];
+  return input;
+};
+
 describe("closeout evidence evaluator", () => {
   it("passes when primary API success evidence is current and fully bound", () => {
-    expect(evaluateCloseoutEvidence(baseInput())).toMatchObject({
+    expect(evaluateCloseoutEvidence(withPassingRounds(baseInput()))).toMatchObject({
       decision: "PASS",
       passed: true,
       blockers: [],
@@ -53,6 +68,11 @@ describe("closeout evidence evaluator", () => {
         tab_bound: true,
         page_bound: true,
         action_bound: true
+      },
+      multi_round: {
+        accepted_round_count: 2,
+        unique_artifact_count: 2,
+        expected_artifact_observed: true
       }
     });
   });
@@ -61,11 +81,22 @@ describe("closeout evidence evaluator", () => {
     const input = baseInput();
     input.evidence.evidence_class = "humanized_action";
 
-    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+    expect(evaluateCloseoutEvidence(withPassingRounds(input))).toMatchObject({
       decision: "PASS",
       passed: true,
       evidence_class: "humanized_action",
       blockers: []
+    });
+  });
+
+  it("does not trust the legacy reproduced_multi_round boolean without deterministic rounds", () => {
+    expect(evaluateCloseoutEvidence(baseInput())).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      reproduced_multi_round: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "missing_multi_round_evidence" })
+      ])
     });
   });
 
@@ -143,7 +174,7 @@ describe("closeout evidence evaluator", () => {
     {
       name: "stale artifact",
       mutate: (input: EvaluateCloseoutEvidenceInput) => {
-        input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-old";
+        input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-old/round-1";
       },
       blocker_code: "stale_artifact"
     },
@@ -179,17 +210,21 @@ describe("closeout evidence evaluator", () => {
       name: "missing multi-round evidence",
       mutate: (input: EvaluateCloseoutEvidenceInput) => {
         input.evidence.reproduced_multi_round = false;
+        input.evidence_rounds = [{ ...input.evidence }];
       },
       blocker_code: "missing_multi_round_evidence"
     }
   ])("fails closed for $name", ({ mutate, blocker_code }) => {
     const input = baseInput();
     mutate(input);
+    if (input.evidence_rounds === undefined) {
+      withPassingRounds(input);
+    }
 
     expect(evaluateCloseoutEvidence(input)).toMatchObject({
       decision: "FAIL",
       passed: false,
-      blockers: [expect.objectContaining({ blocker_code })]
+      blockers: expect.arrayContaining([expect.objectContaining({ blocker_code })])
     });
   });
 });
