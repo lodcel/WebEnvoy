@@ -1143,6 +1143,9 @@ const toCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | null => {
   return records;
 };
 
+const hasCloseoutEvidenceRoundRecords = (records: unknown[] | null): boolean =>
+  Array.isArray(records) && records.length > 0;
+
 const unionCloseoutEvidenceRoundRecords = (
   ...recordGroups: Array<unknown[] | null>
 ): unknown[] | null => {
@@ -1163,8 +1166,8 @@ const buildCloseoutEvidenceInputForRuntime = (
   const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
   const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
   const hasDeterministicRoundSource =
-    hasOwn(explicitInput ?? undefined, "evidence_rounds") ||
-    hasOwn(summary, "closeout_evidence_rounds");
+    hasCloseoutEvidenceRoundRecords(explicitRoundRecords) ||
+    hasCloseoutEvidenceRoundRecords(summaryRoundRecords);
   const deterministicRoundRecords = unionCloseoutEvidenceRoundRecords(
     explicitRoundRecords,
     summaryRoundRecords

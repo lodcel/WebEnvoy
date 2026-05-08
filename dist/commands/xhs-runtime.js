@@ -917,6 +917,7 @@ const toCloseoutEvidenceRoundRecords = (records) => {
     }
     return records;
 };
+const hasCloseoutEvidenceRoundRecords = (records) => Array.isArray(records) && records.length > 0;
 const unionCloseoutEvidenceRoundRecords = (...recordGroups) => {
     return mergeCloseoutEvidenceRoundRecordValues(recordGroups[0] ?? [], recordGroups.slice(1).flatMap((recordGroup) => recordGroup ?? []));
 };
@@ -926,8 +927,8 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
     const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
     const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
-    const hasDeterministicRoundSource = hasOwn(explicitInput ?? undefined, "evidence_rounds") ||
-        hasOwn(summary, "closeout_evidence_rounds");
+    const hasDeterministicRoundSource = hasCloseoutEvidenceRoundRecords(explicitRoundRecords) ||
+        hasCloseoutEvidenceRoundRecords(summaryRoundRecords);
     const deterministicRoundRecords = unionCloseoutEvidenceRoundRecords(explicitRoundRecords, summaryRoundRecords);
     const routeRoundRecords = hasDeterministicRoundSource
         ? null
