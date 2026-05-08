@@ -702,7 +702,8 @@ const mergeCloseoutArrayValues = (rootValue: unknown, summaryValue: unknown): un
 
 const mergeCloseoutSummaryObjectField = (
   rootValue: unknown,
-  summaryValue: unknown
+  summaryValue: unknown,
+  options: { preferSummaryBindings?: boolean } = {}
 ): JsonObject | null => {
   const rootObject = asObject(rootValue);
   const summaryObject = asObject(summaryValue);
@@ -719,6 +720,7 @@ const mergeCloseoutSummaryObjectField = (
     const rootField = hasOwn(rootObject, key) ? rootObject[key] : undefined;
     const summaryField = summaryObject[key];
     if (
+      options.preferSummaryBindings !== false &&
       CLOSEOUT_BINDING_FIELD_KEYS.has(key) &&
       summaryField !== null &&
       summaryField !== undefined &&
@@ -739,7 +741,7 @@ const mergeCloseoutSummaryObjectField = (
       merged[key] = mergedArray;
       continue;
     }
-    const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField);
+    const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField, options);
     if (mergedObject) {
       merged[key] = mergedObject;
       continue;
@@ -756,7 +758,9 @@ const mergeCloseoutEvidenceInputSummaryField = (
   rootValue: unknown,
   summaryValue: unknown
 ): JsonObject | null => {
-  return mergeCloseoutSummaryObjectField(rootValue, summaryValue);
+  return mergeCloseoutSummaryObjectField(rootValue, summaryValue, {
+    preferSummaryBindings: false
+  });
 };
 
 export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObject): JsonObject => {

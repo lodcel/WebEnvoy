@@ -550,7 +550,7 @@ const mergeCloseoutArrayValues = (rootValue, summaryValue) => {
         return true;
     });
 };
-const mergeCloseoutSummaryObjectField = (rootValue, summaryValue) => {
+const mergeCloseoutSummaryObjectField = (rootValue, summaryValue, options = {}) => {
     const rootObject = asObject(rootValue);
     const summaryObject = asObject(summaryValue);
     if (!rootObject || !summaryObject) {
@@ -565,7 +565,8 @@ const mergeCloseoutSummaryObjectField = (rootValue, summaryValue) => {
     for (const key of Object.keys(summaryObject)) {
         const rootField = hasOwn(rootObject, key) ? rootObject[key] : undefined;
         const summaryField = summaryObject[key];
-        if (CLOSEOUT_BINDING_FIELD_KEYS.has(key) &&
+        if (options.preferSummaryBindings !== false &&
+            CLOSEOUT_BINDING_FIELD_KEYS.has(key) &&
             summaryField !== null &&
             summaryField !== undefined &&
             !isSparseCloseoutSummaryField(summaryField)) {
@@ -584,7 +585,7 @@ const mergeCloseoutSummaryObjectField = (rootValue, summaryValue) => {
             merged[key] = mergedArray;
             continue;
         }
-        const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField);
+        const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField, options);
         if (mergedObject) {
             merged[key] = mergedObject;
             continue;
@@ -597,7 +598,9 @@ const mergeCloseoutSummaryObjectField = (rootValue, summaryValue) => {
     return merged;
 };
 const mergeCloseoutEvidenceInputSummaryField = (rootValue, summaryValue) => {
-    return mergeCloseoutSummaryObjectField(rootValue, summaryValue);
+    return mergeCloseoutSummaryObjectField(rootValue, summaryValue, {
+        preferSummaryBindings: false
+    });
 };
 export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
     const summary = asObject(payload.summary);
