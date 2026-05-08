@@ -140,10 +140,13 @@ export const matchesCloseoutExpectedArtifactIdentity = (input: {
   const expectedArtifactIdentity = normalizeString(input.expectedArtifactIdentity);
   const explicitArtifactIdentities = normalizeStringArray(input.expectedArtifactIdentities);
   const explicitArtifactContract = explicitArtifactIdentities.length > 0;
-  const expectedArtifactIdentities = new Set([
-    ...explicitArtifactIdentities,
-    ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
-  ]);
+  const expectedArtifactIdentities = new Set(
+    explicitArtifactContract
+      ? explicitArtifactIdentities
+      : expectedArtifactIdentity === null
+        ? []
+        : [expectedArtifactIdentity]
+  );
   const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
   const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
     expectedRunId,
@@ -249,10 +252,13 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
   const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
   const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
   const explicitArtifactContract = explicitArtifactIdentities.length > 0;
-  const expectedArtifactIdentities = new Set([
-    ...explicitArtifactIdentities,
-    ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
-  ]);
+  const expectedArtifactIdentities = new Set(
+    explicitArtifactContract
+      ? explicitArtifactIdentities
+      : expectedArtifactIdentity === null
+        ? []
+        : [expectedArtifactIdentity]
+  );
   const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
   const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
     expectedRunId,
@@ -408,10 +414,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
       artifactIdentities.add(observedArtifactIdentity);
     }
 
-    if (
-      expectedArtifactIdentity !== null &&
-      observedArtifactIdentity === expectedArtifactIdentity
-    ) {
+    if (observedArtifactIdentity !== null && expectedArtifactIdentities.has(observedArtifactIdentity)) {
       expectedArtifactObserved = true;
     }
 
@@ -501,10 +504,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
     );
   }
 
-  if (
-    expectedArtifactIdentity === null ||
-    !expectedArtifactObserved
-  ) {
+  if (expectedArtifactIdentities.size === 0 || !expectedArtifactObserved) {
     pushUniqueBlocker(
       blockers,
       blocker(

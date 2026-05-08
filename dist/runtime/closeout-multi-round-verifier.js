@@ -53,10 +53,11 @@ export const matchesCloseoutExpectedArtifactIdentity = (input) => {
     const expectedArtifactIdentity = normalizeString(input.expectedArtifactIdentity);
     const explicitArtifactIdentities = normalizeStringArray(input.expectedArtifactIdentities);
     const explicitArtifactContract = explicitArtifactIdentities.length > 0;
-    const expectedArtifactIdentities = new Set([
-        ...explicitArtifactIdentities,
-        ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
-    ]);
+    const expectedArtifactIdentities = new Set(explicitArtifactContract
+        ? explicitArtifactIdentities
+        : expectedArtifactIdentity === null
+            ? []
+            : [expectedArtifactIdentity]);
     const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
     const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
         expectedRunId,
@@ -120,10 +121,11 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
     const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
     const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
     const explicitArtifactContract = explicitArtifactIdentities.length > 0;
-    const expectedArtifactIdentities = new Set([
-        ...explicitArtifactIdentities,
-        ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
-    ]);
+    const expectedArtifactIdentities = new Set(explicitArtifactContract
+        ? explicitArtifactIdentities
+        : expectedArtifactIdentity === null
+            ? []
+            : [expectedArtifactIdentity]);
     const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
     const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
         expectedRunId,
@@ -196,8 +198,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         else {
             artifactIdentities.add(observedArtifactIdentity);
         }
-        if (expectedArtifactIdentity !== null &&
-            observedArtifactIdentity === expectedArtifactIdentity) {
+        if (observedArtifactIdentity !== null && expectedArtifactIdentities.has(observedArtifactIdentity)) {
             expectedArtifactObserved = true;
         }
         if (!matchesExpectedString(expectedProfileRef, observedProfileRef)) {
@@ -241,8 +242,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         duplicateArtifactObserved) {
         pushUniqueBlocker(blockers, blocker("missing_multi_round_evidence", "route", "closeout evidence must include at least two distinct successful rounds"));
     }
-    if (expectedArtifactIdentity === null ||
-        !expectedArtifactObserved) {
+    if (expectedArtifactIdentities.size === 0 || !expectedArtifactObserved) {
         pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "multi-round closeout evidence must include the current artifact identity"));
     }
     const passed = blockers.length === 0;

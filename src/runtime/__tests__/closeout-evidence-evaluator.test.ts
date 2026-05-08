@@ -131,6 +131,70 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("does not require legacy singleton artifact_identity when explicit artifact_identities are supplied", () => {
+    const input = baseInput();
+    input.expected.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1";
+    input.expected.artifact_identities = [
+      "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2",
+      "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3"
+    ];
+    input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3";
+    input.evidence_rounds = [
+      {
+        ...input.evidence,
+        artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+      },
+      { ...input.evidence }
+    ];
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: [],
+      freshness: {
+        artifact_matches: true
+      },
+      multi_round: {
+        accepted_round_count: 2,
+        unique_artifact_count: 2,
+        expected_artifact_observed: true
+      }
+    });
+  });
+
+  it("does not accept legacy singleton artifact_identity outside explicit artifact_identities", () => {
+    const input = baseInput();
+    input.expected.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1";
+    input.expected.artifact_identities = [
+      "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2",
+      "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3"
+    ];
+    input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1";
+    input.evidence_rounds = [
+      {
+        ...input.evidence,
+        artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+      },
+      {
+        ...input.evidence,
+        artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3"
+      }
+    ];
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      freshness: {
+        artifact_matches: false
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it("accepts singleton evidence bound to a sibling round artifact when only singular artifact_identity is expected", () => {
     const input = baseInput();
     delete input.expected.artifact_identities;
