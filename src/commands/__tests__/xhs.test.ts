@@ -1347,6 +1347,76 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("runs deterministic closeout evaluation from the emitted route_evidence summary shape", () => {
+    const routeEvidence = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      latest_head_sha: "head-closeout-001",
+      head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_audit_required: true,
+        route_evidence: routeEvidence,
+        closeout_evidence_rounds: [
+          routeEvidence,
+          {
+            ...routeEvidence,
+            artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
+    });
+  });
+
+  it("emits missing_multi_round_evidence for closeout route_evidence without deterministic rounds", () => {
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_audit_required: true,
+        route_evidence: {
+          route_role: "primary",
+          path_kind: "api",
+          evidence_status: "success",
+          evidence_class: "passive_api_capture",
+          latest_head_sha: "head-closeout-001",
+          head_sha: "head-closeout-001",
+          run_id: "run-closeout-001",
+          artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+          profile_ref: "profile/xhs_closeout_001",
+          target_tab_id: 32,
+          page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+          action_ref: "action/xhs.search/open_result_card"
+        }
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
+  });
+
   describe("resolveForwardTimeoutMsForContract", () => {
     it("keeps a valid top-level timeout_ms for native bridge forwarding", () => {
       expect(resolveForwardTimeoutMsForContract({ timeout_ms: 120_000 })).toBe(120_000);
