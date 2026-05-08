@@ -324,6 +324,22 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("ignores extra duplicate artifacts after two unique successful rounds are accepted", () => {
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected: expectedBinding(),
+        evidence_rounds: [...successRounds(), successRound()]
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
+      blockers: []
+    });
+  });
+
   it("keeps reproduced_multi_round true when extra non-admitted evidence adds blockers", () => {
     const expected = {
       ...expectedBinding(),
@@ -398,7 +414,7 @@ describe("closeout multi-round verifier", () => {
     {
       name: "duplicate artifact",
       rounds: () => [successRound(), successRound()],
-      blocker_code: "stale_artifact"
+      blocker_code: "missing_multi_round_evidence"
     },
     {
       name: "cross profile evidence",

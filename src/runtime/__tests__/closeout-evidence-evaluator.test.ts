@@ -214,6 +214,22 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("ignores duplicate artifacts once deterministic multi-round evidence is satisfied", () => {
+    const input = withPassingRounds(baseInput());
+    input.evidence_rounds = [...(input.evidence_rounds ?? []), { ...input.evidence }];
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      multi_round: {
+        accepted_round_count: 2,
+        unique_artifact_count: 2
+      },
+      blockers: []
+    });
+  });
+
   it("rejects singleton evidence bound to a sibling round artifact when only singular artifact_identity is expected", () => {
     const input = baseInput();
     delete input.expected.artifact_identities;

@@ -73,7 +73,6 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
     const evidenceRounds = input.evidence_rounds ?? [];
     const blockers = [];
     const artifactIdentities = new Set();
-    let duplicateArtifactObserved = false;
     let expectedArtifactObserved = false;
     let acceptedRoundCount = 0;
     for (const evidenceRound of evidenceRounds) {
@@ -125,8 +124,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
         }
         else if (artifactIdentities.has(observedArtifactIdentity)) {
-            duplicateArtifactObserved = true;
-            pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "multi-round closeout evidence cannot reuse the same artifact identity"));
+            acceptedArtifactIdentity = false;
         }
         else {
             artifactIdentities.add(observedArtifactIdentity);
@@ -173,16 +171,14 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
     }
     if (evidenceRounds.length < REQUIRED_SUCCESS_ROUNDS ||
         acceptedRoundCount < REQUIRED_SUCCESS_ROUNDS ||
-        artifactIdentities.size < REQUIRED_SUCCESS_ROUNDS ||
-        duplicateArtifactObserved) {
+        artifactIdentities.size < REQUIRED_SUCCESS_ROUNDS) {
         pushUniqueBlocker(blockers, blocker("missing_multi_round_evidence", "route", "closeout evidence must include at least two distinct successful rounds"));
     }
     if (expectedArtifactIdentities.size === 0 || !expectedArtifactObserved) {
         pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "multi-round closeout evidence must include the current artifact identity"));
     }
     const reproducedMultiRound = acceptedRoundCount >= REQUIRED_SUCCESS_ROUNDS &&
-        artifactIdentities.size >= REQUIRED_SUCCESS_ROUNDS &&
-        !duplicateArtifactObserved;
+        artifactIdentities.size >= REQUIRED_SUCCESS_ROUNDS;
     const passed = blockers.length === 0;
     return {
         decision: passed ? "PASS" : "FAIL",

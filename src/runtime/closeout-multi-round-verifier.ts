@@ -180,7 +180,6 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
   const evidenceRounds = input.evidence_rounds ?? [];
   const blockers: CloseoutMultiRoundVerification["blockers"] = [];
   const artifactIdentities = new Set<string>();
-  let duplicateArtifactObserved = false;
   let expectedArtifactObserved = false;
   let acceptedRoundCount = 0;
 
@@ -308,15 +307,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
         )
       );
     } else if (artifactIdentities.has(observedArtifactIdentity)) {
-      duplicateArtifactObserved = true;
-      pushUniqueBlocker(
-        blockers,
-        blocker(
-          "stale_artifact",
-          "freshness",
-          "multi-round closeout evidence cannot reuse the same artifact identity"
-        )
-      );
+      acceptedArtifactIdentity = false;
     } else {
       artifactIdentities.add(observedArtifactIdentity);
       acceptedArtifactIdentity = true;
@@ -402,8 +393,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
   if (
     evidenceRounds.length < REQUIRED_SUCCESS_ROUNDS ||
     acceptedRoundCount < REQUIRED_SUCCESS_ROUNDS ||
-    artifactIdentities.size < REQUIRED_SUCCESS_ROUNDS ||
-    duplicateArtifactObserved
+    artifactIdentities.size < REQUIRED_SUCCESS_ROUNDS
   ) {
     pushUniqueBlocker(
       blockers,
@@ -428,8 +418,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
 
   const reproducedMultiRound =
     acceptedRoundCount >= REQUIRED_SUCCESS_ROUNDS &&
-    artifactIdentities.size >= REQUIRED_SUCCESS_ROUNDS &&
-    !duplicateArtifactObserved;
+    artifactIdentities.size >= REQUIRED_SUCCESS_ROUNDS;
   const passed = blockers.length === 0;
 
   return {
