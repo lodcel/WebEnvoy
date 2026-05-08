@@ -1085,6 +1085,9 @@ const buildCloseoutEvidenceInputForRuntime = (
     (deterministicRoundsCanProvideEvidence && canonicalEvidenceRoundCanProvideRound
       ? selectedEvidenceRound
       : null) ??
+    (expected?.artifact_identity === null && deterministicRoundsCanProvideEvidence
+      ? selectedEvidenceRound
+      : null) ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
     (explicitExpectedBinding && deterministicRoundsCanProvideEvidence ? selectedEvidenceRound : null) ??
     (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
@@ -1208,8 +1211,28 @@ const applyTrustedExpectedBindingCheck = (
   const trustedRunId = asString(trusted?.runId);
   const trustedProfileRef = normalizeCloseoutProfileRef(trusted?.profileRef);
   const trustedTargetTabId = asInteger(trusted?.targetTabId);
+  const requiresTrustedHead =
+    trusted !== null &&
+    trusted !== undefined &&
+    Object.prototype.hasOwnProperty.call(trusted, "latestHeadSha");
   let freshness = evaluation.freshness;
   let bindings = evaluation.bindings;
+
+  if (requiresTrustedHead && trustedLatestHeadSha === null) {
+    freshness = {
+      ...freshness,
+      latest_head_available: false,
+      latest_head_matches: false
+    };
+    pushUniqueCloseoutEvaluationBlocker(
+      blockers,
+      closeoutEvaluationBlocker(
+        "missing_latest_head",
+        "freshness",
+        "closeout runtime head must be resolved before evaluation"
+      )
+    );
+  }
 
   if (
     trustedLatestHeadSha !== null &&
