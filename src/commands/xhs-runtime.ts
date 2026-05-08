@@ -476,7 +476,6 @@ const hasExplicitCloseoutEvidencePayloadMarker = (
 
 const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
-  hasOwn(record, "closeout_evidence_evaluation") ||
   hasOwn(record, "closeout_readiness");
 
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [

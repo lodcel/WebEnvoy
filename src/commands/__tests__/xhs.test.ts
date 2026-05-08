@@ -1152,7 +1152,7 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       })
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       requiresCanonicalExecutionAuditForContract({

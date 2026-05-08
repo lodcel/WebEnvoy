@@ -367,7 +367,6 @@ const hasExplicitCloseoutEvidencePayloadMarker = (record) => hasOwn(record, "clo
     hasOwn(record, "closeout_evidence_rounds") ||
     hasOwn(record, "closeout_route_evidence");
 const hasExplicitCloseoutProductionAuditMarker = (record) => record?.closeout_audit_required === true ||
-    hasOwn(record, "closeout_evidence_evaluation") ||
     hasOwn(record, "closeout_readiness");
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
     "closeout_evidence_input",
