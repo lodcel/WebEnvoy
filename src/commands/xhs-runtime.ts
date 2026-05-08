@@ -1945,6 +1945,8 @@ const toCliExecutionError = (
 ): CliError => {
   const details = asObject(payload.details);
   const pickedDetails = pickGateErrorDetails(payload, details);
+  let closeoutEvidenceEvaluationForDetails: unknown;
+  let closeoutEvidenceCompatModeForDetails: unknown;
   if (closeoutRuntimeBinding) {
     const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(payload);
     const requestAdmissionResult = pickCanonicalSummaryField(payload, "request_admission_result");
@@ -1976,10 +1978,10 @@ const toCliExecutionError = (
         summary
       );
       if (asObject(summary.closeout_evidence_evaluation)) {
-        pickedDetails.closeout_evidence_evaluation = summary.closeout_evidence_evaluation;
+        closeoutEvidenceEvaluationForDetails = summary.closeout_evidence_evaluation;
       }
       if (asString(summary.closeout_evidence_compat_mode)) {
-        pickedDetails.closeout_evidence_compat_mode = summary.closeout_evidence_compat_mode;
+        closeoutEvidenceCompatModeForDetails = summary.closeout_evidence_compat_mode;
       }
     }
   }
@@ -1996,6 +1998,12 @@ const toCliExecutionError = (
         }
       }
     );
+  }
+  if (asObject(closeoutEvidenceEvaluationForDetails)) {
+    pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
+  }
+  if (asString(closeoutEvidenceCompatModeForDetails)) {
+    pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
   }
   const closeoutHardStopRisk = classifyCloseoutHardStopRiskForPayload(payload);
   const reason =

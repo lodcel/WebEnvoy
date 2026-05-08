@@ -1472,6 +1472,8 @@ const augmentCloseoutHardStopDiagnosis = (value, closeoutHardStopRisk) => {
 const toCliExecutionError = (ability, payload, fallbackMessage, expectedRunId, closeoutRuntimeBinding) => {
     const details = asObject(payload.details);
     const pickedDetails = pickGateErrorDetails(payload, details);
+    let closeoutEvidenceEvaluationForDetails;
+    let closeoutEvidenceCompatModeForDetails;
     if (closeoutRuntimeBinding) {
         const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(payload);
         const requestAdmissionResult = pickCanonicalSummaryField(payload, "request_admission_result");
@@ -1499,10 +1501,10 @@ const toCliExecutionError = (ability, payload, fallbackMessage, expectedRunId, c
                 summary
             }), summary);
             if (asObject(summary.closeout_evidence_evaluation)) {
-                pickedDetails.closeout_evidence_evaluation = summary.closeout_evidence_evaluation;
+                closeoutEvidenceEvaluationForDetails = summary.closeout_evidence_evaluation;
             }
             if (asString(summary.closeout_evidence_compat_mode)) {
-                pickedDetails.closeout_evidence_compat_mode = summary.closeout_evidence_compat_mode;
+                closeoutEvidenceCompatModeForDetails = summary.closeout_evidence_compat_mode;
             }
         }
     }
@@ -1515,6 +1517,12 @@ const toCliExecutionError = (ability, payload, fallbackMessage, expectedRunId, c
                 observability: payload.observability
             }
         });
+    }
+    if (asObject(closeoutEvidenceEvaluationForDetails)) {
+        pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
+    }
+    if (asString(closeoutEvidenceCompatModeForDetails)) {
+        pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
     }
     const closeoutHardStopRisk = classifyCloseoutHardStopRiskForPayload(payload);
     const reason = typeof details?.reason === "string" && details.reason.trim().length > 0
