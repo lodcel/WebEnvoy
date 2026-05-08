@@ -365,6 +365,27 @@ const hasExplicitCloseoutProductionPathMarker = (record) => record?.closeout_aud
     hasOwn(record, "closeout_evidence_evaluation") ||
     hasOwn(record, "closeout_readiness") ||
     hasOwn(record, "closeout_route_evidence");
+const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
+    "closeout_evidence_input",
+    "closeout_evidence_expected",
+    "closeout_evidence_rounds",
+    "closeout_route_evidence",
+    "route_evidence"
+];
+export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
+    const summary = asObject(payload.summary);
+    const picked = {};
+    for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+        if (hasOwn(payload, key)) {
+            picked[key] = payload[key];
+            continue;
+        }
+        if (hasOwn(summary ?? undefined, key)) {
+            picked[key] = summary?.[key];
+        }
+    }
+    return picked;
+};
 const isCloseoutPrimaryApiSuccessRoute = (record) => {
     const routeRole = asString(record?.route_role);
     const pathKind = asString(record?.path_kind);
@@ -1588,6 +1609,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         });
         const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
             ...(asObject(bridgeResult.payload.summary) ?? {}),
+            ...pickXhsCloseoutEvidenceSummaryFieldsForContract(bridgeResult.payload),
             session_id: bridgeSessionId,
             requested_execution_mode: gate.requestedExecutionMode,
             ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),

@@ -3,6 +3,7 @@ export {
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
   normalizeGateOptionsForContract,
+  pickXhsCloseoutEvidenceSummaryFieldsForContract,
   requiresCanonicalExecutionAuditForContract,
   resolveForwardTimeoutMsForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract,
