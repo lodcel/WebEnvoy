@@ -2427,16 +2427,6 @@ const xhsReadCommand = async (
         : {}),
       ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
     });
-    assertCloseoutEvidenceForRuntime(
-      envelope.ability,
-      {
-        latestHeadSha: resolveCurrentGitHeadSha(context.cwd),
-        runId: context.run_id,
-        profileRef: context.profile,
-        targetTabId: gate.targetTabId
-      },
-      summary
-    );
     if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
       assertCloseoutCanonicalExecutionAuditForRuntime(
         envelope.ability,
@@ -2449,6 +2439,16 @@ const xhsReadCommand = async (
         }
       );
     }
+    assertCloseoutEvidenceForRuntime(
+      envelope.ability,
+      {
+        latestHeadSha: resolveCurrentGitHeadSha(context.cwd),
+        runId: context.run_id,
+        profileRef: context.profile,
+        targetTabId: gate.targetTabId
+      },
+      summary
+    );
 
     if (
       context.profile &&

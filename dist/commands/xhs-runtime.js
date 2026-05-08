@@ -1793,12 +1793,6 @@ const xhsReadCommand = async (context, inputConfig) => {
                 : {}),
             ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
         });
-        assertCloseoutEvidenceForRuntime(envelope.ability, {
-            latestHeadSha: resolveCurrentGitHeadSha(context.cwd),
-            runId: context.run_id,
-            profileRef: context.profile,
-            targetTabId: gate.targetTabId
-        }, summary);
         if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
             assertCloseoutCanonicalExecutionAuditForRuntime(envelope.ability, context.run_id, {
                 success: {
@@ -1807,6 +1801,12 @@ const xhsReadCommand = async (context, inputConfig) => {
                 }
             });
         }
+        assertCloseoutEvidenceForRuntime(envelope.ability, {
+            latestHeadSha: resolveCurrentGitHeadSha(context.cwd),
+            runId: context.run_id,
+            profileRef: context.profile,
+            targetTabId: gate.targetTabId
+        }, summary);
         if (context.profile &&
             recoveryProbeRequested) {
             const recoveryStatus = await profileRuntime.markXhsCloseoutSingleProbePassed({
