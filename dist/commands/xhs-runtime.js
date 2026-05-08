@@ -780,8 +780,7 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     if (envHeadSha !== null) {
         return envHeadSha;
     }
-    const packageEnvHeadSha = asString(process.env.WEBENVOY_RUNTIME_LATEST_HEAD_SHA) ??
-        asString(process.env.npm_package_gitHead);
+    const packageEnvHeadSha = asString(process.env.WEBENVOY_RUNTIME_LATEST_HEAD_SHA);
     if (packageEnvHeadSha !== null) {
         return packageEnvHeadSha;
     }

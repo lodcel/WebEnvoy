@@ -8,6 +8,7 @@ export {
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
   requiresCanonicalExecutionAuditForContract,
   resolveForwardTimeoutMsForContract,
+  resolveXhsCloseoutRuntimeLatestHeadShaForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract,
   xhsCommands
 } from "./xhs-runtime.js";

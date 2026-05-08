@@ -14,6 +14,7 @@ import {
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
   requiresCanonicalExecutionAuditForContract,
   resolveForwardTimeoutMsForContract,
+  resolveXhsCloseoutRuntimeLatestHeadShaForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract
 } from "../xhs.js";
 import { executeCommand } from "../../core/router.js";
@@ -1473,6 +1474,19 @@ describe("normalizeGateOptionsForContract", () => {
     });
     expect(externalCwdTrustedBinding.latestHeadSha).toBe(runtimeTrustedBinding.latestHeadSha);
     expect(externalCwdTrustedBinding.requiresLatestHeadSha).toBe(true);
+
+    const previousNpmPackageGitHead = process.env.npm_package_gitHead;
+    process.env.npm_package_gitHead = "caller-repository-head";
+    try {
+      expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract("/tmp/webenvoy-closeout-non-git"))
+        .toBe(runtimeTrustedBinding.latestHeadSha);
+    } finally {
+      if (previousNpmPackageGitHead === undefined) {
+        delete process.env.npm_package_gitHead;
+      } else {
+        process.env.npm_package_gitHead = previousNpmPackageGitHead;
+      }
+    }
 
     expect(evaluateXhsCloseoutEvidenceForContract(summary, externalCwdTrustedBinding)).toMatchObject({
       decision: "FAIL",
