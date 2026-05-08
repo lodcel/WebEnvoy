@@ -465,11 +465,19 @@ const pickCanonicalSummaryField = (
   return asObject(value) ?? undefined;
 };
 
+const hasExplicitCloseoutEvidencePayloadMarker = (
+  record: JsonObject | null | undefined
+): boolean =>
+  hasOwn(record, "closeout_evidence_input") ||
+  hasOwn(record, "closeout_evidence_expected") ||
+  hasOwn(record, "closeout_evidence_rounds") ||
+  hasOwn(record, "closeout_route_evidence");
+
 const hasExplicitCloseoutProductionPathMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
   hasOwn(record, "closeout_evidence_evaluation") ||
   hasOwn(record, "closeout_readiness") ||
-  hasOwn(record, "closeout_route_evidence");
+  hasExplicitCloseoutEvidencePayloadMarker(record);
 
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
   "closeout_evidence_input",
@@ -865,7 +873,7 @@ export const requiresCloseoutAuditForXhsBridgeSummaryForContract = (input: {
 }): boolean => {
   const summary = asObject(input.summary);
   return (
-    summary?.closeout_audit_required === true ||
+    hasExplicitCloseoutProductionPathMarker(summary) ||
     shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
       abilityId: input.abilityId,
       requestedExecutionMode: input.requestedExecutionMode,
@@ -879,21 +887,30 @@ const markCloseoutAuditRequiredForXhsLiveRouteEvidence = (input: {
   requestedExecutionMode: XhsExecutionMode;
   payload: JsonObject;
 }): void => {
+  const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(
+    input.payload
+  );
+  const summary = asObject(input.payload.summary);
+  const mergedSummary = {
+    ...(summary ?? {}),
+    ...closeoutEvidenceSummaryFields
+  };
   if (
-    !shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+    !requiresCloseoutAuditForXhsBridgeSummaryForContract({
       abilityId: input.abilityId,
       requestedExecutionMode: input.requestedExecutionMode,
-      summary: asObject(input.payload.summary)
+      summary: mergedSummary
     })
   ) {
     return;
   }
-  const summary = asObject(input.payload.summary);
   if (summary) {
+    Object.assign(summary, closeoutEvidenceSummaryFields);
     summary.closeout_audit_required = true;
     return;
   }
   input.payload.summary = {
+    ...closeoutEvidenceSummaryFields,
     closeout_audit_required: true
   };
 };

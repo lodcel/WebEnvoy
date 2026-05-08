@@ -1278,6 +1278,16 @@ describe("normalizeGateOptionsForContract", () => {
         summary: routeEvidenceSummary
       })
     ).toBe(false);
+
+    expect(
+      requiresCloseoutAuditForXhsBridgeSummaryForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "recon",
+        summary: {
+          closeout_evidence_input: null
+        }
+      })
+    ).toBe(true);
   });
 
   it("runs deterministic closeout multi-round evaluation for explicit runtime evidence input", () => {
