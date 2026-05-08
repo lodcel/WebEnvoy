@@ -2816,7 +2816,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("prefers complete top-level expected over runtime-filled nested shells", () => {
+  it("prefers runtime-bound root expected over stale summary expected", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -2850,6 +2850,7 @@ describe("normalizeGateOptionsForContract", () => {
           closeout_evidence_input: {
             expected: {
               artifact_identity: expected.artifact_identity,
+              artifact_identities: expected.artifact_identities,
               page_url: expected.page_url,
               action_ref: expected.action_ref
             },
@@ -2861,7 +2862,10 @@ describe("normalizeGateOptionsForContract", () => {
               }
             ]
           },
-          closeout_evidence_expected: expected
+          closeout_evidence_expected: {
+            ...expected,
+            run_id: "run-closeout-stale"
+          }
         },
         {
           latestHeadSha: expected.latest_head_sha,
