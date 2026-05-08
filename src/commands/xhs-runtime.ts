@@ -662,6 +662,33 @@ const mergeCloseoutEvidenceRoundRecordValues = (
   return [...rootRounds, ...summaryRounds];
 };
 
+const mergeCloseoutArrayValues = (rootValue: unknown, summaryValue: unknown): unknown[] | null => {
+  if (!Array.isArray(rootValue) || !Array.isArray(summaryValue)) {
+    return null;
+  }
+  if (rootValue.length === 0 && summaryValue.length === 0) {
+    return null;
+  }
+  if (rootValue.length === 0) {
+    return summaryValue;
+  }
+  if (summaryValue.length === 0) {
+    return rootValue;
+  }
+  if (isRicherCloseoutSummaryField(rootValue, summaryValue)) {
+    return summaryValue;
+  }
+  const seen = new Set<string>();
+  return [...rootValue, ...summaryValue].filter((item) => {
+    const key = typeof item === "string" ? item : JSON.stringify(item);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
 const mergeCloseoutSummaryObjectField = (
   rootValue: unknown,
   summaryValue: unknown
@@ -686,6 +713,11 @@ const mergeCloseoutSummaryObjectField = (
         merged[key] = mergedRounds;
         continue;
       }
+    }
+    const mergedArray = mergeCloseoutArrayValues(rootField, summaryField);
+    if (mergedArray) {
+      merged[key] = mergedArray;
+      continue;
     }
     const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField);
     if (mergedObject) {
@@ -715,6 +747,13 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObj
       const mergedInput = mergeCloseoutEvidenceInputSummaryField(payload[key], summary?.[key]);
       if (mergedInput) {
         picked[key] = mergedInput;
+        continue;
+      }
+    }
+    if (key === "closeout_evidence_rounds" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
+      const mergedRounds = mergeCloseoutArrayValues(payload[key], summary?.[key]);
+      if (mergedRounds) {
+        picked[key] = mergedRounds;
         continue;
       }
     }
@@ -1046,8 +1085,8 @@ const buildCloseoutEvidenceInputForRuntime = (
     (deterministicRoundsCanProvideEvidence && canonicalEvidenceRoundCanProvideRound
       ? selectedEvidenceRound
       : null) ??
-    (explicitExpectedBinding && deterministicRoundsCanProvideEvidence ? selectedEvidenceRound : null) ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
+    (explicitExpectedBinding && deterministicRoundsCanProvideEvidence ? selectedEvidenceRound : null) ??
     (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     explicitEvidence ??
     (roundRecords !== null ? firstParsedEvidenceRound : null);
