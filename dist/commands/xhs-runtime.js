@@ -531,6 +531,13 @@ const closeoutEvidenceArtifactMatchesExpected = (expected, evidence) => {
     const observedArtifactIdentity = asString(evidence.artifact_identity);
     return observedArtifactIdentity !== null && expectedArtifactIdentities.includes(observedArtifactIdentity);
 };
+const normalizeCloseoutTrustedProfileRef = (value) => {
+    const profileRef = asString(value);
+    if (profileRef === null) {
+        return null;
+    }
+    return profileRef.startsWith("profile/") ? profileRef : `profile/${profileRef}`;
+};
 const fillMissingTrustedExpectedBinding = (expected, trusted) => {
     if (!expected) {
         return null;
@@ -539,7 +546,7 @@ const fillMissingTrustedExpectedBinding = (expected, trusted) => {
         ...expected,
         latest_head_sha: expected.latest_head_sha ?? asString(trusted?.latestHeadSha),
         run_id: expected.run_id ?? asString(trusted?.runId),
-        profile_ref: expected.profile_ref ?? asString(trusted?.profileRef),
+        profile_ref: expected.profile_ref ?? normalizeCloseoutTrustedProfileRef(trusted?.profileRef),
         target_tab_id: expected.target_tab_id ?? asInteger(trusted?.targetTabId)
     };
 };
@@ -554,13 +561,14 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     return asString(result.stdout);
 };
 export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
-    const latestHeadSha = requiresCloseoutEvidenceEvaluationForRuntime(input.summary)
+    const requiresCloseoutEvidenceEvaluation = requiresCloseoutEvidenceEvaluationForRuntime(input.summary);
+    const latestHeadSha = requiresCloseoutEvidenceEvaluation
         ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
         : null;
     return {
-        ...(latestHeadSha !== null ? { latestHeadSha } : {}),
+        ...(requiresCloseoutEvidenceEvaluation ? { latestHeadSha } : {}),
         runId: input.runId,
-        profileRef: input.profileRef,
+        profileRef: normalizeCloseoutTrustedProfileRef(input.profileRef),
         targetTabId: input.targetTabId
     };
 };
@@ -722,8 +730,14 @@ const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
     const blockers = [...evaluation.blockers];
     const trustedLatestHeadSha = asString(trusted?.latestHeadSha);
     const trustedRunId = asString(trusted?.runId);
-    const trustedProfileRef = asString(trusted?.profileRef);
+    const trustedProfileRef = normalizeCloseoutTrustedProfileRef(trusted?.profileRef);
     const trustedTargetTabId = asInteger(trusted?.targetTabId);
+    if (trusted !== null &&
+        trusted !== undefined &&
+        Object.prototype.hasOwnProperty.call(trusted, "latestHeadSha") &&
+        trustedLatestHeadSha === null) {
+        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_latest_head", "freshness", "closeout runtime head must be available"));
+    }
     if (trustedLatestHeadSha !== null &&
         evaluation.freshness.expected_latest_head_sha !== trustedLatestHeadSha) {
         pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("stale_head", "freshness", "closeout expected head must match the runtime head"));

@@ -1460,22 +1460,23 @@ describe("normalizeGateOptionsForContract", () => {
       ])
     });
 
-    expect(buildXhsCloseoutEvidenceTrustedBindingForContract({
+    const missingHeadTrustedBinding = buildXhsCloseoutEvidenceTrustedBindingForContract({
       cwd: "/tmp/webenvoy-closeout-non-git",
       runId: "run-closeout-001",
       profileRef: "profile/xhs_closeout_001",
       targetTabId: 32,
       summary
-    })).not.toHaveProperty("latestHeadSha");
+    });
+    expect(missingHeadTrustedBinding).toHaveProperty("latestHeadSha", null);
 
-    expect(evaluateXhsCloseoutEvidenceForContract(summary, {
-      runId: "run-closeout-001",
-      profileRef: "profile/xhs_closeout_001",
-      targetTabId: 32
-    })).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      blockers: []
+    expect(evaluateXhsCloseoutEvidenceForContract(summary, missingHeadTrustedBinding)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_latest_head"
+        })
+      ])
     });
 
     expect(
@@ -1538,6 +1539,29 @@ describe("normalizeGateOptionsForContract", () => {
         expect.objectContaining({ blocker_code: "missing_profile_binding" }),
         expect.objectContaining({ blocker_code: "missing_tab_binding" })
       ])
+    });
+
+    const runtimeProfileBoundSummary = {
+      closeout_evidence_input: {
+        expected: {
+          ...summary.closeout_evidence_input.expected,
+          profile_ref: null
+        },
+        evidence: summary.closeout_evidence_input.evidence,
+        evidence_rounds: summary.closeout_evidence_input.evidence_rounds
+      }
+    };
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(runtimeProfileBoundSummary, {
+        latestHeadSha: "head-closeout-001",
+        runId: "run-closeout-001",
+        profileRef: "xhs_closeout_001",
+        targetTabId: 32
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: []
     });
   });
 
