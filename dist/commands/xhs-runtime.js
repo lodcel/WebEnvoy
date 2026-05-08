@@ -8,6 +8,7 @@ import { buildLoopbackGate } from "../runtime/native-messaging/loopback-gate.js"
 import { buildLoopbackGatePayload } from "../runtime/native-messaging/loopback-gate-payload.js";
 import { appendFingerprintContext, buildFingerprintContextForMeta } from "../runtime/fingerprint-runtime.js";
 import { classifyCloseoutHardStopRisk } from "../runtime/closeout-hard-stop-risk.js";
+import { verifyCloseoutCanonicalExecutionAudit } from "../runtime/closeout-canonical-execution-audit-verifier.js";
 import { ProfileStore } from "../runtime/profile-store.js";
 import { isAccountSafetyReason, toAccountSafetyStatus } from "../runtime/account-safety.js";
 import { toSessionRhythmStatusView, toXhsCloseoutRhythmStatus } from "../runtime/xhs-closeout-rhythm.js";
@@ -306,6 +307,11 @@ const LIVE_XHS_EXECUTION_MODES = new Set([
 ]);
 const isLiveXhsExecutionMode = (mode) => LIVE_XHS_EXECUTION_MODES.has(mode);
 const isLiveXhsReadExecutionMode = (mode) => mode === "live_read_limited" || mode === "live_read_high_risk";
+const XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS = new Set([
+    "xhs.note.search.v1",
+    "xhs.note.detail.v1",
+    "xhs.user.home.v1"
+]);
 const ACCOUNT_SAFETY_REASON_ALIASES = {
     SESSION_EXPIRED: "SESSION_EXPIRED",
     XHS_LOGIN_REQUIRED: "XHS_LOGIN_REQUIRED",
@@ -334,10 +340,17 @@ const closeoutRiskReasonToAccountSafetyReason = (reason) => {
 };
 const pickCanonicalSummaryField = (payload, key) => {
     const summary = asObject(payload.summary);
+    const summaryValue = hasOwn(summary ?? undefined, key) ? summary?.[key] : undefined;
+    if (payload[key] === null) {
+        const summaryObject = asObject(summaryValue);
+        if (summaryObject) {
+            return summaryObject;
+        }
+    }
     const value = hasOwn(payload, key)
         ? payload[key]
         : hasOwn(summary ?? undefined, key)
-            ? summary?.[key]
+            ? summaryValue
             : undefined;
     if (!hasOwn(payload, key) && !hasOwn(summary ?? undefined, key)) {
         return undefined;
@@ -346,6 +359,121 @@ const pickCanonicalSummaryField = (payload, key) => {
         return null;
     }
     return asObject(value) ?? undefined;
+};
+const hasExplicitCloseoutProductionPathMarker = (record) => record?.closeout_audit_required === true ||
+    hasOwn(record, "closeout_evidence_evaluation") ||
+    hasOwn(record, "closeout_readiness") ||
+    hasOwn(record, "closeout_route_evidence");
+const isCloseoutPrimaryApiSuccessRoute = (record) => {
+    const routeRole = asString(record?.route_role);
+    const pathKind = asString(record?.path_kind);
+    const evidenceStatus = asString(record?.evidence_status);
+    return routeRole === "primary" && pathKind === "api" && evidenceStatus === "success";
+};
+const isXhsLiveRouteEvidenceForCloseoutAudit = (record) => isCloseoutPrimaryApiSuccessRoute(record) ||
+    asString(record?.route_evidence_class) === "passive_api_capture" ||
+    asString(record?.evidence_class) === "passive_api_capture";
+const hasCloseoutRouteEvaluationMarker = (record) => {
+    if (isCloseoutPrimaryApiSuccessRoute(record) &&
+        (hasOwn(record, "closeout_evidence") || hasOwn(record, "closeout_evidence_evaluation"))) {
+        return true;
+    }
+    const routeEvidenceEvaluation = asObject(record?.route_evidence_evaluation);
+    if (isCloseoutPrimaryApiSuccessRoute(routeEvidenceEvaluation)) {
+        return true;
+    }
+    const closeoutRouteEvidence = asObject(record?.closeout_route_evidence);
+    if (isCloseoutPrimaryApiSuccessRoute(closeoutRouteEvidence)) {
+        return true;
+    }
+    const routeEvidence = asObject(record?.route_evidence);
+    return hasExplicitCloseoutProductionPathMarker(record) && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+};
+export const requiresCanonicalExecutionAuditForContract = (input) => {
+    const payload = asObject(input.payload);
+    const summary = asObject(input.summary) ?? asObject(payload?.summary);
+    const details = asObject(input.details);
+    return [payload, summary, details].some((record) => hasExplicitCloseoutProductionPathMarker(record) || hasCloseoutRouteEvaluationMarker(record));
+};
+export const shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract = (input) => {
+    const summary = asObject(input.summary);
+    return (XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS.has(input.abilityId) &&
+        isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
+        isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.route_evidence)));
+};
+const markCloseoutAuditRequiredForXhsLiveRouteEvidence = (input) => {
+    if (!shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: input.abilityId,
+        requestedExecutionMode: input.requestedExecutionMode,
+        summary: asObject(input.payload.summary)
+    })) {
+        return;
+    }
+    const summary = asObject(input.payload.summary);
+    if (summary) {
+        summary.closeout_audit_required = true;
+        return;
+    }
+    input.payload.summary = {
+        closeout_audit_required: true
+    };
+};
+const markCloseoutAuditRequired = (payload) => {
+    const summary = asObject(payload.summary);
+    if (summary) {
+        summary.closeout_audit_required = true;
+        return;
+    }
+    payload.summary = {
+        closeout_audit_required: true
+    };
+};
+const markCloseoutAuditRequiredWhenCanonicalAuditExists = (payload) => {
+    if (!asObject(payload.execution_audit) && !asObject(asObject(payload.summary)?.execution_audit)) {
+        return;
+    }
+    markCloseoutAuditRequired(payload);
+};
+const copyCloseoutCanonicalAuditIntoFailureDetails = (payload, details) => {
+    if (asObject(details.execution_audit)) {
+        return;
+    }
+    const canonicalAudit = asObject(payload.execution_audit) ?? asObject(asObject(payload.summary)?.execution_audit);
+    if (canonicalAudit) {
+        details.execution_audit = canonicalAudit;
+    }
+};
+const assertCloseoutCanonicalExecutionAuditForRuntime = (ability, expectedRunId, input) => {
+    const result = "success" in input
+        ? verifyCloseoutCanonicalExecutionAudit({
+            expectedRunId,
+            success: {
+                summary: input.success.summary,
+                observability: input.success.observability
+            }
+        })
+        : verifyCloseoutCanonicalExecutionAudit({
+            expectedRunId,
+            failure: {
+                error: {
+                    details: input.failure.details ?? null
+                },
+                payload: input.failure.payload,
+                observability: input.failure.observability
+            }
+        });
+    if (result.passed) {
+        return;
+    }
+    throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout canonical execution audit invalid", {
+        retryable: false,
+        details: {
+            ability_id: ability.id,
+            stage: "execution",
+            reason: "CLOSEOUT_CANONICAL_EXECUTION_AUDIT_INVALID",
+            closeout_canonical_execution_audit: result
+        }
+    });
 };
 const isTransportFailureCode = (code) => code === "ERR_TRANSPORT_HANDSHAKE_FAILED" ||
     code === "ERR_TRANSPORT_TIMEOUT" ||
@@ -394,6 +522,11 @@ const pickGateErrorDetails = (payload, details) => {
         "write_interaction_tier",
         "write_action_matrix_decisions",
         "consumer_gate_result",
+        "closeout_audit_required",
+        "closeout_evidence_evaluation",
+        "closeout_readiness",
+        "closeout_route_evidence",
+        "route_evidence_evaluation",
         "request_admission_result",
         "execution_audit",
         "approval_record",
@@ -409,6 +542,13 @@ const pickGateErrorDetails = (payload, details) => {
     const picked = {};
     const hasOwn = (record, key) => !!record && Object.prototype.hasOwnProperty.call(record, key);
     for (const key of detailKeys) {
+        if ((key === "execution_audit" || key === "request_admission_result") && payload[key] === null) {
+            const detailsObject = asObject(details?.[key]);
+            if (detailsObject) {
+                picked[key] = detailsObject;
+                continue;
+            }
+        }
         const value = hasOwn(payload, key)
             ? payload[key]
             : hasOwn(details ?? undefined, key)
@@ -596,8 +736,19 @@ const augmentCloseoutHardStopDiagnosis = (value, closeoutHardStopRisk) => {
         ].filter((item, index, list) => list.indexOf(item) === index)
     };
 };
-const toCliExecutionError = (ability, payload, fallbackMessage) => {
+const toCliExecutionError = (ability, payload, fallbackMessage, expectedRunId) => {
     const details = asObject(payload.details);
+    const pickedDetails = pickGateErrorDetails(payload, details);
+    if (requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails })) {
+        copyCloseoutCanonicalAuditIntoFailureDetails(payload, pickedDetails);
+        assertCloseoutCanonicalExecutionAuditForRuntime(ability, expectedRunId, {
+            failure: {
+                payload,
+                details: pickedDetails,
+                observability: payload.observability
+            }
+        });
+    }
     const closeoutHardStopRisk = classifyCloseoutHardStopRiskForPayload(payload);
     const reason = typeof details?.reason === "string" && details.reason.trim().length > 0
         ? details.reason.trim()
@@ -617,7 +768,7 @@ const toCliExecutionError = (ability, payload, fallbackMessage) => {
                 ? { closeout_hard_stop_risk: closeoutHardStopRisk }
                 : {}),
             ...(consumerGateResult ?? {}),
-            ...pickGateErrorDetails(payload, details)
+            ...pickedDetails
         },
         observability: augmentCloseoutHardStopObservability(payload.observability, closeoutHardStopRisk),
         diagnosis: augmentCloseoutHardStopDiagnosis(payload.diagnosis, closeoutHardStopRisk)
@@ -775,7 +926,7 @@ const buildInProcessGateOnlyResult = (input) => {
             stage: "execution",
             reason: "EXECUTION_MODE_GATE_BLOCKED"
         };
-        throw toCliExecutionError(input.envelope.ability, payload, `执行模式门禁阻断了当前 ${input.context.command} 请求`);
+        throw toCliExecutionError(input.envelope.ability, payload, `执行模式门禁阻断了当前 ${input.context.command} 请求`, input.context.run_id);
     }
     const dataRefValue = typeof input.parsedInput[input.dataRefKey] === "string"
         ? String(input.parsedInput[input.dataRefKey])
@@ -1193,7 +1344,12 @@ const xhsReadCommand = async (context, inputConfig) => {
                     mergeAccountSafetyIntoFailurePayload(bridgeResult.payload, accountSafety, xhsCloseoutRhythm, runtimeStop);
                 }
             }
-            throw toCliExecutionError(envelope.ability, bridgeResult.payload, bridgeResult.error.message);
+            markCloseoutAuditRequiredForXhsLiveRouteEvidence({
+                abilityId: envelope.ability.id,
+                requestedExecutionMode: gate.requestedExecutionMode,
+                payload: bridgeResult.payload
+            });
+            throw toCliExecutionError(envelope.ability, bridgeResult.payload, bridgeResult.error.message, context.run_id);
         }
         const recoveryProbeRiskSignal = context.profile && recoveryProbeRequested
             ? resolveAccountSafetySignal(bridgeResult.payload, {
@@ -1217,21 +1373,36 @@ const xhsReadCommand = async (context, inputConfig) => {
             if (accountSafety) {
                 mergeAccountSafetyIntoFailurePayload(bridgeResult.payload, accountSafety, xhsCloseoutRhythm, runtimeStop);
             }
-            throw toCliExecutionError(envelope.ability, bridgeResult.payload, "XHS recovery probe detected account-safety risk");
+            markCloseoutAuditRequiredWhenCanonicalAuditExists(bridgeResult.payload);
+            throw toCliExecutionError(envelope.ability, bridgeResult.payload, "XHS recovery probe detected account-safety risk", context.run_id);
         }
         const consumerGateResult = asObject(bridgeResult.payload.consumer_gate_result);
         const requestAdmissionResult = pickCanonicalSummaryField(bridgeResult.payload, "request_admission_result");
         const executionAudit = pickCanonicalSummaryField(bridgeResult.payload, "execution_audit");
+        const closeoutAuditRequired = shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+            abilityId: envelope.ability.id,
+            requestedExecutionMode: gate.requestedExecutionMode,
+            summary: asObject(bridgeResult.payload.summary)
+        });
         const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
             ...(asObject(bridgeResult.payload.summary) ?? {}),
             session_id: bridgeSessionId,
             requested_execution_mode: gate.requestedExecutionMode,
+            ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),
             ...(consumerGateResult ? { consumer_gate_result: consumerGateResult } : {}),
             ...(requestAdmissionResult !== undefined
                 ? { request_admission_result: requestAdmissionResult }
                 : {}),
             ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
         });
+        if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
+            assertCloseoutCanonicalExecutionAuditForRuntime(envelope.ability, context.run_id, {
+                success: {
+                    summary,
+                    observability: bridgeResult.payload.observability
+                }
+            });
+        }
         if (context.profile &&
             recoveryProbeRequested) {
             const recoveryStatus = await profileRuntime.markXhsCloseoutSingleProbePassed({

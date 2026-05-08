@@ -8,7 +8,9 @@ import {
   buildOfficialChromeRuntimeStatusParams,
   ensureOfficialChromeRuntimeReady,
   normalizeGateOptionsForContract,
-  resolveForwardTimeoutMsForContract
+  requiresCanonicalExecutionAuditForContract,
+  resolveForwardTimeoutMsForContract,
+  shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract
 } from "../xhs.js";
 import { executeCommand } from "../../core/router.js";
 import { createCommandRegistry } from "../index.js";
@@ -1072,6 +1074,167 @@ describe("ensureOfficialChromeRuntimeReady", () => {
 });
 
 describe("normalizeGateOptionsForContract", () => {
+  it("requires canonical execution audit only for explicit closeout production markers", () => {
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        payload: {
+          request_admission_result: {
+            request_ref: "upstream_req_legacy",
+            admission_decision: "blocked"
+          },
+          execution_audit: null
+        }
+      })
+    ).toBe(false);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        summary: {
+          closeout_audit_required: true,
+          request_admission_result: {
+            request_ref: "upstream_req_closeout",
+            admission_decision: "allowed"
+          },
+          execution_audit: null
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        summary: {
+          route_evidence: {
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success"
+          }
+        }
+      })
+    ).toBe(false);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        summary: {
+          closeout_evidence_evaluation: {
+            evaluator: "xhs-closeout-route-evidence"
+          },
+          route_evidence: {
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success"
+          }
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        details: {
+          request_admission_result: {
+            request_ref: "upstream_req_closeout",
+            admission_decision: "allowed"
+          },
+          route_evidence_evaluation: {
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success"
+          }
+        }
+      })
+    ).toBe(true);
+  });
+
+  it("marks only live XHS closeout route evidence summaries as audit required", () => {
+    const routeEvidenceSummary = {
+      route_evidence: {
+        route: "xhs.search.api",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success"
+      }
+    };
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: routeEvidenceSummary
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.detail.v1",
+        requestedExecutionMode: "live_read_limited",
+        summary: routeEvidenceSummary
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.user.home.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          route_evidence: {
+            route_evidence_class: "passive_api_capture"
+          }
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          route_evidence: {
+            evidence_class: "passive_api_capture"
+          }
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "recon",
+        summary: routeEvidenceSummary
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          metrics: {
+            count: 1
+          }
+        }
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          route_evidence: {
+            route: "xhs.search.api"
+          }
+        }
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.unknown.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: routeEvidenceSummary
+      })
+    ).toBe(false);
+  });
+
   describe("resolveForwardTimeoutMsForContract", () => {
     it("keeps a valid top-level timeout_ms for native bridge forwarding", () => {
       expect(resolveForwardTimeoutMsForContract({ timeout_ms: 120_000 })).toBe(120_000);
