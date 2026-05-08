@@ -424,6 +424,19 @@ const isSparseCloseoutSummaryField = (value) => {
             item === undefined ||
             isSparseCloseoutSummaryField(item)));
 };
+const scoreCloseoutSummaryFieldQuality = (value) => {
+    if (value === null || value === undefined) {
+        return 0;
+    }
+    if (Array.isArray(value)) {
+        return value.reduce((total, item) => total + scoreCloseoutSummaryFieldQuality(item), 0);
+    }
+    const object = asObject(value);
+    if (object === null) {
+        return 1;
+    }
+    return Object.values(object).reduce((total, item) => total + scoreCloseoutSummaryFieldQuality(item), 0);
+};
 const isRicherCloseoutSummaryField = (rootValue, summaryValue) => {
     if (summaryValue === null || summaryValue === undefined || isSparseCloseoutSummaryField(summaryValue)) {
         return false;
@@ -432,7 +445,11 @@ const isRicherCloseoutSummaryField = (rootValue, summaryValue) => {
         return true;
     }
     if (Array.isArray(summaryValue)) {
-        return !Array.isArray(rootValue) || summaryValue.length > rootValue.length;
+        if (!Array.isArray(rootValue) || summaryValue.length > rootValue.length) {
+            return true;
+        }
+        return (summaryValue.length === rootValue.length &&
+            scoreCloseoutSummaryFieldQuality(summaryValue) > scoreCloseoutSummaryFieldQuality(rootValue));
     }
     const rootObject = asObject(rootValue);
     const summaryObject = asObject(summaryValue);
@@ -449,10 +466,50 @@ const isRicherCloseoutSummaryField = (rootValue, summaryValue) => {
         return isRicherCloseoutSummaryField(rootObject[key], value);
     });
 };
+const pickCloseoutSummaryFieldValue = (rootValue, summaryValue) => {
+    if (summaryValue !== null &&
+        summaryValue !== undefined &&
+        (rootValue === undefined ||
+            rootValue === null ||
+            isSparseCloseoutSummaryField(rootValue) ||
+            isRicherCloseoutSummaryField(rootValue, summaryValue))) {
+        return summaryValue;
+    }
+    return rootValue;
+};
+const mergeCloseoutEvidenceInputSummaryField = (rootValue, summaryValue) => {
+    const rootObject = asObject(rootValue);
+    const summaryObject = asObject(summaryValue);
+    if (!rootObject || !summaryObject) {
+        return null;
+    }
+    const merged = {};
+    for (const [key, value] of Object.entries(rootObject)) {
+        if (value !== null && value !== undefined && !isSparseCloseoutSummaryField(value)) {
+            merged[key] = value;
+        }
+    }
+    for (const key of Object.keys(summaryObject)) {
+        const rootField = hasOwn(rootObject, key) ? rootObject[key] : undefined;
+        const summaryField = summaryObject[key];
+        const picked = pickCloseoutSummaryFieldValue(rootField, summaryField);
+        if (picked !== undefined) {
+            merged[key] = picked;
+        }
+    }
+    return merged;
+};
 export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
     const summary = asObject(payload.summary);
     const picked = {};
     for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+        if (key === "closeout_evidence_input" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
+            const mergedInput = mergeCloseoutEvidenceInputSummaryField(payload[key], summary?.[key]);
+            if (mergedInput) {
+                picked[key] = mergedInput;
+                continue;
+            }
+        }
         if (hasOwn(payload, key) &&
             hasOwn(summary ?? undefined, key) &&
             summary?.[key] !== null &&
