@@ -1587,7 +1587,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("prefers the canonical round over route_evidence when top-level expectations exist", () => {
+  it("prefers canonical route_evidence over sibling evidence_rounds", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -1623,8 +1623,8 @@ describe("normalizeGateOptionsForContract", () => {
       evaluateXhsCloseoutEvidenceForContract({
         closeout_audit_required: true,
         closeout_evidence_expected: expected,
-        route_evidence: siblingRound,
-        closeout_evidence_rounds: [siblingRound, canonicalRound]
+        route_evidence: canonicalRound,
+        closeout_evidence_rounds: [siblingRound]
       })
     ).toMatchObject({
       decision: "PASS",
@@ -1853,7 +1853,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("preserves existing closeout route_evidence success summaries until deterministic payloads are present", () => {
+  it("emits missing_multi_round_evidence for required closeout route_evidence without rounds", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
         closeout_audit_required: true,
@@ -1872,7 +1872,15 @@ describe("normalizeGateOptionsForContract", () => {
           action_ref: "action/xhs.search/open_result_card"
         }
       })
-    ).toBeNull();
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
   });
 
   it("fails closed when closeout evidence input is missing or cannot be parsed", () => {
