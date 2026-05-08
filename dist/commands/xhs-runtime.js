@@ -418,6 +418,22 @@ const markCloseoutAuditRequiredForXhsLiveRouteEvidence = (input) => {
         closeout_audit_required: true
     };
 };
+const markCloseoutAuditRequired = (payload) => {
+    const summary = asObject(payload.summary);
+    if (summary) {
+        summary.closeout_audit_required = true;
+        return;
+    }
+    payload.summary = {
+        closeout_audit_required: true
+    };
+};
+const markCloseoutAuditRequiredWhenCanonicalAuditExists = (payload) => {
+    if (!asObject(payload.execution_audit) && !asObject(asObject(payload.summary)?.execution_audit)) {
+        return;
+    }
+    markCloseoutAuditRequired(payload);
+};
 const copyCloseoutCanonicalAuditIntoFailureDetails = (payload, details) => {
     if (asObject(details.execution_audit)) {
         return;
@@ -1357,6 +1373,7 @@ const xhsReadCommand = async (context, inputConfig) => {
             if (accountSafety) {
                 mergeAccountSafetyIntoFailurePayload(bridgeResult.payload, accountSafety, xhsCloseoutRhythm, runtimeStop);
             }
+            markCloseoutAuditRequiredWhenCanonicalAuditExists(bridgeResult.payload);
             throw toCliExecutionError(envelope.ability, bridgeResult.payload, "XHS recovery probe detected account-safety risk", context.run_id);
         }
         const consumerGateResult = asObject(bridgeResult.payload.consumer_gate_result);

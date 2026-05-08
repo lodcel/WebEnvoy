@@ -553,6 +553,24 @@ const markCloseoutAuditRequiredForXhsLiveRouteEvidence = (input: {
   };
 };
 
+const markCloseoutAuditRequired = (payload: JsonObject): void => {
+  const summary = asObject(payload.summary);
+  if (summary) {
+    summary.closeout_audit_required = true;
+    return;
+  }
+  payload.summary = {
+    closeout_audit_required: true
+  };
+};
+
+const markCloseoutAuditRequiredWhenCanonicalAuditExists = (payload: JsonObject): void => {
+  if (!asObject(payload.execution_audit) && !asObject(asObject(payload.summary)?.execution_audit)) {
+    return;
+  }
+  markCloseoutAuditRequired(payload);
+};
+
 const copyCloseoutCanonicalAuditIntoFailureDetails = (
   payload: Record<string, unknown>,
   details: JsonObject
@@ -1819,6 +1837,7 @@ const xhsReadCommand = async (
           runtimeStop
         );
       }
+      markCloseoutAuditRequiredWhenCanonicalAuditExists(bridgeResult.payload);
       throw toCliExecutionError(
         envelope.ability,
         bridgeResult.payload,
