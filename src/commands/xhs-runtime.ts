@@ -483,7 +483,10 @@ const hasIndependentCloseoutEvidencePayloadMarker = (
 const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
   hasOwn(record, "closeout_readiness") ||
-  asObject(record?.closeout_evidence_evaluation) !== null;
+  (asObject(record?.closeout_evidence_evaluation) !== null &&
+    (!hasIndependentCloseoutEvidencePayloadMarker(record) ||
+      asObject(record?.request_admission_result) !== null ||
+      asObject(record?.execution_audit) !== null));
 
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
   "closeout_evidence_input",
@@ -664,6 +667,23 @@ const closeoutEvidenceMatchesExpected = (
   );
 };
 
+const closeoutEvidenceArtifactMatchesExpected = (
+  expected: EvaluateCloseoutEvidenceInput["expected"] | null,
+  evidence: EvaluateCloseoutEvidenceInput["evidence"] | null
+): boolean => {
+  if (!isCompleteCloseoutEvidenceExpected(expected) || !isCompleteCloseoutEvidenceRound(evidence)) {
+    return false;
+  }
+  const expectedArtifactIdentities =
+    Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0
+      ? expected.artifact_identities
+      : expected.artifact_identity === null
+        ? []
+        : [expected.artifact_identity];
+  const observedArtifactIdentity = asString(evidence.artifact_identity);
+  return observedArtifactIdentity !== null && expectedArtifactIdentities.includes(observedArtifactIdentity);
+};
+
 const fillMissingTrustedExpectedBinding = (
   expected: EvaluateCloseoutEvidenceInput["expected"] | null,
   trusted?: CloseoutEvidenceTrustedExpectedBinding | null
@@ -807,7 +827,7 @@ const buildCloseoutEvidenceInputForRuntime = (
       if (!round) {
         return null;
       }
-      if (closeoutEvidenceMatchesExpected(expected, round)) {
+      if (closeoutEvidenceArtifactMatchesExpected(expected, round)) {
         evidenceRounds.push(round);
       }
     }
@@ -1039,7 +1059,10 @@ const isXhsLiveRouteEvidenceForCloseoutAudit = (
   asString(record?.evidence_class) === "passive_api_capture";
 
 const hasCloseoutRouteEvaluationMarker = (record: JsonObject | null | undefined): boolean => {
-  if (asObject(record?.closeout_evidence_evaluation)) {
+  if (
+    asObject(record?.closeout_evidence_evaluation) &&
+    !hasIndependentCloseoutEvidencePayloadMarker(record)
+  ) {
     return true;
   }
 

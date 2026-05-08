@@ -369,7 +369,10 @@ const hasIndependentCloseoutEvidencePayloadMarker = (record) => hasOwn(record, "
     hasOwn(record, "closeout_evidence_rounds");
 const hasExplicitCloseoutProductionAuditMarker = (record) => record?.closeout_audit_required === true ||
     hasOwn(record, "closeout_readiness") ||
-    asObject(record?.closeout_evidence_evaluation) !== null;
+    (asObject(record?.closeout_evidence_evaluation) !== null &&
+        (!hasIndependentCloseoutEvidencePayloadMarker(record) ||
+            asObject(record?.request_admission_result) !== null ||
+            asObject(record?.execution_audit) !== null));
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
     "closeout_evidence_input",
     "closeout_evidence_expected",
@@ -516,6 +519,18 @@ const closeoutEvidenceMatchesExpected = (expected, evidence) => {
         expected.page_url === evidence.page_url &&
         expected.action_ref === evidence.action_ref);
 };
+const closeoutEvidenceArtifactMatchesExpected = (expected, evidence) => {
+    if (!isCompleteCloseoutEvidenceExpected(expected) || !isCompleteCloseoutEvidenceRound(evidence)) {
+        return false;
+    }
+    const expectedArtifactIdentities = Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0
+        ? expected.artifact_identities
+        : expected.artifact_identity === null
+            ? []
+            : [expected.artifact_identity];
+    const observedArtifactIdentity = asString(evidence.artifact_identity);
+    return observedArtifactIdentity !== null && expectedArtifactIdentities.includes(observedArtifactIdentity);
+};
 const fillMissingTrustedExpectedBinding = (expected, trusted) => {
     if (!expected) {
         return null;
@@ -619,7 +634,7 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
             if (!round) {
                 return null;
             }
-            if (closeoutEvidenceMatchesExpected(expected, round)) {
+            if (closeoutEvidenceArtifactMatchesExpected(expected, round)) {
                 evidenceRounds.push(round);
             }
         }
@@ -773,7 +788,8 @@ const isXhsLiveRouteEvidenceForCloseoutAudit = (record) => isCloseoutPrimaryApiS
     asString(record?.route_evidence_class) === "passive_api_capture" ||
     asString(record?.evidence_class) === "passive_api_capture";
 const hasCloseoutRouteEvaluationMarker = (record) => {
-    if (asObject(record?.closeout_evidence_evaluation)) {
+    if (asObject(record?.closeout_evidence_evaluation) &&
+        !hasIndependentCloseoutEvidencePayloadMarker(record)) {
         return true;
     }
     if (isCloseoutPrimaryApiSuccessRoute(record) &&
