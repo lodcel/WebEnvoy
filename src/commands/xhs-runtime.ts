@@ -483,7 +483,7 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObj
   const summary = asObject(payload.summary);
   const picked: JsonObject = {};
   for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
-    if (hasOwn(payload, key)) {
+    if (hasOwn(payload, key) && payload[key] !== null && payload[key] !== undefined) {
       picked[key] = payload[key];
       continue;
     }
@@ -642,12 +642,8 @@ const buildCloseoutEvidenceInputForRuntime = (
     isCompleteCloseoutEvidenceExpected(expected) &&
     isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
   const explicitEvidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
-  const explicitEvidenceShouldUseCanonicalRound =
-    explicitExpectedBinding &&
-    explicitRoundRecords !== null &&
-    firstEvidenceRoundCanProvideRound;
   const evidence =
-    (explicitEvidenceShouldUseCanonicalRound ? selectedEvidenceRound : explicitEvidence) ??
+    explicitEvidence ??
     (explicitExpectedBinding && firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
     (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null);
@@ -2161,14 +2157,20 @@ const xhsReadCommand = async (
       bridgeResult.payload,
       "execution_audit"
     );
+    const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(
+      bridgeResult.payload
+    );
+    const mergedBridgeSummary = {
+      ...(asObject(bridgeResult.payload.summary) ?? {}),
+      ...closeoutEvidenceSummaryFields
+    };
     const closeoutAuditRequired = shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
       abilityId: envelope.ability.id,
       requestedExecutionMode: gate.requestedExecutionMode,
-      summary: asObject(bridgeResult.payload.summary)
+      summary: mergedBridgeSummary
     });
     const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
-      ...(asObject(bridgeResult.payload.summary) ?? {}),
-      ...pickXhsCloseoutEvidenceSummaryFieldsForContract(bridgeResult.payload),
+      ...mergedBridgeSummary,
       session_id: bridgeSessionId,
       requested_execution_mode: gate.requestedExecutionMode,
       ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),
