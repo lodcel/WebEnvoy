@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -80,6 +81,35 @@ const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
 const WEBENVOY_RUNTIME_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+const resolveGitHeadForCwd = (cwd: string): { root: string; head: string } | null => {
+  const result = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel", "HEAD"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"]
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+  const [root, head] = result.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (!root || !head) {
+    return null;
+  }
+  return { root, head };
+};
+
+const isWebEnvoyCheckoutRoot = (root: string): boolean => {
+  try {
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+      name?: unknown;
+    };
+    return packageJson.name === "@webenvoy/cli";
+  } catch {
+    return false;
+  }
+};
 
 const asPositiveInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
@@ -746,14 +776,12 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd: string): 
   if (envHeadSha !== null) {
     return envHeadSha;
   }
-  const result = spawnSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"]
-  });
-  if (result.status !== 0) {
-    return null;
+  const cwdGitHead = resolveGitHeadForCwd(cwd);
+  if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {
+    return cwdGitHead.head;
   }
-  return asString(result.stdout);
+  const runtimeGitHead = resolveGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+  return runtimeGitHead?.head ?? null;
 };
 
 export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input: {
@@ -765,7 +793,7 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input: {
 }): CloseoutEvidenceTrustedExpectedBinding => {
   const requiresCloseoutEvidenceEvaluation = requiresCloseoutEvidenceEvaluationForRuntime(input.summary);
   const latestHeadSha = requiresCloseoutEvidenceEvaluation
-    ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(WEBENVOY_RUNTIME_ROOT)
+    ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
     : null;
   return {
     ...(latestHeadSha !== null ? { latestHeadSha } : {}),

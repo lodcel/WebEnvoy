@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CliError } from "../core/errors.js";
@@ -29,6 +30,32 @@ const asObject = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const WEBENVOY_RUNTIME_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const resolveGitHeadForCwd = (cwd) => {
+    const result = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel", "HEAD"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+    });
+    if (result.status !== 0) {
+        return null;
+    }
+    const [root, head] = result.stdout
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+    if (!root || !head) {
+        return null;
+    }
+    return { root, head };
+};
+const isWebEnvoyCheckoutRoot = (root) => {
+    try {
+        const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+        return packageJson.name === "@webenvoy/cli";
+    }
+    catch {
+        return false;
+    }
+};
 const asPositiveInteger = (value) => typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 export const resolveForwardTimeoutMsForContract = (params) => asPositiveInteger(params.timeout_ms);
 const toSessionRhythmIdPart = (value) => value.replace(/[^A-Za-z0-9._-]+/gu, "_");
@@ -579,19 +606,17 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     if (envHeadSha !== null) {
         return envHeadSha;
     }
-    const result = spawnSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"]
-    });
-    if (result.status !== 0) {
-        return null;
+    const cwdGitHead = resolveGitHeadForCwd(cwd);
+    if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {
+        return cwdGitHead.head;
     }
-    return asString(result.stdout);
+    const runtimeGitHead = resolveGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+    return runtimeGitHead?.head ?? null;
 };
 export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
     const requiresCloseoutEvidenceEvaluation = requiresCloseoutEvidenceEvaluationForRuntime(input.summary);
     const latestHeadSha = requiresCloseoutEvidenceEvaluation
-        ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(WEBENVOY_RUNTIME_ROOT)
+        ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
         : null;
     return {
         ...(latestHeadSha !== null ? { latestHeadSha } : {}),
