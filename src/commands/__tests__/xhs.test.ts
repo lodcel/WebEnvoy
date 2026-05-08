@@ -1618,7 +1618,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("uses route_evidence expected binding with top-level closeout rounds", () => {
+  it("does not derive expected binding from route_evidence with top-level closeout rounds", () => {
     const routeEvidence = {
       route_role: "primary",
       path_kind: "api",
@@ -1651,14 +1651,17 @@ describe("normalizeGateOptionsForContract", () => {
         ]
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      reproduced_multi_round: true,
-      blockers: []
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
     });
   });
 
-  it("runs deterministic closeout evaluation from route_evidence with nested rounds", () => {
+  it("does not derive expected binding from route_evidence with nested rounds", () => {
     const routeEvidence = {
       route_role: "primary",
       path_kind: "api",
@@ -1699,10 +1702,13 @@ describe("normalizeGateOptionsForContract", () => {
         route_evidence: routeEvidence
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      reproduced_multi_round: true,
-      blockers: []
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
     });
   });
 
@@ -2188,6 +2194,7 @@ describe("normalizeGateOptionsForContract", () => {
 
     expect(
       evaluateXhsCloseoutEvidenceForContract({
+        closeout_evidence_expected: closeoutRouteEvidence,
         closeout_route_evidence: closeoutRouteEvidence,
         closeout_evidence_rounds: [
           {
