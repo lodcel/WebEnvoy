@@ -546,16 +546,17 @@ const markCloseoutAuditRequiredForXhsLiveRouteEvidence = (input: {
   };
 };
 
-const copyCloseoutSummaryAuditIntoFailureDetails = (
+const copyCloseoutCanonicalAuditIntoFailureDetails = (
   payload: Record<string, unknown>,
   details: JsonObject
 ): void => {
   if (asObject(details.execution_audit)) {
     return;
   }
-  const summaryAudit = asObject(asObject(payload.summary)?.execution_audit);
-  if (summaryAudit) {
-    details.execution_audit = summaryAudit;
+  const canonicalAudit =
+    asObject(payload.execution_audit) ?? asObject(asObject(payload.summary)?.execution_audit);
+  if (canonicalAudit) {
+    details.execution_audit = canonicalAudit;
   }
 };
 
@@ -945,7 +946,7 @@ const toCliExecutionError = (
   const details = asObject(payload.details);
   const pickedDetails = pickGateErrorDetails(payload, details);
   if (requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails })) {
-    copyCloseoutSummaryAuditIntoFailureDetails(payload, pickedDetails);
+    copyCloseoutCanonicalAuditIntoFailureDetails(payload, pickedDetails);
     assertCloseoutCanonicalExecutionAuditForRuntime(
       ability,
       expectedRunId,
