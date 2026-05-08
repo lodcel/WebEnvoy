@@ -1410,6 +1410,22 @@ describe("normalizeGateOptionsForContract", () => {
         unique_artifact_count: 2
       }
     });
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(summary, { expectedRunId: "run-closeout-current" })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_run"
+        })
+      ]),
+      freshness: expect.objectContaining({
+        expected_run_id: "run-closeout-current",
+        observed_run_id: "run-closeout-001"
+      })
+    });
   });
 
   it("emits missing_multi_round_evidence for explicit runtime closeout input without deterministic rounds", () => {

@@ -502,7 +502,7 @@ const toUsableCloseoutEvidenceRoundRecords = (records) => {
         ? records
         : null;
 };
-const buildCloseoutEvidenceInputForRuntime = (summary) => {
+const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedRunId) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
     const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
@@ -523,7 +523,13 @@ const buildCloseoutEvidenceInputForRuntime = (summary) => {
     const closeoutRouteEvidenceExpected = isCompleteCloseoutEvidenceExpected(closeoutRouteEvidenceExpectedCandidate)
         ? closeoutRouteEvidenceExpectedCandidate
         : null;
-    const expected = explicitExpected ?? summaryExpected ?? closeoutRouteEvidenceExpected;
+    const expectedCandidate = explicitExpected ?? summaryExpected ?? closeoutRouteEvidenceExpected;
+    const expected = expectedCandidate
+        ? {
+            ...expectedCandidate,
+            run_id: asString(trustedExpectedRunId) ?? expectedCandidate.run_id
+        }
+        : null;
     const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
     const routeEvidenceCanProvideRound = routeEvidenceRequiresCloseout &&
         roundRecords !== null &&
@@ -630,8 +636,8 @@ const missingCloseoutEvidenceEvaluation = () => ({
         expected_artifact_observed: false
     }
 });
-export const evaluateXhsCloseoutEvidenceForContract = (summary) => {
-    const input = buildCloseoutEvidenceInputForRuntime(summary);
+export const evaluateXhsCloseoutEvidenceForContract = (summary, options) => {
+    const input = buildCloseoutEvidenceInputForRuntime(summary, options?.expectedRunId);
     if (input) {
         return evaluateCloseoutEvidence(input);
     }
@@ -640,7 +646,7 @@ export const evaluateXhsCloseoutEvidenceForContract = (summary) => {
         : null;
 };
 const assertCloseoutEvidenceForRuntime = (ability, expectedRunId, summary) => {
-    const evaluation = evaluateXhsCloseoutEvidenceForContract(summary);
+    const evaluation = evaluateXhsCloseoutEvidenceForContract(summary, { expectedRunId });
     if (!evaluation) {
         return;
     }

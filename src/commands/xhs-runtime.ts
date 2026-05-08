@@ -640,7 +640,8 @@ const toUsableCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | nul
 };
 
 const buildCloseoutEvidenceInputForRuntime = (
-  summary: JsonObject
+  summary: JsonObject,
+  trustedExpectedRunId?: string | null
 ): EvaluateCloseoutEvidenceInput | null => {
   const explicitInput = asObject(summary.closeout_evidence_input);
   const routeEvidence =
@@ -669,7 +670,13 @@ const buildCloseoutEvidenceInputForRuntime = (
   )
     ? closeoutRouteEvidenceExpectedCandidate
     : null;
-  const expected = explicitExpected ?? summaryExpected ?? closeoutRouteEvidenceExpected;
+  const expectedCandidate = explicitExpected ?? summaryExpected ?? closeoutRouteEvidenceExpected;
+  const expected = expectedCandidate
+    ? {
+        ...expectedCandidate,
+        run_id: asString(trustedExpectedRunId) ?? expectedCandidate.run_id
+      }
+    : null;
   const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
   const routeEvidenceCanProvideRound =
     routeEvidenceRequiresCloseout &&
@@ -789,9 +796,12 @@ const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseout
 });
 
 export const evaluateXhsCloseoutEvidenceForContract = (
-  summary: JsonObject
+  summary: JsonObject,
+  options?: {
+    expectedRunId?: string | null;
+  }
 ): ReturnType<typeof evaluateCloseoutEvidence> | null => {
-  const input = buildCloseoutEvidenceInputForRuntime(summary);
+  const input = buildCloseoutEvidenceInputForRuntime(summary, options?.expectedRunId);
   if (input) {
     return evaluateCloseoutEvidence(input);
   }
@@ -805,7 +815,7 @@ const assertCloseoutEvidenceForRuntime = (
   expectedRunId: string,
   summary: JsonObject
 ): void => {
-  const evaluation = evaluateXhsCloseoutEvidenceForContract(summary);
+  const evaluation = evaluateXhsCloseoutEvidenceForContract(summary, { expectedRunId });
   if (!evaluation) {
     return;
   }
