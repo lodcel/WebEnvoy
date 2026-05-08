@@ -467,6 +467,12 @@ const isCloseoutPrimaryApiSuccessRoute = (record: JsonObject | null | undefined)
   return routeRole === "primary" && pathKind === "api" && evidenceStatus === "success";
 };
 
+const isXhsLiveRouteEvidenceForCloseoutAudit = (
+  record: JsonObject | null | undefined
+): boolean =>
+  isCloseoutPrimaryApiSuccessRoute(record) ||
+  asString(record?.route_evidence_class) === "passive_api_capture";
+
 const hasCloseoutRouteEvaluationMarker = (record: JsonObject | null | undefined): boolean => {
   if (
     isCloseoutPrimaryApiSuccessRoute(record) &&
@@ -511,7 +517,7 @@ export const shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract = (inp
   return (
     XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS.has(input.abilityId) &&
     isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
-    isCloseoutPrimaryApiSuccessRoute(asObject(summary?.route_evidence))
+    isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.route_evidence))
   );
 };
 
