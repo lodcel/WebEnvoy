@@ -551,19 +551,6 @@ const hasUsableIndependentCloseoutEvidencePayload = (
   );
 };
 
-const hasCompleteIndependentCloseoutEvidencePayload = (
-  record: JsonObject | null | undefined
-): boolean => {
-  const closeoutEvidenceInput = asObject(record?.closeout_evidence_input);
-  const hasExpected =
-    asObject(closeoutEvidenceInput?.expected) !== null ||
-    asObject(record?.closeout_evidence_expected) !== null;
-  const hasRounds =
-    toCloseoutEvidenceRoundRecords(closeoutEvidenceInput?.evidence_rounds) !== null ||
-    toCloseoutEvidenceRoundRecords(record?.closeout_evidence_rounds) !== null;
-  return hasExpected && hasRounds;
-};
-
 const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
   hasOwn(record, "closeout_readiness") ||
@@ -1170,7 +1157,7 @@ const isLegacyCloseoutEvidenceEvaluationCompatOnly = (
   summary: JsonObject,
   evaluation: ReturnType<typeof evaluateCloseoutEvidence>
 ): boolean =>
-  !hasCompleteIndependentCloseoutEvidencePayload(summary) &&
+  !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
   evaluation.blockers.some(
     (blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence"
   );

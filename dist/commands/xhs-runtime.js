@@ -426,14 +426,6 @@ const hasUsableIndependentCloseoutEvidencePayload = (record) => {
         asObject(record?.closeout_evidence_expected) !== null ||
         toCloseoutEvidenceRoundRecords(record?.closeout_evidence_rounds) !== null);
 };
-const hasCompleteIndependentCloseoutEvidencePayload = (record) => {
-    const closeoutEvidenceInput = asObject(record?.closeout_evidence_input);
-    const hasExpected = asObject(closeoutEvidenceInput?.expected) !== null ||
-        asObject(record?.closeout_evidence_expected) !== null;
-    const hasRounds = toCloseoutEvidenceRoundRecords(closeoutEvidenceInput?.evidence_rounds) !== null ||
-        toCloseoutEvidenceRoundRecords(record?.closeout_evidence_rounds) !== null;
-    return hasExpected && hasRounds;
-};
 const hasExplicitCloseoutProductionAuditMarker = (record) => record?.closeout_audit_required === true ||
     hasOwn(record, "closeout_readiness") ||
     (asObject(record?.closeout_evidence_evaluation) !== null &&
@@ -916,7 +908,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
     return (hasExplicitCloseoutProductionAuditMarker(summary) &&
         isCloseoutPrimaryApiSuccessRoute(routeEvidence));
 };
-const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasCompleteIndependentCloseoutEvidencePayload(summary) &&
+const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
     evaluation.blockers.some((blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence");
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
