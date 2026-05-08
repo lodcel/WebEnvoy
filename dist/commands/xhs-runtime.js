@@ -822,29 +822,29 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     if (packageEnvHeadSha !== null) {
         return packageEnvHeadSha;
     }
-    const cwdGitHead = resolveGitHeadForCwd(cwd);
-    if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {
-        return cwdGitHead.head;
+    const cwdBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(cwd);
+    if (cwdBuildMetadataHead !== null) {
+        return cwdBuildMetadataHead;
     }
     const cwdPackageHead = resolvePackageGitHeadForCwd(cwd);
     if (cwdPackageHead !== null) {
         return cwdPackageHead;
     }
-    const cwdBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(cwd);
-    if (cwdBuildMetadataHead !== null) {
-        return cwdBuildMetadataHead;
+    const cwdGitHead = resolveGitHeadForCwd(cwd);
+    if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {
+        return cwdGitHead.head;
     }
-    const runtimeGitHead = resolveGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
-    if (runtimeGitHead && isWebEnvoyCheckoutRoot(runtimeGitHead.root)) {
-        return runtimeGitHead.head;
+    const runtimeBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+    if (runtimeBuildMetadataHead !== null) {
+        return runtimeBuildMetadataHead;
     }
     const runtimePackageHead = resolvePackageGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
     if (runtimePackageHead !== null) {
         return runtimePackageHead;
     }
-    const runtimeBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(WEBENVOY_RUNTIME_ROOT);
-    if (runtimeBuildMetadataHead !== null) {
-        return runtimeBuildMetadataHead;
+    const runtimeGitHead = resolveGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+    if (runtimeGitHead && isWebEnvoyCheckoutRoot(runtimeGitHead.root)) {
+        return runtimeGitHead.head;
     }
     return null;
 };

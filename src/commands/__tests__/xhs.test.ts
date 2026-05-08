@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -1503,6 +1504,46 @@ describe("normalizeGateOptionsForContract", () => {
         .toBe("head-closeout-metadata");
     } finally {
       await rm(metadataRuntimeDir, { recursive: true, force: true });
+    }
+
+    const metadataCheckoutDir = await mkdtemp(join(tmpdir(), "webenvoy-runtime-metadata-checkout-"));
+    try {
+      await mkdir(join(metadataCheckoutDir, "dist"), { recursive: true });
+      await writeFile(
+        join(metadataCheckoutDir, "package.json"),
+        JSON.stringify({
+          name: "@webenvoy/cli"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(metadataCheckoutDir, "dist", "runtime-build-metadata.json"),
+        JSON.stringify({
+          name: "@webenvoy/cli",
+          gitHead: "head-closeout-prebuilt"
+        }),
+        "utf8"
+      );
+      await writeFile(join(metadataCheckoutDir, "tracked.txt"), "checkout-head\n", "utf8");
+      for (const args of [
+        ["init"],
+        ["config", "user.email", "tests@example.com"],
+        ["config", "user.name", "Tests"],
+        ["add", "."],
+        ["commit", "-m", "test checkout head"]
+      ]) {
+        const result = spawnSync("git", args, {
+          cwd: metadataCheckoutDir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"]
+        });
+        expect(result.status, `${args.join(" ")}\n${result.stderr}`).toBe(0);
+      }
+
+      expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract(metadataCheckoutDir))
+        .toBe("head-closeout-prebuilt");
+    } finally {
+      await rm(metadataCheckoutDir, { recursive: true, force: true });
     }
 
     expect(evaluateXhsCloseoutEvidenceForContract(summary, externalCwdTrustedBinding)).toMatchObject({
