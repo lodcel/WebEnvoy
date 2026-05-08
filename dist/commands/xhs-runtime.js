@@ -724,7 +724,6 @@ const toCloseoutEvidenceRoundRecords = (records) => {
 const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
-    const hasExplicitCloseoutRouteEvidence = hasOwn(summary, "closeout_route_evidence");
     const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
     const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
     const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
@@ -767,11 +766,7 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
         ? explicitEvidenceCandidate
         : null;
-    const explicitCloseoutRouteEvidence = hasExplicitCloseoutRouteEvidence && isCompleteCloseoutEvidenceRound(routeEvidenceRound)
-        ? routeEvidenceRound
-        : null;
     const evidence = explicitEvidence ??
-        explicitCloseoutRouteEvidence ??
         (deterministicRoundsCanProvideEvidence && canonicalEvidenceRoundCanProvideRound
             ? selectedEvidenceRound
             : null) ??

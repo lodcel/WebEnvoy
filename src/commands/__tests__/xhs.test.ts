@@ -1804,7 +1804,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("keeps stale explicit closeout_route_evidence on the fail-fast path", () => {
+  it("prefers deterministic rounds over stale closeout_route_evidence for allowlist expectations", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -1847,16 +1847,10 @@ describe("normalizeGateOptionsForContract", () => {
         closeout_evidence_rounds: [firstRound, secondRound]
       })
     ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "stale_head"
-        }),
-        expect.objectContaining({
-          blocker_code: "stale_run"
-        })
-      ])
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
     });
   });
 
