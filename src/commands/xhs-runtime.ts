@@ -638,7 +638,7 @@ const buildCloseoutEvidenceInputForRuntime = (
     ? summaryExpectedCandidate
     : null;
   const routeEvidenceExpected =
-    routeRoundRecords !== null && isCompleteCloseoutEvidenceExpected(routeEvidenceExpectedCandidate)
+    roundRecords !== null && isCompleteCloseoutEvidenceExpected(routeEvidenceExpectedCandidate)
       ? routeEvidenceExpectedCandidate
       : null;
   const expected = explicitExpected ?? summaryExpected ?? routeEvidenceExpected;
@@ -842,7 +842,8 @@ export const shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract = (inp
   return (
     XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS.has(input.abilityId) &&
     isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
-    isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.route_evidence))
+    (isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.route_evidence)) ||
+      isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.closeout_route_evidence)))
   );
 };
 

@@ -1174,6 +1174,21 @@ describe("normalizeGateOptionsForContract", () => {
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          closeout_route_evidence: {
+            route: "xhs.search.api",
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success"
+          }
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
         abilityId: "xhs.user.home.v1",
         requestedExecutionMode: "live_read_high_risk",
         summary: {
@@ -1488,6 +1503,46 @@ describe("normalizeGateOptionsForContract", () => {
           blocker_code: "missing_multi_round_evidence"
         })
       ])
+    });
+  });
+
+  it("uses route_evidence expected binding with top-level closeout rounds", () => {
+    const routeEvidence = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      latest_head_sha: "head-closeout-001",
+      head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_audit_required: true,
+        route_evidence: routeEvidence,
+        closeout_evidence_rounds: [
+          routeEvidence,
+          {
+            ...routeEvidence,
+            artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
     });
   });
 
