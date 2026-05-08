@@ -627,8 +627,21 @@ const isCompleteCloseoutEvidenceRound = (
   evidence.artifact_identity !== null &&
   evidence.profile_ref !== null &&
   evidence.target_tab_id !== null &&
-  evidence.page_url !== null &&
-  evidence.action_ref !== null;
+    evidence.page_url !== null &&
+    evidence.action_ref !== null;
+
+const bindTrustedExpectedRunId = (
+  expected: EvaluateCloseoutEvidenceInput["expected"] | null,
+  trustedExpectedRunId?: string | null
+): EvaluateCloseoutEvidenceInput["expected"] | null => {
+  if (!expected) {
+    return null;
+  }
+  return {
+    ...expected,
+    run_id: asString(trustedExpectedRunId) ?? expected.run_id
+  };
+};
 
 const toUsableCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | null => {
   if (!Array.isArray(records) || records.length === 0) {
@@ -656,19 +669,21 @@ const buildCloseoutEvidenceInputForRuntime = (
   const summaryExpectedCandidate = toCloseoutEvidenceExpected(
     asObject(summary.closeout_evidence_expected)
   );
-  const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidate)
-    ? explicitExpectedCandidate
+  const explicitExpectedCandidateWithTrustedRun = bindTrustedExpectedRunId(
+    explicitExpectedCandidate,
+    trustedExpectedRunId
+  );
+  const summaryExpectedCandidateWithTrustedRun = bindTrustedExpectedRunId(
+    summaryExpectedCandidate,
+    trustedExpectedRunId
+  );
+  const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidateWithTrustedRun)
+    ? explicitExpectedCandidateWithTrustedRun
     : null;
-  const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidate)
-    ? summaryExpectedCandidate
+  const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidateWithTrustedRun)
+    ? summaryExpectedCandidateWithTrustedRun
     : null;
-  const expectedCandidate = explicitExpected ?? summaryExpected;
-  const expected = expectedCandidate
-    ? {
-        ...expectedCandidate,
-        run_id: asString(trustedExpectedRunId) ?? expectedCandidate.run_id
-      }
-    : null;
+  const expected = explicitExpected ?? summaryExpected;
   const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
   const routeEvidenceCanProvideRound =
     routeEvidenceRequiresCloseout &&

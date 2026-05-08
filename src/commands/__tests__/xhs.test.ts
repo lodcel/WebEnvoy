@@ -1426,6 +1426,29 @@ describe("normalizeGateOptionsForContract", () => {
         observed_run_id: "run-closeout-001"
       })
     });
+
+    const runtimeBoundSummary = {
+      closeout_evidence_input: {
+        expected: {
+          ...summary.closeout_evidence_input.expected,
+          run_id: null
+        },
+        evidence: summary.closeout_evidence_input.evidence,
+        evidence_rounds: summary.closeout_evidence_input.evidence_rounds
+      }
+    };
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(runtimeBoundSummary, {
+        expectedRunId: "run-closeout-001"
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      freshness: expect.objectContaining({
+        expected_run_id: "run-closeout-001",
+        observed_run_id: "run-closeout-001"
+      })
+    });
   });
 
   it("emits missing_multi_round_evidence for explicit runtime closeout input without deterministic rounds", () => {
