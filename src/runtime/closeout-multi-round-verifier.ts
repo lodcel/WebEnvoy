@@ -309,13 +309,8 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
     }
 
     if (
-      observedArtifactIdentity !== null &&
-      expectedArtifactIdentity !== null &&
-      observedArtifactIdentity === expectedArtifactIdentity &&
-      matchesExpectedArtifactIdentity({
-        expectedArtifactIdentities,
-        observedArtifactIdentity
-      })
+      artifactIdentityAllowed &&
+      (expectedArtifactIdentity === null || observedArtifactIdentity === expectedArtifactIdentity)
     ) {
       expectedArtifactObserved = true;
     }

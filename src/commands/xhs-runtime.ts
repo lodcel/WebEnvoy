@@ -616,7 +616,8 @@ const isCompleteCloseoutEvidenceExpected = (
   !!expected &&
   expected.latest_head_sha !== null &&
   expected.run_id !== null &&
-  expected.artifact_identity !== null &&
+  (expected.artifact_identity !== null ||
+    (Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0)) &&
   expected.profile_ref !== null &&
   expected.target_tab_id !== null &&
   expected.page_url !== null &&
@@ -648,11 +649,15 @@ const closeoutEvidenceMatchesExpected = (
   const expectedArtifactIdentities =
     Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0
       ? expected.artifact_identities
-      : [expected.artifact_identity];
+      : expected.artifact_identity === null
+        ? []
+        : [expected.artifact_identity];
+  const observedArtifactIdentity = asString(evidence.artifact_identity);
   return (
     expected.latest_head_sha === evidence.head_sha &&
     expected.run_id === evidence.run_id &&
-    expectedArtifactIdentities.includes(evidence.artifact_identity) &&
+    observedArtifactIdentity !== null &&
+    expectedArtifactIdentities.includes(observedArtifactIdentity) &&
     expected.profile_ref === evidence.profile_ref &&
     expected.target_tab_id === evidence.target_tab_id &&
     expected.page_url === evidence.page_url &&
