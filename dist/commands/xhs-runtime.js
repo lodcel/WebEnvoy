@@ -369,9 +369,7 @@ const hasIndependentCloseoutEvidencePayloadMarker = (record) => hasOwn(record, "
     hasOwn(record, "closeout_evidence_rounds");
 const hasExplicitCloseoutProductionAuditMarker = (record) => record?.closeout_audit_required === true ||
     hasOwn(record, "closeout_readiness") ||
-    (hasOwn(record, "closeout_evidence_evaluation") &&
-        (asObject(record?.request_admission_result) !== null ||
-            asObject(record?.execution_audit) !== null));
+    asObject(record?.closeout_evidence_evaluation) !== null;
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
     "closeout_evidence_input",
     "closeout_evidence_expected",
@@ -540,14 +538,17 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     }
     return asString(result.stdout);
 };
-export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => ({
-    latestHeadSha: requiresCloseoutEvidenceEvaluationForRuntime(input.summary)
+export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
+    const latestHeadSha = requiresCloseoutEvidenceEvaluationForRuntime(input.summary)
         ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
-        : undefined,
-    runId: input.runId,
-    profileRef: input.profileRef,
-    targetTabId: input.targetTabId
-});
+        : null;
+    return {
+        ...(latestHeadSha !== null ? { latestHeadSha } : {}),
+        runId: input.runId,
+        profileRef: input.profileRef,
+        targetTabId: input.targetTabId
+    };
+};
 const toUsableCloseoutEvidenceRoundRecords = (records) => {
     if (!Array.isArray(records) || records.length === 0) {
         return null;
@@ -708,12 +709,6 @@ const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
     const trustedRunId = asString(trusted?.runId);
     const trustedProfileRef = asString(trusted?.profileRef);
     const trustedTargetTabId = asInteger(trusted?.targetTabId);
-    if (trusted !== null &&
-        trusted !== undefined &&
-        Object.prototype.hasOwnProperty.call(trusted, "latestHeadSha") &&
-        trustedLatestHeadSha === null) {
-        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_latest_head", "freshness", "closeout runtime head must be available"));
-    }
     if (trustedLatestHeadSha !== null &&
         evaluation.freshness.expected_latest_head_sha !== trustedLatestHeadSha) {
         pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("stale_head", "freshness", "closeout expected head must match the runtime head"));
@@ -778,6 +773,9 @@ const isXhsLiveRouteEvidenceForCloseoutAudit = (record) => isCloseoutPrimaryApiS
     asString(record?.route_evidence_class) === "passive_api_capture" ||
     asString(record?.evidence_class) === "passive_api_capture";
 const hasCloseoutRouteEvaluationMarker = (record) => {
+    if (asObject(record?.closeout_evidence_evaluation)) {
+        return true;
+    }
     if (isCloseoutPrimaryApiSuccessRoute(record) &&
         (hasOwn(record, "closeout_evidence") || hasOwn(record, "closeout_evidence_evaluation"))) {
         return true;

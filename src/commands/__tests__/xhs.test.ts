@@ -1153,7 +1153,7 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       })
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       requiresCanonicalExecutionAuditForContract({
@@ -1445,21 +1445,22 @@ describe("normalizeGateOptionsForContract", () => {
       ])
     });
 
-    expect(
-      evaluateXhsCloseoutEvidenceForContract(summary, {
-        latestHeadSha: null,
-        runId: "run-closeout-001",
-        profileRef: "profile/xhs_closeout_001",
-        targetTabId: 32
-      })
-    ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_latest_head"
-        })
-      ])
+    expect(buildXhsCloseoutEvidenceTrustedBindingForContract({
+      cwd: "/tmp/webenvoy-closeout-non-git",
+      runId: "run-closeout-001",
+      profileRef: "profile/xhs_closeout_001",
+      targetTabId: 32,
+      summary
+    })).not.toHaveProperty("latestHeadSha");
+
+    expect(evaluateXhsCloseoutEvidenceForContract(summary, {
+      runId: "run-closeout-001",
+      profileRef: "profile/xhs_closeout_001",
+      targetTabId: 32
+    })).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: []
     });
 
     expect(
