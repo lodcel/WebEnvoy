@@ -134,6 +134,34 @@ const resolvePackageGitHeadForCwd = (cwd: string): string | null => {
   }
 };
 
+const resolveRuntimeBuildMetadataHeadForCwd = (cwd: string): string | null => {
+  let current = resolve(cwd);
+  while (true) {
+    for (const metadataPath of [
+      resolve(current, "dist", "runtime-build-metadata.json"),
+      resolve(current, "runtime-build-metadata.json")
+    ]) {
+      try {
+        const metadata = JSON.parse(readFileSync(metadataPath, "utf8")) as {
+          gitHead?: unknown;
+          name?: unknown;
+        };
+        const gitHead = asString(metadata.gitHead);
+        if (metadata.name === "@webenvoy/cli" && gitHead !== null) {
+          return gitHead;
+        }
+      } catch {
+        // Keep walking toward the filesystem root; dist-only runtime metadata is optional.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+};
+
 const asPositiveInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 
@@ -1011,6 +1039,14 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd: string): 
   const runtimePackageHead = resolvePackageGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
   if (runtimePackageHead !== null) {
     return runtimePackageHead;
+  }
+  const cwdBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(cwd);
+  if (cwdBuildMetadataHead !== null) {
+    return cwdBuildMetadataHead;
+  }
+  const runtimeBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+  if (runtimeBuildMetadataHead !== null) {
+    return runtimeBuildMetadataHead;
   }
   const cwdGitHead = resolveGitHeadForCwd(cwd);
   if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {

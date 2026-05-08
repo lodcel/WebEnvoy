@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "npm run build:runtime && npm run build:extension",
-    "build:runtime": "tsc -p tsconfig.json",
+    "build:runtime": "tsc -p tsconfig.json && node scripts/write-runtime-build-metadata.mjs",
     "build:extension": "node scripts/sync-extension-shared.mjs && tsc -p tsconfig.extension.json && node scripts/bundle-extension-content-script.mjs",
     "test": "npm run build && vitest run && bash tests/pr-guardian.merge-guard.test.sh",
     "test:suites": "npm run build && WEBENVOY_CLI_CONTRACT_BUILD_SESSION=$(date +%s%N) WEBENVOY_CLI_CONTRACT_RUNTIME_PREBUILT=1 vitest --config vitest.suite.config.ts run",

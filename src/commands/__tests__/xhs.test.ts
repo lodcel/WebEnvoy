@@ -1488,6 +1488,23 @@ describe("normalizeGateOptionsForContract", () => {
       }
     }
 
+    const metadataRuntimeDir = await mkdtemp(join(tmpdir(), "webenvoy-runtime-metadata-"));
+    try {
+      await mkdir(join(metadataRuntimeDir, "dist"), { recursive: true });
+      await writeFile(
+        join(metadataRuntimeDir, "dist", "runtime-build-metadata.json"),
+        JSON.stringify({
+          name: "@webenvoy/cli",
+          gitHead: "head-closeout-metadata"
+        }),
+        "utf8"
+      );
+      expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract(metadataRuntimeDir))
+        .toBe("head-closeout-metadata");
+    } finally {
+      await rm(metadataRuntimeDir, { recursive: true, force: true });
+    }
+
     expect(evaluateXhsCloseoutEvidenceForContract(summary, externalCwdTrustedBinding)).toMatchObject({
       decision: "FAIL",
       passed: false,
