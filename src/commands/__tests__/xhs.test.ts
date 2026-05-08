@@ -1412,7 +1412,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
 
     expect(
-      evaluateXhsCloseoutEvidenceForContract(summary, { expectedRunId: "run-closeout-current" })
+      evaluateXhsCloseoutEvidenceForContract(summary, { runId: "run-closeout-current" })
     ).toMatchObject({
       decision: "FAIL",
       passed: false,
@@ -1431,7 +1431,10 @@ describe("normalizeGateOptionsForContract", () => {
       closeout_evidence_input: {
         expected: {
           ...summary.closeout_evidence_input.expected,
-          run_id: null
+          latest_head_sha: null,
+          run_id: null,
+          profile_ref: null,
+          target_tab_id: null
         },
         evidence: summary.closeout_evidence_input.evidence,
         evidence_rounds: summary.closeout_evidence_input.evidence_rounds
@@ -1439,15 +1442,40 @@ describe("normalizeGateOptionsForContract", () => {
     };
     expect(
       evaluateXhsCloseoutEvidenceForContract(runtimeBoundSummary, {
-        expectedRunId: "run-closeout-001"
+        latestHeadSha: "head-closeout-001",
+        runId: "run-closeout-001",
+        profileRef: "profile/xhs_closeout_001",
+        targetTabId: 32
       })
     ).toMatchObject({
       decision: "PASS",
       passed: true,
       freshness: expect.objectContaining({
+        expected_latest_head_sha: "head-closeout-001",
         expected_run_id: "run-closeout-001",
         observed_run_id: "run-closeout-001"
+      }),
+      bindings: expect.objectContaining({
+        expected_profile_ref: "profile/xhs_closeout_001",
+        expected_target_tab_id: 32
       })
+    });
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(summary, {
+        latestHeadSha: "head-closeout-current",
+        runId: "run-closeout-001",
+        profileRef: "profile/xhs_closeout_current",
+        targetTabId: 44
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "stale_head" }),
+        expect.objectContaining({ blocker_code: "missing_profile_binding" }),
+        expect.objectContaining({ blocker_code: "missing_tab_binding" })
+      ])
     });
   });
 

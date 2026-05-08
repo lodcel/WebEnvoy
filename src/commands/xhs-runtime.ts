@@ -1,4 +1,5 @@
 import type { CommandDefinition, CommandExecutionResult, JsonObject, RuntimeContext } from "../core/types.js";
+import { spawnSync } from "node:child_process";
 import { CliError } from "../core/errors.js";
 import { mapCapabilitySummaryForContract } from "../core/capability-output.js";
 import {
@@ -632,16 +633,27 @@ const isCompleteCloseoutEvidenceRound = (
 
 const bindTrustedExpectedRunId = (
   expected: EvaluateCloseoutEvidenceInput["expected"] | null,
-  trustedExpectedRunId?: string | null
+  trusted?: CloseoutEvidenceTrustedExpectedBinding | null
 ): EvaluateCloseoutEvidenceInput["expected"] | null => {
   if (!expected) {
     return null;
   }
   return {
     ...expected,
-    run_id: asString(trustedExpectedRunId) ?? expected.run_id
+    latest_head_sha: asString(trusted?.latestHeadSha) ?? expected.latest_head_sha,
+    run_id: asString(trusted?.runId) ?? expected.run_id,
+    profile_ref: asString(trusted?.profileRef) ?? expected.profile_ref,
+    target_tab_id:
+      asInteger(trusted?.targetTabId) ?? expected.target_tab_id
   };
 };
+
+interface CloseoutEvidenceTrustedExpectedBinding {
+  latestHeadSha?: string | null;
+  runId?: string | null;
+  profileRef?: string | null;
+  targetTabId?: number | null;
+}
 
 const toUsableCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | null => {
   if (!Array.isArray(records) || records.length === 0) {
@@ -654,7 +666,7 @@ const toUsableCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | nul
 
 const buildCloseoutEvidenceInputForRuntime = (
   summary: JsonObject,
-  trustedExpectedRunId?: string | null
+  trustedExpectedBinding?: CloseoutEvidenceTrustedExpectedBinding | null
 ): EvaluateCloseoutEvidenceInput | null => {
   const explicitInput = asObject(summary.closeout_evidence_input);
   const routeEvidence =
@@ -671,11 +683,11 @@ const buildCloseoutEvidenceInputForRuntime = (
   );
   const explicitExpectedCandidateWithTrustedRun = bindTrustedExpectedRunId(
     explicitExpectedCandidate,
-    trustedExpectedRunId
+    trustedExpectedBinding
   );
   const summaryExpectedCandidateWithTrustedRun = bindTrustedExpectedRunId(
     summaryExpectedCandidate,
-    trustedExpectedRunId
+    trustedExpectedBinding
   );
   const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidateWithTrustedRun)
     ? explicitExpectedCandidateWithTrustedRun
@@ -813,11 +825,9 @@ const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseout
 
 export const evaluateXhsCloseoutEvidenceForContract = (
   summary: JsonObject,
-  options?: {
-    expectedRunId?: string | null;
-  }
+  options?: CloseoutEvidenceTrustedExpectedBinding
 ): ReturnType<typeof evaluateCloseoutEvidence> | null => {
-  const input = buildCloseoutEvidenceInputForRuntime(summary, options?.expectedRunId);
+  const input = buildCloseoutEvidenceInputForRuntime(summary, options);
   if (input) {
     return evaluateCloseoutEvidence(input);
   }
@@ -826,12 +836,24 @@ export const evaluateXhsCloseoutEvidenceForContract = (
     : null;
 };
 
+const resolveCurrentGitHeadSha = (cwd: string): string | null => {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"]
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+  return asString(result.stdout);
+};
+
 const assertCloseoutEvidenceForRuntime = (
   ability: AbilityRef,
-  expectedRunId: string,
+  trustedExpectedBinding: CloseoutEvidenceTrustedExpectedBinding,
   summary: JsonObject
 ): void => {
-  const evaluation = evaluateXhsCloseoutEvidenceForContract(summary, { expectedRunId });
+  const evaluation = evaluateXhsCloseoutEvidenceForContract(summary, trustedExpectedBinding);
   if (!evaluation) {
     return;
   }
@@ -849,7 +871,7 @@ const assertCloseoutEvidenceForRuntime = (
       ability_id: ability.id,
       stage: "execution",
       reason: "CLOSEOUT_EVIDENCE_EVALUATION_INVALID",
-      run_id: expectedRunId,
+      run_id: trustedExpectedBinding.runId,
       closeout_evidence_evaluation: evaluation,
       ...(asObject(summary.execution_audit) ? { execution_audit: summary.execution_audit } : {})
     }
@@ -2290,7 +2312,16 @@ const xhsReadCommand = async (
         : {}),
       ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
     });
-    assertCloseoutEvidenceForRuntime(envelope.ability, context.run_id, summary);
+    assertCloseoutEvidenceForRuntime(
+      envelope.ability,
+      {
+        latestHeadSha: resolveCurrentGitHeadSha(context.cwd),
+        runId: context.run_id,
+        profileRef: context.profile,
+        targetTabId: gate.targetTabId
+      },
+      summary
+    );
     if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
       assertCloseoutCanonicalExecutionAuditForRuntime(
         envelope.ability,
