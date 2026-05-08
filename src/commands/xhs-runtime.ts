@@ -654,12 +654,19 @@ const buildCloseoutEvidenceInputForRuntime = (
     roundRecords !== null &&
     isCompleteCloseoutEvidenceExpected(expected) &&
     isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
+  const canonicalEvidenceRoundCanProvideRound =
+    firstEvidenceRoundCanProvideRound &&
+    expected !== null &&
+    selectedEvidenceRound !== null &&
+    expected.artifact_identity !== null &&
+    selectedEvidenceRound.artifact_identity === expected.artifact_identity;
   const explicitEvidenceCandidate = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
   const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
     ? explicitEvidenceCandidate
     : null;
   const evidence =
     explicitEvidence ??
+    (canonicalEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
     (explicitExpectedBinding && firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null);
