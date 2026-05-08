@@ -2116,7 +2116,7 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBeNull();
   });
 
-  it("keeps audit-only legacy route_evidence out of deterministic hard-fail", () => {
+  it("fails closed when closeout audit relies on legacy route_evidence", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
         closeout_audit_required: true,
@@ -2135,7 +2135,15 @@ describe("normalizeGateOptionsForContract", () => {
           action_ref: "action/xhs.search/open_result_card"
         }
       })
-    ).toBeNull();
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
   });
 
   it("emits missing_multi_round_evidence for explicit closeout_route_evidence without rounds", () => {
