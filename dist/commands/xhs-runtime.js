@@ -578,9 +578,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
     const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
         ? routeEvidence.evidence_rounds
         : null;
-    return (routeRoundRecords !== null ||
-        (hasExplicitCloseoutProductionAuditMarker(summary) &&
-            isCloseoutPrimaryApiSuccessRoute(routeEvidence)));
+    return routeRoundRecords !== null;
 };
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
