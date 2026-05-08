@@ -1401,7 +1401,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("keeps explicit singleton evidence instead of replacing it with a canonical round", () => {
+  it("keeps explicit singleton evidence and validates it against the artifact allowlist", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -1442,17 +1442,13 @@ describe("normalizeGateOptionsForContract", () => {
         }
       })
     ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
+      decision: "PASS",
+      passed: true,
       freshness: {
-        artifact_matches: false,
+        artifact_matches: true,
         observed_artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
       },
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "stale_artifact"
-        })
-      ])
+      blockers: []
     });
   });
 

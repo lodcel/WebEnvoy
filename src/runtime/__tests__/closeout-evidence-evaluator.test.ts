@@ -146,28 +146,26 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
-  it("requires singleton evidence to match the canonical artifact_identity even with an allowlist", () => {
+  it("accepts singleton evidence when the artifact is in the explicit allowlist", () => {
     const input = withPassingRounds(baseInput());
     input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2";
 
     expect(evaluateCloseoutEvidence(input)).toMatchObject({
-      decision: "FAIL",
-      passed: false,
+      decision: "PASS",
+      passed: true,
       freshness: {
-        artifact_matches: false,
+        artifact_matches: true,
         expected_artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
         expected_artifact_identities: [
           "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
           "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
         ],
-        accepted_artifact_identities: [],
+        accepted_artifact_identities: [
+          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+        ],
         observed_artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
       },
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "stale_artifact"
-        })
-      ])
+      blockers: []
     });
   });
 
@@ -191,7 +189,7 @@ describe("closeout evidence evaluator", () => {
       decision: "FAIL",
       passed: false,
       freshness: {
-        artifact_matches: false
+        artifact_matches: true
       },
       multi_round: {
         accepted_round_count: 2,

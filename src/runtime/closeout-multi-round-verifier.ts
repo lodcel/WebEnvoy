@@ -106,10 +106,7 @@ export const matchesCloseoutExpectedArtifactIdentity = (input: {
   );
   const observedArtifactIdentity = normalizeString(input.observedArtifactIdentity);
 
-  if (expectedArtifactIdentity === null || observedArtifactIdentity === null) {
-    return false;
-  }
-  if (observedArtifactIdentity !== expectedArtifactIdentity) {
+  if (observedArtifactIdentity === null || expectedArtifactIdentities.size === 0) {
     return false;
   }
 
