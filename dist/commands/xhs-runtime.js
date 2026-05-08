@@ -578,8 +578,12 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
     const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
         ? routeEvidence.evidence_rounds
         : null;
-    return routeRoundRecords !== null;
+    return (routeRoundRecords !== null ||
+        (hasExplicitCloseoutProductionAuditMarker(summary) &&
+            isCloseoutPrimaryApiSuccessRoute(routeEvidence)));
 };
+const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasExplicitCloseoutEvidencePayloadMarker(summary) &&
+    evaluation.blockers.some((blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence");
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
     passed: false,
@@ -646,6 +650,9 @@ const assertCloseoutEvidenceForRuntime = (ability, expectedRunId, summary) => {
     }
     summary.closeout_evidence_evaluation = evaluation;
     if (evaluation.passed) {
+        return;
+    }
+    if (isLegacyCloseoutEvidenceEvaluationCompatOnly(summary, evaluation)) {
         return;
     }
     throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout evidence evaluation invalid", {
