@@ -1853,7 +1853,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("emits missing_multi_round_evidence for required closeout route_evidence without rounds", () => {
+  it("preserves closeout route_evidence success summaries until deterministic payloads are present", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
         closeout_audit_required: true,
@@ -1872,15 +1872,7 @@ describe("normalizeGateOptionsForContract", () => {
           action_ref: "action/xhs.search/open_result_card"
         }
       })
-    ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_multi_round_evidence"
-        })
-      ])
-    });
+    ).toBeNull();
   });
 
   it("fails closed when closeout evidence input is missing or cannot be parsed", () => {

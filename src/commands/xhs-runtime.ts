@@ -684,10 +684,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): bool
   const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
     ? routeEvidence.evidence_rounds
     : null;
-  return (
-    summary.closeout_audit_required === true &&
-    (routeRoundRecords !== null || isCloseoutPrimaryApiSuccessRoute(routeEvidence))
-  );
+  return summary.closeout_audit_required === true && routeRoundRecords !== null;
 };
 
 const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseoutEvidence> => ({
