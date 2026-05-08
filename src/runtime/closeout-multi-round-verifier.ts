@@ -96,9 +96,10 @@ export const matchesCloseoutExpectedArtifactIdentity = (input: {
   observedArtifactIdentity: string | null | undefined;
 }): boolean => {
   const expectedArtifactIdentity = normalizeString(input.expectedArtifactIdentity);
+  const hasExplicitArtifactIdentities = Array.isArray(input.expectedArtifactIdentities);
   const explicitArtifactIdentities = normalizeStringArray(input.expectedArtifactIdentities);
   const expectedArtifactIdentities = new Set(
-    explicitArtifactIdentities.length > 0
+    hasExplicitArtifactIdentities
       ? explicitArtifactIdentities
       : expectedArtifactIdentity === null
         ? []
@@ -111,7 +112,7 @@ export const matchesCloseoutExpectedArtifactIdentity = (input: {
   }
 
   return matchesExpectedArtifactIdentity({
-    allowSameRunArtifacts: explicitArtifactIdentities.length === 0,
+    allowSameRunArtifacts: !hasExplicitArtifactIdentities,
     expectedArtifactIdentities,
     expectedRunId: normalizeString(input.expectedRunId),
     observedArtifactIdentity
@@ -242,10 +243,11 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
   const expectedLatestHeadSha = normalizeString(input.expected.latest_head_sha);
   const expectedRunId = normalizeString(input.expected.run_id);
   const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
+  const hasExplicitArtifactIdentities = Array.isArray(input.expected.artifact_identities);
   const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
-  const allowSameRunArtifacts = explicitArtifactIdentities.length === 0;
+  const allowSameRunArtifacts = !hasExplicitArtifactIdentities;
   const expectedArtifactIdentities = new Set(
-    explicitArtifactIdentities.length > 0
+    hasExplicitArtifactIdentities
       ? explicitArtifactIdentities
       : expectedArtifactIdentity === null
         ? []

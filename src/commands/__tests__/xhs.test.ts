@@ -3497,6 +3497,72 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("fails closed when deterministic closeout round fields are explicitly empty", () => {
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_evidence_rounds: []
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
+  });
+
+  it("does not treat an explicit empty artifact allowlist as legacy same-run evidence", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const firstRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_evidence_expected: expected,
+        closeout_evidence_rounds: [
+          firstRound,
+          {
+            ...firstRound,
+            artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        }),
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
+  });
+
   it("does not evaluate closeout_route_evidence without deterministic payload or audit marker", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({

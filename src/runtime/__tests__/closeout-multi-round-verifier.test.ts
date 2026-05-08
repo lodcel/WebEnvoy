@@ -183,6 +183,35 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("does not re-add legacy artifact_identity when explicit artifact_identities is empty", () => {
+    const expected = {
+      ...expectedBinding(),
+      artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
+      artifact_identities: []
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: successRounds()
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      accepted_round_count: 0,
+      unique_artifact_count: 0,
+      expected_artifact_observed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        }),
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
+  });
+
   it("rejects stale artifact identities when only singular expected artifact_identity is provided", () => {
     const expected = expectedBinding();
     delete expected.artifact_identities;

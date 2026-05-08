@@ -813,7 +813,7 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
     };
 };
 const toCloseoutEvidenceRoundRecords = (records) => {
-    if (!Array.isArray(records) || records.length === 0) {
+    if (!Array.isArray(records)) {
         return null;
     }
     return records;
