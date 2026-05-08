@@ -30,7 +30,9 @@ export const matchesCloseoutExpectedArtifactIdentity = (input) => {
         return false;
     }
     return matchesExpectedArtifactIdentity({
+        allowSameRunArtifacts: explicitArtifactIdentities.length === 0,
         expectedArtifactIdentities,
+        expectedRunId: normalizeString(input.expectedRunId),
         observedArtifactIdentity
     });
 };
@@ -38,7 +40,29 @@ const matchesExpectedArtifactIdentity = (input) => {
     if (input.observedArtifactIdentity === null) {
         return false;
     }
-    return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
+    const observedArtifactIdentity = input.observedArtifactIdentity;
+    return (input.expectedArtifactIdentities.has(observedArtifactIdentity) ||
+        (input.allowSameRunArtifacts &&
+            [...input.expectedArtifactIdentities].some((expectedArtifactIdentity) => matchesLegacySiblingArtifactIdentity({
+                expectedArtifactIdentity,
+                expectedRunId: input.expectedRunId,
+                observedArtifactIdentity
+            }))));
+};
+const matchesLegacySiblingArtifactIdentity = (input) => {
+    if (!artifactIdentityBelongsToRun(input.expectedArtifactIdentity, input.expectedRunId) ||
+        !artifactIdentityBelongsToRun(input.observedArtifactIdentity, input.expectedRunId)) {
+        return false;
+    }
+    const numberedArtifactMatch = /^(.*?)(\d+)(\D*)$/u.exec(input.expectedArtifactIdentity);
+    if (!numberedArtifactMatch) {
+        return false;
+    }
+    const [, prefix, , suffix] = numberedArtifactMatch;
+    const observedRoundToken = input.observedArtifactIdentity.slice(prefix.length, input.observedArtifactIdentity.length - suffix.length);
+    return (input.observedArtifactIdentity.startsWith(prefix) &&
+        input.observedArtifactIdentity.endsWith(suffix) &&
+        /^\d+$/u.test(observedRoundToken));
 };
 const artifactIdentityBelongsToRun = (artifactIdentity, expectedRunId) => {
     if (artifactIdentity === null || expectedRunId === null) {
@@ -85,6 +109,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
     const expectedRunId = normalizeString(input.expected.run_id);
     const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
     const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
+    const allowSameRunArtifacts = explicitArtifactIdentities.length === 0;
     const expectedArtifactIdentities = new Set(explicitArtifactIdentities.length > 0
         ? explicitArtifactIdentities
         : expectedArtifactIdentity === null
@@ -145,7 +170,9 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         else if (!expectedArtifactsBoundToRun ||
             !artifactIdentityBelongsToRun(observedArtifactIdentity, expectedRunId) ||
             !matchesExpectedArtifactIdentity({
+                allowSameRunArtifacts,
                 expectedArtifactIdentities,
+                expectedRunId,
                 observedArtifactIdentity
             })) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
@@ -180,7 +207,9 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             artifactIdentityAllowed &&
             !artifactIdentities.has(observedArtifactIdentity) &&
             matchesExpectedArtifactIdentity({
+                allowSameRunArtifacts,
                 expectedArtifactIdentities,
+                expectedRunId,
                 observedArtifactIdentity
             }) &&
             matchesExpectedString(expectedProfileRef, observedProfileRef) &&

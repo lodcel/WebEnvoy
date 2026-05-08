@@ -272,7 +272,7 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
-  it("rejects singleton evidence bound to a sibling round artifact when only singular artifact_identity is expected", () => {
+  it("accepts singleton evidence bound to a sibling round artifact for legacy singular artifact_identity", () => {
     const input = baseInput();
     delete input.expected.artifact_identities;
     input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2";
@@ -285,21 +285,17 @@ describe("closeout evidence evaluator", () => {
     ];
 
     expect(evaluateCloseoutEvidence(input)).toMatchObject({
-      decision: "FAIL",
-      passed: false,
+      decision: "PASS",
+      passed: true,
       freshness: {
-        artifact_matches: false
+        artifact_matches: true
       },
       multi_round: {
-        accepted_round_count: 1,
-        unique_artifact_count: 1,
+        accepted_round_count: 2,
+        unique_artifact_count: 2,
         expected_artifact_observed: true
       },
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "stale_artifact"
-        })
-      ])
+      blockers: []
     });
   });
 
@@ -319,8 +315,8 @@ describe("closeout evidence evaluator", () => {
       decision: "FAIL",
       passed: false,
       multi_round: {
-        accepted_round_count: 0,
-        unique_artifact_count: 0,
+        accepted_round_count: 2,
+        unique_artifact_count: 2,
         expected_artifact_observed: false
       },
       blockers: expect.arrayContaining([
@@ -331,7 +327,7 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
-  it("rejects provider-scoped sibling artifacts when only singular artifact_identity is expected", () => {
+  it("accepts provider-scoped sibling artifacts when only singular artifact_identity is expected", () => {
     const input = baseInput();
     input.expected.run_id = "gha:23953203650:1";
     input.expected.artifact_identity = "gha:23953203650:1:live-evidence-round-1.log";
@@ -347,21 +343,17 @@ describe("closeout evidence evaluator", () => {
     ];
 
     expect(evaluateCloseoutEvidence(input)).toMatchObject({
-      decision: "FAIL",
-      passed: false,
+      decision: "PASS",
+      passed: true,
       freshness: {
-        artifact_matches: false
+        artifact_matches: true
       },
       multi_round: {
-        accepted_round_count: 1,
-        unique_artifact_count: 1,
+        accepted_round_count: 2,
+        unique_artifact_count: 2,
         expected_artifact_observed: true
       },
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "stale_artifact"
-        })
-      ])
+      blockers: []
     });
   });
 

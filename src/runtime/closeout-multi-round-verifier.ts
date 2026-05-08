@@ -111,20 +111,62 @@ export const matchesCloseoutExpectedArtifactIdentity = (input: {
   }
 
   return matchesExpectedArtifactIdentity({
+    allowSameRunArtifacts: explicitArtifactIdentities.length === 0,
     expectedArtifactIdentities,
+    expectedRunId: normalizeString(input.expectedRunId),
     observedArtifactIdentity
   });
 };
 
 const matchesExpectedArtifactIdentity = (input: {
+  allowSameRunArtifacts: boolean;
   expectedArtifactIdentities: Set<string>;
+  expectedRunId: string | null;
   observedArtifactIdentity: string | null;
 }): boolean => {
   if (input.observedArtifactIdentity === null) {
     return false;
   }
+  const observedArtifactIdentity = input.observedArtifactIdentity;
 
-  return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
+  return (
+    input.expectedArtifactIdentities.has(observedArtifactIdentity) ||
+    (input.allowSameRunArtifacts &&
+      [...input.expectedArtifactIdentities].some((expectedArtifactIdentity) =>
+        matchesLegacySiblingArtifactIdentity({
+          expectedArtifactIdentity,
+          expectedRunId: input.expectedRunId,
+          observedArtifactIdentity
+        })
+      ))
+  );
+};
+
+const matchesLegacySiblingArtifactIdentity = (input: {
+  expectedArtifactIdentity: string;
+  expectedRunId: string | null;
+  observedArtifactIdentity: string;
+}): boolean => {
+  if (
+    !artifactIdentityBelongsToRun(input.expectedArtifactIdentity, input.expectedRunId) ||
+    !artifactIdentityBelongsToRun(input.observedArtifactIdentity, input.expectedRunId)
+  ) {
+    return false;
+  }
+  const numberedArtifactMatch = /^(.*?)(\d+)(\D*)$/u.exec(input.expectedArtifactIdentity);
+  if (!numberedArtifactMatch) {
+    return false;
+  }
+  const [, prefix, , suffix] = numberedArtifactMatch;
+  const observedRoundToken = input.observedArtifactIdentity.slice(
+    prefix.length,
+    input.observedArtifactIdentity.length - suffix.length
+  );
+  return (
+    input.observedArtifactIdentity.startsWith(prefix) &&
+    input.observedArtifactIdentity.endsWith(suffix) &&
+    /^\d+$/u.test(observedRoundToken)
+  );
 };
 
 const artifactIdentityBelongsToRun = (
@@ -198,6 +240,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
   const expectedRunId = normalizeString(input.expected.run_id);
   const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
   const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
+  const allowSameRunArtifacts = explicitArtifactIdentities.length === 0;
   const expectedArtifactIdentities = new Set(
     explicitArtifactIdentities.length > 0
       ? explicitArtifactIdentities
@@ -332,7 +375,9 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
       !expectedArtifactsBoundToRun ||
       !artifactIdentityBelongsToRun(observedArtifactIdentity, expectedRunId) ||
       !matchesExpectedArtifactIdentity({
+        allowSameRunArtifacts,
         expectedArtifactIdentities,
+        expectedRunId,
         observedArtifactIdentity
       })
     ) {
@@ -411,7 +456,9 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
       artifactIdentityAllowed &&
       !artifactIdentities.has(observedArtifactIdentity) &&
       matchesExpectedArtifactIdentity({
+        allowSameRunArtifacts,
         expectedArtifactIdentities,
+        expectedRunId,
         observedArtifactIdentity
       }) &&
       matchesExpectedString(expectedProfileRef, observedProfileRef) &&

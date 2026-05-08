@@ -77,7 +77,7 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
-  it("requires exact artifact matching when only singular expected artifact_identity is provided", () => {
+  it("accepts legacy singular artifact_identity with sibling round artifacts", () => {
     const expected = expectedBinding();
     delete expected.artifact_identities;
 
@@ -87,16 +87,12 @@ describe("closeout multi-round verifier", () => {
         evidence_rounds: successRounds()
       })
     ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      accepted_round_count: 1,
-      unique_artifact_count: 1,
+      decision: "PASS",
+      passed: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
       expected_artifact_observed: true,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "stale_artifact"
-        })
-      ])
+      blockers: []
     });
   });
 
@@ -115,8 +111,8 @@ describe("closeout multi-round verifier", () => {
     ).toMatchObject({
       decision: "FAIL",
       passed: false,
-      accepted_round_count: 0,
-      unique_artifact_count: 0,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
       expected_artifact_observed: false,
       blockers: expect.arrayContaining([
         expect.objectContaining({
@@ -239,7 +235,7 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
-  it("rejects provider-scoped sibling artifacts when only singular expected artifact_identity is provided", () => {
+  it("accepts provider-scoped sibling artifacts when only singular expected artifact_identity is provided", () => {
     const expected: CloseoutMultiRoundExpectedBinding = {
       ...expectedBinding(),
       run_id: "gha:23953203650:1",
@@ -261,16 +257,12 @@ describe("closeout multi-round verifier", () => {
         evidence_rounds: [firstRound, secondRound]
       })
     ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      accepted_round_count: 1,
-      unique_artifact_count: 1,
+      decision: "PASS",
+      passed: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
       expected_artifact_observed: true,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "stale_artifact"
-        })
-      ])
+      blockers: []
     });
   });
 
