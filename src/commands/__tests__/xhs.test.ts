@@ -1422,7 +1422,7 @@ describe("normalizeGateOptionsForContract", () => {
         })
       ]),
       freshness: expect.objectContaining({
-        expected_run_id: "run-closeout-current",
+        expected_run_id: "run-closeout-001",
         observed_run_id: "run-closeout-001"
       })
     });

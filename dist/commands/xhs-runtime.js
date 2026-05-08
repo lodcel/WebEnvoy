@@ -495,16 +495,16 @@ const isCompleteCloseoutEvidenceRound = (evidence) => !!evidence &&
     evidence.target_tab_id !== null &&
     evidence.page_url !== null &&
     evidence.action_ref !== null;
-const bindTrustedExpectedRunId = (expected, trusted) => {
+const fillMissingTrustedExpectedBinding = (expected, trusted) => {
     if (!expected) {
         return null;
     }
     return {
         ...expected,
-        latest_head_sha: asString(trusted?.latestHeadSha) ?? expected.latest_head_sha,
-        run_id: asString(trusted?.runId) ?? expected.run_id,
-        profile_ref: asString(trusted?.profileRef) ?? expected.profile_ref,
-        target_tab_id: asInteger(trusted?.targetTabId) ?? expected.target_tab_id
+        latest_head_sha: expected.latest_head_sha ?? asString(trusted?.latestHeadSha),
+        run_id: expected.run_id ?? asString(trusted?.runId),
+        profile_ref: expected.profile_ref ?? asString(trusted?.profileRef),
+        target_tab_id: expected.target_tab_id ?? asInteger(trusted?.targetTabId)
     };
 };
 const toUsableCloseoutEvidenceRoundRecords = (records) => {
@@ -526,8 +526,8 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
     const explicitExpectedCandidate = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
     const summaryExpectedCandidate = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
-    const explicitExpectedCandidateWithTrustedRun = bindTrustedExpectedRunId(explicitExpectedCandidate, trustedExpectedBinding);
-    const summaryExpectedCandidateWithTrustedRun = bindTrustedExpectedRunId(summaryExpectedCandidate, trustedExpectedBinding);
+    const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(explicitExpectedCandidate, trustedExpectedBinding);
+    const summaryExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(summaryExpectedCandidate, trustedExpectedBinding);
     const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidateWithTrustedRun)
         ? explicitExpectedCandidateWithTrustedRun
         : null;
@@ -646,11 +646,52 @@ const missingCloseoutEvidenceEvaluation = () => ({
 export const evaluateXhsCloseoutEvidenceForContract = (summary, options) => {
     const input = buildCloseoutEvidenceInputForRuntime(summary, options);
     if (input) {
-        return evaluateCloseoutEvidence(input);
+        return applyTrustedExpectedBindingCheck(evaluateCloseoutEvidence(input), options);
     }
     return requiresCloseoutEvidenceEvaluationForRuntime(summary)
         ? missingCloseoutEvidenceEvaluation()
         : null;
+};
+const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
+    const blockers = [...evaluation.blockers];
+    const trustedLatestHeadSha = asString(trusted?.latestHeadSha);
+    const trustedRunId = asString(trusted?.runId);
+    const trustedProfileRef = asString(trusted?.profileRef);
+    const trustedTargetTabId = asInteger(trusted?.targetTabId);
+    if (trustedLatestHeadSha !== null &&
+        evaluation.freshness.expected_latest_head_sha !== trustedLatestHeadSha) {
+        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("stale_head", "freshness", "closeout expected head must match the runtime head"));
+    }
+    if (trustedRunId !== null && evaluation.freshness.expected_run_id !== trustedRunId) {
+        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("stale_run", "freshness", "closeout expected run must match the runtime run"));
+    }
+    if (trustedProfileRef !== null && evaluation.bindings.expected_profile_ref !== trustedProfileRef) {
+        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_profile_binding", "binding", "closeout expected profile must match the runtime profile"));
+    }
+    if (trustedTargetTabId !== null &&
+        evaluation.bindings.expected_target_tab_id !== trustedTargetTabId) {
+        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_tab_binding", "binding", "closeout expected tab must match the runtime target tab"));
+    }
+    if (blockers.length === evaluation.blockers.length) {
+        return evaluation;
+    }
+    return {
+        ...evaluation,
+        decision: "FAIL",
+        passed: false,
+        blockers
+    };
+};
+const closeoutEvaluationBlocker = (blocker_code, blocker_layer, message) => ({
+    blocker_code,
+    blocker_layer,
+    message
+});
+const pushUniqueCloseoutEvaluationBlocker = (blockers, nextBlocker) => {
+    if (blockers.some((existingBlocker) => existingBlocker.blocker_code === nextBlocker.blocker_code)) {
+        return;
+    }
+    blockers.push(nextBlocker);
 };
 const resolveCurrentGitHeadSha = (cwd) => {
     const result = spawnSync("git", ["rev-parse", "HEAD"], {
