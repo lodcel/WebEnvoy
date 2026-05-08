@@ -613,6 +613,15 @@ const isCompleteCloseoutEvidenceRound = (
   evidence.page_url !== null &&
   evidence.action_ref !== null;
 
+const toUsableCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | null => {
+  if (!Array.isArray(records) || records.length === 0) {
+    return null;
+  }
+  return records.every((record) => isCompleteCloseoutEvidenceRound(toCloseoutEvidenceRound(asObject(record))))
+    ? records
+    : null;
+};
+
 const buildCloseoutEvidenceInputForRuntime = (
   summary: JsonObject
 ): EvaluateCloseoutEvidenceInput | null => {
@@ -622,18 +631,9 @@ const buildCloseoutEvidenceInputForRuntime = (
   const routeEvidenceRequiresCloseout =
     (summary.closeout_audit_required === true || hasOwn(summary, "closeout_route_evidence")) &&
     isCloseoutPrimaryApiSuccessRoute(routeEvidence);
-  const explicitRoundRecords =
-    Array.isArray(explicitInput?.evidence_rounds) && explicitInput.evidence_rounds.length > 0
-    ? explicitInput.evidence_rounds
-    : null;
-  const summaryRoundRecords =
-    Array.isArray(summary.closeout_evidence_rounds) && summary.closeout_evidence_rounds.length > 0
-    ? summary.closeout_evidence_rounds
-    : null;
-  const routeRoundRecords =
-    Array.isArray(routeEvidence?.evidence_rounds) && routeEvidence.evidence_rounds.length > 0
-    ? routeEvidence.evidence_rounds
-    : null;
+  const explicitRoundRecords = toUsableCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
+  const summaryRoundRecords = toUsableCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
+  const routeRoundRecords = toUsableCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
   const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
   const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
   const routeEvidenceExpectedCandidate = toCloseoutEvidenceExpected(routeEvidence);
