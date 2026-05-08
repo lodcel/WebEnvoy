@@ -471,7 +471,7 @@ const selectCloseoutEvidenceRound = (expected, roundRecords) => {
             continue;
         }
         firstCompleteRound ??= round;
-        if (expected?.artifact_identity != null && round.artifact_identity === expected.artifact_identity) {
+        if (closeoutEvidenceMatchesExpected(expected, round)) {
             return round;
         }
     }
@@ -599,7 +599,9 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
             if (!round) {
                 return null;
             }
-            evidenceRounds.push(round);
+            if (closeoutEvidenceMatchesExpected(expected, round)) {
+                evidenceRounds.push(round);
+            }
         }
     }
     return {
