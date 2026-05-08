@@ -1307,7 +1307,19 @@ const assertCloseoutCanonicalExecutionAuditForRuntime = (
       ability_id: ability.id,
       stage: "execution",
       reason: "CLOSEOUT_CANONICAL_EXECUTION_AUDIT_INVALID",
-      closeout_canonical_execution_audit: result
+      closeout_canonical_execution_audit: result,
+      ...("success" in input && asObject(input.success.summary)?.closeout_evidence_evaluation
+        ? {
+            closeout_evidence_evaluation: asObject(input.success.summary)
+              ?.closeout_evidence_evaluation
+          }
+        : {}),
+      ...("success" in input && asObject(input.success.summary)?.closeout_evidence_compat_mode
+        ? {
+            closeout_evidence_compat_mode: asObject(input.success.summary)
+              ?.closeout_evidence_compat_mode
+          }
+        : {})
     }
   });
 };
@@ -2557,18 +2569,6 @@ const xhsReadCommand = async (
         : {}),
       ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
     });
-    if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
-      assertCloseoutCanonicalExecutionAuditForRuntime(
-        envelope.ability,
-        context.run_id,
-        {
-          success: {
-            summary,
-            observability: bridgeResult.payload.observability
-          }
-        }
-      );
-    }
     assertCloseoutEvidenceForRuntime(
       envelope.ability,
       buildXhsCloseoutEvidenceTrustedBindingForContract({
