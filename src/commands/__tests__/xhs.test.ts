@@ -1156,6 +1156,21 @@ describe("normalizeGateOptionsForContract", () => {
 
     expect(
       requiresCanonicalExecutionAuditForContract({
+        summary: {
+          closeout_evidence_evaluation: {
+            evaluator: "xhs-closeout-route-evidence"
+          },
+          request_admission_result: {
+            request_ref: "upstream_req_closeout",
+            admission_decision: "allowed"
+          },
+          execution_audit: null
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
         details: {
           request_admission_result: {
             request_ref: "upstream_req_closeout",

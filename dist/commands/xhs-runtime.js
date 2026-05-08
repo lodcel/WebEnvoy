@@ -368,7 +368,10 @@ const hasIndependentCloseoutEvidencePayloadMarker = (record) => hasOwn(record, "
     hasOwn(record, "closeout_evidence_expected") ||
     hasOwn(record, "closeout_evidence_rounds");
 const hasExplicitCloseoutProductionAuditMarker = (record) => record?.closeout_audit_required === true ||
-    hasOwn(record, "closeout_readiness");
+    hasOwn(record, "closeout_readiness") ||
+    (hasOwn(record, "closeout_evidence_evaluation") &&
+        (asObject(record?.request_admission_result) !== null ||
+            asObject(record?.execution_audit) !== null));
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
     "closeout_evidence_input",
     "closeout_evidence_expected",
@@ -1808,6 +1811,14 @@ const xhsReadCommand = async (context, inputConfig) => {
             profileRef: context.profile,
             targetTabId: gate.targetTabId
         }, summary);
+        if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
+            assertCloseoutCanonicalExecutionAuditForRuntime(envelope.ability, context.run_id, {
+                success: {
+                    summary,
+                    observability: bridgeResult.payload.observability
+                }
+            });
+        }
         if (context.profile &&
             recoveryProbeRequested) {
             const recoveryStatus = await profileRuntime.markXhsCloseoutSingleProbePassed({
