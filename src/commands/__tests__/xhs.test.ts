@@ -3115,6 +3115,69 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("deduplicates duplicate nested closeout rounds by artifact identity", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const firstRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const secondRound = {
+      ...firstRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+    };
+
+    const picked = pickXhsCloseoutEvidenceSummaryFieldsForContract({
+      closeout_evidence_input: {
+        expected,
+        evidence_rounds: [
+          firstRound,
+          {
+            artifact_identity: secondRound.artifact_identity
+          }
+        ]
+      },
+      summary: {
+        closeout_evidence_input: {
+          evidence_rounds: [secondRound]
+        }
+      }
+    });
+
+    expect(picked).toEqual({
+      closeout_evidence_input: {
+        expected,
+        evidence_rounds: [firstRound, secondRound]
+      }
+    });
+    expect(evaluateXhsCloseoutEvidenceForContract(picked)).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
+    });
+  });
+
   it("deep-merges split closeout expected objects from root and summary", () => {
     const firstRound = {
       route_role: "primary",

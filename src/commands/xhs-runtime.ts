@@ -692,6 +692,37 @@ const pickCloseoutSummaryFieldValue = (rootValue: unknown, summaryValue: unknown
   return rootValue;
 };
 
+const toCloseoutRoundSemanticKey = (value: unknown): string => {
+  const record = asObject(value);
+  if (!record) {
+    return `raw:${JSON.stringify(value)}`;
+  }
+  const artifactIdentity = asString(record.artifact_identity ?? record.artifact_ref);
+  if (artifactIdentity !== null) {
+    return `artifact:${artifactIdentity}`;
+  }
+  const roundId = asString(record.round_id ?? record.round_ref);
+  if (roundId !== null) {
+    return `round:${roundId}`;
+  }
+  const routeParts = [
+    record.route_name,
+    record.route_role,
+    record.path_kind,
+    record.evidence_status,
+    record.evidence_class,
+    record.head_sha,
+    record.run_id,
+    record.profile_ref,
+    record.target_tab_id,
+    record.page_url,
+    record.action_ref
+  ]
+    .map((part) => (typeof part === "number" ? String(part) : asString(part)))
+    .filter((part): part is string => part !== null);
+  return routeParts.length > 0 ? `route:${routeParts.join("\u0000")}` : `raw:${JSON.stringify(value)}`;
+};
+
 const mergeCloseoutEvidenceRoundRecordValues = (
   rootValue: unknown,
   summaryValue: unknown
@@ -701,7 +732,24 @@ const mergeCloseoutEvidenceRoundRecordValues = (
   if (rootRounds.length === 0 && summaryRounds.length === 0) {
     return null;
   }
-  return [...rootRounds, ...summaryRounds];
+  if (
+    rootRounds.length === summaryRounds.length &&
+    isRicherCloseoutSummaryField(rootRounds, summaryRounds)
+  ) {
+    return summaryRounds;
+  }
+  const byRoundKey = new Map<string, unknown>();
+  for (const round of [...rootRounds, ...summaryRounds]) {
+    const key = toCloseoutRoundSemanticKey(round);
+    const existing = byRoundKey.get(key);
+    if (
+      existing === undefined ||
+      scoreCloseoutSummaryFieldQuality(round) > scoreCloseoutSummaryFieldQuality(existing)
+    ) {
+      byRoundKey.set(key, round);
+    }
+  }
+  return [...byRoundKey.values()];
 };
 
 const mergeCloseoutArrayValues = (rootValue: unknown, summaryValue: unknown): unknown[] | null => {
@@ -806,7 +854,7 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObj
       }
     }
     if (key === "closeout_evidence_rounds" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
-      const mergedRounds = mergeCloseoutArrayValues(payload[key], summary?.[key]);
+      const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(payload[key], summary?.[key]);
       if (mergedRounds) {
         picked[key] = mergedRounds;
         continue;
@@ -1098,8 +1146,10 @@ const toCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | null => {
 const unionCloseoutEvidenceRoundRecords = (
   ...recordGroups: Array<unknown[] | null>
 ): unknown[] | null => {
-  const records = recordGroups.flatMap((recordGroup) => recordGroup ?? []);
-  return records.length > 0 ? records : null;
+  return mergeCloseoutEvidenceRoundRecordValues(
+    recordGroups[0] ?? [],
+    recordGroups.slice(1).flatMap((recordGroup) => recordGroup ?? [])
+  );
 };
 
 const buildCloseoutEvidenceInputForRuntime = (

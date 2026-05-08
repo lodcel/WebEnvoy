@@ -542,13 +542,56 @@ const pickCloseoutSummaryFieldValue = (rootValue, summaryValue) => {
     }
     return rootValue;
 };
+const toCloseoutRoundSemanticKey = (value) => {
+    const record = asObject(value);
+    if (!record) {
+        return `raw:${JSON.stringify(value)}`;
+    }
+    const artifactIdentity = asString(record.artifact_identity ?? record.artifact_ref);
+    if (artifactIdentity !== null) {
+        return `artifact:${artifactIdentity}`;
+    }
+    const roundId = asString(record.round_id ?? record.round_ref);
+    if (roundId !== null) {
+        return `round:${roundId}`;
+    }
+    const routeParts = [
+        record.route_name,
+        record.route_role,
+        record.path_kind,
+        record.evidence_status,
+        record.evidence_class,
+        record.head_sha,
+        record.run_id,
+        record.profile_ref,
+        record.target_tab_id,
+        record.page_url,
+        record.action_ref
+    ]
+        .map((part) => (typeof part === "number" ? String(part) : asString(part)))
+        .filter((part) => part !== null);
+    return routeParts.length > 0 ? `route:${routeParts.join("\u0000")}` : `raw:${JSON.stringify(value)}`;
+};
 const mergeCloseoutEvidenceRoundRecordValues = (rootValue, summaryValue) => {
     const rootRounds = Array.isArray(rootValue) && rootValue.length > 0 ? rootValue : [];
     const summaryRounds = Array.isArray(summaryValue) && summaryValue.length > 0 ? summaryValue : [];
     if (rootRounds.length === 0 && summaryRounds.length === 0) {
         return null;
     }
-    return [...rootRounds, ...summaryRounds];
+    if (rootRounds.length === summaryRounds.length &&
+        isRicherCloseoutSummaryField(rootRounds, summaryRounds)) {
+        return summaryRounds;
+    }
+    const byRoundKey = new Map();
+    for (const round of [...rootRounds, ...summaryRounds]) {
+        const key = toCloseoutRoundSemanticKey(round);
+        const existing = byRoundKey.get(key);
+        if (existing === undefined ||
+            scoreCloseoutSummaryFieldQuality(round) > scoreCloseoutSummaryFieldQuality(existing)) {
+            byRoundKey.set(key, round);
+        }
+    }
+    return [...byRoundKey.values()];
 };
 const mergeCloseoutArrayValues = (rootValue, summaryValue) => {
     if (!Array.isArray(rootValue) || !Array.isArray(summaryValue)) {
@@ -640,7 +683,7 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
             }
         }
         if (key === "closeout_evidence_rounds" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
-            const mergedRounds = mergeCloseoutArrayValues(payload[key], summary?.[key]);
+            const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(payload[key], summary?.[key]);
             if (mergedRounds) {
                 picked[key] = mergedRounds;
                 continue;
@@ -875,8 +918,7 @@ const toCloseoutEvidenceRoundRecords = (records) => {
     return records;
 };
 const unionCloseoutEvidenceRoundRecords = (...recordGroups) => {
-    const records = recordGroups.flatMap((recordGroup) => recordGroup ?? []);
-    return records.length > 0 ? records : null;
+    return mergeCloseoutEvidenceRoundRecordValues(recordGroups[0] ?? [], recordGroups.slice(1).flatMap((recordGroup) => recordGroup ?? []));
 };
 const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) => {
     const explicitInput = asObject(summary.closeout_evidence_input);

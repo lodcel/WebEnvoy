@@ -13,7 +13,8 @@ const gitHeadResult = spawnSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], {
 const gitHead = gitHeadResult.status === 0 ? gitHeadResult.stdout.trim() : null;
 
 if (!gitHead) {
-  process.exit(0);
+  console.error("Unable to record WebEnvoy runtime build metadata: git HEAD is unavailable.");
+  process.exit(1);
 }
 
 const metadataPath = resolve(repoRoot, "dist", "runtime-build-metadata.json");
