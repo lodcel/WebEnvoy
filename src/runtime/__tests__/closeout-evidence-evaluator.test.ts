@@ -124,30 +124,32 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
-  it("accepts singleton evidence bound to any expected artifact_identities current artifact", () => {
+  it("requires singleton evidence to match the canonical artifact_identity even with an allowlist", () => {
     const input = withPassingRounds(baseInput());
     input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2";
 
     expect(evaluateCloseoutEvidence(input)).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      blockers: [],
+      decision: "FAIL",
+      passed: false,
       freshness: {
-        artifact_matches: true,
+        artifact_matches: false,
         expected_artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
         expected_artifact_identities: [
           "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
           "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
         ],
-        accepted_artifact_identities: [
-          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
-        ],
+        accepted_artifact_identities: [],
         observed_artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
-      }
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
     });
   });
 
-  it("does not require legacy singleton artifact_identity when explicit artifact_identities are supplied", () => {
+  it("requires the canonical artifact_identity to be observed even when explicit artifact_identities are supplied", () => {
     const input = baseInput();
     input.expected.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1";
     input.expected.artifact_identities = [
@@ -164,17 +166,21 @@ describe("closeout evidence evaluator", () => {
     ];
 
     expect(evaluateCloseoutEvidence(input)).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      blockers: [],
+      decision: "FAIL",
+      passed: false,
       freshness: {
-        artifact_matches: true
+        artifact_matches: false
       },
       multi_round: {
         accepted_round_count: 2,
         unique_artifact_count: 2,
-        expected_artifact_observed: true
-      }
+        expected_artifact_observed: false
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
     });
   });
 

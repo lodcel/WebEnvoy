@@ -126,7 +126,7 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
-  it("honors explicit artifact_identities without requiring the legacy singleton artifact", () => {
+  it("requires explicit artifact_identities to include the canonical artifact_identity", () => {
     const expected = {
       ...expectedBinding(),
       artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
@@ -145,12 +145,16 @@ describe("closeout multi-round verifier", () => {
         ]
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
+      decision: "FAIL",
+      passed: false,
       accepted_round_count: 2,
       unique_artifact_count: 2,
-      expected_artifact_observed: true,
-      blockers: []
+      expected_artifact_observed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
     });
   });
 

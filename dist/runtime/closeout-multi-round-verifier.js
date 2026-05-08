@@ -20,14 +20,16 @@ const normalizeStringArray = (value) => Array.isArray(value)
 export const matchesCloseoutExpectedArtifactIdentity = (input) => {
     const expectedArtifactIdentity = normalizeString(input.expectedArtifactIdentity);
     const explicitArtifactIdentities = normalizeStringArray(input.expectedArtifactIdentities);
-    const explicitArtifactContract = explicitArtifactIdentities.length > 0;
-    const expectedArtifactIdentities = new Set(explicitArtifactContract
+    const expectedArtifactIdentities = new Set(explicitArtifactIdentities.length > 0
         ? explicitArtifactIdentities
         : expectedArtifactIdentity === null
             ? []
             : [expectedArtifactIdentity]);
     const observedArtifactIdentity = normalizeString(input.observedArtifactIdentity);
-    if (observedArtifactIdentity === null) {
+    if (expectedArtifactIdentity === null || observedArtifactIdentity === null) {
+        return false;
+    }
+    if (observedArtifactIdentity !== expectedArtifactIdentity) {
         return false;
     }
     return matchesExpectedArtifactIdentity({
@@ -61,8 +63,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
     const expectedRunId = normalizeString(input.expected.run_id);
     const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
     const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
-    const explicitArtifactContract = explicitArtifactIdentities.length > 0;
-    const expectedArtifactIdentities = new Set(explicitArtifactContract
+    const expectedArtifactIdentities = new Set(explicitArtifactIdentities.length > 0
         ? explicitArtifactIdentities
         : expectedArtifactIdentity === null
             ? []
@@ -131,6 +132,8 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             acceptedArtifactIdentity = true;
         }
         if (observedArtifactIdentity !== null &&
+            expectedArtifactIdentity !== null &&
+            observedArtifactIdentity === expectedArtifactIdentity &&
             matchesExpectedArtifactIdentity({
                 expectedArtifactIdentities,
                 observedArtifactIdentity

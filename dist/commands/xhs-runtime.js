@@ -434,8 +434,7 @@ const toCloseoutEvidenceRound = (record) => {
 const isCompleteCloseoutEvidenceExpected = (expected) => !!expected &&
     expected.latest_head_sha !== null &&
     expected.run_id !== null &&
-    (expected.artifact_identity !== null ||
-        (Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0)) &&
+    expected.artifact_identity !== null &&
     expected.profile_ref !== null &&
     expected.target_tab_id !== null &&
     expected.page_url !== null &&

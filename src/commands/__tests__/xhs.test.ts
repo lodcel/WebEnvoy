@@ -1392,6 +1392,7 @@ describe("normalizeGateOptionsForContract", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
       artifact_identities: [
         "artifact/xhs-closeout/run-closeout-001/round-1",
         "artifact/xhs-closeout/run-closeout-001/round-2"
@@ -1440,6 +1441,7 @@ describe("normalizeGateOptionsForContract", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
       artifact_identities: [
         "artifact/xhs-closeout/run-closeout-001/round-1",
         "artifact/xhs-closeout/run-closeout-001/round-2"
@@ -1496,6 +1498,7 @@ describe("normalizeGateOptionsForContract", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
       artifact_identities: [
         "artifact/xhs-closeout/run-closeout-001/round-1",
         "artifact/xhs-closeout/run-closeout-001/round-2"
