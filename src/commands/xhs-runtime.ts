@@ -735,12 +735,14 @@ const buildCloseoutEvidenceInputForRuntime = (
     routeEvidenceRequiresCloseout &&
     roundRecords !== null &&
     isCompleteCloseoutEvidenceExpected(expected) &&
-    isCompleteCloseoutEvidenceRound(routeEvidenceRound);
+    closeoutEvidenceMatchesExpected(expected, routeEvidenceRound);
   const selectedEvidenceRound = selectCloseoutEvidenceRound(expected, roundRecords);
   const firstEvidenceRoundCanProvideRound =
     roundRecords !== null &&
     isCompleteCloseoutEvidenceExpected(expected) &&
     isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
+  const deterministicRoundsCanProvideEvidence =
+    firstEvidenceRoundCanProvideRound && (roundRecords?.length ?? 0) >= 2;
   const canonicalEvidenceRoundCanProvideRound =
     firstEvidenceRoundCanProvideRound &&
     expected !== null &&
@@ -754,9 +756,11 @@ const buildCloseoutEvidenceInputForRuntime = (
   const explicitEvidenceCanProvideRound = closeoutEvidenceMatchesExpected(expected, explicitEvidence);
   const evidence =
     (explicitEvidenceCanProvideRound ? explicitEvidence : null) ??
-    (canonicalEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
+    (deterministicRoundsCanProvideEvidence && canonicalEvidenceRoundCanProvideRound
+      ? selectedEvidenceRound
+      : null) ??
+    (explicitExpectedBinding && deterministicRoundsCanProvideEvidence ? selectedEvidenceRound : null) ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
-    (explicitExpectedBinding && firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     explicitEvidence;
   if (!expected || !evidence) {
