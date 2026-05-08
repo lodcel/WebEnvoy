@@ -1177,11 +1177,14 @@ const buildCloseoutEvidenceInputForRuntime = (
     explicitRoundRecords,
     summaryRoundRecords
   );
+  const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
   const routeRoundRecords = hasDeterministicRoundSource
     ? null
-    : toCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
+    : unionCloseoutEvidenceRoundRecords(
+        routeEvidenceRound ? [routeEvidenceRound] : null,
+        toCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds)
+      );
   const roundRecords = deterministicRoundRecords ?? routeRoundRecords;
-  const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
   const trustedExpectedBindingInput = {
     ...(trustedExpectedBinding ?? {})
   };
