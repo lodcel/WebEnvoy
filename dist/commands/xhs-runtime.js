@@ -907,9 +907,8 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
         ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
         : null;
     return {
-        ...(requiresCloseoutEvidenceEvaluation && latestHeadSha !== null
-            ? { latestHeadSha, requiresLatestHeadSha: true }
-            : {}),
+        ...(requiresCloseoutEvidenceEvaluation ? { requiresLatestHeadSha: true } : {}),
+        ...(requiresCloseoutEvidenceEvaluation && latestHeadSha !== null ? { latestHeadSha } : {}),
         runId: input.runId,
         profileRef: normalizeCloseoutProfileRef(input.profileRef),
         targetTabId: input.targetTabId
