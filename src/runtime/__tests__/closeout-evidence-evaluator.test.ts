@@ -61,7 +61,14 @@ describe("closeout evidence evaluator", () => {
         latest_head_available: true,
         latest_head_matches: true,
         run_matches: true,
-        artifact_matches: true
+        artifact_matches: true,
+        expected_artifact_identities: [
+          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
+          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+        ],
+        accepted_artifact_identities: [
+          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1"
+        ]
       },
       bindings: {
         profile_bound: true,
@@ -126,7 +133,16 @@ describe("closeout evidence evaluator", () => {
       passed: true,
       blockers: [],
       freshness: {
-        artifact_matches: true
+        artifact_matches: true,
+        expected_artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
+        expected_artifact_identities: [
+          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
+          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+        ],
+        accepted_artifact_identities: [
+          "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+        ],
+        observed_artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
       }
     });
   });

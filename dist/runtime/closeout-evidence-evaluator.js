@@ -12,6 +12,11 @@ const matchesExpectedString = (expected, observed) => {
     return normalizedExpected !== null && normalizedObserved !== null && normalizedExpected === normalizedObserved;
 };
 const matchesExpectedInteger = (expected, observed) => Number.isInteger(expected) && Number.isInteger(observed) && expected === observed;
+const normalizeStringArray = (value) => Array.isArray(value)
+    ? value
+        .map((item) => normalizeString(item))
+        .filter((item) => item !== null)
+    : [];
 const blocker = (blocker_code, blocker_layer, message) => ({
     blocker_code,
     blocker_layer,
@@ -29,6 +34,12 @@ export const evaluateCloseoutEvidence = (input) => {
     const expectedRunId = normalizeString(input.expected.run_id);
     const observedRunId = normalizeString(input.evidence.run_id);
     const expectedArtifactIdentity = normalizeString(input.expected.artifact_identity);
+    const explicitArtifactIdentities = normalizeStringArray(input.expected.artifact_identities);
+    const expectedArtifactIdentities = explicitArtifactIdentities.length > 0
+        ? explicitArtifactIdentities
+        : expectedArtifactIdentity === null
+            ? []
+            : [expectedArtifactIdentity];
     const observedArtifactIdentity = normalizeString(input.evidence.artifact_identity);
     const expectedProfileRef = normalizeString(input.expected.profile_ref);
     const observedProfileRef = normalizeString(input.evidence.profile_ref);
@@ -128,6 +139,8 @@ export const evaluateCloseoutEvidence = (input) => {
             expected_run_id: expectedRunId,
             observed_run_id: observedRunId,
             expected_artifact_identity: expectedArtifactIdentity,
+            expected_artifact_identities: expectedArtifactIdentities,
+            accepted_artifact_identities: observedArtifactIdentity !== null && artifactMatches ? [observedArtifactIdentity] : [],
             observed_artifact_identity: observedArtifactIdentity
         },
         bindings: {
