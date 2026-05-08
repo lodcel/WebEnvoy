@@ -1856,7 +1856,6 @@ describe("normalizeGateOptionsForContract", () => {
   it("preserves closeout route_evidence success summaries until deterministic payloads are present", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
-        closeout_audit_required: true,
         route_evidence: {
           route_role: "primary",
           path_kind: "api",
@@ -1873,6 +1872,36 @@ describe("normalizeGateOptionsForContract", () => {
         }
       })
     ).toBeNull();
+  });
+
+  it("emits missing_multi_round_evidence when upstream explicitly requires closeout audit", () => {
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_audit_required: true,
+        route_evidence: {
+          route_role: "primary",
+          path_kind: "api",
+          evidence_status: "success",
+          evidence_class: "passive_api_capture",
+          latest_head_sha: "head-closeout-001",
+          head_sha: "head-closeout-001",
+          run_id: "run-closeout-001",
+          artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+          profile_ref: "profile/xhs_closeout_001",
+          target_tab_id: 32,
+          page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+          action_ref: "action/xhs.search/open_result_card"
+        }
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
   });
 
   it("fails closed when closeout evidence input is missing or cannot be parsed", () => {

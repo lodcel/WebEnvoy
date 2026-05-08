@@ -388,7 +388,9 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
 };
 const hasDeterministicCloseoutEvidenceFields = (summary) => hasOwn(summary, "closeout_evidence_input") ||
     hasOwn(summary, "closeout_evidence_expected") ||
-    hasOwn(summary, "closeout_evidence_rounds");
+    hasOwn(summary, "closeout_evidence_rounds") ||
+    Array.isArray(asObject(summary.closeout_route_evidence)?.evidence_rounds) ||
+    Array.isArray(asObject(summary.route_evidence)?.evidence_rounds);
 const isCloseoutPrimaryApiSuccessRoute = (record) => {
     const routeRole = asString(record?.route_role);
     const pathKind = asString(record?.path_kind);
@@ -540,7 +542,8 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
     const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
         ? routeEvidence.evidence_rounds
         : null;
-    return summary.closeout_audit_required === true && routeRoundRecords !== null;
+    return (summary.closeout_audit_required === true &&
+        (routeRoundRecords !== null || isCloseoutPrimaryApiSuccessRoute(routeEvidence)));
 };
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
@@ -1636,12 +1639,13 @@ const xhsReadCommand = async (context, inputConfig) => {
             ...(asObject(bridgeResult.payload.summary) ?? {}),
             ...closeoutEvidenceSummaryFields
         };
-        const closeoutAuditRequired = hasDeterministicCloseoutEvidenceFields(mergedBridgeSummary) &&
-            shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
-                abilityId: envelope.ability.id,
-                requestedExecutionMode: gate.requestedExecutionMode,
-                summary: mergedBridgeSummary
-            });
+        const closeoutAuditRequired = mergedBridgeSummary.closeout_audit_required === true ||
+            (hasDeterministicCloseoutEvidenceFields(mergedBridgeSummary) &&
+                shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+                    abilityId: envelope.ability.id,
+                    requestedExecutionMode: gate.requestedExecutionMode,
+                    summary: mergedBridgeSummary
+                }));
         const bridgeSummaryForMapping = { ...mergedBridgeSummary };
         delete bridgeSummaryForMapping.closeout_audit_required;
         const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
