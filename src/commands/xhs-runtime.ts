@@ -647,9 +647,6 @@ const buildCloseoutEvidenceInputForRuntime = (
   const routeEvidence =
     asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
   const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
-  const closeoutRouteEvidenceExpectedCandidate = toCloseoutEvidenceExpected(
-    asObject(summary.closeout_route_evidence)
-  );
   const explicitRoundRecords = toUsableCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
   const summaryRoundRecords = toUsableCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
   const routeRoundRecords = toUsableCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
@@ -665,12 +662,7 @@ const buildCloseoutEvidenceInputForRuntime = (
   const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidate)
     ? summaryExpectedCandidate
     : null;
-  const closeoutRouteEvidenceExpected = isCompleteCloseoutEvidenceExpected(
-    closeoutRouteEvidenceExpectedCandidate
-  )
-    ? closeoutRouteEvidenceExpectedCandidate
-    : null;
-  const expectedCandidate = explicitExpected ?? summaryExpected ?? closeoutRouteEvidenceExpected;
+  const expectedCandidate = explicitExpected ?? summaryExpected;
   const expected = expectedCandidate
     ? {
         ...expectedCandidate,
