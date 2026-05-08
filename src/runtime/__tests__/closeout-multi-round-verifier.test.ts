@@ -77,7 +77,7 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
-  it("passes with singular expected artifact_identity when rounds are otherwise fresh and distinct", () => {
+  it("requires exact artifact matching when only singular expected artifact_identity is provided", () => {
     const expected = expectedBinding();
     delete expected.artifact_identities;
 
@@ -87,16 +87,20 @@ describe("closeout multi-round verifier", () => {
         evidence_rounds: successRounds()
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      accepted_round_count: 2,
-      unique_artifact_count: 2,
+      decision: "FAIL",
+      passed: false,
+      accepted_round_count: 1,
+      unique_artifact_count: 1,
       expected_artifact_observed: true,
-      blockers: []
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
     });
   });
 
-  it("passes with singular expected artifact_identity when only sibling round artifacts are observed", () => {
+  it("rejects sibling round artifacts when only singular expected artifact_identity is provided", () => {
     const expected = expectedBinding();
     delete expected.artifact_identities;
 
@@ -109,12 +113,16 @@ describe("closeout multi-round verifier", () => {
         ]
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      accepted_round_count: 2,
-      unique_artifact_count: 2,
-      expected_artifact_observed: true,
-      blockers: []
+      decision: "FAIL",
+      passed: false,
+      accepted_round_count: 0,
+      unique_artifact_count: 0,
+      expected_artifact_observed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
     });
   });
 
@@ -198,7 +206,7 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
-  it("supports provider-scoped artifact identities when only singular expected artifact_identity is provided", () => {
+  it("rejects provider-scoped sibling artifacts when only singular expected artifact_identity is provided", () => {
     const expected: CloseoutMultiRoundExpectedBinding = {
       ...expectedBinding(),
       run_id: "gha:23953203650:1",
@@ -220,12 +228,16 @@ describe("closeout multi-round verifier", () => {
         evidence_rounds: [firstRound, secondRound]
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      accepted_round_count: 2,
-      unique_artifact_count: 2,
+      decision: "FAIL",
+      passed: false,
+      accepted_round_count: 1,
+      unique_artifact_count: 1,
       expected_artifact_observed: true,
-      blockers: []
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
     });
   });
 
