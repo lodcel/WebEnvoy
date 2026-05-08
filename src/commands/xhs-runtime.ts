@@ -487,10 +487,28 @@ const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
   "route_evidence"
 ] as const;
 
+const isSparseCloseoutSummaryField = (value: unknown): boolean => {
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  const object = asObject(value);
+  return object !== null && Object.keys(object).length === 0;
+};
+
 export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObject): JsonObject => {
   const summary = asObject(payload.summary);
   const picked: JsonObject = {};
   for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+    if (
+      hasOwn(payload, key) &&
+      isSparseCloseoutSummaryField(payload[key]) &&
+      hasOwn(summary ?? undefined, key) &&
+      summary?.[key] !== null &&
+      summary?.[key] !== undefined
+    ) {
+      picked[key] = summary[key];
+      continue;
+    }
     if (hasOwn(payload, key) && payload[key] !== null && payload[key] !== undefined) {
       picked[key] = payload[key];
       continue;
@@ -628,9 +646,7 @@ const buildCloseoutEvidenceInputForRuntime = (
   const explicitInput = asObject(summary.closeout_evidence_input);
   const routeEvidence =
     asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
-  const routeEvidenceRequiresCloseout =
-    (summary.closeout_audit_required === true || hasOwn(summary, "closeout_route_evidence")) &&
-    isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+  const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
   const explicitRoundRecords = toUsableCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
   const summaryRoundRecords = toUsableCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
   const routeRoundRecords = toUsableCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
