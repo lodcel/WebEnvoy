@@ -1658,6 +1658,20 @@ const copyCloseoutCanonicalAuditIntoFailureDetails = (
   }
 };
 
+const hasFailureCanonicalAuditSurface = (
+  payload: Record<string, unknown>,
+  details: JsonObject
+): boolean =>
+  asObject(payload.request_admission_result) !== null ||
+  asObject(asObject(payload.summary)?.request_admission_result) !== null ||
+  asObject(details.request_admission_result) !== null ||
+  asObject(payload.execution_audit) !== null ||
+  asObject(asObject(payload.summary)?.execution_audit) !== null ||
+  asObject(details.execution_audit) !== null ||
+  payload.closeout_audit_required === true ||
+  details.closeout_audit_required === true ||
+  asObject(payload.summary)?.closeout_audit_required === true;
+
 const assertCloseoutCanonicalExecutionAuditForRuntime = (
   ability: AbilityRef,
   expectedRunId: string,
@@ -2108,13 +2122,17 @@ const toCliExecutionError = (
       }
     }
   }
-  if (asObject(closeoutEvidenceEvaluationForDetails)) {
-    pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
-  }
-  if (asString(closeoutEvidenceCompatModeForDetails)) {
-    pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
-  }
-  if (requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails })) {
+  const requiresFailureCanonicalAudit =
+    requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails }) ||
+    (asObject(closeoutEvidenceEvaluationForDetails) !== null &&
+      hasFailureCanonicalAuditSurface(payload, pickedDetails));
+  if (requiresFailureCanonicalAudit) {
+    if (asObject(closeoutEvidenceEvaluationForDetails)) {
+      pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
+    }
+    if (asString(closeoutEvidenceCompatModeForDetails)) {
+      pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
+    }
     copyCloseoutCanonicalAuditIntoFailureDetails(payload, pickedDetails);
     assertCloseoutCanonicalExecutionAuditForRuntime(
       ability,
@@ -2127,6 +2145,12 @@ const toCliExecutionError = (
         }
       }
     );
+  }
+  if (asObject(closeoutEvidenceEvaluationForDetails)) {
+    pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
+  }
+  if (asString(closeoutEvidenceCompatModeForDetails)) {
+    pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
   }
   const closeoutHardStopRisk = classifyCloseoutHardStopRiskForPayload(payload);
   const reason =
