@@ -469,10 +469,15 @@ const pickCanonicalSummaryField = (
 const hasExplicitCloseoutEvidencePayloadMarker = (
   record: JsonObject | null | undefined
 ): boolean =>
+  hasIndependentCloseoutEvidencePayloadMarker(record) ||
+  hasOwn(record, "closeout_route_evidence");
+
+const hasIndependentCloseoutEvidencePayloadMarker = (
+  record: JsonObject | null | undefined
+): boolean =>
   hasOwn(record, "closeout_evidence_input") ||
   hasOwn(record, "closeout_evidence_expected") ||
-  hasOwn(record, "closeout_evidence_rounds") ||
-  hasOwn(record, "closeout_route_evidence");
+  hasOwn(record, "closeout_evidence_rounds");
 
 const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
@@ -790,7 +795,7 @@ const isLegacyCloseoutEvidenceEvaluationCompatOnly = (
   summary: JsonObject,
   evaluation: ReturnType<typeof evaluateCloseoutEvidence>
 ): boolean =>
-  !hasExplicitCloseoutEvidencePayloadMarker(summary) &&
+  !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
   evaluation.blockers.some(
     (blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence"
   );
