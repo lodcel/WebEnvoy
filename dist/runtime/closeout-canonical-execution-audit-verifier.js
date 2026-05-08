@@ -140,6 +140,13 @@ const gateRefsMatchExpectedRunId = (requestAdmissionResult, executionAudit, expe
     return (asNonEmptyString(derivedFrom?.gate_input_ref) === expectedRunId &&
         asNonEmptyString(compatibilityRefs?.gate_run_id) === expectedRunId);
 };
+const auditGateRunMatchesExpectedRunId = (executionAudit, expectedRunId) => {
+    if (expectedRunId === null) {
+        return true;
+    }
+    const compatibilityRefs = asObject(executionAudit.compatibility_refs);
+    return asNonEmptyString(compatibilityRefs?.gate_run_id) === expectedRunId;
+};
 const findExecutionAuditKeys = (value, path) => {
     if (Array.isArray(value)) {
         return value.flatMap((item, index) => findExecutionAuditKeys(item, `${path}[${index}]`));
@@ -329,6 +336,11 @@ export const verifyCloseoutCanonicalExecutionAudit = (input) => {
             isCanonicalExecutionAudit(failureDetailsExecutionAudit) &&
             !gateRefsMatchExpectedRunId(failureRequestAdmission, failureDetailsExecutionAudit, expectedRunId)) {
             blockers.push(blocker("failure_gate_run_mismatch", "canonical_consistency", `failure.${failureDetails?.path ?? "details"}.execution_audit.compatibility_refs.gate_run_id`, "failure execution_audit gate refs must match the current run id"));
+        }
+        if (!isCanonicalRequestAdmissionResult(failureRequestAdmission) &&
+            isCanonicalExecutionAudit(failureDetailsExecutionAudit) &&
+            !auditGateRunMatchesExpectedRunId(failureDetailsExecutionAudit, expectedRunId)) {
+            blockers.push(blocker("failure_gate_run_mismatch", "canonical_consistency", `failure.${failureDetails?.path ?? "details"}.execution_audit.compatibility_refs.gate_run_id`, "failure execution_audit gate_run_id must match the current run id"));
         }
     }
     for (const path of successLeakPaths) {

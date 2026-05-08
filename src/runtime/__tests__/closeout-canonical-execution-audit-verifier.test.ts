@@ -884,6 +884,38 @@ describe("closeout canonical execution audit verifier", () => {
     });
   });
 
+  it("fails closed when failure audit without admission points to an old run", () => {
+    const input = failureInput();
+    const details = input.failure?.error?.details as Record<string, unknown>;
+    const payload = input.failure?.payload as Record<string, unknown>;
+    delete payload.request_admission_result;
+    const oldRunAudit = {
+      ...executionAudit(),
+      compatibility_refs: {
+        ...executionAudit().compatibility_refs,
+        gate_run_id: "run_issue645_old"
+      }
+    };
+    details.execution_audit = oldRunAudit;
+    payload.execution_audit = oldRunAudit;
+
+    expect(
+      verifyCloseoutCanonicalExecutionAudit({
+        expectedRunId: "run_issue645_001",
+        failure: input.failure
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "failure_gate_run_mismatch",
+          blocker_layer: "canonical_consistency"
+        })
+      ])
+    });
+  });
+
   it("fails closed when failure details execution_audit differs from canonical payload audit", () => {
     const input = failureInput();
     const details = input.failure?.error?.details as Record<string, unknown>;
