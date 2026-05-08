@@ -533,9 +533,9 @@ const hasExplicitCloseoutEvidencePayloadMarker = (
 const hasIndependentCloseoutEvidencePayloadMarker = (
   record: JsonObject | null | undefined
 ): boolean =>
-  hasOwn(record, "closeout_evidence_input") ||
-  hasOwn(record, "closeout_evidence_expected") ||
-  hasOwn(record, "closeout_evidence_rounds");
+  (hasOwn(record, "closeout_evidence_input") && record?.closeout_evidence_input !== null) ||
+  (hasOwn(record, "closeout_evidence_expected") && record?.closeout_evidence_expected !== null) ||
+  (hasOwn(record, "closeout_evidence_rounds") && record?.closeout_evidence_rounds !== null);
 
 const hasUsableIndependentCloseoutEvidencePayload = (
   record: JsonObject | null | undefined

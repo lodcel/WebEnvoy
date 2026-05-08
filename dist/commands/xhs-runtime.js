@@ -414,9 +414,9 @@ const pickCanonicalSummaryField = (payload, key) => {
 };
 const hasExplicitCloseoutEvidencePayloadMarker = (record) => hasUsableIndependentCloseoutEvidencePayload(record) ||
     hasOwn(record, "closeout_route_evidence");
-const hasIndependentCloseoutEvidencePayloadMarker = (record) => hasOwn(record, "closeout_evidence_input") ||
-    hasOwn(record, "closeout_evidence_expected") ||
-    hasOwn(record, "closeout_evidence_rounds");
+const hasIndependentCloseoutEvidencePayloadMarker = (record) => (hasOwn(record, "closeout_evidence_input") && record?.closeout_evidence_input !== null) ||
+    (hasOwn(record, "closeout_evidence_expected") && record?.closeout_evidence_expected !== null) ||
+    (hasOwn(record, "closeout_evidence_rounds") && record?.closeout_evidence_rounds !== null);
 const hasUsableIndependentCloseoutEvidencePayload = (record) => {
     const closeoutEvidenceInput = asObject(record?.closeout_evidence_input);
     return ((closeoutEvidenceInput !== null &&
