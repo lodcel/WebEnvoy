@@ -440,10 +440,17 @@ const pickCanonicalSummaryField = (
   key: "request_admission_result" | "execution_audit"
 ): JsonObject | null | undefined => {
   const summary = asObject(payload.summary);
+  const summaryValue = hasOwn(summary ?? undefined, key) ? summary?.[key] : undefined;
+  if (key === "execution_audit" && payload[key] === null) {
+    const summaryObject = asObject(summaryValue);
+    if (summaryObject) {
+      return summaryObject;
+    }
+  }
   const value = hasOwn(payload, key)
     ? payload[key]
     : hasOwn(summary ?? undefined, key)
-      ? summary?.[key]
+      ? summaryValue
       : undefined;
   if (!hasOwn(payload, key) && !hasOwn(summary ?? undefined, key)) {
     return undefined;
@@ -688,6 +695,13 @@ const pickGateErrorDetails = (
   const hasOwn = (record: Record<string, unknown> | undefined | null, key: string): boolean =>
     !!record && Object.prototype.hasOwnProperty.call(record, key);
   for (const key of detailKeys) {
+    if (key === "execution_audit" && payload[key] === null) {
+      const detailsAudit = asObject(details?.[key]);
+      if (detailsAudit) {
+        picked[key] = detailsAudit;
+        continue;
+      }
+    }
     const value = hasOwn(payload, key)
       ? payload[key]
       : hasOwn(details ?? undefined, key)
