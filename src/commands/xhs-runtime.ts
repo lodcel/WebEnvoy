@@ -377,12 +377,12 @@ const readPersistedSessionRhythmBlockStatus = async (input: {
 };
 
 const asInteger = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.trunc(value);
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
   }
   if (typeof value === "string" && value.trim().length > 0) {
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+    return Number.isInteger(parsed) ? parsed : null;
   }
   return null;
 };
@@ -562,11 +562,80 @@ const buildCloseoutEvidenceInputForRuntime = (
   };
 };
 
+const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): boolean => {
+  if (
+    hasOwn(summary, "closeout_evidence_input") ||
+    hasOwn(summary, "closeout_evidence_expected") ||
+    hasOwn(summary, "closeout_evidence_rounds")
+  ) {
+    return true;
+  }
+  const routeEvidence =
+    asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
+  return summary.closeout_audit_required === true && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+};
+
+const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseoutEvidence> => ({
+  decision: "FAIL",
+  passed: false,
+  blockers: [
+    {
+      blocker_code: "missing_multi_round_evidence",
+      blocker_layer: "route",
+      message: "closeout evidence input is missing or cannot be parsed"
+    }
+  ],
+  evaluated_route: "unknown_route:unknown_path:unknown_class:unknown_status",
+  route_role: null,
+  path_kind: null,
+  evidence_status: null,
+  evidence_class: null,
+  reproduced_multi_round: false,
+  freshness: {
+    latest_head_available: false,
+    latest_head_matches: false,
+    run_matches: false,
+    artifact_matches: false,
+    expected_latest_head_sha: null,
+    observed_head_sha: null,
+    expected_run_id: null,
+    observed_run_id: null,
+    expected_artifact_identity: null,
+    expected_artifact_identities: [],
+    accepted_artifact_identities: [],
+    observed_artifact_identity: null
+  },
+  bindings: {
+    profile_bound: false,
+    tab_bound: false,
+    page_bound: false,
+    action_bound: false,
+    expected_profile_ref: null,
+    observed_profile_ref: null,
+    expected_target_tab_id: null,
+    observed_target_tab_id: null,
+    expected_page_url: null,
+    observed_page_url: null,
+    expected_action_ref: null,
+    observed_action_ref: null
+  },
+  multi_round: {
+    accepted_round_count: 0,
+    unique_artifact_count: 0,
+    expected_artifact_observed: false
+  }
+});
+
 export const evaluateXhsCloseoutEvidenceForContract = (
   summary: JsonObject
 ): ReturnType<typeof evaluateCloseoutEvidence> | null => {
   const input = buildCloseoutEvidenceInputForRuntime(summary);
-  return input ? evaluateCloseoutEvidence(input) : null;
+  if (input) {
+    return evaluateCloseoutEvidence(input);
+  }
+  return requiresCloseoutEvidenceEvaluationForRuntime(summary)
+    ? missingCloseoutEvidenceEvaluation()
+    : null;
 };
 
 const assertCloseoutEvidenceForRuntime = (
