@@ -806,6 +806,7 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
         ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
         : null;
     return {
+        ...(requiresCloseoutEvidenceEvaluation ? { requiresLatestHeadSha: true } : {}),
         ...(requiresCloseoutEvidenceEvaluation && latestHeadSha !== null ? { latestHeadSha } : {}),
         runId: input.runId,
         profileRef: normalizeCloseoutProfileRef(input.profileRef),
@@ -972,12 +973,21 @@ export const evaluateXhsCloseoutEvidenceForContract = (summary, options) => {
 const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
     const blockers = [...evaluation.blockers];
     const trustedLatestHeadSha = asString(trusted?.latestHeadSha);
+    const requiresTrustedLatestHeadSha = trusted?.requiresLatestHeadSha === true;
     const trustedRunId = asString(trusted?.runId);
     const trustedProfileRef = normalizeCloseoutProfileRef(trusted?.profileRef);
     const trustedTargetTabId = asInteger(trusted?.targetTabId);
     let freshness = evaluation.freshness;
     let bindings = evaluation.bindings;
-    if (trustedLatestHeadSha !== null &&
+    if (requiresTrustedLatestHeadSha && trustedLatestHeadSha === null) {
+        freshness = {
+            ...freshness,
+            latest_head_available: false,
+            latest_head_matches: false
+        };
+        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_latest_head", "freshness", "closeout runtime head must be resolved before evaluating production evidence"));
+    }
+    else if (trustedLatestHeadSha !== null &&
         evaluation.freshness.expected_latest_head_sha !== trustedLatestHeadSha) {
         freshness = {
             ...freshness,

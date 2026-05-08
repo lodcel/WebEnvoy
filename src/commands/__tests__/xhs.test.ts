@@ -1450,6 +1450,7 @@ describe("normalizeGateOptionsForContract", () => {
       summary
     });
     expect(runtimeTrustedBinding.latestHeadSha).toMatch(/^[0-9a-f]{40}$/u);
+    expect(runtimeTrustedBinding.requiresLatestHeadSha).toBe(true);
     expect(evaluateXhsCloseoutEvidenceForContract(summary, runtimeTrustedBinding)).toMatchObject({
       decision: "FAIL",
       passed: false,
@@ -1471,6 +1472,7 @@ describe("normalizeGateOptionsForContract", () => {
       summary
     });
     expect(externalCwdTrustedBinding.latestHeadSha).toBe(runtimeTrustedBinding.latestHeadSha);
+    expect(externalCwdTrustedBinding.requiresLatestHeadSha).toBe(true);
 
     expect(evaluateXhsCloseoutEvidenceForContract(summary, externalCwdTrustedBinding)).toMatchObject({
       decision: "FAIL",
@@ -1481,6 +1483,27 @@ describe("normalizeGateOptionsForContract", () => {
       blockers: expect.arrayContaining([
         expect.objectContaining({
           blocker_code: "stale_head"
+        })
+      ])
+    });
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(summary, {
+        requiresLatestHeadSha: true,
+        runId: "run-closeout-001",
+        profileRef: "profile/xhs_closeout_001",
+        targetTabId: 32
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      freshness: expect.objectContaining({
+        latest_head_available: false,
+        latest_head_matches: false
+      }),
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_latest_head"
         })
       ])
     });
