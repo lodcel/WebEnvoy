@@ -410,15 +410,46 @@ const toCloseoutEvidenceRound = (record) => {
         action_ref: asString(record.action_ref)
     };
 };
+const isCompleteCloseoutEvidenceExpected = (expected) => !!expected &&
+    expected.latest_head_sha !== null &&
+    expected.run_id !== null &&
+    expected.artifact_identity !== null &&
+    expected.profile_ref !== null &&
+    expected.target_tab_id !== null &&
+    expected.page_url !== null &&
+    expected.action_ref !== null;
+const isCompleteCloseoutEvidenceRound = (evidence) => !!evidence &&
+    evidence.route_role !== null &&
+    evidence.path_kind !== null &&
+    evidence.evidence_status !== null &&
+    evidence.evidence_class !== null &&
+    evidence.head_sha !== null &&
+    evidence.run_id !== null &&
+    evidence.artifact_identity !== null &&
+    evidence.profile_ref !== null &&
+    evidence.target_tab_id !== null &&
+    evidence.page_url !== null &&
+    evidence.action_ref !== null;
 const buildCloseoutEvidenceInputForRuntime = (summary) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
     const routeEvidenceRequiresCloseout = summary.closeout_audit_required === true && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+    const routeRoundRecords = Array.isArray(summary.closeout_evidence_rounds)
+        ? summary.closeout_evidence_rounds
+        : Array.isArray(routeEvidence?.evidence_rounds)
+            ? routeEvidence.evidence_rounds
+            : null;
+    const routeEvidenceExpected = toCloseoutEvidenceExpected(routeEvidence);
+    const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
+    const routeEvidenceHasDeterministicInput = routeEvidenceRequiresCloseout &&
+        routeRoundRecords !== null &&
+        isCompleteCloseoutEvidenceExpected(routeEvidenceExpected) &&
+        isCompleteCloseoutEvidenceRound(routeEvidenceRound);
     const expected = toCloseoutEvidenceExpected(asObject(explicitInput?.expected)) ??
         toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected)) ??
-        (routeEvidenceRequiresCloseout ? toCloseoutEvidenceExpected(routeEvidence) : null);
+        (routeEvidenceHasDeterministicInput ? routeEvidenceExpected : null);
     const evidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence)) ??
-        toCloseoutEvidenceRound(routeEvidence);
+        (routeEvidenceHasDeterministicInput ? routeEvidenceRound : null);
     if (!expected || !evidence) {
         return null;
     }
@@ -426,9 +457,7 @@ const buildCloseoutEvidenceInputForRuntime = (summary) => {
         ? explicitInput.evidence_rounds
         : Array.isArray(summary.closeout_evidence_rounds)
             ? summary.closeout_evidence_rounds
-            : Array.isArray(routeEvidence?.evidence_rounds)
-                ? routeEvidence.evidence_rounds
-                : null;
+            : routeRoundRecords;
     const evidenceRounds = roundRecords
         ? []
         : null;
@@ -454,7 +483,12 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
         return true;
     }
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
-    return summary.closeout_audit_required === true && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+    const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
+        ? routeEvidence.evidence_rounds
+        : null;
+    return (summary.closeout_audit_required === true &&
+        isCloseoutPrimaryApiSuccessRoute(routeEvidence) &&
+        routeRoundRecords !== null);
 };
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
