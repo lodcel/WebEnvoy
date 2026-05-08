@@ -1190,6 +1190,17 @@ describe("normalizeGateOptionsForContract", () => {
     expect(
       requiresCanonicalExecutionAuditForContract({
         details: {
+          closeout_evidence_evaluation: {
+            decision: "PASS",
+            passed: true
+          }
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        details: {
           request_admission_result: {
             request_ref: "upstream_req_closeout",
             admission_decision: "allowed"

@@ -2108,6 +2108,12 @@ const toCliExecutionError = (
       }
     }
   }
+  if (asObject(closeoutEvidenceEvaluationForDetails)) {
+    pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
+  }
+  if (asString(closeoutEvidenceCompatModeForDetails)) {
+    pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
+  }
   if (requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails })) {
     copyCloseoutCanonicalAuditIntoFailureDetails(payload, pickedDetails);
     assertCloseoutCanonicalExecutionAuditForRuntime(
@@ -2121,12 +2127,6 @@ const toCliExecutionError = (
         }
       }
     );
-  }
-  if (asObject(closeoutEvidenceEvaluationForDetails)) {
-    pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
-  }
-  if (asString(closeoutEvidenceCompatModeForDetails)) {
-    pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
   }
   const closeoutHardStopRisk = classifyCloseoutHardStopRiskForPayload(payload);
   const reason =
