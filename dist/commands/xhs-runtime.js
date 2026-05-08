@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { CliError } from "../core/errors.js";
 import { mapCapabilitySummaryForContract } from "../core/capability-output.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "../runtime/native-messaging/bridge.js";
@@ -537,6 +536,19 @@ const toUsableCloseoutEvidenceRoundRecords = (records) => {
     const usableRecords = records.filter((record) => isCompleteCloseoutEvidenceRound(toCloseoutEvidenceRound(asObject(record))));
     return usableRecords.length > 0 ? usableRecords : null;
 };
+const resolveCommonCloseoutRoundHeadSha = (roundRecords) => {
+    if (!roundRecords) {
+        return null;
+    }
+    const headShas = new Set();
+    for (const roundRecord of roundRecords) {
+        const headSha = asString(asObject(roundRecord)?.head_sha);
+        if (headSha) {
+            headShas.add(headSha);
+        }
+    }
+    return headShas.size === 1 ? [...headShas][0] ?? null : null;
+};
 const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
@@ -546,10 +558,16 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     const routeRoundRecords = toUsableCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
     const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
     const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
+    const trustedExpectedBindingWithHeadFallback = {
+        ...(trustedExpectedBinding ?? {}),
+        latestHeadSha: asString(trustedExpectedBinding?.latestHeadSha) ??
+            resolveCommonCloseoutRoundHeadSha(roundRecords) ??
+            asString(routeEvidenceRound?.head_sha)
+    };
     const explicitExpectedCandidate = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
     const summaryExpectedCandidate = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
-    const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(explicitExpectedCandidate, trustedExpectedBinding);
-    const summaryExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(summaryExpectedCandidate, trustedExpectedBinding);
+    const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(explicitExpectedCandidate, trustedExpectedBindingWithHeadFallback);
+    const summaryExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(summaryExpectedCandidate, trustedExpectedBindingWithHeadFallback);
     const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidateWithTrustedRun)
         ? explicitExpectedCandidateWithTrustedRun
         : null;
@@ -719,17 +737,6 @@ const pushUniqueCloseoutEvaluationBlocker = (blockers, nextBlocker) => {
         return;
     }
     blockers.push(nextBlocker);
-};
-const resolveCurrentGitHeadSha = (cwd) => {
-    const result = spawnSync("git", ["rev-parse", "HEAD"], {
-        cwd,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"]
-    });
-    if (result.status !== 0) {
-        return null;
-    }
-    return asString(result.stdout);
 };
 const assertCloseoutEvidenceForRuntime = (ability, trustedExpectedBinding, summary) => {
     const evaluation = evaluateXhsCloseoutEvidenceForContract(summary, trustedExpectedBinding);
@@ -1814,7 +1821,6 @@ const xhsReadCommand = async (context, inputConfig) => {
             });
         }
         assertCloseoutEvidenceForRuntime(envelope.ability, {
-            latestHeadSha: resolveCurrentGitHeadSha(context.cwd),
             runId: context.run_id,
             profileRef: context.profile,
             targetTabId: gate.targetTabId

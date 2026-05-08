@@ -1457,7 +1457,6 @@ describe("normalizeGateOptionsForContract", () => {
     };
     expect(
       evaluateXhsCloseoutEvidenceForContract(runtimeBoundSummary, {
-        latestHeadSha: "head-closeout-001",
         runId: "run-closeout-001",
         profileRef: "profile/xhs_closeout_001",
         targetTabId: 32
