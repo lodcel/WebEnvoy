@@ -10,6 +10,7 @@ import {
   evaluateXhsCloseoutEvidenceForContract,
   normalizeGateOptionsForContract,
   pickXhsCloseoutEvidenceSummaryFieldsForContract,
+  requiresCloseoutAuditForXhsBridgeSummaryForContract,
   requiresCanonicalExecutionAuditForContract,
   resolveForwardTimeoutMsForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract
@@ -1252,6 +1253,33 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBe(false);
   });
 
+  it("requires closeout audit for live XHS bridge route evidence without deterministic fields", () => {
+    const routeEvidenceSummary = {
+      route_evidence: {
+        route: "xhs.search.api",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success"
+      }
+    };
+
+    expect(
+      requiresCloseoutAuditForXhsBridgeSummaryForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: routeEvidenceSummary
+      })
+    ).toBe(true);
+
+    expect(
+      requiresCloseoutAuditForXhsBridgeSummaryForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "recon",
+        summary: routeEvidenceSummary
+      })
+    ).toBe(false);
+  });
+
   it("runs deterministic closeout multi-round evaluation for explicit runtime evidence input", () => {
     const summary = {
       closeout_evidence_input: {
@@ -1853,6 +1881,30 @@ describe("normalizeGateOptionsForContract", () => {
       passed: true,
       reproduced_multi_round: true,
       blockers: []
+    });
+  });
+
+  it("preserves explicit null closeout markers when bridge summary has no fallback payload", () => {
+    const picked = pickXhsCloseoutEvidenceSummaryFieldsForContract({
+      closeout_evidence_input: null,
+      summary: {
+        metrics: {
+          count: 1
+        }
+      }
+    });
+
+    expect(picked).toEqual({
+      closeout_evidence_input: null
+    });
+    expect(evaluateXhsCloseoutEvidenceForContract(picked)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
     });
   });
 

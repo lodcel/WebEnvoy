@@ -380,17 +380,20 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
             picked[key] = payload[key];
             continue;
         }
+        if (hasOwn(payload, key) && payload[key] === null) {
+            if (hasOwn(summary ?? undefined, key) && summary?.[key] !== null && summary?.[key] !== undefined) {
+                picked[key] = summary[key];
+                continue;
+            }
+            picked[key] = null;
+            continue;
+        }
         if (hasOwn(summary ?? undefined, key)) {
             picked[key] = summary?.[key];
         }
     }
     return picked;
 };
-const hasDeterministicCloseoutEvidenceFields = (summary) => hasOwn(summary, "closeout_evidence_input") ||
-    hasOwn(summary, "closeout_evidence_expected") ||
-    hasOwn(summary, "closeout_evidence_rounds") ||
-    Array.isArray(asObject(summary.closeout_route_evidence)?.evidence_rounds) ||
-    Array.isArray(asObject(summary.route_evidence)?.evidence_rounds);
 const isCloseoutPrimaryApiSuccessRoute = (record) => {
     const routeRole = asString(record?.route_role);
     const pathKind = asString(record?.path_kind);
@@ -663,6 +666,15 @@ export const shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract = (inp
         isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
         (isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.route_evidence)) ||
             isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.closeout_route_evidence))));
+};
+export const requiresCloseoutAuditForXhsBridgeSummaryForContract = (input) => {
+    const summary = asObject(input.summary);
+    return (summary?.closeout_audit_required === true ||
+        shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+            abilityId: input.abilityId,
+            requestedExecutionMode: input.requestedExecutionMode,
+            summary
+        }));
 };
 const markCloseoutAuditRequiredForXhsLiveRouteEvidence = (input) => {
     if (!shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
@@ -1647,13 +1659,11 @@ const xhsReadCommand = async (context, inputConfig) => {
             ...(asObject(bridgeResult.payload.summary) ?? {}),
             ...closeoutEvidenceSummaryFields
         };
-        const closeoutAuditRequired = mergedBridgeSummary.closeout_audit_required === true ||
-            (hasDeterministicCloseoutEvidenceFields(mergedBridgeSummary) &&
-                shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
-                    abilityId: envelope.ability.id,
-                    requestedExecutionMode: gate.requestedExecutionMode,
-                    summary: mergedBridgeSummary
-                }));
+        const closeoutAuditRequired = requiresCloseoutAuditForXhsBridgeSummaryForContract({
+            abilityId: envelope.ability.id,
+            requestedExecutionMode: gate.requestedExecutionMode,
+            summary: mergedBridgeSummary
+        });
         const bridgeSummaryForMapping = { ...mergedBridgeSummary };
         delete bridgeSummaryForMapping.closeout_audit_required;
         const summary = mapCapabilitySummaryForContract(envelope.ability.id, {

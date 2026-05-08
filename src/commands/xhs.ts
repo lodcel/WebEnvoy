@@ -4,6 +4,7 @@ export {
   evaluateXhsCloseoutEvidenceForContract,
   normalizeGateOptionsForContract,
   pickXhsCloseoutEvidenceSummaryFieldsForContract,
+  requiresCloseoutAuditForXhsBridgeSummaryForContract,
   requiresCanonicalExecutionAuditForContract,
   resolveForwardTimeoutMsForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract,
