@@ -567,6 +567,17 @@ const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
   "route_evidence"
 ] as const;
 
+const CLOSEOUT_BINDING_FIELD_KEYS = new Set([
+  "latest_head_sha",
+  "run_id",
+  "artifact_identity",
+  "artifact_identities",
+  "profile_ref",
+  "target_tab_id",
+  "page_url",
+  "action_ref"
+]);
+
 const isSparseCloseoutSummaryField = (value: unknown): boolean => {
   if (Array.isArray(value)) {
     return value.length === 0;
@@ -707,6 +718,15 @@ const mergeCloseoutSummaryObjectField = (
   for (const key of Object.keys(summaryObject)) {
     const rootField = hasOwn(rootObject, key) ? rootObject[key] : undefined;
     const summaryField = summaryObject[key];
+    if (
+      CLOSEOUT_BINDING_FIELD_KEYS.has(key) &&
+      summaryField !== null &&
+      summaryField !== undefined &&
+      !isSparseCloseoutSummaryField(summaryField)
+    ) {
+      merged[key] = summaryField;
+      continue;
+    }
     if (key === "evidence_rounds") {
       const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(rootField, summaryField);
       if (mergedRounds) {
