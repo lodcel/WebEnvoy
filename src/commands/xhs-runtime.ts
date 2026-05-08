@@ -501,7 +501,19 @@ const isSparseCloseoutSummaryField = (value: unknown): boolean => {
     return value.length === 0;
   }
   const object = asObject(value);
-  return object !== null && Object.keys(object).length === 0;
+  if (object === null) {
+    return false;
+  }
+  const values = Object.values(object);
+  return (
+    values.length === 0 ||
+    values.every(
+      (item) =>
+        item === null ||
+        item === undefined ||
+        isSparseCloseoutSummaryField(item)
+    )
+  );
 };
 
 export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObject): JsonObject => {
