@@ -182,6 +182,38 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("rejects unrelated provider-scoped artifacts even when they share the expected run prefix", () => {
+    const expected: CloseoutMultiRoundExpectedBinding = {
+      ...expectedBinding(),
+      run_id: "gha:23953203650:1",
+      artifact_identity: "gha:23953203650:1:live-evidence-round-1.log",
+      artifact_identities: undefined
+    };
+    const firstRound = {
+      ...successRound("gha:23953203650:1:live-evidence-round-1.log"),
+      run_id: "gha:23953203650:1"
+    };
+    const unrelatedArtifactRound = {
+      ...successRound("gha:23953203650:1:unrelated-runtime-log.txt"),
+      run_id: "gha:23953203650:1"
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [firstRound, unrelatedArtifactRound]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it.each([
     {
       name: "single round",

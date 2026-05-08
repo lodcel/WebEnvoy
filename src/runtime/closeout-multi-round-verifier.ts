@@ -106,10 +106,10 @@ const inferArtifactFamilyPrefix = (artifactIdentity: string | null): string | nu
   return artifactIdentity.slice(0, lastSeparatorIndex + 1);
 };
 
-const inferProviderScopedArtifactPrefix = (input: {
+const inferProviderScopedArtifactFamily = (input: {
   expectedRunId: string | null;
   expectedArtifactIdentity: string | null;
-}): string | null => {
+}): { prefix: string; suffix: string } | null => {
   if (
     input.expectedRunId === null ||
     input.expectedArtifactIdentity === null ||
@@ -117,7 +117,17 @@ const inferProviderScopedArtifactPrefix = (input: {
   ) {
     return null;
   }
-  return `${input.expectedRunId}:`;
+
+  const artifactName = input.expectedArtifactIdentity.slice(input.expectedRunId.length + 1);
+  const roundMatch = /^(.*(?:round|attempt)-)\d+(.*)$/.exec(artifactName);
+  if (roundMatch === null) {
+    return null;
+  }
+
+  return {
+    prefix: `${input.expectedRunId}:${roundMatch[1]}`,
+    suffix: roundMatch[2]
+  };
 };
 
 export const matchesCloseoutExpectedArtifactIdentity = (input: {
@@ -135,7 +145,7 @@ export const matchesCloseoutExpectedArtifactIdentity = (input: {
     ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
   ]);
   const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
-  const expectedProviderScopedArtifactPrefix = inferProviderScopedArtifactPrefix({
+  const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
     expectedRunId,
     expectedArtifactIdentity
   });
@@ -150,7 +160,7 @@ export const matchesCloseoutExpectedArtifactIdentity = (input: {
     expectedArtifactIdentities,
     expectedArtifactIdentity,
     expectedArtifactFamilyPrefix,
-    expectedProviderScopedArtifactPrefix,
+    expectedProviderScopedArtifactFamily,
     observedArtifactIdentity
   });
 };
@@ -160,7 +170,7 @@ const matchesExpectedArtifactIdentity = (input: {
   expectedArtifactIdentities: Set<string>;
   expectedArtifactIdentity: string | null;
   expectedArtifactFamilyPrefix: string | null;
-  expectedProviderScopedArtifactPrefix: string | null;
+  expectedProviderScopedArtifactFamily: { prefix: string; suffix: string } | null;
   observedArtifactIdentity: string | null;
 }): boolean => {
   if (input.observedArtifactIdentity === null) {
@@ -176,11 +186,15 @@ const matchesExpectedArtifactIdentity = (input: {
   }
 
   if (
-    input.expectedProviderScopedArtifactPrefix !== null &&
-    input.observedArtifactIdentity.startsWith(input.expectedProviderScopedArtifactPrefix) &&
-    input.observedArtifactIdentity.length > input.expectedProviderScopedArtifactPrefix.length
+    input.expectedProviderScopedArtifactFamily !== null &&
+    input.observedArtifactIdentity.startsWith(input.expectedProviderScopedArtifactFamily.prefix) &&
+    input.observedArtifactIdentity.endsWith(input.expectedProviderScopedArtifactFamily.suffix)
   ) {
-    return true;
+    const roundIndex = input.observedArtifactIdentity.slice(
+      input.expectedProviderScopedArtifactFamily.prefix.length,
+      input.observedArtifactIdentity.length - input.expectedProviderScopedArtifactFamily.suffix.length
+    );
+    return /^\d+$/.test(roundIndex);
   }
 
   if (input.expectedArtifactFamilyPrefix === null) {
@@ -240,7 +254,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
     ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
   ]);
   const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
-  const expectedProviderScopedArtifactPrefix = inferProviderScopedArtifactPrefix({
+  const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
     expectedRunId,
     expectedArtifactIdentity
   });
@@ -368,7 +382,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
         expectedArtifactIdentities,
         expectedArtifactIdentity,
         expectedArtifactFamilyPrefix,
-        expectedProviderScopedArtifactPrefix,
+        expectedProviderScopedArtifactFamily,
         observedArtifactIdentity
       })
     ) {
@@ -459,7 +473,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
         expectedArtifactIdentities,
         expectedArtifactIdentity,
         expectedArtifactFamilyPrefix,
-        expectedProviderScopedArtifactPrefix,
+        expectedProviderScopedArtifactFamily,
         observedArtifactIdentity
       }) &&
       matchesExpectedString(expectedProfileRef, observedProfileRef) &&

@@ -32,13 +32,21 @@ const inferArtifactFamilyPrefix = (artifactIdentity) => {
     }
     return artifactIdentity.slice(0, lastSeparatorIndex + 1);
 };
-const inferProviderScopedArtifactPrefix = (input) => {
+const inferProviderScopedArtifactFamily = (input) => {
     if (input.expectedRunId === null ||
         input.expectedArtifactIdentity === null ||
         !input.expectedArtifactIdentity.startsWith(`${input.expectedRunId}:`)) {
         return null;
     }
-    return `${input.expectedRunId}:`;
+    const artifactName = input.expectedArtifactIdentity.slice(input.expectedRunId.length + 1);
+    const roundMatch = /^(.*(?:round|attempt)-)\d+(.*)$/.exec(artifactName);
+    if (roundMatch === null) {
+        return null;
+    }
+    return {
+        prefix: `${input.expectedRunId}:${roundMatch[1]}`,
+        suffix: roundMatch[2]
+    };
 };
 export const matchesCloseoutExpectedArtifactIdentity = (input) => {
     const expectedRunId = normalizeString(input.expectedRunId);
@@ -50,7 +58,7 @@ export const matchesCloseoutExpectedArtifactIdentity = (input) => {
         ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
     ]);
     const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
-    const expectedProviderScopedArtifactPrefix = inferProviderScopedArtifactPrefix({
+    const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
         expectedRunId,
         expectedArtifactIdentity
     });
@@ -63,7 +71,7 @@ export const matchesCloseoutExpectedArtifactIdentity = (input) => {
         expectedArtifactIdentities,
         expectedArtifactIdentity,
         expectedArtifactFamilyPrefix,
-        expectedProviderScopedArtifactPrefix,
+        expectedProviderScopedArtifactFamily,
         observedArtifactIdentity
     });
 };
@@ -77,10 +85,11 @@ const matchesExpectedArtifactIdentity = (input) => {
     if (input.expectedArtifactIdentity === input.observedArtifactIdentity) {
         return true;
     }
-    if (input.expectedProviderScopedArtifactPrefix !== null &&
-        input.observedArtifactIdentity.startsWith(input.expectedProviderScopedArtifactPrefix) &&
-        input.observedArtifactIdentity.length > input.expectedProviderScopedArtifactPrefix.length) {
-        return true;
+    if (input.expectedProviderScopedArtifactFamily !== null &&
+        input.observedArtifactIdentity.startsWith(input.expectedProviderScopedArtifactFamily.prefix) &&
+        input.observedArtifactIdentity.endsWith(input.expectedProviderScopedArtifactFamily.suffix)) {
+        const roundIndex = input.observedArtifactIdentity.slice(input.expectedProviderScopedArtifactFamily.prefix.length, input.observedArtifactIdentity.length - input.expectedProviderScopedArtifactFamily.suffix.length);
+        return /^\d+$/.test(roundIndex);
     }
     if (input.expectedArtifactFamilyPrefix === null) {
         return false;
@@ -116,7 +125,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
     ]);
     const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
-    const expectedProviderScopedArtifactPrefix = inferProviderScopedArtifactPrefix({
+    const expectedProviderScopedArtifactFamily = inferProviderScopedArtifactFamily({
         expectedRunId,
         expectedArtifactIdentity
     });
@@ -175,7 +184,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             expectedArtifactIdentities,
             expectedArtifactIdentity,
             expectedArtifactFamilyPrefix,
-            expectedProviderScopedArtifactPrefix,
+            expectedProviderScopedArtifactFamily,
             observedArtifactIdentity
         })) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
@@ -216,7 +225,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
                 expectedArtifactIdentities,
                 expectedArtifactIdentity,
                 expectedArtifactFamilyPrefix,
-                expectedProviderScopedArtifactPrefix,
+                expectedProviderScopedArtifactFamily,
                 observedArtifactIdentity
             }) &&
             matchesExpectedString(expectedProfileRef, observedProfileRef) &&

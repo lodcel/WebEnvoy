@@ -188,6 +188,35 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("rejects unrelated provider-scoped singleton artifacts that only share the run prefix", () => {
+    const input = baseInput();
+    input.expected.run_id = "gha:23953203650:1";
+    input.expected.artifact_identity = "gha:23953203650:1:live-evidence-round-1.log";
+    delete input.expected.artifact_identities;
+    input.evidence.run_id = "gha:23953203650:1";
+    input.evidence.artifact_identity = "gha:23953203650:1:unrelated-runtime-log.txt";
+    input.evidence_rounds = [
+      {
+        ...input.evidence,
+        artifact_identity: "gha:23953203650:1:live-evidence-round-1.log"
+      },
+      { ...input.evidence }
+    ];
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      freshness: {
+        artifact_matches: false
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it.each([
     {
       name: "non-primary route",
