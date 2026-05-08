@@ -624,8 +624,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): bool
     : null;
   return (
     summary.closeout_audit_required === true &&
-    isCloseoutPrimaryApiSuccessRoute(routeEvidence) &&
-    routeRoundRecords !== null
+    isCloseoutPrimaryApiSuccessRoute(routeEvidence)
   );
 };
 
