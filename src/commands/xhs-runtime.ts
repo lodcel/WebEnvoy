@@ -732,14 +732,13 @@ const mergeCloseoutEvidenceRoundRecordValues = (
   if (rootRounds.length === 0 && summaryRounds.length === 0) {
     return null;
   }
-  if (
+  const rootRoundsForMerge =
     rootRounds.length === summaryRounds.length &&
     isRicherCloseoutSummaryField(rootRounds, summaryRounds)
-  ) {
-    return summaryRounds;
-  }
+      ? rootRounds.filter((round) => !isSparseCloseoutSummaryField(round))
+      : rootRounds;
   const byRoundKey = new Map<string, unknown>();
-  for (const round of [...rootRounds, ...summaryRounds]) {
+  for (const round of [...rootRoundsForMerge, ...summaryRounds]) {
     const key = toCloseoutRoundSemanticKey(round);
     const existing = byRoundKey.get(key);
     if (
