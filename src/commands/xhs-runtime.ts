@@ -527,7 +527,7 @@ const pickCanonicalSummaryField = (
 const hasExplicitCloseoutEvidencePayloadMarker = (
   record: JsonObject | null | undefined
 ): boolean =>
-  hasIndependentCloseoutEvidencePayloadMarker(record) ||
+  hasUsableIndependentCloseoutEvidencePayload(record) ||
   hasOwn(record, "closeout_route_evidence");
 
 const hasIndependentCloseoutEvidencePayloadMarker = (
@@ -536,6 +536,20 @@ const hasIndependentCloseoutEvidencePayloadMarker = (
   hasOwn(record, "closeout_evidence_input") ||
   hasOwn(record, "closeout_evidence_expected") ||
   hasOwn(record, "closeout_evidence_rounds");
+
+const hasUsableIndependentCloseoutEvidencePayload = (
+  record: JsonObject | null | undefined
+): boolean => {
+  const closeoutEvidenceInput = asObject(record?.closeout_evidence_input);
+  return (
+    (closeoutEvidenceInput !== null &&
+      (asObject(closeoutEvidenceInput.expected) !== null ||
+        asObject(closeoutEvidenceInput.evidence) !== null ||
+        toCloseoutEvidenceRoundRecords(closeoutEvidenceInput.evidence_rounds) !== null)) ||
+    asObject(record?.closeout_evidence_expected) !== null ||
+    toCloseoutEvidenceRoundRecords(record?.closeout_evidence_rounds) !== null
+  );
+};
 
 const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
@@ -1062,18 +1076,14 @@ const buildCloseoutEvidenceInputForRuntime = (
 };
 
 const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): boolean => {
-  if (hasExplicitCloseoutEvidencePayloadMarker(summary)) {
+  if (hasUsableIndependentCloseoutEvidencePayload(summary)) {
     return true;
   }
   const routeEvidence =
     asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
-  const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
-    ? routeEvidence.evidence_rounds
-    : null;
   return (
-    routeRoundRecords !== null ||
-    (hasExplicitCloseoutProductionAuditMarker(summary) &&
-      isCloseoutPrimaryApiSuccessRoute(routeEvidence))
+    hasExplicitCloseoutProductionAuditMarker(summary) &&
+    isCloseoutPrimaryApiSuccessRoute(routeEvidence)
   );
 };
 

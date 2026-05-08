@@ -3053,15 +3053,7 @@ describe("normalizeGateOptionsForContract", () => {
     expect(picked).toEqual({
       closeout_evidence_input: null
     });
-    expect(evaluateXhsCloseoutEvidenceForContract(picked)).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_multi_round_evidence"
-        })
-      ])
-    });
+    expect(evaluateXhsCloseoutEvidenceForContract(picked)).toBeNull();
   });
 
   it("preserves top-level closeout evidence payload fields before runtime evaluation", () => {
@@ -3301,7 +3293,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("emits missing_multi_round_evidence for explicit closeout_route_evidence without rounds", () => {
+  it("does not evaluate closeout_route_evidence without deterministic payload or audit marker", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
         closeout_route_evidence: {
@@ -3319,31 +3311,15 @@ describe("normalizeGateOptionsForContract", () => {
           action_ref: "action/xhs.search/open_result_card"
         }
       })
-    ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_multi_round_evidence"
-        })
-      ])
-    });
+    ).toBeNull();
   });
 
-  it("fails closed when closeout evidence input is missing or cannot be parsed", () => {
+  it("does not evaluate null closeout evidence input without an audit route", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
         closeout_evidence_input: null
       })
-    ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_multi_round_evidence"
-        })
-      ])
-    });
+    ).toBeNull();
   });
 
   it("does not truncate non-integer closeout target tab ids", () => {

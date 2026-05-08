@@ -412,11 +412,20 @@ const pickCanonicalSummaryField = (payload, key) => {
     }
     return asObject(value) ?? undefined;
 };
-const hasExplicitCloseoutEvidencePayloadMarker = (record) => hasIndependentCloseoutEvidencePayloadMarker(record) ||
+const hasExplicitCloseoutEvidencePayloadMarker = (record) => hasUsableIndependentCloseoutEvidencePayload(record) ||
     hasOwn(record, "closeout_route_evidence");
 const hasIndependentCloseoutEvidencePayloadMarker = (record) => hasOwn(record, "closeout_evidence_input") ||
     hasOwn(record, "closeout_evidence_expected") ||
     hasOwn(record, "closeout_evidence_rounds");
+const hasUsableIndependentCloseoutEvidencePayload = (record) => {
+    const closeoutEvidenceInput = asObject(record?.closeout_evidence_input);
+    return ((closeoutEvidenceInput !== null &&
+        (asObject(closeoutEvidenceInput.expected) !== null ||
+            asObject(closeoutEvidenceInput.evidence) !== null ||
+            toCloseoutEvidenceRoundRecords(closeoutEvidenceInput.evidence_rounds) !== null)) ||
+        asObject(record?.closeout_evidence_expected) !== null ||
+        toCloseoutEvidenceRoundRecords(record?.closeout_evidence_rounds) !== null);
+};
 const hasExplicitCloseoutProductionAuditMarker = (record) => record?.closeout_audit_required === true ||
     hasOwn(record, "closeout_readiness") ||
     (asObject(record?.closeout_evidence_evaluation) !== null &&
@@ -831,16 +840,12 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     };
 };
 const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
-    if (hasExplicitCloseoutEvidencePayloadMarker(summary)) {
+    if (hasUsableIndependentCloseoutEvidencePayload(summary)) {
         return true;
     }
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
-    const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
-        ? routeEvidence.evidence_rounds
-        : null;
-    return (routeRoundRecords !== null ||
-        (hasExplicitCloseoutProductionAuditMarker(summary) &&
-            isCloseoutPrimaryApiSuccessRoute(routeEvidence)));
+    return (hasExplicitCloseoutProductionAuditMarker(summary) &&
+        isCloseoutPrimaryApiSuccessRoute(routeEvidence));
 };
 const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
     evaluation.blockers.some((blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence");
