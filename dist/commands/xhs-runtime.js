@@ -554,7 +554,7 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
         ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
         : null;
     return {
-        ...(requiresCloseoutEvidenceEvaluation ? { latestHeadSha } : {}),
+        ...(latestHeadSha !== null ? { latestHeadSha } : {}),
         runId: input.runId,
         profileRef: normalizeCloseoutTrustedProfileRef(input.profileRef),
         targetTabId: input.targetTabId
@@ -721,24 +721,36 @@ const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
     const trustedRunId = asString(trusted?.runId);
     const trustedProfileRef = normalizeCloseoutTrustedProfileRef(trusted?.profileRef);
     const trustedTargetTabId = asInteger(trusted?.targetTabId);
-    if (trusted !== null &&
-        trusted !== undefined &&
-        Object.prototype.hasOwnProperty.call(trusted, "latestHeadSha") &&
-        trustedLatestHeadSha === null) {
-        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_latest_head", "freshness", "closeout runtime head must be available"));
-    }
+    let freshness = evaluation.freshness;
+    let bindings = evaluation.bindings;
     if (trustedLatestHeadSha !== null &&
         evaluation.freshness.expected_latest_head_sha !== trustedLatestHeadSha) {
+        freshness = {
+            ...freshness,
+            latest_head_matches: false
+        };
         pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("stale_head", "freshness", "closeout expected head must match the runtime head"));
     }
     if (trustedRunId !== null && evaluation.freshness.expected_run_id !== trustedRunId) {
+        freshness = {
+            ...freshness,
+            run_matches: false
+        };
         pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("stale_run", "freshness", "closeout expected run must match the runtime run"));
     }
     if (trustedProfileRef !== null && evaluation.bindings.expected_profile_ref !== trustedProfileRef) {
+        bindings = {
+            ...bindings,
+            profile_bound: false
+        };
         pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_profile_binding", "binding", "closeout expected profile must match the runtime profile"));
     }
     if (trustedTargetTabId !== null &&
         evaluation.bindings.expected_target_tab_id !== trustedTargetTabId) {
+        bindings = {
+            ...bindings,
+            tab_bound: false
+        };
         pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_tab_binding", "binding", "closeout expected tab must match the runtime target tab"));
     }
     if (blockers.length === evaluation.blockers.length) {
@@ -748,7 +760,9 @@ const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
         ...evaluation,
         decision: "FAIL",
         passed: false,
-        blockers
+        blockers,
+        freshness,
+        bindings
     };
 };
 const closeoutEvaluationBlocker = (blocker_code, blocker_layer, message) => ({

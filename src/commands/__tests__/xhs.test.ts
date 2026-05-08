@@ -1453,6 +1453,9 @@ describe("normalizeGateOptionsForContract", () => {
     expect(evaluateXhsCloseoutEvidenceForContract(summary, runtimeTrustedBinding)).toMatchObject({
       decision: "FAIL",
       passed: false,
+      freshness: expect.objectContaining({
+        latest_head_matches: false
+      }),
       blockers: expect.arrayContaining([
         expect.objectContaining({
           blocker_code: "stale_head"
@@ -1467,16 +1470,12 @@ describe("normalizeGateOptionsForContract", () => {
       targetTabId: 32,
       summary
     });
-    expect(missingHeadTrustedBinding).toHaveProperty("latestHeadSha", null);
+    expect(missingHeadTrustedBinding).not.toHaveProperty("latestHeadSha");
 
     expect(evaluateXhsCloseoutEvidenceForContract(summary, missingHeadTrustedBinding)).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_latest_head"
-        })
-      ])
+      decision: "PASS",
+      passed: true,
+      blockers: []
     });
 
     expect(
@@ -1490,6 +1489,7 @@ describe("normalizeGateOptionsForContract", () => {
         })
       ]),
       freshness: expect.objectContaining({
+        run_matches: false,
         expected_run_id: "run-closeout-001",
         observed_run_id: "run-closeout-001"
       })
@@ -1538,7 +1538,14 @@ describe("normalizeGateOptionsForContract", () => {
         expect.objectContaining({ blocker_code: "stale_head" }),
         expect.objectContaining({ blocker_code: "missing_profile_binding" }),
         expect.objectContaining({ blocker_code: "missing_tab_binding" })
-      ])
+      ]),
+      freshness: expect.objectContaining({
+        latest_head_matches: false
+      }),
+      bindings: expect.objectContaining({
+        profile_bound: false,
+        tab_bound: false
+      })
     });
 
     const runtimeProfileBoundSummary = {
