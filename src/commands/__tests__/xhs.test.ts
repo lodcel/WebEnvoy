@@ -1185,6 +1185,18 @@ describe("normalizeGateOptionsForContract", () => {
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
         abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          route_evidence: {
+            evidence_class: "passive_api_capture"
+          }
+        }
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
         requestedExecutionMode: "recon",
         summary: routeEvidenceSummary
       })

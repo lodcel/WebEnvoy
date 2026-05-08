@@ -364,7 +364,8 @@ const isCloseoutPrimaryApiSuccessRoute = (record) => {
     return routeRole === "primary" && pathKind === "api" && evidenceStatus === "success";
 };
 const isXhsLiveRouteEvidenceForCloseoutAudit = (record) => isCloseoutPrimaryApiSuccessRoute(record) ||
-    asString(record?.route_evidence_class) === "passive_api_capture";
+    asString(record?.route_evidence_class) === "passive_api_capture" ||
+    asString(record?.evidence_class) === "passive_api_capture";
 const hasCloseoutRouteEvaluationMarker = (record) => {
     if (isCloseoutPrimaryApiSuccessRoute(record) &&
         (hasOwn(record, "closeout_evidence") || hasOwn(record, "closeout_evidence_evaluation"))) {

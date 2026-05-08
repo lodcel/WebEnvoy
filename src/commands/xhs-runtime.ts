@@ -471,7 +471,8 @@ const isXhsLiveRouteEvidenceForCloseoutAudit = (
   record: JsonObject | null | undefined
 ): boolean =>
   isCloseoutPrimaryApiSuccessRoute(record) ||
-  asString(record?.route_evidence_class) === "passive_api_capture";
+  asString(record?.route_evidence_class) === "passive_api_capture" ||
+  asString(record?.evidence_class) === "passive_api_capture";
 
 const hasCloseoutRouteEvaluationMarker = (record: JsonObject | null | undefined): boolean => {
   if (
