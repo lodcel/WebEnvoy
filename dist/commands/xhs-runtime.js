@@ -8,6 +8,7 @@ import { buildLoopbackGate } from "../runtime/native-messaging/loopback-gate.js"
 import { buildLoopbackGatePayload } from "../runtime/native-messaging/loopback-gate-payload.js";
 import { appendFingerprintContext, buildFingerprintContextForMeta } from "../runtime/fingerprint-runtime.js";
 import { classifyCloseoutHardStopRisk } from "../runtime/closeout-hard-stop-risk.js";
+import { evaluateCloseoutEvidence } from "../runtime/closeout-evidence-evaluator.js";
 import { verifyCloseoutCanonicalExecutionAudit } from "../runtime/closeout-canonical-execution-audit-verifier.js";
 import { ProfileStore } from "../runtime/profile-store.js";
 import { isAccountSafetyReason, toAccountSafetyStatus } from "../runtime/account-safety.js";
@@ -369,6 +370,94 @@ const isCloseoutPrimaryApiSuccessRoute = (record) => {
     const pathKind = asString(record?.path_kind);
     const evidenceStatus = asString(record?.evidence_status);
     return routeRole === "primary" && pathKind === "api" && evidenceStatus === "success";
+};
+const asStringArray = (value) => Array.isArray(value)
+    ? value
+        .map((item) => asString(item))
+        .filter((item) => item !== null)
+    : null;
+const toCloseoutEvidenceExpected = (record) => {
+    if (!record) {
+        return null;
+    }
+    return {
+        latest_head_sha: asString(record.latest_head_sha),
+        run_id: asString(record.run_id),
+        artifact_identity: asString(record.artifact_identity),
+        artifact_identities: asStringArray(record.artifact_identities),
+        profile_ref: asString(record.profile_ref),
+        target_tab_id: asInteger(record.target_tab_id),
+        page_url: asString(record.page_url),
+        action_ref: asString(record.action_ref)
+    };
+};
+const toCloseoutEvidenceRound = (record) => {
+    if (!record) {
+        return null;
+    }
+    return {
+        route_role: asString(record.route_role),
+        path_kind: asString(record.path_kind),
+        evidence_status: asString(record.evidence_status),
+        evidence_class: asString(record.evidence_class ?? record.route_evidence_class),
+        reproduced_multi_round: record.reproduced_multi_round === true,
+        head_sha: asString(record.head_sha),
+        run_id: asString(record.run_id),
+        artifact_identity: asString(record.artifact_identity),
+        profile_ref: asString(record.profile_ref),
+        target_tab_id: asInteger(record.target_tab_id),
+        page_url: asString(record.page_url),
+        action_ref: asString(record.action_ref)
+    };
+};
+const buildCloseoutEvidenceInputForRuntime = (summary) => {
+    const explicitInput = asObject(summary.closeout_evidence_input);
+    const expected = toCloseoutEvidenceExpected(asObject(explicitInput?.expected)) ??
+        toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
+    const evidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence)) ??
+        toCloseoutEvidenceRound(asObject(summary.closeout_route_evidence)) ??
+        toCloseoutEvidenceRound(asObject(summary.route_evidence));
+    if (!expected || !evidence) {
+        return null;
+    }
+    const roundRecords = Array.isArray(explicitInput?.evidence_rounds)
+        ? explicitInput.evidence_rounds
+        : Array.isArray(summary.closeout_evidence_rounds)
+            ? summary.closeout_evidence_rounds
+            : null;
+    const evidenceRounds = roundRecords
+        ?.map((round) => toCloseoutEvidenceRound(asObject(round)))
+        .filter((round) => round !== null);
+    return {
+        expected,
+        evidence,
+        ...(evidenceRounds ? { evidence_rounds: evidenceRounds } : {})
+    };
+};
+export const evaluateXhsCloseoutEvidenceForContract = (summary) => {
+    const input = buildCloseoutEvidenceInputForRuntime(summary);
+    return input ? evaluateCloseoutEvidence(input) : null;
+};
+const assertCloseoutEvidenceForRuntime = (ability, expectedRunId, summary) => {
+    const evaluation = evaluateXhsCloseoutEvidenceForContract(summary);
+    if (!evaluation) {
+        return;
+    }
+    summary.closeout_evidence_evaluation = evaluation;
+    if (evaluation.passed) {
+        return;
+    }
+    throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout evidence evaluation invalid", {
+        retryable: false,
+        details: {
+            ability_id: ability.id,
+            stage: "execution",
+            reason: "CLOSEOUT_EVIDENCE_EVALUATION_INVALID",
+            run_id: expectedRunId,
+            closeout_evidence_evaluation: evaluation,
+            ...(asObject(summary.execution_audit) ? { execution_audit: summary.execution_audit } : {})
+        }
+    });
 };
 const isXhsLiveRouteEvidenceForCloseoutAudit = (record) => isCloseoutPrimaryApiSuccessRoute(record) ||
     asString(record?.route_evidence_class) === "passive_api_capture" ||
@@ -1395,6 +1484,7 @@ const xhsReadCommand = async (context, inputConfig) => {
                 : {}),
             ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
         });
+        assertCloseoutEvidenceForRuntime(envelope.ability, context.run_id, summary);
         if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
             assertCloseoutCanonicalExecutionAuditForRuntime(envelope.ability, context.run_id, {
                 success: {
