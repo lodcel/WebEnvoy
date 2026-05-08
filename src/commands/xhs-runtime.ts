@@ -924,6 +924,7 @@ const buildCloseoutEvidenceInputForRuntime = (
   const explicitInput = asObject(summary.closeout_evidence_input);
   const routeEvidence =
     asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
+  const hasExplicitCloseoutRouteEvidence = hasOwn(summary, "closeout_route_evidence");
   const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
   const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
   const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
@@ -985,9 +986,13 @@ const buildCloseoutEvidenceInputForRuntime = (
   const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
     ? explicitEvidenceCandidate
     : null;
-  const explicitEvidenceCanProvideRound = closeoutEvidenceMatchesExpected(expected, explicitEvidence);
+  const explicitCloseoutRouteEvidence =
+    hasExplicitCloseoutRouteEvidence && isCompleteCloseoutEvidenceRound(routeEvidenceRound)
+      ? routeEvidenceRound
+      : null;
   const evidence =
-    (explicitEvidenceCanProvideRound ? explicitEvidence : null) ??
+    explicitEvidence ??
+    explicitCloseoutRouteEvidence ??
     (deterministicRoundsCanProvideEvidence && canonicalEvidenceRoundCanProvideRound
       ? selectedEvidenceRound
       : null) ??
@@ -1040,7 +1045,7 @@ const isLegacyCloseoutEvidenceEvaluationCompatOnly = (
   summary: JsonObject,
   evaluation: ReturnType<typeof evaluateCloseoutEvidence>
 ): boolean =>
-  !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
+  !hasExplicitCloseoutEvidencePayloadMarker(summary) &&
   evaluation.blockers.some(
     (blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence"
   );

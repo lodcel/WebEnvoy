@@ -1700,7 +1700,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("uses valid deterministic rounds when singleton evidence is stale", () => {
+  it("keeps stale explicit singleton evidence on the fail-fast path", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -1744,12 +1744,16 @@ describe("normalizeGateOptionsForContract", () => {
         }
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
+      decision: "FAIL",
+      passed: false,
       freshness: expect.objectContaining({
-        observed_head_sha: "head-closeout-001"
+        observed_head_sha: "head-closeout-stale"
       }),
-      blockers: []
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_head"
+        })
+      ])
     });
   });
 
@@ -1800,7 +1804,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("prefers deterministic rounds over stale closeout_route_evidence for allowlist expectations", () => {
+  it("keeps stale explicit closeout_route_evidence on the fail-fast path", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -1843,10 +1847,16 @@ describe("normalizeGateOptionsForContract", () => {
         closeout_evidence_rounds: [firstRound, secondRound]
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      reproduced_multi_round: true,
-      blockers: []
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_head"
+        }),
+        expect.objectContaining({
+          blocker_code: "stale_run"
+        })
+      ])
     });
   });
 

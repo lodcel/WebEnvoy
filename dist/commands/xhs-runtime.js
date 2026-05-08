@@ -724,6 +724,7 @@ const toCloseoutEvidenceRoundRecords = (records) => {
 const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
+    const hasExplicitCloseoutRouteEvidence = hasOwn(summary, "closeout_route_evidence");
     const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
     const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
     const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
@@ -770,8 +771,11 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
         ? explicitEvidenceCandidate
         : null;
-    const explicitEvidenceCanProvideRound = closeoutEvidenceMatchesExpected(expected, explicitEvidence);
-    const evidence = (explicitEvidenceCanProvideRound ? explicitEvidence : null) ??
+    const explicitCloseoutRouteEvidence = hasExplicitCloseoutRouteEvidence && isCompleteCloseoutEvidenceRound(routeEvidenceRound)
+        ? routeEvidenceRound
+        : null;
+    const evidence = explicitEvidence ??
+        explicitCloseoutRouteEvidence ??
         (deterministicRoundsCanProvideEvidence && canonicalEvidenceRoundCanProvideRound
             ? selectedEvidenceRound
             : null) ??
@@ -813,7 +817,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
         (hasExplicitCloseoutProductionAuditMarker(summary) &&
             isCloseoutPrimaryApiSuccessRoute(routeEvidence)));
 };
-const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
+const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasExplicitCloseoutEvidencePayloadMarker(summary) &&
     evaluation.blockers.some((blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence");
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
