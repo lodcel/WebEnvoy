@@ -1711,6 +1711,18 @@ describe("normalizeGateOptionsForContract", () => {
       await rm(packagedRuntimeDir, { recursive: true, force: true });
     }
     expect(
+      evaluateXhsCloseoutEvidenceForContract(summary, {
+        runId: "run-closeout-001",
+        profileRef: "profile/xhs_closeout_001",
+        targetTabId: 32
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: []
+    });
+
+    expect(
       evaluateXhsCloseoutEvidenceForContract(runtimeBoundSummary, {
         runId: "run-closeout-001",
         profileRef: "profile/xhs_closeout_001",
