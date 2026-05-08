@@ -697,20 +697,6 @@ const toUsableCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | nul
   return usableRecords.length > 0 ? usableRecords : null;
 };
 
-const resolveCommonCloseoutRoundHeadSha = (roundRecords: unknown[] | null): string | null => {
-  if (!roundRecords) {
-    return null;
-  }
-  const headShas = new Set<string>();
-  for (const roundRecord of roundRecords) {
-    const headSha = asString(asObject(roundRecord)?.head_sha);
-    if (headSha) {
-      headShas.add(headSha);
-    }
-  }
-  return headShas.size === 1 ? [...headShas][0] ?? null : null;
-};
-
 const buildCloseoutEvidenceInputForRuntime = (
   summary: JsonObject,
   trustedExpectedBinding?: CloseoutEvidenceTrustedExpectedBinding | null
@@ -724,12 +710,8 @@ const buildCloseoutEvidenceInputForRuntime = (
   const routeRoundRecords = toUsableCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
   const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
   const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
-  const trustedExpectedBindingWithHeadFallback = {
-    ...(trustedExpectedBinding ?? {}),
-    latestHeadSha:
-      asString(trustedExpectedBinding?.latestHeadSha) ??
-      resolveCommonCloseoutRoundHeadSha(roundRecords) ??
-      asString(routeEvidenceRound?.head_sha)
+  const trustedExpectedBindingInput = {
+    ...(trustedExpectedBinding ?? {})
   };
   const explicitExpectedCandidate = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
   const summaryExpectedCandidate = toCloseoutEvidenceExpected(
@@ -737,11 +719,11 @@ const buildCloseoutEvidenceInputForRuntime = (
   );
   const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(
     explicitExpectedCandidate,
-    trustedExpectedBindingWithHeadFallback
+    trustedExpectedBindingInput
   );
   const summaryExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(
     summaryExpectedCandidate,
-    trustedExpectedBindingWithHeadFallback
+    trustedExpectedBindingInput
   );
   const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidateWithTrustedRun)
     ? explicitExpectedCandidateWithTrustedRun

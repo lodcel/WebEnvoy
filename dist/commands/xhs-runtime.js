@@ -536,19 +536,6 @@ const toUsableCloseoutEvidenceRoundRecords = (records) => {
     const usableRecords = records.filter((record) => isCompleteCloseoutEvidenceRound(toCloseoutEvidenceRound(asObject(record))));
     return usableRecords.length > 0 ? usableRecords : null;
 };
-const resolveCommonCloseoutRoundHeadSha = (roundRecords) => {
-    if (!roundRecords) {
-        return null;
-    }
-    const headShas = new Set();
-    for (const roundRecord of roundRecords) {
-        const headSha = asString(asObject(roundRecord)?.head_sha);
-        if (headSha) {
-            headShas.add(headSha);
-        }
-    }
-    return headShas.size === 1 ? [...headShas][0] ?? null : null;
-};
 const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
@@ -558,16 +545,13 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     const routeRoundRecords = toUsableCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
     const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
     const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
-    const trustedExpectedBindingWithHeadFallback = {
-        ...(trustedExpectedBinding ?? {}),
-        latestHeadSha: asString(trustedExpectedBinding?.latestHeadSha) ??
-            resolveCommonCloseoutRoundHeadSha(roundRecords) ??
-            asString(routeEvidenceRound?.head_sha)
+    const trustedExpectedBindingInput = {
+        ...(trustedExpectedBinding ?? {})
     };
     const explicitExpectedCandidate = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
     const summaryExpectedCandidate = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
-    const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(explicitExpectedCandidate, trustedExpectedBindingWithHeadFallback);
-    const summaryExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(summaryExpectedCandidate, trustedExpectedBindingWithHeadFallback);
+    const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(explicitExpectedCandidate, trustedExpectedBindingInput);
+    const summaryExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(summaryExpectedCandidate, trustedExpectedBindingInput);
     const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidateWithTrustedRun)
         ? explicitExpectedCandidateWithTrustedRun
         : null;
