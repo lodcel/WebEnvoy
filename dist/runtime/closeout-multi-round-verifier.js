@@ -151,6 +151,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         const observedProfileRef = normalizeString(evidenceRound.profile_ref);
         const observedPageUrl = normalizeString(evidenceRound.page_url);
         const observedActionRef = normalizeString(evidenceRound.action_ref);
+        let acceptedArtifactIdentity = false;
         if (routeRole !== "primary") {
             pushUniqueBlocker(blockers, blocker("non_primary_route", "route", "multi-round closeout evidence must use the primary route"));
         }
@@ -197,6 +198,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         }
         else {
             artifactIdentities.add(observedArtifactIdentity);
+            acceptedArtifactIdentity = true;
         }
         if (observedArtifactIdentity !== null && expectedArtifactIdentities.has(observedArtifactIdentity)) {
             expectedArtifactObserved = true;
@@ -221,6 +223,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             expectedLatestHeadSha === observedHeadSha &&
             matchesExpectedString(expectedRunId, observedRunId) &&
             observedArtifactIdentity !== null &&
+            acceptedArtifactIdentity &&
             matchesExpectedArtifactIdentity({
                 explicitArtifactContract,
                 expectedArtifactIdentities,

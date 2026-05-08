@@ -271,6 +271,25 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("does not count duplicate artifact rounds as accepted evidence", () => {
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected: expectedBinding(),
+        evidence_rounds: [successRound(), successRound()]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      accepted_round_count: 1,
+      unique_artifact_count: 1,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
+  });
+
   it.each([
     {
       name: "single round",

@@ -195,6 +195,25 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("does not report duplicate artifacts as accepted multi-round evidence", () => {
+    const input = baseInput();
+    input.evidence_rounds = [{ ...input.evidence }, { ...input.evidence }];
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      multi_round: {
+        accepted_round_count: 1,
+        unique_artifact_count: 1
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
+    });
+  });
+
   it("accepts singleton evidence bound to a sibling round artifact when only singular artifact_identity is expected", () => {
     const input = baseInput();
     delete input.expected.artifact_identities;
