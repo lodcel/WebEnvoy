@@ -631,6 +631,28 @@ const isCompleteCloseoutEvidenceRound = (
     evidence.page_url !== null &&
     evidence.action_ref !== null;
 
+const closeoutEvidenceMatchesExpected = (
+  expected: EvaluateCloseoutEvidenceInput["expected"] | null,
+  evidence: EvaluateCloseoutEvidenceInput["evidence"] | null
+): boolean => {
+  if (!isCompleteCloseoutEvidenceExpected(expected) || !isCompleteCloseoutEvidenceRound(evidence)) {
+    return false;
+  }
+  const expectedArtifactIdentities =
+    Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0
+      ? expected.artifact_identities
+      : [expected.artifact_identity];
+  return (
+    expected.latest_head_sha === evidence.head_sha &&
+    expected.run_id === evidence.run_id &&
+    expectedArtifactIdentities.includes(evidence.artifact_identity) &&
+    expected.profile_ref === evidence.profile_ref &&
+    expected.target_tab_id === evidence.target_tab_id &&
+    expected.page_url === evidence.page_url &&
+    expected.action_ref === evidence.action_ref
+  );
+};
+
 const fillMissingTrustedExpectedBinding = (
   expected: EvaluateCloseoutEvidenceInput["expected"] | null,
   trusted?: CloseoutEvidenceTrustedExpectedBinding | null
@@ -658,9 +680,10 @@ const toUsableCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | nul
   if (!Array.isArray(records) || records.length === 0) {
     return null;
   }
-  return records.every((record) => isCompleteCloseoutEvidenceRound(toCloseoutEvidenceRound(asObject(record))))
-    ? records
-    : null;
+  const usableRecords = records.filter((record) =>
+    isCompleteCloseoutEvidenceRound(toCloseoutEvidenceRound(asObject(record)))
+  );
+  return usableRecords.length > 0 ? usableRecords : null;
 };
 
 const buildCloseoutEvidenceInputForRuntime = (
@@ -716,12 +739,14 @@ const buildCloseoutEvidenceInputForRuntime = (
   const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
     ? explicitEvidenceCandidate
     : null;
+  const explicitEvidenceCanProvideRound = closeoutEvidenceMatchesExpected(expected, explicitEvidence);
   const evidence =
-    explicitEvidence ??
+    (explicitEvidenceCanProvideRound ? explicitEvidence : null) ??
     (canonicalEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
     (explicitExpectedBinding && firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
-    (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null);
+    (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
+    explicitEvidence;
   if (!expected || !evidence) {
     return null;
   }
