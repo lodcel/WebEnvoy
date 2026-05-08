@@ -1,4 +1,4 @@
-import { verifyCloseoutMultiRoundEvidence } from "./closeout-multi-round-verifier.js";
+import { matchesCloseoutExpectedArtifactIdentity, verifyCloseoutMultiRoundEvidence } from "./closeout-multi-round-verifier.js";
 const normalizeString = (value) => {
     if (typeof value !== "string") {
         return null;
@@ -10,21 +10,6 @@ const matchesExpectedString = (expected, observed) => {
     const normalizedExpected = normalizeString(expected);
     const normalizedObserved = normalizeString(observed);
     return normalizedExpected !== null && normalizedObserved !== null && normalizedExpected === normalizedObserved;
-};
-const normalizeStringArray = (value) => Array.isArray(value)
-    ? value
-        .map((item) => normalizeString(item))
-        .filter((item) => item !== null)
-    : [];
-const matchesExpectedArtifactIdentity = (expectedArtifactIdentity, expectedArtifactIdentities, observedArtifactIdentity) => {
-    const normalizedObserved = normalizeString(observedArtifactIdentity);
-    if (normalizedObserved === null) {
-        return false;
-    }
-    if (matchesExpectedString(expectedArtifactIdentity, normalizedObserved)) {
-        return true;
-    }
-    return normalizeStringArray(expectedArtifactIdentities).includes(normalizedObserved);
 };
 const matchesExpectedInteger = (expected, observed) => Number.isInteger(expected) && Number.isInteger(observed) && expected === observed;
 const blocker = (blocker_code, blocker_layer, message) => ({
@@ -58,7 +43,12 @@ export const evaluateCloseoutEvidence = (input) => {
     const latestHeadAvailable = expectedLatestHeadSha !== null && observedHeadSha !== null;
     const latestHeadMatches = latestHeadAvailable && expectedLatestHeadSha === observedHeadSha;
     const runMatches = matchesExpectedString(expectedRunId, observedRunId);
-    const artifactMatches = matchesExpectedArtifactIdentity(expectedArtifactIdentity, input.expected.artifact_identities, observedArtifactIdentity);
+    const artifactMatches = matchesCloseoutExpectedArtifactIdentity({
+        expectedRunId,
+        expectedArtifactIdentity,
+        expectedArtifactIdentities: input.expected.artifact_identities,
+        observedArtifactIdentity
+    });
     const profileBound = matchesExpectedString(expectedProfileRef, observedProfileRef);
     const tabBound = matchesExpectedInteger(input.expected.target_tab_id, input.evidence.target_tab_id);
     const pageBound = matchesExpectedString(expectedPageUrl, observedPageUrl);

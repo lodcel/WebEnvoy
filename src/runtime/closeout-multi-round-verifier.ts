@@ -120,6 +120,41 @@ const inferProviderScopedArtifactPrefix = (input: {
   return `${input.expectedRunId}:`;
 };
 
+export const matchesCloseoutExpectedArtifactIdentity = (input: {
+  expectedRunId: string | null | undefined;
+  expectedArtifactIdentity: string | null | undefined;
+  expectedArtifactIdentities?: string[] | null | undefined;
+  observedArtifactIdentity: string | null | undefined;
+}): boolean => {
+  const expectedRunId = normalizeString(input.expectedRunId);
+  const expectedArtifactIdentity = normalizeString(input.expectedArtifactIdentity);
+  const explicitArtifactIdentities = normalizeStringArray(input.expectedArtifactIdentities);
+  const explicitArtifactContract = explicitArtifactIdentities.length > 0;
+  const expectedArtifactIdentities = new Set([
+    ...explicitArtifactIdentities,
+    ...(expectedArtifactIdentity === null ? [] : [expectedArtifactIdentity])
+  ]);
+  const expectedArtifactFamilyPrefix = inferArtifactFamilyPrefix(expectedArtifactIdentity);
+  const expectedProviderScopedArtifactPrefix = inferProviderScopedArtifactPrefix({
+    expectedRunId,
+    expectedArtifactIdentity
+  });
+  const observedArtifactIdentity = normalizeString(input.observedArtifactIdentity);
+
+  if (observedArtifactIdentity === null) {
+    return false;
+  }
+
+  return matchesExpectedArtifactIdentity({
+    explicitArtifactContract,
+    expectedArtifactIdentities,
+    expectedArtifactIdentity,
+    expectedArtifactFamilyPrefix,
+    expectedProviderScopedArtifactPrefix,
+    observedArtifactIdentity
+  });
+};
+
 const matchesExpectedArtifactIdentity = (input: {
   explicitArtifactContract: boolean;
   expectedArtifactIdentities: Set<string>;
