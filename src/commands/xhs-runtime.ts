@@ -1120,6 +1120,13 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd: string): 
   return null;
 };
 
+const resolveCloseoutExpectedLatestHeadShaForRuntime = (summary: JsonObject): string | null => {
+  const explicitInput = asObject(summary.closeout_evidence_input);
+  const explicitExpected = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
+  const summaryExpected = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
+  return explicitExpected?.latest_head_sha ?? summaryExpected?.latest_head_sha ?? null;
+};
+
 export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input: {
   cwd: string;
   runId: string;
@@ -1128,9 +1135,11 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input: {
   summary: JsonObject;
 }): CloseoutEvidenceTrustedExpectedBinding => {
   const requiresCloseoutEvidenceEvaluation = requiresCloseoutEvidenceEvaluationForRuntime(input.summary);
-  const latestHeadSha = requiresCloseoutEvidenceEvaluation
+  const runtimeLatestHeadSha = requiresCloseoutEvidenceEvaluation
     ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
     : null;
+  const latestHeadSha =
+    runtimeLatestHeadSha ?? resolveCloseoutExpectedLatestHeadShaForRuntime(input.summary);
   return {
     ...(requiresCloseoutEvidenceEvaluation ? { requiresLatestHeadSha: true } : {}),
     ...(requiresCloseoutEvidenceEvaluation && latestHeadSha !== null ? { latestHeadSha } : {}),
