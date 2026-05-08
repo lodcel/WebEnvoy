@@ -1147,7 +1147,7 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBe(true);
   });
 
-  it("marks only live XHS closeout route evidence summaries as audit required", () => {
+  it("marks explicit live XHS closeout route evidence summaries as audit required", () => {
     const routeEvidenceSummary = {
       route_evidence: {
         route: "xhs.search.api",
@@ -1163,13 +1163,28 @@ describe("normalizeGateOptionsForContract", () => {
         requestedExecutionMode: "live_read_high_risk",
         summary: routeEvidenceSummary
       })
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
         abilityId: "xhs.note.detail.v1",
         requestedExecutionMode: "live_read_limited",
         summary: routeEvidenceSummary
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          closeout_route_evidence: {
+            route: "xhs.search.api",
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success"
+          }
+        }
       })
     ).toBe(true);
 
@@ -1178,7 +1193,8 @@ describe("normalizeGateOptionsForContract", () => {
         abilityId: "xhs.note.search.v1",
         requestedExecutionMode: "live_read_high_risk",
         summary: {
-          closeout_route_evidence: {
+          closeout_audit_required: true,
+          route_evidence: {
             route: "xhs.search.api",
             route_role: "primary",
             path_kind: "api",
@@ -1198,7 +1214,7 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       })
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
@@ -1210,7 +1226,7 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       })
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
@@ -1253,7 +1269,7 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBe(false);
   });
 
-  it("requires closeout audit for live XHS bridge route evidence without deterministic fields", () => {
+  it("does not require closeout audit for legacy bridge route evidence without deterministic fields", () => {
     const routeEvidenceSummary = {
       route_evidence: {
         route: "xhs.search.api",
@@ -1268,6 +1284,16 @@ describe("normalizeGateOptionsForContract", () => {
         abilityId: "xhs.note.search.v1",
         requestedExecutionMode: "live_read_high_risk",
         summary: routeEvidenceSummary
+      })
+    ).toBe(false);
+
+    expect(
+      requiresCloseoutAuditForXhsBridgeSummaryForContract({
+        abilityId: "xhs.note.search.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: {
+          closeout_route_evidence: routeEvidenceSummary.route_evidence
+        }
       })
     ).toBe(true);
 

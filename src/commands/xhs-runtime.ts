@@ -858,11 +858,14 @@ export const shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract = (inp
   summary?: Record<string, unknown> | null;
 }): boolean => {
   const summary = asObject(input.summary);
+  const closeoutRouteEvidence = asObject(summary?.closeout_route_evidence);
+  const legacyRouteEvidence =
+    summary?.closeout_audit_required === true ? asObject(summary?.route_evidence) : null;
   return (
     XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS.has(input.abilityId) &&
     isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
-    (isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.route_evidence)) ||
-      isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.closeout_route_evidence)))
+    (isXhsLiveRouteEvidenceForCloseoutAudit(closeoutRouteEvidence) ||
+      isXhsLiveRouteEvidenceForCloseoutAudit(legacyRouteEvidence))
   );
 };
 
