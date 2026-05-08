@@ -1147,7 +1147,7 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBe(true);
   });
 
-  it("marks explicit live XHS closeout route evidence summaries as audit required", () => {
+  it("marks live XHS closeout route evidence summaries as audit required", () => {
     const routeEvidenceSummary = {
       route_evidence: {
         route: "xhs.search.api",
@@ -1163,7 +1163,7 @@ describe("normalizeGateOptionsForContract", () => {
         requestedExecutionMode: "live_read_high_risk",
         summary: routeEvidenceSummary
       })
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
@@ -1171,7 +1171,7 @@ describe("normalizeGateOptionsForContract", () => {
         requestedExecutionMode: "live_read_limited",
         summary: routeEvidenceSummary
       })
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
@@ -1214,7 +1214,7 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       })
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
@@ -1226,7 +1226,7 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       })
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
@@ -1269,7 +1269,7 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBe(false);
   });
 
-  it("does not require closeout audit for legacy bridge route evidence without deterministic fields", () => {
+  it("keeps legacy bridge route evidence on the audit path without deterministic fields", () => {
     const routeEvidenceSummary = {
       route_evidence: {
         route: "xhs.search.api",
@@ -1285,7 +1285,7 @@ describe("normalizeGateOptionsForContract", () => {
         requestedExecutionMode: "live_read_high_risk",
         summary: routeEvidenceSummary
       })
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       requiresCloseoutAuditForXhsBridgeSummaryForContract({
@@ -2116,11 +2116,32 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBeNull();
   });
 
-  it("emits missing_multi_round_evidence when upstream explicitly requires closeout audit", () => {
+  it("keeps audit-only legacy route_evidence out of deterministic hard-fail", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
         closeout_audit_required: true,
         route_evidence: {
+          route_role: "primary",
+          path_kind: "api",
+          evidence_status: "success",
+          evidence_class: "passive_api_capture",
+          latest_head_sha: "head-closeout-001",
+          head_sha: "head-closeout-001",
+          run_id: "run-closeout-001",
+          artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+          profile_ref: "profile/xhs_closeout_001",
+          target_tab_id: 32,
+          page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+          action_ref: "action/xhs.search/open_result_card"
+        }
+      })
+    ).toBeNull();
+  });
+
+  it("emits missing_multi_round_evidence for explicit closeout_route_evidence without rounds", () => {
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_route_evidence: {
           route_role: "primary",
           path_kind: "api",
           evidence_status: "success",

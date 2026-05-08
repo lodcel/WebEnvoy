@@ -715,10 +715,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): bool
   const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
     ? routeEvidence.evidence_rounds
     : null;
-  return (
-    summary.closeout_audit_required === true &&
-    (routeRoundRecords !== null || isCloseoutPrimaryApiSuccessRoute(routeEvidence))
-  );
+  return routeRoundRecords !== null || hasOwn(summary, "closeout_route_evidence");
 };
 
 const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseoutEvidence> => ({
@@ -859,8 +856,7 @@ export const shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract = (inp
 }): boolean => {
   const summary = asObject(input.summary);
   const closeoutRouteEvidence = asObject(summary?.closeout_route_evidence);
-  const legacyRouteEvidence =
-    summary?.closeout_audit_required === true ? asObject(summary?.route_evidence) : null;
+  const legacyRouteEvidence = asObject(summary?.route_evidence);
   return (
     XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS.has(input.abilityId) &&
     isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
