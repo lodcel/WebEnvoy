@@ -551,9 +551,18 @@ const buildCloseoutEvidenceInputForRuntime = (
       : Array.isArray(routeEvidence?.evidence_rounds)
         ? routeEvidence.evidence_rounds
       : null;
-  const evidenceRounds = roundRecords
-    ?.map((round) => toCloseoutEvidenceRound(asObject(round)))
-    .filter((round): round is EvaluateCloseoutEvidenceInput["evidence"] => round !== null);
+  const evidenceRounds: EvaluateCloseoutEvidenceInput["evidence"][] | null = roundRecords
+    ? []
+    : null;
+  if (roundRecords && evidenceRounds) {
+    for (const roundRecord of roundRecords) {
+      const round = toCloseoutEvidenceRound(asObject(roundRecord));
+      if (!round) {
+        return null;
+      }
+      evidenceRounds.push(round);
+    }
+  }
 
   return {
     expected,
