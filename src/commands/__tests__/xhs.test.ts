@@ -1805,7 +1805,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("selects allowlisted rounds before unrelated complete rounds", () => {
+  it("keeps stale artifact rounds in deterministic evaluation", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -1852,10 +1852,14 @@ describe("normalizeGateOptionsForContract", () => {
         }
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
+      decision: "FAIL",
+      passed: false,
       reproduced_multi_round: true,
-      blockers: []
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
     });
   });
 
@@ -2349,7 +2353,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("falls back to top-level closeout rounds when nested rounds are unusable", () => {
+  it("keeps malformed nested closeout rounds instead of falling back to top-level rounds", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -2392,10 +2396,13 @@ describe("normalizeGateOptionsForContract", () => {
         ]
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      reproduced_multi_round: true,
-      blockers: []
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "non_primary_route"
+        })
+      ])
     });
   });
 
@@ -2871,7 +2878,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("ignores malformed closeout evidence rounds when enough valid rounds remain", () => {
+  it("keeps malformed closeout evidence rounds in deterministic evaluation", () => {
     const routeEvidence = {
       route_role: "primary",
       path_kind: "api",
@@ -2906,10 +2913,13 @@ describe("normalizeGateOptionsForContract", () => {
         ]
       })
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      reproduced_multi_round: true,
-      blockers: []
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "non_primary_route"
+        })
+      ])
     });
   });
 
