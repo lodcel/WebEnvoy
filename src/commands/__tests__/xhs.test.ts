@@ -1348,6 +1348,57 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("prefers the canonical round for explicit closeout input with sibling evidence", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const canonicalRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const siblingRound = {
+      ...canonicalRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_evidence_input: {
+          expected,
+          evidence: siblingRound,
+          evidence_rounds: [siblingRound, canonicalRound]
+        }
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      freshness: {
+        artifact_matches: true,
+        observed_artifact_identity: expected.artifact_identity
+      },
+      blockers: []
+    });
+  });
+
   it("runs deterministic closeout evaluation from the emitted route_evidence summary shape", () => {
     const routeEvidence = {
       route_role: "primary",
@@ -1678,7 +1729,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("emits missing_multi_round_evidence for closeout route_evidence without deterministic rounds", () => {
+  it("preserves existing closeout route_evidence success summaries until deterministic payloads are present", () => {
     expect(
       evaluateXhsCloseoutEvidenceForContract({
         closeout_audit_required: true,
@@ -1697,15 +1748,7 @@ describe("normalizeGateOptionsForContract", () => {
           action_ref: "action/xhs.search/open_result_card"
         }
       })
-    ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_multi_round_evidence"
-        })
-      ])
-    });
+    ).toBeNull();
   });
 
   it("fails closed when closeout evidence input is missing or cannot be parsed", () => {

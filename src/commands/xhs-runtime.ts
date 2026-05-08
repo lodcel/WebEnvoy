@@ -636,8 +636,13 @@ const buildCloseoutEvidenceInputForRuntime = (
     roundRecords !== null &&
     isCompleteCloseoutEvidenceExpected(expected) &&
     isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
+  const explicitEvidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
+  const explicitEvidenceShouldUseCanonicalRound =
+    explicitExpectedBinding &&
+    explicitRoundRecords !== null &&
+    firstEvidenceRoundCanProvideRound;
   const evidence =
-    toCloseoutEvidenceRound(asObject(explicitInput?.evidence)) ??
+    (explicitEvidenceShouldUseCanonicalRound ? selectedEvidenceRound : explicitEvidence) ??
     (explicitExpectedBinding && firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
     (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null);
@@ -678,10 +683,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): bool
   const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
     ? routeEvidence.evidence_rounds
     : null;
-  return (
-    summary.closeout_audit_required === true &&
-    (routeRoundRecords !== null || isCloseoutPrimaryApiSuccessRoute(routeEvidence))
-  );
+  return summary.closeout_audit_required === true && routeRoundRecords !== null;
 };
 
 const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseoutEvidence> => ({

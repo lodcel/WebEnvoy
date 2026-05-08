@@ -499,7 +499,11 @@ const buildCloseoutEvidenceInputForRuntime = (summary) => {
     const firstEvidenceRoundCanProvideRound = roundRecords !== null &&
         isCompleteCloseoutEvidenceExpected(expected) &&
         isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
-    const evidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence)) ??
+    const explicitEvidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
+    const explicitEvidenceShouldUseCanonicalRound = explicitExpectedBinding &&
+        explicitRoundRecords !== null &&
+        firstEvidenceRoundCanProvideRound;
+    const evidence = (explicitEvidenceShouldUseCanonicalRound ? selectedEvidenceRound : explicitEvidence) ??
         (explicitExpectedBinding && firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
         (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
         (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null);
@@ -534,8 +538,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
     const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
         ? routeEvidence.evidence_rounds
         : null;
-    return (summary.closeout_audit_required === true &&
-        (routeRoundRecords !== null || isCloseoutPrimaryApiSuccessRoute(routeEvidence)));
+    return summary.closeout_audit_required === true && routeRoundRecords !== null;
 };
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
