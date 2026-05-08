@@ -456,33 +456,38 @@ const buildCloseoutEvidenceInputForRuntime = (summary) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
     const routeEvidenceRequiresCloseout = summary.closeout_audit_required === true && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
-    const routeRoundRecords = Array.isArray(summary.closeout_evidence_rounds)
+    const explicitRoundRecords = Array.isArray(explicitInput?.evidence_rounds)
+        ? explicitInput.evidence_rounds
+        : null;
+    const summaryRoundRecords = Array.isArray(summary.closeout_evidence_rounds)
         ? summary.closeout_evidence_rounds
-        : Array.isArray(routeEvidence?.evidence_rounds)
-            ? routeEvidence.evidence_rounds
-            : null;
+        : null;
+    const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
+        ? routeEvidence.evidence_rounds
+        : null;
+    const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
     const routeEvidenceExpected = toCloseoutEvidenceExpected(routeEvidence);
     const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
+    const firstEvidenceRound = toCloseoutEvidenceRound(asObject(roundRecords?.[0]));
     const explicitExpected = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
     const summaryExpected = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
     const routeEvidenceCanProvideExpected = routeEvidenceRequiresCloseout &&
-        routeRoundRecords !== null &&
+        roundRecords !== null &&
         isCompleteCloseoutEvidenceExpected(routeEvidenceExpected);
     const expected = explicitExpected ?? summaryExpected ?? (routeEvidenceCanProvideExpected ? routeEvidenceExpected : null);
     const routeEvidenceCanProvideRound = routeEvidenceRequiresCloseout &&
-        routeRoundRecords !== null &&
+        roundRecords !== null &&
         isCompleteCloseoutEvidenceExpected(expected) &&
         isCompleteCloseoutEvidenceRound(routeEvidenceRound);
+    const firstEvidenceRoundCanProvideRound = roundRecords !== null &&
+        isCompleteCloseoutEvidenceExpected(expected) &&
+        isCompleteCloseoutEvidenceRound(firstEvidenceRound);
     const evidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence)) ??
-        (routeEvidenceCanProvideRound ? routeEvidenceRound : null);
+        (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
+        (firstEvidenceRoundCanProvideRound ? firstEvidenceRound : null);
     if (!expected || !evidence) {
         return null;
     }
-    const roundRecords = Array.isArray(explicitInput?.evidence_rounds)
-        ? explicitInput.evidence_rounds
-        : Array.isArray(summary.closeout_evidence_rounds)
-            ? summary.closeout_evidence_rounds
-            : routeRoundRecords;
     const evidenceRounds = roundRecords
         ? []
         : null;
