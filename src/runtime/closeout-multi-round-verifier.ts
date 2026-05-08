@@ -130,10 +130,35 @@ const matchesExpectedArtifactIdentity = (input: {
 const artifactIdentityBelongsToRun = (
   artifactIdentity: string | null,
   expectedRunId: string | null
-): boolean =>
-  artifactIdentity !== null &&
-  expectedRunId !== null &&
-  artifactIdentity.includes(expectedRunId);
+): boolean => {
+  if (artifactIdentity === null || expectedRunId === null) {
+    return false;
+  }
+
+  let startIndex = artifactIdentity.indexOf(expectedRunId);
+  while (startIndex !== -1) {
+    const before = artifactIdentity[startIndex - 1];
+    const after = artifactIdentity[startIndex + expectedRunId.length];
+    const startsAtBoundary = before === undefined || isArtifactIdentityBoundary(before);
+    const endsAtBoundary = after === undefined || isArtifactIdentityBoundary(after);
+    if (startsAtBoundary && endsAtBoundary) {
+      return true;
+    }
+    startIndex = artifactIdentity.indexOf(expectedRunId, startIndex + 1);
+  }
+
+  return false;
+};
+
+const isArtifactIdentityBoundary = (char: string): boolean =>
+  char === "/" ||
+  char === ":" ||
+  char === "?" ||
+  char === "#" ||
+  char === "&" ||
+  char === "=" ||
+  char === "." ||
+  char === "_";
 
 const blocker = (
   blocker_code: CloseoutMultiRoundVerifierBlockerCode,

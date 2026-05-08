@@ -40,9 +40,31 @@ const matchesExpectedArtifactIdentity = (input) => {
     }
     return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
 };
-const artifactIdentityBelongsToRun = (artifactIdentity, expectedRunId) => artifactIdentity !== null &&
-    expectedRunId !== null &&
-    artifactIdentity.includes(expectedRunId);
+const artifactIdentityBelongsToRun = (artifactIdentity, expectedRunId) => {
+    if (artifactIdentity === null || expectedRunId === null) {
+        return false;
+    }
+    let startIndex = artifactIdentity.indexOf(expectedRunId);
+    while (startIndex !== -1) {
+        const before = artifactIdentity[startIndex - 1];
+        const after = artifactIdentity[startIndex + expectedRunId.length];
+        const startsAtBoundary = before === undefined || isArtifactIdentityBoundary(before);
+        const endsAtBoundary = after === undefined || isArtifactIdentityBoundary(after);
+        if (startsAtBoundary && endsAtBoundary) {
+            return true;
+        }
+        startIndex = artifactIdentity.indexOf(expectedRunId, startIndex + 1);
+    }
+    return false;
+};
+const isArtifactIdentityBoundary = (char) => char === "/" ||
+    char === ":" ||
+    char === "?" ||
+    char === "#" ||
+    char === "&" ||
+    char === "=" ||
+    char === "." ||
+    char === "_";
 const blocker = (blocker_code, blocker_layer, message) => ({
     blocker_code,
     blocker_layer,

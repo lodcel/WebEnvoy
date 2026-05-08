@@ -306,6 +306,78 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("accepts provider-scoped allowlisted artifacts only when they are exactly bound to the expected run", () => {
+    const expected: CloseoutMultiRoundExpectedBinding = {
+      ...expectedBinding(),
+      run_id: "gha:23953203650:1",
+      artifact_identity: "gha:23953203650:1:live-evidence-round-1.log",
+      artifact_identities: [
+        "gha:23953203650:1:live-evidence-round-1.log",
+        "gha:23953203650:1:live-evidence-round-2.log"
+      ]
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [
+          {
+            ...successRound("gha:23953203650:1:live-evidence-round-1.log"),
+            run_id: "gha:23953203650:1"
+          },
+          {
+            ...successRound("gha:23953203650:1:live-evidence-round-2.log"),
+            run_id: "gha:23953203650:1"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
+      blockers: []
+    });
+  });
+
+  it("rejects allowlisted provider-scoped artifacts from a prefix-related stale run", () => {
+    const expected: CloseoutMultiRoundExpectedBinding = {
+      ...expectedBinding(),
+      run_id: "gha:23953203650:1",
+      artifact_identity: null,
+      artifact_identities: [
+        "gha:23953203650:10:live-evidence-round-1.log",
+        "gha:23953203650:10:live-evidence-round-2.log"
+      ]
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [
+          {
+            ...successRound("gha:23953203650:10:live-evidence-round-1.log"),
+            run_id: "gha:23953203650:1"
+          },
+          {
+            ...successRound("gha:23953203650:10:live-evidence-round-2.log"),
+            run_id: "gha:23953203650:1"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      accepted_round_count: 0,
+      unique_artifact_count: 0,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it("rejects unrelated provider-scoped artifacts even when they share the expected run prefix", () => {
     const expected: CloseoutMultiRoundExpectedBinding = {
       ...expectedBinding(),
