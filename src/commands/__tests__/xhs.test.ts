@@ -1463,19 +1463,26 @@ describe("normalizeGateOptionsForContract", () => {
       ])
     });
 
-    const missingHeadTrustedBinding = buildXhsCloseoutEvidenceTrustedBindingForContract({
+    const externalCwdTrustedBinding = buildXhsCloseoutEvidenceTrustedBindingForContract({
       cwd: "/tmp/webenvoy-closeout-non-git",
       runId: "run-closeout-001",
       profileRef: "profile/xhs_closeout_001",
       targetTabId: 32,
       summary
     });
-    expect(missingHeadTrustedBinding).not.toHaveProperty("latestHeadSha");
+    expect(externalCwdTrustedBinding.latestHeadSha).toBe(runtimeTrustedBinding.latestHeadSha);
 
-    expect(evaluateXhsCloseoutEvidenceForContract(summary, missingHeadTrustedBinding)).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      blockers: []
+    expect(evaluateXhsCloseoutEvidenceForContract(summary, externalCwdTrustedBinding)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      freshness: expect.objectContaining({
+        latest_head_matches: false
+      }),
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_head"
+        })
+      ])
     });
 
     expect(

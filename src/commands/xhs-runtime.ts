@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { CommandDefinition, CommandExecutionResult, JsonObject, RuntimeContext } from "../core/types.js";
 import { CliError } from "../core/errors.js";
@@ -76,6 +78,8 @@ const asObject = (value: unknown): JsonObject | null =>
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const WEBENVOY_RUNTIME_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const asPositiveInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
@@ -738,6 +742,10 @@ interface CloseoutEvidenceTrustedExpectedBinding {
 }
 
 export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd: string): string | null => {
+  const envHeadSha = asString(process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA);
+  if (envHeadSha !== null) {
+    return envHeadSha;
+  }
   const result = spawnSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"]
@@ -757,7 +765,7 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input: {
 }): CloseoutEvidenceTrustedExpectedBinding => {
   const requiresCloseoutEvidenceEvaluation = requiresCloseoutEvidenceEvaluationForRuntime(input.summary);
   const latestHeadSha = requiresCloseoutEvidenceEvaluation
-    ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
+    ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(WEBENVOY_RUNTIME_ROOT)
     : null;
   return {
     ...(latestHeadSha !== null ? { latestHeadSha } : {}),

@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CliError } from "../core/errors.js";
 import { mapCapabilitySummaryForContract } from "../core/capability-output.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "../runtime/native-messaging/bridge.js";
@@ -26,6 +28,7 @@ const asObject = (value) => typeof value === "object" && value !== null && !Arra
     ? value
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const WEBENVOY_RUNTIME_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const asPositiveInteger = (value) => typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 export const resolveForwardTimeoutMsForContract = (params) => asPositiveInteger(params.timeout_ms);
 const toSessionRhythmIdPart = (value) => value.replace(/[^A-Za-z0-9._-]+/gu, "_");
@@ -572,6 +575,10 @@ const fillMissingTrustedExpectedBinding = (expected, trusted) => {
     };
 };
 export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
+    const envHeadSha = asString(process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA);
+    if (envHeadSha !== null) {
+        return envHeadSha;
+    }
     const result = spawnSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"]
@@ -584,7 +591,7 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
 export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
     const requiresCloseoutEvidenceEvaluation = requiresCloseoutEvidenceEvaluationForRuntime(input.summary);
     const latestHeadSha = requiresCloseoutEvidenceEvaluation
-        ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
+        ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(WEBENVOY_RUNTIME_ROOT)
         : null;
     return {
         ...(latestHeadSha !== null ? { latestHeadSha } : {}),
