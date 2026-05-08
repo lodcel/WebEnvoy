@@ -491,6 +491,13 @@ const asStringArray = (value) => Array.isArray(value)
         .map((item) => asString(item))
         .filter((item) => item !== null)
     : null;
+const normalizeCloseoutProfileRef = (value) => {
+    const profileRef = asString(value);
+    if (profileRef === null) {
+        return null;
+    }
+    return profileRef.startsWith("profile/") ? profileRef : `profile/${profileRef}`;
+};
 const toCloseoutEvidenceExpected = (record) => {
     if (!record) {
         return null;
@@ -500,7 +507,7 @@ const toCloseoutEvidenceExpected = (record) => {
         run_id: asString(record.run_id),
         artifact_identity: asString(record.artifact_identity),
         artifact_identities: asStringArray(record.artifact_identities),
-        profile_ref: asString(record.profile_ref),
+        profile_ref: normalizeCloseoutProfileRef(asString(record.profile_ref)),
         target_tab_id: asInteger(record.target_tab_id),
         page_url: asString(record.page_url),
         action_ref: asString(record.action_ref)
@@ -519,7 +526,7 @@ const toCloseoutEvidenceRound = (record) => {
         head_sha: asString(record.head_sha),
         run_id: asString(record.run_id),
         artifact_identity: asString(record.artifact_identity),
-        profile_ref: asString(record.profile_ref),
+        profile_ref: normalizeCloseoutProfileRef(asString(record.profile_ref)),
         target_tab_id: asInteger(record.target_tab_id),
         page_url: asString(record.page_url),
         action_ref: asString(record.action_ref)
@@ -582,13 +589,6 @@ const closeoutEvidenceMatchesExpected = (expected, evidence) => {
         expected.page_url === evidence.page_url &&
         expected.action_ref === evidence.action_ref);
 };
-const normalizeCloseoutTrustedProfileRef = (value) => {
-    const profileRef = asString(value);
-    if (profileRef === null) {
-        return null;
-    }
-    return profileRef.startsWith("profile/") ? profileRef : `profile/${profileRef}`;
-};
 const fillMissingTrustedExpectedBinding = (expected, trusted) => {
     if (!expected) {
         return null;
@@ -597,7 +597,7 @@ const fillMissingTrustedExpectedBinding = (expected, trusted) => {
         ...expected,
         latest_head_sha: expected.latest_head_sha ?? asString(trusted?.latestHeadSha),
         run_id: expected.run_id ?? asString(trusted?.runId),
-        profile_ref: expected.profile_ref ?? normalizeCloseoutTrustedProfileRef(trusted?.profileRef),
+        profile_ref: expected.profile_ref ?? normalizeCloseoutProfileRef(trusted?.profileRef),
         target_tab_id: expected.target_tab_id ?? asInteger(trusted?.targetTabId)
     };
 };
@@ -619,9 +619,9 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => {
         ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
         : null;
     return {
-        ...(latestHeadSha !== null ? { latestHeadSha } : {}),
+        ...(requiresCloseoutEvidenceEvaluation ? { latestHeadSha } : {}),
         runId: input.runId,
-        profileRef: normalizeCloseoutTrustedProfileRef(input.profileRef),
+        profileRef: normalizeCloseoutProfileRef(input.profileRef),
         targetTabId: input.targetTabId
     };
 };
@@ -788,7 +788,7 @@ const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
     const blockers = [...evaluation.blockers];
     const trustedLatestHeadSha = asString(trusted?.latestHeadSha);
     const trustedRunId = asString(trusted?.runId);
-    const trustedProfileRef = normalizeCloseoutTrustedProfileRef(trusted?.profileRef);
+    const trustedProfileRef = normalizeCloseoutProfileRef(trusted?.profileRef);
     const trustedTargetTabId = asInteger(trusted?.targetTabId);
     let freshness = evaluation.freshness;
     let bindings = evaluation.bindings;
