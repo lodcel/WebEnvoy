@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1371,7 +1371,7 @@ describe("normalizeGateOptionsForContract", () => {
     ).toBe(false);
   });
 
-  it("runs deterministic closeout multi-round evaluation for explicit runtime evidence input", () => {
+  it("runs deterministic closeout multi-round evaluation for explicit runtime evidence input", async () => {
     const summary = {
       closeout_evidence_input: {
         expected: {
@@ -1515,6 +1515,37 @@ describe("normalizeGateOptionsForContract", () => {
         evidence_rounds: summary.closeout_evidence_input.evidence_rounds
       }
     };
+    const packagedRuntimeDir = await mkdtemp(join(tmpdir(), "webenvoy-packaged-runtime-"));
+    try {
+      await writeFile(
+        join(packagedRuntimeDir, "package.json"),
+        JSON.stringify({
+          name: "@webenvoy/cli",
+          gitHead: "head-closeout-001"
+        })
+      );
+      const packagedRuntimeTrustedBinding = buildXhsCloseoutEvidenceTrustedBindingForContract({
+        cwd: packagedRuntimeDir,
+        runId: "run-closeout-001",
+        profileRef: "profile/xhs_closeout_001",
+        targetTabId: 32,
+        summary: runtimeBoundSummary
+      });
+
+      expect(packagedRuntimeTrustedBinding.latestHeadSha).toBe("head-closeout-001");
+      expect(
+        evaluateXhsCloseoutEvidenceForContract(
+          runtimeBoundSummary,
+          packagedRuntimeTrustedBinding
+        )
+      ).toMatchObject({
+        decision: "PASS",
+        passed: true,
+        blockers: []
+      });
+    } finally {
+      await rm(packagedRuntimeDir, { recursive: true, force: true });
+    }
     expect(
       evaluateXhsCloseoutEvidenceForContract(runtimeBoundSummary, {
         runId: "run-closeout-001",

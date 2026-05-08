@@ -111,6 +111,29 @@ const isWebEnvoyCheckoutRoot = (root: string): boolean => {
   }
 };
 
+const resolvePackageGitHeadForCwd = (cwd: string): string | null => {
+  let current = resolve(cwd);
+  while (true) {
+    try {
+      const packageJson = JSON.parse(readFileSync(resolve(current, "package.json"), "utf8")) as {
+        gitHead?: unknown;
+        name?: unknown;
+      };
+      const gitHead = asString(packageJson.gitHead);
+      if (packageJson.name === "@webenvoy/cli" && gitHead !== null) {
+        return gitHead;
+      }
+    } catch {
+      // Keep walking toward the filesystem root; packaged dist may not sit at cwd.
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+};
+
 const asPositiveInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 
@@ -845,6 +868,20 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd: string): 
   const envHeadSha = asString(process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA);
   if (envHeadSha !== null) {
     return envHeadSha;
+  }
+  const packageEnvHeadSha =
+    asString(process.env.WEBENVOY_RUNTIME_LATEST_HEAD_SHA) ??
+    asString(process.env.npm_package_gitHead);
+  if (packageEnvHeadSha !== null) {
+    return packageEnvHeadSha;
+  }
+  const cwdPackageHead = resolvePackageGitHeadForCwd(cwd);
+  if (cwdPackageHead !== null) {
+    return cwdPackageHead;
+  }
+  const runtimePackageHead = resolvePackageGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+  if (runtimePackageHead !== null) {
+    return runtimePackageHead;
   }
   const cwdGitHead = resolveGitHeadForCwd(cwd);
   if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {
