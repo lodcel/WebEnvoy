@@ -436,6 +436,9 @@ const withRoundArtifactIdentities = (expected, roundRecords) => {
         return expected;
     }
     const artifactIdentities = new Set(expected.artifact_identities ?? []);
+    if (expected.artifact_identity) {
+        artifactIdentities.add(expected.artifact_identity);
+    }
     for (const roundRecord of roundRecords) {
         const artifactIdentity = asString(asObject(roundRecord)?.artifact_identity);
         if (artifactIdentity) {

@@ -195,7 +195,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
     const observedProfileRef = normalizeString(evidenceRound.profile_ref);
     const observedPageUrl = normalizeString(evidenceRound.page_url);
     const observedActionRef = normalizeString(evidenceRound.action_ref);
-    let acceptedArtifactIdentity = false;
+    let artifactIdentityAllowed = false;
 
     if (routeRole !== "primary") {
       pushUniqueBlocker(
@@ -307,11 +307,8 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
           "each multi-round closeout evidence round must use a current artifact identity"
         )
       );
-    } else if (artifactIdentities.has(observedArtifactIdentity)) {
-      acceptedArtifactIdentity = false;
     } else {
-      artifactIdentities.add(observedArtifactIdentity);
-      acceptedArtifactIdentity = true;
+      artifactIdentityAllowed = true;
     }
 
     if (
@@ -379,7 +376,8 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
       expectedLatestHeadSha === observedHeadSha &&
       matchesExpectedString(expectedRunId, observedRunId) &&
       observedArtifactIdentity !== null &&
-      acceptedArtifactIdentity &&
+      artifactIdentityAllowed &&
+      !artifactIdentities.has(observedArtifactIdentity) &&
       matchesExpectedArtifactIdentity({
         expectedArtifactIdentities,
         observedArtifactIdentity
@@ -389,6 +387,7 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
       matchesExpectedString(expectedPageUrl, observedPageUrl) &&
       matchesExpectedString(expectedActionRef, observedActionRef)
     ) {
+      artifactIdentities.add(observedArtifactIdentity);
       acceptedRoundCount += 1;
     }
   }

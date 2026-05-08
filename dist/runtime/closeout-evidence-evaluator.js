@@ -66,7 +66,7 @@ export const evaluateCloseoutEvidence = (input) => {
     const actionBound = matchesExpectedString(expectedActionRef, observedActionRef);
     const multiRoundVerification = verifyCloseoutMultiRoundEvidence({
         expected: input.expected,
-        evidence_rounds: input.evidence_rounds ?? [input.evidence]
+        evidence_rounds: input.evidence_rounds ? [input.evidence, ...input.evidence_rounds] : [input.evidence]
     });
     const blockers = multiRoundVerification.blockers.map((multiRoundBlocker) => blocker(multiRoundBlocker.blocker_code, multiRoundBlocker.blocker_layer, multiRoundBlocker.message));
     if (routeRole !== "primary") {

@@ -87,7 +87,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         const observedProfileRef = normalizeString(evidenceRound.profile_ref);
         const observedPageUrl = normalizeString(evidenceRound.page_url);
         const observedActionRef = normalizeString(evidenceRound.action_ref);
-        let acceptedArtifactIdentity = false;
+        let artifactIdentityAllowed = false;
         if (routeRole !== "primary") {
             pushUniqueBlocker(blockers, blocker("non_primary_route", "route", "multi-round closeout evidence must use the primary route"));
         }
@@ -124,12 +124,8 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         })) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
         }
-        else if (artifactIdentities.has(observedArtifactIdentity)) {
-            acceptedArtifactIdentity = false;
-        }
         else {
-            artifactIdentities.add(observedArtifactIdentity);
-            acceptedArtifactIdentity = true;
+            artifactIdentityAllowed = true;
         }
         if (observedArtifactIdentity !== null &&
             expectedArtifactIdentity !== null &&
@@ -160,7 +156,8 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             expectedLatestHeadSha === observedHeadSha &&
             matchesExpectedString(expectedRunId, observedRunId) &&
             observedArtifactIdentity !== null &&
-            acceptedArtifactIdentity &&
+            artifactIdentityAllowed &&
+            !artifactIdentities.has(observedArtifactIdentity) &&
             matchesExpectedArtifactIdentity({
                 expectedArtifactIdentities,
                 observedArtifactIdentity
@@ -169,6 +166,7 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             matchesExpectedInteger(input.expected.target_tab_id, evidenceRound.target_tab_id) &&
             matchesExpectedString(expectedPageUrl, observedPageUrl) &&
             matchesExpectedString(expectedActionRef, observedActionRef)) {
+            artifactIdentities.add(observedArtifactIdentity);
             acceptedRoundCount += 1;
         }
     }

@@ -84,6 +84,28 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("counts singleton evidence with additional evidence_rounds", () => {
+    const input = baseInput();
+    input.evidence_rounds = [
+      {
+        ...input.evidence,
+        artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"
+      }
+    ];
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      multi_round: {
+        accepted_round_count: 2,
+        unique_artifact_count: 2,
+        expected_artifact_observed: true
+      },
+      blockers: []
+    });
+  });
+
   it("accepts humanized_action when the rest of the closeout bar is satisfied", () => {
     const input = baseInput();
     input.evidence.evidence_class = "humanized_action";

@@ -370,7 +370,7 @@ describe("closeout multi-round verifier", () => {
       passed: false,
       reproduced_multi_round: true,
       accepted_round_count: 2,
-      unique_artifact_count: 3,
+      unique_artifact_count: 2,
       blockers: expect.arrayContaining([
         expect.objectContaining({
           blocker_code: "stale_head"

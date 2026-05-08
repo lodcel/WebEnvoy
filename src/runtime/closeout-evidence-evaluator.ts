@@ -196,7 +196,7 @@ export const evaluateCloseoutEvidence = (
   const actionBound = matchesExpectedString(expectedActionRef, observedActionRef);
   const multiRoundVerification = verifyCloseoutMultiRoundEvidence({
     expected: input.expected,
-    evidence_rounds: input.evidence_rounds ?? [input.evidence]
+    evidence_rounds: input.evidence_rounds ? [input.evidence, ...input.evidence_rounds] : [input.evidence]
   });
 
   const blockers: CloseoutEvidenceEvaluation["blockers"] = multiRoundVerification.blockers.map(
