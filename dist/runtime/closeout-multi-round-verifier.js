@@ -59,6 +59,9 @@ const matchesLegacySiblingArtifactIdentity = (input) => {
         return false;
     }
     const [, prefix, , suffix] = numberedArtifactMatch;
+    if (!/(^|[-_:/])round[-_:/]?$/u.test(prefix)) {
+        return false;
+    }
     const observedRoundToken = input.observedArtifactIdentity.slice(prefix.length, input.observedArtifactIdentity.length - suffix.length);
     return (input.observedArtifactIdentity.startsWith(prefix) &&
         input.observedArtifactIdentity.endsWith(suffix) &&
