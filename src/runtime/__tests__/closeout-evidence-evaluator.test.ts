@@ -241,6 +241,30 @@ describe("closeout evidence evaluator", () => {
     });
   });
 
+  it("accepts deterministic sibling rounds even when none exactly match the singular artifact_identity", () => {
+    const input = baseInput();
+    delete input.expected.artifact_identities;
+    input.evidence.artifact_identity = "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2";
+    input.evidence_rounds = [
+      { ...input.evidence },
+      {
+        ...input.evidence,
+        artifact_identity: "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3"
+      }
+    ];
+
+    expect(evaluateCloseoutEvidence(input)).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: [],
+      multi_round: {
+        accepted_round_count: 2,
+        unique_artifact_count: 2,
+        expected_artifact_observed: true
+      }
+    });
+  });
+
   it("accepts provider-scoped sibling artifacts when only singular artifact_identity is expected", () => {
     const input = baseInput();
     input.expected.run_id = "gha:23953203650:1";

@@ -200,7 +200,15 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
             artifactIdentities.add(observedArtifactIdentity);
             acceptedArtifactIdentity = true;
         }
-        if (observedArtifactIdentity !== null && expectedArtifactIdentities.has(observedArtifactIdentity)) {
+        if (observedArtifactIdentity !== null &&
+            matchesExpectedArtifactIdentity({
+                explicitArtifactContract,
+                expectedArtifactIdentities,
+                expectedArtifactIdentity,
+                expectedArtifactFamilyPrefix,
+                expectedProviderScopedArtifactFamily,
+                observedArtifactIdentity
+            })) {
             expectedArtifactObserved = true;
         }
         if (!matchesExpectedString(expectedProfileRef, observedProfileRef)) {

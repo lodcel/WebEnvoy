@@ -96,6 +96,28 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("passes with singular expected artifact_identity when only sibling round artifacts are observed", () => {
+    const expected = expectedBinding();
+    delete expected.artifact_identities;
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [
+          successRound("artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2"),
+          successRound("artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3")
+        ]
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 2,
+      expected_artifact_observed: true,
+      blockers: []
+    });
+  });
+
   it("honors explicit artifact_identities without requiring the legacy singleton artifact", () => {
     const expected = {
       ...expectedBinding(),
