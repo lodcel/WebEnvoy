@@ -794,6 +794,10 @@ const buildCloseoutEvidenceInputForRuntime = (
   const summaryExpectedCandidate = toCloseoutEvidenceExpected(
     asObject(summary.closeout_evidence_expected)
   );
+  const explicitExpectedCompleteBeforeTrusted =
+    isCompleteCloseoutEvidenceExpected(explicitExpectedCandidate);
+  const summaryExpectedCompleteBeforeTrusted =
+    isCompleteCloseoutEvidenceExpected(summaryExpectedCandidate);
   const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(
     explicitExpectedCandidate,
     trustedExpectedBindingInput
@@ -808,7 +812,10 @@ const buildCloseoutEvidenceInputForRuntime = (
   const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidateWithTrustedRun)
     ? summaryExpectedCandidateWithTrustedRun
     : null;
-  const expected = explicitExpected ?? summaryExpected;
+  const expected =
+    summaryExpectedCompleteBeforeTrusted && !explicitExpectedCompleteBeforeTrusted
+      ? summaryExpected
+      : explicitExpected ?? summaryExpected;
   const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
   const routeEvidenceCanProvideRound =
     routeEvidenceRequiresCloseout &&
