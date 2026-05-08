@@ -1491,7 +1491,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("rejects nested route_evidence rounds without an explicit artifact allowlist", () => {
+  it("runs deterministic closeout evaluation from route_evidence with nested rounds", () => {
     const routeEvidence = {
       route_role: "primary",
       path_kind: "api",
@@ -1501,6 +1501,10 @@ describe("normalizeGateOptionsForContract", () => {
       head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
       artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
       profile_ref: "profile/xhs_closeout_001",
       target_tab_id: 32,
       page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
@@ -1528,13 +1532,10 @@ describe("normalizeGateOptionsForContract", () => {
         route_evidence: routeEvidence
       })
     ).toMatchObject({
-      decision: "FAIL",
-      passed: false,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({
-          blocker_code: "missing_multi_round_evidence"
-        })
-      ])
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
     });
   });
 

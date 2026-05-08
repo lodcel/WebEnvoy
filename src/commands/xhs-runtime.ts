@@ -626,6 +626,7 @@ const buildCloseoutEvidenceInputForRuntime = (
     : null;
   const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
   const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
+  const routeEvidenceExpectedCandidate = toCloseoutEvidenceExpected(routeEvidence);
   const explicitExpectedCandidate = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
   const summaryExpectedCandidate = toCloseoutEvidenceExpected(
     asObject(summary.closeout_evidence_expected)
@@ -636,7 +637,11 @@ const buildCloseoutEvidenceInputForRuntime = (
   const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidate)
     ? summaryExpectedCandidate
     : null;
-  const expected = explicitExpected ?? summaryExpected;
+  const routeEvidenceExpected =
+    routeRoundRecords !== null && isCompleteCloseoutEvidenceExpected(routeEvidenceExpectedCandidate)
+      ? routeEvidenceExpectedCandidate
+      : null;
+  const expected = explicitExpected ?? summaryExpected ?? routeEvidenceExpected;
   const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
   const routeEvidenceCanProvideRound =
     routeEvidenceRequiresCloseout &&
