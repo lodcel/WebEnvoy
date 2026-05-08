@@ -825,6 +825,7 @@ const assertCloseoutEvidenceForRuntime = (
     return;
   }
   if (isLegacyCloseoutEvidenceEvaluationCompatOnly(summary, evaluation)) {
+    summary.closeout_evidence_compat_mode = "legacy_route_evidence_non_blocking";
     return;
   }
   throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout evidence evaluation invalid", {
@@ -1087,6 +1088,7 @@ const pickGateErrorDetails = (
     "consumer_gate_result",
     "closeout_audit_required",
     "closeout_evidence_evaluation",
+    "closeout_evidence_compat_mode",
     "closeout_readiness",
     "closeout_route_evidence",
     "route_evidence_evaluation",
