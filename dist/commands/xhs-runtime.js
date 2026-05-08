@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CliError } from "../core/errors.js";
@@ -56,6 +56,7 @@ const isWebEnvoyCheckoutRoot = (root) => {
         return false;
     }
 };
+const isWebEnvoySourceCheckoutRoot = (root) => isWebEnvoyCheckoutRoot(root) && existsSync(resolve(root, "src", "commands", "xhs-runtime.ts"));
 const resolvePackageGitHeadForCwd = (cwd) => {
     let current = resolve(cwd);
     while (true) {
@@ -822,6 +823,10 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     if (packageEnvHeadSha !== null) {
         return packageEnvHeadSha;
     }
+    const cwdGitHead = resolveGitHeadForCwd(cwd);
+    if (cwdGitHead && isWebEnvoySourceCheckoutRoot(cwdGitHead.root)) {
+        return cwdGitHead.head;
+    }
     const cwdBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(cwd);
     if (cwdBuildMetadataHead !== null) {
         return cwdBuildMetadataHead;
@@ -830,9 +835,12 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     if (cwdPackageHead !== null) {
         return cwdPackageHead;
     }
-    const cwdGitHead = resolveGitHeadForCwd(cwd);
     if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {
         return cwdGitHead.head;
+    }
+    const runtimeGitHead = resolveGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+    if (runtimeGitHead && isWebEnvoySourceCheckoutRoot(runtimeGitHead.root)) {
+        return runtimeGitHead.head;
     }
     const runtimeBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(WEBENVOY_RUNTIME_ROOT);
     if (runtimeBuildMetadataHead !== null) {
@@ -842,7 +850,6 @@ export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
     if (runtimePackageHead !== null) {
         return runtimePackageHead;
     }
-    const runtimeGitHead = resolveGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
     if (runtimeGitHead && isWebEnvoyCheckoutRoot(runtimeGitHead.root)) {
         return runtimeGitHead.head;
     }

@@ -1546,6 +1546,58 @@ describe("normalizeGateOptionsForContract", () => {
       await rm(metadataCheckoutDir, { recursive: true, force: true });
     }
 
+    const sourceCheckoutDir = await mkdtemp(join(tmpdir(), "webenvoy-runtime-source-checkout-"));
+    try {
+      await mkdir(join(sourceCheckoutDir, "dist"), { recursive: true });
+      await mkdir(join(sourceCheckoutDir, "src", "commands"), { recursive: true });
+      await writeFile(
+        join(sourceCheckoutDir, "package.json"),
+        JSON.stringify({
+          name: "@webenvoy/cli"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(sourceCheckoutDir, "dist", "runtime-build-metadata.json"),
+        JSON.stringify({
+          name: "@webenvoy/cli",
+          gitHead: "head-closeout-stale-prebuilt"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(sourceCheckoutDir, "src", "commands", "xhs-runtime.ts"),
+        "export const source = true;\n",
+        "utf8"
+      );
+      for (const args of [
+        ["init"],
+        ["config", "user.email", "tests@example.com"],
+        ["config", "user.name", "Tests"],
+        ["add", "."],
+        ["commit", "-m", "test source checkout head"]
+      ]) {
+        const result = spawnSync("git", args, {
+          cwd: sourceCheckoutDir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"]
+        });
+        expect(result.status, `${args.join(" ")}\n${result.stderr}`).toBe(0);
+      }
+      const headResult = spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: sourceCheckoutDir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      expect(headResult.status, headResult.stderr).toBe(0);
+      const sourceCheckoutHead = headResult.stdout.trim();
+
+      expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract(sourceCheckoutDir))
+        .toBe(sourceCheckoutHead);
+    } finally {
+      await rm(sourceCheckoutDir, { recursive: true, force: true });
+    }
+
     expect(evaluateXhsCloseoutEvidenceForContract(summary, externalCwdTrustedBinding)).toMatchObject({
       decision: "FAIL",
       passed: false,
