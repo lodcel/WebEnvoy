@@ -341,7 +341,7 @@ const closeoutRiskReasonToAccountSafetyReason = (reason) => {
 const pickCanonicalSummaryField = (payload, key) => {
     const summary = asObject(payload.summary);
     const summaryValue = hasOwn(summary ?? undefined, key) ? summary?.[key] : undefined;
-    if (key === "execution_audit" && payload[key] === null) {
+    if (payload[key] === null) {
         const summaryObject = asObject(summaryValue);
         if (summaryObject) {
             return summaryObject;
@@ -526,10 +526,10 @@ const pickGateErrorDetails = (payload, details) => {
     const picked = {};
     const hasOwn = (record, key) => !!record && Object.prototype.hasOwnProperty.call(record, key);
     for (const key of detailKeys) {
-        if (key === "execution_audit" && payload[key] === null) {
-            const detailsAudit = asObject(details?.[key]);
-            if (detailsAudit) {
-                picked[key] = detailsAudit;
+        if ((key === "execution_audit" || key === "request_admission_result") && payload[key] === null) {
+            const detailsObject = asObject(details?.[key]);
+            if (detailsObject) {
+                picked[key] = detailsObject;
                 continue;
             }
         }
