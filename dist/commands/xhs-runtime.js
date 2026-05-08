@@ -505,7 +505,7 @@ const mergeCloseoutEvidenceRoundRecordValues = (rootValue, summaryValue) => {
     }
     return [...rootRounds, ...summaryRounds];
 };
-const mergeCloseoutEvidenceInputSummaryField = (rootValue, summaryValue) => {
+const mergeCloseoutSummaryObjectField = (rootValue, summaryValue) => {
     const rootObject = asObject(rootValue);
     const summaryObject = asObject(summaryValue);
     if (!rootObject || !summaryObject) {
@@ -527,12 +527,20 @@ const mergeCloseoutEvidenceInputSummaryField = (rootValue, summaryValue) => {
                 continue;
             }
         }
+        const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField);
+        if (mergedObject) {
+            merged[key] = mergedObject;
+            continue;
+        }
         const picked = pickCloseoutSummaryFieldValue(rootField, summaryField);
         if (picked !== undefined) {
             merged[key] = picked;
         }
     }
     return merged;
+};
+const mergeCloseoutEvidenceInputSummaryField = (rootValue, summaryValue) => {
+    return mergeCloseoutSummaryObjectField(rootValue, summaryValue);
 };
 export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
     const summary = asObject(payload.summary);
@@ -542,6 +550,13 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
             const mergedInput = mergeCloseoutEvidenceInputSummaryField(payload[key], summary?.[key]);
             if (mergedInput) {
                 picked[key] = mergedInput;
+                continue;
+            }
+        }
+        if (hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
+            const mergedObject = mergeCloseoutSummaryObjectField(payload[key], summary?.[key]);
+            if (mergedObject) {
+                picked[key] = mergedObject;
                 continue;
             }
         }

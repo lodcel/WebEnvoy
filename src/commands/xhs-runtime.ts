@@ -648,7 +648,7 @@ const mergeCloseoutEvidenceRoundRecordValues = (
   return [...rootRounds, ...summaryRounds];
 };
 
-const mergeCloseoutEvidenceInputSummaryField = (
+const mergeCloseoutSummaryObjectField = (
   rootValue: unknown,
   summaryValue: unknown
 ): JsonObject | null => {
@@ -673,12 +673,24 @@ const mergeCloseoutEvidenceInputSummaryField = (
         continue;
       }
     }
+    const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField);
+    if (mergedObject) {
+      merged[key] = mergedObject;
+      continue;
+    }
     const picked = pickCloseoutSummaryFieldValue(rootField, summaryField);
     if (picked !== undefined) {
       merged[key] = picked;
     }
   }
   return merged;
+};
+
+const mergeCloseoutEvidenceInputSummaryField = (
+  rootValue: unknown,
+  summaryValue: unknown
+): JsonObject | null => {
+  return mergeCloseoutSummaryObjectField(rootValue, summaryValue);
 };
 
 export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObject): JsonObject => {
@@ -689,6 +701,13 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObj
       const mergedInput = mergeCloseoutEvidenceInputSummaryField(payload[key], summary?.[key]);
       if (mergedInput) {
         picked[key] = mergedInput;
+        continue;
+      }
+    }
+    if (hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
+      const mergedObject = mergeCloseoutSummaryObjectField(payload[key], summary?.[key]);
+      if (mergedObject) {
+        picked[key] = mergedObject;
         continue;
       }
     }
