@@ -497,6 +497,14 @@ const pickCloseoutSummaryFieldValue = (rootValue, summaryValue) => {
     }
     return rootValue;
 };
+const mergeCloseoutEvidenceRoundRecordValues = (rootValue, summaryValue) => {
+    const rootRounds = Array.isArray(rootValue) && rootValue.length > 0 ? rootValue : [];
+    const summaryRounds = Array.isArray(summaryValue) && summaryValue.length > 0 ? summaryValue : [];
+    if (rootRounds.length === 0 && summaryRounds.length === 0) {
+        return null;
+    }
+    return [...rootRounds, ...summaryRounds];
+};
 const mergeCloseoutEvidenceInputSummaryField = (rootValue, summaryValue) => {
     const rootObject = asObject(rootValue);
     const summaryObject = asObject(summaryValue);
@@ -512,6 +520,13 @@ const mergeCloseoutEvidenceInputSummaryField = (rootValue, summaryValue) => {
     for (const key of Object.keys(summaryObject)) {
         const rootField = hasOwn(rootObject, key) ? rootObject[key] : undefined;
         const summaryField = summaryObject[key];
+        if (key === "evidence_rounds") {
+            const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(rootField, summaryField);
+            if (mergedRounds) {
+                merged[key] = mergedRounds;
+                continue;
+            }
+        }
         const picked = pickCloseoutSummaryFieldValue(rootField, summaryField);
         if (picked !== undefined) {
             merged[key] = picked;
@@ -721,6 +736,10 @@ const toCloseoutEvidenceRoundRecords = (records) => {
     }
     return records;
 };
+const unionCloseoutEvidenceRoundRecords = (...recordGroups) => {
+    const records = recordGroups.flatMap((recordGroup) => recordGroup ?? []);
+    return records.length > 0 ? records : null;
+};
 const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
@@ -728,7 +747,7 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
     const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
     const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
     const routeRoundRecords = toCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
-    const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
+    const roundRecords = unionCloseoutEvidenceRoundRecords(explicitRoundRecords, summaryRoundRecords, routeRoundRecords);
     const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
     const trustedExpectedBindingInput = {
         ...(trustedExpectedBinding ?? {})
