@@ -531,7 +531,8 @@ const isCompleteCloseoutEvidenceExpected = (
   !!expected &&
   expected.latest_head_sha !== null &&
   expected.run_id !== null &&
-  expected.artifact_identity !== null &&
+  (expected.artifact_identity !== null ||
+    (Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0)) &&
   expected.profile_ref !== null &&
   expected.target_tab_id !== null &&
   expected.page_url !== null &&
@@ -568,18 +569,22 @@ const buildCloseoutEvidenceInputForRuntime = (
       : null;
   const routeEvidenceExpected = toCloseoutEvidenceExpected(routeEvidence);
   const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
-  const routeEvidenceHasDeterministicInput =
+  const explicitExpected = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
+  const summaryExpected = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
+  const routeEvidenceCanProvideExpected =
     routeEvidenceRequiresCloseout &&
     routeRoundRecords !== null &&
-    isCompleteCloseoutEvidenceExpected(routeEvidenceExpected) &&
-    isCompleteCloseoutEvidenceRound(routeEvidenceRound);
+    isCompleteCloseoutEvidenceExpected(routeEvidenceExpected);
   const expected =
-    toCloseoutEvidenceExpected(asObject(explicitInput?.expected)) ??
-    toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected)) ??
-    (routeEvidenceHasDeterministicInput ? routeEvidenceExpected : null);
+    explicitExpected ?? summaryExpected ?? (routeEvidenceCanProvideExpected ? routeEvidenceExpected : null);
+  const routeEvidenceCanProvideRound =
+    routeEvidenceRequiresCloseout &&
+    routeRoundRecords !== null &&
+    isCompleteCloseoutEvidenceExpected(expected) &&
+    isCompleteCloseoutEvidenceRound(routeEvidenceRound);
   const evidence =
     toCloseoutEvidenceRound(asObject(explicitInput?.evidence)) ??
-    (routeEvidenceHasDeterministicInput ? routeEvidenceRound : null);
+    (routeEvidenceCanProvideRound ? routeEvidenceRound : null);
   if (!expected || !evidence) {
     return null;
   }
