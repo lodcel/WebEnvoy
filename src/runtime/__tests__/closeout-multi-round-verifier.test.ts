@@ -210,6 +210,35 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("rejects explicit artifact allowlists that are not bound to the expected run", () => {
+    const expected = {
+      ...expectedBinding(),
+      artifact_identity: null,
+      artifact_identities: [
+        "artifact/xhs-closeout-evidence/run-closeout-evidence-old/round-1",
+        "artifact/xhs-closeout-evidence/run-closeout-evidence-old/round-2"
+      ]
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [
+          successRound("artifact/xhs-closeout-evidence/run-closeout-evidence-old/round-1"),
+          successRound("artifact/xhs-closeout-evidence/run-closeout-evidence-old/round-2")
+        ]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it("rejects provider-scoped sibling artifacts when only singular expected artifact_identity is provided", () => {
     const expected: CloseoutMultiRoundExpectedBinding = {
       ...expectedBinding(),

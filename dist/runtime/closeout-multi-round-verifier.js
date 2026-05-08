@@ -40,6 +40,9 @@ const matchesExpectedArtifactIdentity = (input) => {
     }
     return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
 };
+const artifactIdentityBelongsToRun = (artifactIdentity, expectedRunId) => artifactIdentity !== null &&
+    expectedRunId !== null &&
+    artifactIdentity.includes(expectedRunId);
 const blocker = (blocker_code, blocker_layer, message) => ({
     blocker_code,
     blocker_layer,
@@ -65,6 +68,8 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         : expectedArtifactIdentity === null
             ? []
             : [expectedArtifactIdentity]);
+    const expectedArtifactsBoundToRun = expectedRunId !== null &&
+        [...expectedArtifactIdentities].every((artifactIdentity) => artifactIdentityBelongsToRun(artifactIdentity, expectedRunId));
     const expectedProfileRef = normalizeString(input.expected.profile_ref);
     const expectedPageUrl = normalizeString(input.expected.page_url);
     const expectedActionRef = normalizeString(input.expected.action_ref);
@@ -115,10 +120,12 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
         if (observedArtifactIdentity === null) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must have an artifact identity"));
         }
-        else if (!matchesExpectedArtifactIdentity({
-            expectedArtifactIdentities,
-            observedArtifactIdentity
-        })) {
+        else if (!expectedArtifactsBoundToRun ||
+            !artifactIdentityBelongsToRun(observedArtifactIdentity, expectedRunId) ||
+            !matchesExpectedArtifactIdentity({
+                expectedArtifactIdentities,
+                observedArtifactIdentity
+            })) {
             pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "each multi-round closeout evidence round must use a current artifact identity"));
         }
         else {

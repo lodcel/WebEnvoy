@@ -127,6 +127,14 @@ const matchesExpectedArtifactIdentity = (input: {
   return input.expectedArtifactIdentities.has(input.observedArtifactIdentity);
 };
 
+const artifactIdentityBelongsToRun = (
+  artifactIdentity: string | null,
+  expectedRunId: string | null
+): boolean =>
+  artifactIdentity !== null &&
+  expectedRunId !== null &&
+  artifactIdentity.includes(expectedRunId);
+
 const blocker = (
   blocker_code: CloseoutMultiRoundVerifierBlockerCode,
   blocker_layer: CloseoutMultiRoundVerifierBlockerLayer,
@@ -172,6 +180,11 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
         ? []
         : [expectedArtifactIdentity]
   );
+  const expectedArtifactsBoundToRun =
+    expectedRunId !== null &&
+    [...expectedArtifactIdentities].every((artifactIdentity) =>
+      artifactIdentityBelongsToRun(artifactIdentity, expectedRunId)
+    );
   const expectedProfileRef = normalizeString(input.expected.profile_ref);
   const expectedPageUrl = normalizeString(input.expected.page_url);
   const expectedActionRef = normalizeString(input.expected.action_ref);
@@ -291,6 +304,8 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
         )
       );
     } else if (
+      !expectedArtifactsBoundToRun ||
+      !artifactIdentityBelongsToRun(observedArtifactIdentity, expectedRunId) ||
       !matchesExpectedArtifactIdentity({
         expectedArtifactIdentities,
         observedArtifactIdentity
