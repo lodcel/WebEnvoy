@@ -473,11 +473,10 @@ const hasExplicitCloseoutEvidencePayloadMarker = (
   hasOwn(record, "closeout_evidence_rounds") ||
   hasOwn(record, "closeout_route_evidence");
 
-const hasExplicitCloseoutProductionPathMarker = (record: JsonObject | null | undefined): boolean =>
+const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
   hasOwn(record, "closeout_evidence_evaluation") ||
-  hasOwn(record, "closeout_readiness") ||
-  hasExplicitCloseoutEvidencePayloadMarker(record);
+  hasOwn(record, "closeout_readiness");
 
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
   "closeout_evidence_input",
@@ -723,11 +722,7 @@ const buildCloseoutEvidenceInputForRuntime = (
 };
 
 const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): boolean => {
-  if (
-    hasOwn(summary, "closeout_evidence_input") ||
-    hasOwn(summary, "closeout_evidence_expected") ||
-    hasOwn(summary, "closeout_evidence_rounds")
-  ) {
+  if (hasExplicitCloseoutEvidencePayloadMarker(summary)) {
     return true;
   }
   const routeEvidence =
@@ -737,8 +732,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): bool
     : null;
   return (
     routeRoundRecords !== null ||
-    hasOwn(summary, "closeout_route_evidence") ||
-    (hasExplicitCloseoutProductionPathMarker(summary) &&
+    (hasExplicitCloseoutProductionAuditMarker(summary) &&
       isCloseoutPrimaryApiSuccessRoute(routeEvidence))
   );
 };
@@ -852,13 +846,12 @@ const hasCloseoutRouteEvaluationMarker = (record: JsonObject | null | undefined)
     return true;
   }
 
-  const closeoutRouteEvidence = asObject(record?.closeout_route_evidence);
-  if (isCloseoutPrimaryApiSuccessRoute(closeoutRouteEvidence)) {
-    return true;
-  }
-
-  const routeEvidence = asObject(record?.route_evidence);
-  return hasExplicitCloseoutProductionPathMarker(record) && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+  const routeEvidence =
+    asObject(record?.closeout_route_evidence) ?? asObject(record?.route_evidence);
+  return (
+    hasExplicitCloseoutProductionAuditMarker(record) &&
+    isCloseoutPrimaryApiSuccessRoute(routeEvidence)
+  );
 };
 
 export const requiresCanonicalExecutionAuditForContract = (input: {
@@ -870,7 +863,7 @@ export const requiresCanonicalExecutionAuditForContract = (input: {
   const summary = asObject(input.summary) ?? asObject(payload?.summary);
   const details = asObject(input.details);
   return [payload, summary, details].some(
-    (record) => hasExplicitCloseoutProductionPathMarker(record) || hasCloseoutRouteEvaluationMarker(record)
+    (record) => hasExplicitCloseoutProductionAuditMarker(record) || hasCloseoutRouteEvaluationMarker(record)
   );
 };
 
@@ -897,7 +890,7 @@ export const requiresCloseoutAuditForXhsBridgeSummaryForContract = (input: {
 }): boolean => {
   const summary = asObject(input.summary);
   return (
-    hasExplicitCloseoutProductionPathMarker(summary) ||
+    hasExplicitCloseoutProductionAuditMarker(summary) ||
     shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
       abilityId: input.abilityId,
       requestedExecutionMode: input.requestedExecutionMode,

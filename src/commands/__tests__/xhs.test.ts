@@ -1118,6 +1118,30 @@ describe("normalizeGateOptionsForContract", () => {
     expect(
       requiresCanonicalExecutionAuditForContract({
         summary: {
+          closeout_evidence_input: {
+            expected: {},
+            evidence: {}
+          },
+          closeout_evidence_rounds: []
+        }
+      })
+    ).toBe(false);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        summary: {
+          closeout_route_evidence: {
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success"
+          }
+        }
+      })
+    ).toBe(false);
+
+    expect(
+      requiresCanonicalExecutionAuditForContract({
+        summary: {
           closeout_evidence_evaluation: {
             evaluator: "xhs-closeout-route-evidence"
           },
@@ -1313,7 +1337,7 @@ describe("normalizeGateOptionsForContract", () => {
           closeout_evidence_input: null
         }
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("runs deterministic closeout multi-round evaluation for explicit runtime evidence input", () => {
