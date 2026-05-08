@@ -1062,7 +1062,7 @@ const isLegacyCloseoutEvidenceEvaluationCompatOnly = (
   summary: JsonObject,
   evaluation: ReturnType<typeof evaluateCloseoutEvidence>
 ): boolean =>
-  !hasExplicitCloseoutEvidencePayloadMarker(summary) &&
+  !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
   evaluation.blockers.some(
     (blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence"
   );

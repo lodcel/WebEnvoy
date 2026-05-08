@@ -827,7 +827,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
         (hasExplicitCloseoutProductionAuditMarker(summary) &&
             isCloseoutPrimaryApiSuccessRoute(routeEvidence)));
 };
-const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasExplicitCloseoutEvidencePayloadMarker(summary) &&
+const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
     evaluation.blockers.some((blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence");
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
