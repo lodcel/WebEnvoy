@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   buildOfficialChromeRuntimeStatusParams,
+  buildXhsCloseoutEvidenceTrustedBindingForContract,
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
   normalizeGateOptionsForContract,
@@ -1424,6 +1425,41 @@ describe("normalizeGateOptionsForContract", () => {
         accepted_round_count: 2,
         unique_artifact_count: 2
       }
+    });
+
+    const runtimeTrustedBinding = buildXhsCloseoutEvidenceTrustedBindingForContract({
+      cwd: process.cwd(),
+      runId: "run-closeout-001",
+      profileRef: "profile/xhs_closeout_001",
+      targetTabId: 32,
+      summary
+    });
+    expect(runtimeTrustedBinding.latestHeadSha).toMatch(/^[0-9a-f]{40}$/u);
+    expect(evaluateXhsCloseoutEvidenceForContract(summary, runtimeTrustedBinding)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_head"
+        })
+      ])
+    });
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(summary, {
+        latestHeadSha: null,
+        runId: "run-closeout-001",
+        profileRef: "profile/xhs_closeout_001",
+        targetTabId: 32
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_latest_head"
+        })
+      ])
     });
 
     expect(

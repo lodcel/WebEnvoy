@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { CliError } from "../core/errors.js";
 import { mapCapabilitySummaryForContract } from "../core/capability-output.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "../runtime/native-messaging/bridge.js";
@@ -529,6 +530,24 @@ const fillMissingTrustedExpectedBinding = (expected, trusted) => {
         target_tab_id: expected.target_tab_id ?? asInteger(trusted?.targetTabId)
     };
 };
+export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd) => {
+    const result = spawnSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+    });
+    if (result.status !== 0) {
+        return null;
+    }
+    return asString(result.stdout);
+};
+export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input) => ({
+    latestHeadSha: requiresCloseoutEvidenceEvaluationForRuntime(input.summary)
+        ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
+        : undefined,
+    runId: input.runId,
+    profileRef: input.profileRef,
+    targetTabId: input.targetTabId
+});
 const toUsableCloseoutEvidenceRoundRecords = (records) => {
     if (!Array.isArray(records) || records.length === 0) {
         return null;
@@ -689,6 +708,12 @@ const applyTrustedExpectedBindingCheck = (evaluation, trusted) => {
     const trustedRunId = asString(trusted?.runId);
     const trustedProfileRef = asString(trusted?.profileRef);
     const trustedTargetTabId = asInteger(trusted?.targetTabId);
+    if (trusted !== null &&
+        trusted !== undefined &&
+        Object.prototype.hasOwnProperty.call(trusted, "latestHeadSha") &&
+        trustedLatestHeadSha === null) {
+        pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("missing_latest_head", "freshness", "closeout runtime head must be available"));
+    }
     if (trustedLatestHeadSha !== null &&
         evaluation.freshness.expected_latest_head_sha !== trustedLatestHeadSha) {
         pushUniqueCloseoutEvaluationBlocker(blockers, closeoutEvaluationBlocker("stale_head", "freshness", "closeout expected head must match the runtime head"));
@@ -1806,11 +1831,13 @@ const xhsReadCommand = async (context, inputConfig) => {
                 }
             });
         }
-        assertCloseoutEvidenceForRuntime(envelope.ability, {
+        assertCloseoutEvidenceForRuntime(envelope.ability, buildXhsCloseoutEvidenceTrustedBindingForContract({
+            cwd: context.cwd,
             runId: context.run_id,
             profileRef: context.profile,
-            targetTabId: gate.targetTabId
-        }, summary);
+            targetTabId: gate.targetTabId,
+            summary
+        }), summary);
         if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
             assertCloseoutCanonicalExecutionAuditForRuntime(envelope.ability, context.run_id, {
                 success: {

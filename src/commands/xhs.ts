@@ -2,6 +2,7 @@ export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chro
 export {
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
+  buildXhsCloseoutEvidenceTrustedBindingForContract,
   normalizeGateOptionsForContract,
   pickXhsCloseoutEvidenceSummaryFieldsForContract,
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
