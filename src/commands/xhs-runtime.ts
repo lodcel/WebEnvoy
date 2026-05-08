@@ -620,7 +620,8 @@ const buildCloseoutEvidenceInputForRuntime = (
   const routeEvidence =
     asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
   const routeEvidenceRequiresCloseout =
-    summary.closeout_audit_required === true && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+    (summary.closeout_audit_required === true || hasOwn(summary, "closeout_route_evidence")) &&
+    isCloseoutPrimaryApiSuccessRoute(routeEvidence);
   const explicitRoundRecords =
     Array.isArray(explicitInput?.evidence_rounds) && explicitInput.evidence_rounds.length > 0
     ? explicitInput.evidence_rounds
