@@ -157,19 +157,28 @@ const hasCanonicalAdmissionDecisionInvariants = (value: JsonObject): boolean =>
     ? true
     : value.admission_decision === "blocked";
 
+const CANONICAL_ACTION_TYPES = new Set(["read", "write", "download"]);
+const CANONICAL_RUNTIME_MODES = new Set([
+  "dry_run",
+  "recon",
+  "live_read_limited",
+  "live_read_high_risk",
+  "live_write"
+]);
+
 const isCanonicalRequestAdmissionResult = (value: JsonObject | null): value is JsonObject =>
   value !== null &&
   asNonEmptyString(value.request_ref) !== null &&
   (value.admission_decision === "allowed" ||
     value.admission_decision === "blocked" ||
     value.admission_decision === "deferred") &&
-  asNonEmptyString(value.normalized_action_type) !== null &&
+  CANONICAL_ACTION_TYPES.has(asNonEmptyString(value.normalized_action_type) ?? "") &&
   (value.normalized_resource_kind === "anonymous_context" ||
     value.normalized_resource_kind === "profile_session") &&
   isBoolean(value.runtime_target_match) &&
   isBoolean(value.grant_match) &&
   isBoolean(value.anonymous_isolation_ok) &&
-  asNonEmptyString(value.effective_runtime_mode) !== null &&
+  CANONICAL_RUNTIME_MODES.has(asNonEmptyString(value.effective_runtime_mode) ?? "") &&
   isNonEmptyStringArray(value.reason_codes) &&
   hasCanonicalAdmissionDecisionInvariants(value) &&
   hasCanonicalAdmissionDerivedRefs(asObject(value.derived_from), value.admission_decision);
@@ -216,6 +225,14 @@ const requestAdmissionMatchesExecutionAudit = (
     asNonEmptyString(executionAudit.request_ref) &&
   asNonEmptyString(requestAdmissionResult.admission_decision) ===
     asNonEmptyString(executionAudit.request_admission_decision);
+
+const auditRequestRefMatchesConsumedActionRef = (executionAudit: JsonObject): boolean => {
+  const consumedInputs = asObject(executionAudit.consumed_inputs);
+  return (
+    asNonEmptyString(executionAudit.request_ref) ===
+    asNonEmptyString(consumedInputs?.action_request_ref)
+  );
+};
 
 const consumedInputsMatchAdmissionRefs = (
   requestAdmissionResult: JsonObject,
@@ -525,6 +542,21 @@ export const verifyCloseoutCanonicalExecutionAudit = (
     if (
       isCanonicalRequestAdmissionResult(successRequestAdmissionResult) &&
       isCanonicalExecutionAudit(successExecutionAudit) &&
+      !auditRequestRefMatchesConsumedActionRef(successExecutionAudit)
+    ) {
+      blockers.push(
+        blocker(
+          "success_consumed_inputs_mismatch",
+          "canonical_consistency",
+          "success.summary.execution_audit.consumed_inputs.action_request_ref",
+          "success execution_audit action_request_ref must match execution_audit request_ref"
+        )
+      );
+    }
+
+    if (
+      isCanonicalRequestAdmissionResult(successRequestAdmissionResult) &&
+      isCanonicalExecutionAudit(successExecutionAudit) &&
       !consumedInputsMatchAdmissionRefs(successRequestAdmissionResult, successExecutionAudit)
     ) {
       blockers.push(
@@ -677,6 +709,21 @@ export const verifyCloseoutCanonicalExecutionAudit = (
     if (
       isCanonicalRequestAdmissionResult(failureRequestAdmission) &&
       isCanonicalExecutionAudit(failureDetailsExecutionAudit) &&
+      !auditRequestRefMatchesConsumedActionRef(failureDetailsExecutionAudit)
+    ) {
+      blockers.push(
+        blocker(
+          "failure_consumed_inputs_mismatch",
+          "canonical_consistency",
+          `failure.${failureDetails?.path ?? "details"}.execution_audit.consumed_inputs.action_request_ref`,
+          "failure execution_audit action_request_ref must match execution_audit request_ref"
+        )
+      );
+    }
+
+    if (
+      isCanonicalRequestAdmissionResult(failureRequestAdmission) &&
+      isCanonicalExecutionAudit(failureDetailsExecutionAudit) &&
       !consumedInputsMatchAdmissionRefs(failureRequestAdmission, failureDetailsExecutionAudit)
     ) {
       blockers.push(
@@ -730,6 +777,21 @@ export const verifyCloseoutCanonicalExecutionAudit = (
           "canonical_consistency",
           `failure.${failureDetails?.path ?? "details"}.execution_audit.compatibility_refs.gate_run_id`,
           "failure execution_audit gate refs must match the current run id"
+        )
+      );
+    }
+
+    if (
+      !isCanonicalRequestAdmissionResult(failureRequestAdmission) &&
+      isCanonicalExecutionAudit(failureDetailsExecutionAudit) &&
+      !auditRequestRefMatchesConsumedActionRef(failureDetailsExecutionAudit)
+    ) {
+      blockers.push(
+        blocker(
+          "failure_consumed_inputs_mismatch",
+          "canonical_consistency",
+          `failure.${failureDetails?.path ?? "details"}.execution_audit.consumed_inputs.action_request_ref`,
+          "failure execution_audit action_request_ref must match execution_audit request_ref"
         )
       );
     }
