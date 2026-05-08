@@ -1931,10 +1931,53 @@ const toCliExecutionError = (
   ability: AbilityRef,
   payload: Record<string, unknown>,
   fallbackMessage: string,
-  expectedRunId: string
+  expectedRunId: string,
+  closeoutRuntimeBinding?: {
+    cwd: string;
+    profileRef?: string | null;
+    targetTabId?: number | null;
+  }
 ): CliError => {
   const details = asObject(payload.details);
   const pickedDetails = pickGateErrorDetails(payload, details);
+  if (closeoutRuntimeBinding) {
+    const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(payload);
+    const requestAdmissionResult = pickCanonicalSummaryField(payload, "request_admission_result");
+    const executionAudit = pickCanonicalSummaryField(payload, "execution_audit");
+    const mergedSummary = {
+      ...(asObject(payload.summary) ?? {}),
+      ...closeoutEvidenceSummaryFields
+    };
+    if (requiresCloseoutEvidenceEvaluationForRuntime(mergedSummary)) {
+      const summary = mapCapabilitySummaryForContract(ability.id, {
+        ...mergedSummary,
+        ...(asObject(payload.consumer_gate_result)
+          ? { consumer_gate_result: asObject(payload.consumer_gate_result) }
+          : {}),
+        ...(requestAdmissionResult !== undefined
+          ? { request_admission_result: requestAdmissionResult }
+          : {}),
+        ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
+      });
+      assertCloseoutEvidenceForRuntime(
+        ability,
+        buildXhsCloseoutEvidenceTrustedBindingForContract({
+          cwd: closeoutRuntimeBinding.cwd,
+          runId: expectedRunId,
+          profileRef: closeoutRuntimeBinding.profileRef,
+          targetTabId: closeoutRuntimeBinding.targetTabId,
+          summary
+        }),
+        summary
+      );
+      if (asObject(summary.closeout_evidence_evaluation)) {
+        pickedDetails.closeout_evidence_evaluation = summary.closeout_evidence_evaluation;
+      }
+      if (asString(summary.closeout_evidence_compat_mode)) {
+        pickedDetails.closeout_evidence_compat_mode = summary.closeout_evidence_compat_mode;
+      }
+    }
+  }
   if (requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails })) {
     copyCloseoutCanonicalAuditIntoFailureDetails(payload, pickedDetails);
     assertCloseoutCanonicalExecutionAuditForRuntime(
@@ -2763,7 +2806,12 @@ const xhsReadCommand = async (
         envelope.ability,
         bridgeResult.payload,
         bridgeResult.error.message,
-        context.run_id
+        context.run_id,
+        {
+          cwd: context.cwd,
+          profileRef: context.profile,
+          targetTabId: gate.targetTabId
+        }
       );
     }
 
@@ -2800,7 +2848,12 @@ const xhsReadCommand = async (
         envelope.ability,
         bridgeResult.payload,
         "XHS recovery probe detected account-safety risk",
-        context.run_id
+        context.run_id,
+        {
+          cwd: context.cwd,
+          profileRef: context.profile,
+          targetTabId: gate.targetTabId
+        }
       );
     }
 
