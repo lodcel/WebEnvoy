@@ -1926,6 +1926,61 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("ignores legacy route evidence rounds when deterministic closeout rounds are present", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const firstRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const secondRound = {
+      ...firstRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_evidence_expected: expected,
+        closeout_evidence_rounds: [firstRound, secondRound],
+        route_evidence: {
+          ...firstRound,
+          evidence_rounds: [
+            {
+              ...firstRound,
+              head_sha: "stale-head",
+              artifact_identity: "artifact/xhs-closeout/run-closeout-stale/round-1"
+            }
+          ]
+        }
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
+    });
+  });
+
   it("merges top-level closeout round arrays from root and summary", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",

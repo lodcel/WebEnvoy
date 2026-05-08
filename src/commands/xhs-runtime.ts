@@ -1051,12 +1051,17 @@ const buildCloseoutEvidenceInputForRuntime = (
   const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
   const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
   const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
-  const routeRoundRecords = toCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
-  const roundRecords = unionCloseoutEvidenceRoundRecords(
+  const hasDeterministicRoundSource =
+    hasOwn(explicitInput ?? undefined, "evidence_rounds") ||
+    hasOwn(summary, "closeout_evidence_rounds");
+  const deterministicRoundRecords = unionCloseoutEvidenceRoundRecords(
     explicitRoundRecords,
-    summaryRoundRecords,
-    routeRoundRecords
+    summaryRoundRecords
   );
+  const routeRoundRecords = hasDeterministicRoundSource
+    ? null
+    : toCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
+  const roundRecords = deterministicRoundRecords ?? routeRoundRecords;
   const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
   const trustedExpectedBindingInput = {
     ...(trustedExpectedBinding ?? {})
