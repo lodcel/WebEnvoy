@@ -653,7 +653,10 @@ const buildCloseoutEvidenceInputForRuntime = (
     roundRecords !== null &&
     isCompleteCloseoutEvidenceExpected(expected) &&
     isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
-  const explicitEvidence = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
+  const explicitEvidenceCandidate = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
+  const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
+    ? explicitEvidenceCandidate
+    : null;
   const evidence =
     explicitEvidence ??
     (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
