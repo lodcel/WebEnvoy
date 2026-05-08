@@ -647,6 +647,9 @@ const buildCloseoutEvidenceInputForRuntime = (
   const routeEvidence =
     asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
   const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+  const closeoutRouteEvidenceExpectedCandidate = toCloseoutEvidenceExpected(
+    asObject(summary.closeout_route_evidence)
+  );
   const explicitRoundRecords = toUsableCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
   const summaryRoundRecords = toUsableCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
   const routeRoundRecords = toUsableCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds);
@@ -662,7 +665,12 @@ const buildCloseoutEvidenceInputForRuntime = (
   const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidate)
     ? summaryExpectedCandidate
     : null;
-  const expected = explicitExpected ?? summaryExpected;
+  const closeoutRouteEvidenceExpected = isCompleteCloseoutEvidenceExpected(
+    closeoutRouteEvidenceExpectedCandidate
+  )
+    ? closeoutRouteEvidenceExpectedCandidate
+    : null;
+  const expected = explicitExpected ?? summaryExpected ?? closeoutRouteEvidenceExpected;
   const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
   const routeEvidenceCanProvideRound =
     routeEvidenceRequiresCloseout &&
@@ -727,11 +735,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): bool
   const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
     ? routeEvidence.evidence_rounds
     : null;
-  return (
-    routeRoundRecords !== null ||
-    hasOwn(summary, "closeout_route_evidence") ||
-    (summary.closeout_audit_required === true && isCloseoutPrimaryApiSuccessRoute(routeEvidence))
-  );
+  return routeRoundRecords !== null || hasOwn(summary, "closeout_route_evidence");
 };
 
 const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseoutEvidence> => ({
