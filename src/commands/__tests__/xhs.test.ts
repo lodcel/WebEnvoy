@@ -1501,7 +1501,7 @@ describe("normalizeGateOptionsForContract", () => {
         "utf8"
       );
       expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract(metadataRuntimeDir))
-        .toBe("head-closeout-metadata");
+        .toBe(runtimeTrustedBinding.latestHeadSha);
     } finally {
       await rm(metadataRuntimeDir, { recursive: true, force: true });
     }
@@ -1541,7 +1541,7 @@ describe("normalizeGateOptionsForContract", () => {
       }
 
       expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract(metadataCheckoutDir))
-        .toBe("head-closeout-prebuilt");
+        .toBe(runtimeTrustedBinding.latestHeadSha);
     } finally {
       await rm(metadataCheckoutDir, { recursive: true, force: true });
     }
@@ -1593,7 +1593,9 @@ describe("normalizeGateOptionsForContract", () => {
       const sourceCheckoutHead = headResult.stdout.trim();
 
       expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract(sourceCheckoutDir))
-        .toBe(sourceCheckoutHead);
+        .not.toBe(sourceCheckoutHead);
+      expect(resolveXhsCloseoutRuntimeLatestHeadShaForContract(sourceCheckoutDir))
+        .toBe(runtimeTrustedBinding.latestHeadSha);
     } finally {
       await rm(sourceCheckoutDir, { recursive: true, force: true });
     }
@@ -1679,16 +1681,20 @@ describe("normalizeGateOptionsForContract", () => {
         summary: runtimeBoundSummary
       });
 
-      expect(packagedRuntimeTrustedBinding.latestHeadSha).toBe("head-closeout-001");
+      expect(packagedRuntimeTrustedBinding.latestHeadSha).toBe(runtimeTrustedBinding.latestHeadSha);
       expect(
         evaluateXhsCloseoutEvidenceForContract(
           runtimeBoundSummary,
           packagedRuntimeTrustedBinding
         )
       ).toMatchObject({
-        decision: "PASS",
-        passed: true,
-        blockers: []
+        decision: "FAIL",
+        passed: false,
+        blockers: expect.arrayContaining([
+          expect.objectContaining({
+            blocker_code: "stale_head"
+          })
+        ])
       });
     } finally {
       await rm(packagedRuntimeDir, { recursive: true, force: true });
