@@ -472,19 +472,25 @@ const buildCloseoutEvidenceInputForRuntime = (summary) => {
     const explicitInput = asObject(summary.closeout_evidence_input);
     const routeEvidence = asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
     const routeEvidenceRequiresCloseout = summary.closeout_audit_required === true && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
-    const explicitRoundRecords = Array.isArray(explicitInput?.evidence_rounds)
+    const explicitRoundRecords = Array.isArray(explicitInput?.evidence_rounds) && explicitInput.evidence_rounds.length > 0
         ? explicitInput.evidence_rounds
         : null;
-    const summaryRoundRecords = Array.isArray(summary.closeout_evidence_rounds)
+    const summaryRoundRecords = Array.isArray(summary.closeout_evidence_rounds) && summary.closeout_evidence_rounds.length > 0
         ? summary.closeout_evidence_rounds
         : null;
-    const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds)
+    const routeRoundRecords = Array.isArray(routeEvidence?.evidence_rounds) && routeEvidence.evidence_rounds.length > 0
         ? routeEvidence.evidence_rounds
         : null;
     const roundRecords = explicitRoundRecords ?? summaryRoundRecords ?? routeRoundRecords;
     const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
-    const explicitExpected = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
-    const summaryExpected = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
+    const explicitExpectedCandidate = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
+    const summaryExpectedCandidate = toCloseoutEvidenceExpected(asObject(summary.closeout_evidence_expected));
+    const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidate)
+        ? explicitExpectedCandidate
+        : null;
+    const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidate)
+        ? summaryExpectedCandidate
+        : null;
     const expected = explicitExpected ?? summaryExpected;
     const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
     const routeEvidenceCanProvideRound = routeEvidenceRequiresCloseout &&
