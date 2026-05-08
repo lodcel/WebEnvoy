@@ -180,11 +180,14 @@ export const verifyCloseoutMultiRoundEvidence = (input) => {
     if (expectedArtifactIdentities.size === 0 || !expectedArtifactObserved) {
         pushUniqueBlocker(blockers, blocker("stale_artifact", "freshness", "multi-round closeout evidence must include the current artifact identity"));
     }
+    const reproducedMultiRound = acceptedRoundCount >= REQUIRED_SUCCESS_ROUNDS &&
+        artifactIdentities.size >= REQUIRED_SUCCESS_ROUNDS &&
+        !duplicateArtifactObserved;
     const passed = blockers.length === 0;
     return {
         decision: passed ? "PASS" : "FAIL",
         passed,
-        reproduced_multi_round: passed,
+        reproduced_multi_round: reproducedMultiRound,
         accepted_round_count: acceptedRoundCount,
         unique_artifact_count: artifactIdentities.size,
         expected_artifact_observed: expectedArtifactObserved,

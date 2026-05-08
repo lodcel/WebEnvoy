@@ -426,12 +426,16 @@ export const verifyCloseoutMultiRoundEvidence = (input: {
     );
   }
 
+  const reproducedMultiRound =
+    acceptedRoundCount >= REQUIRED_SUCCESS_ROUNDS &&
+    artifactIdentities.size >= REQUIRED_SUCCESS_ROUNDS &&
+    !duplicateArtifactObserved;
   const passed = blockers.length === 0;
 
   return {
     decision: passed ? "PASS" : "FAIL",
     passed,
-    reproduced_multi_round: passed,
+    reproduced_multi_round: reproducedMultiRound,
     accepted_round_count: acceptedRoundCount,
     unique_artifact_count: artifactIdentities.size,
     expected_artifact_observed: expectedArtifactObserved,

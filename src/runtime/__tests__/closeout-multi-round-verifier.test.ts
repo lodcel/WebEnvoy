@@ -324,6 +324,41 @@ describe("closeout multi-round verifier", () => {
     });
   });
 
+  it("keeps reproduced_multi_round true when extra non-admitted evidence adds blockers", () => {
+    const expected = {
+      ...expectedBinding(),
+      artifact_identities: [
+        "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-1",
+        "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-2",
+        "artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3"
+      ]
+    };
+
+    expect(
+      verifyCloseoutMultiRoundEvidence({
+        expected,
+        evidence_rounds: [
+          ...successRounds(),
+          {
+            ...successRound("artifact/xhs-closeout-evidence/run-closeout-evidence-001/round-3"),
+            head_sha: "deadbeef"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      reproduced_multi_round: true,
+      accepted_round_count: 2,
+      unique_artifact_count: 3,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_head"
+        })
+      ])
+    });
+  });
+
   it.each([
     {
       name: "single round",
