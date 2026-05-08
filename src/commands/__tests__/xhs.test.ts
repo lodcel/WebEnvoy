@@ -3062,7 +3062,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("uses corrected summary closeout bindings over stale root bindings", () => {
+  it("preserves refreshed root closeout expected bindings over stale summary copies", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
       run_id: "run-closeout-001",
@@ -3091,11 +3091,7 @@ describe("normalizeGateOptionsForContract", () => {
     };
 
     const picked = pickXhsCloseoutEvidenceSummaryFieldsForContract({
-      closeout_evidence_expected: {
-        ...expected,
-        latest_head_sha: "head-closeout-stale",
-        run_id: "run-closeout-stale"
-      },
+      closeout_evidence_expected: expected,
       closeout_evidence_rounds: [
         firstRound,
         {
@@ -3104,7 +3100,11 @@ describe("normalizeGateOptionsForContract", () => {
         }
       ],
       summary: {
-        closeout_evidence_expected: expected
+        closeout_evidence_expected: {
+          ...expected,
+          latest_head_sha: "head-closeout-stale",
+          run_id: "run-closeout-stale"
+        }
       }
     });
 

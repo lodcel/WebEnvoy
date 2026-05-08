@@ -620,6 +620,19 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
                 continue;
             }
         }
+        if ((key === "closeout_evidence_expected" ||
+            key === "closeout_route_evidence" ||
+            key === "route_evidence") &&
+            hasOwn(payload, key) &&
+            hasOwn(summary ?? undefined, key)) {
+            const mergedObject = mergeCloseoutSummaryObjectField(payload[key], summary?.[key], {
+                preferSummaryBindings: false
+            });
+            if (mergedObject) {
+                picked[key] = mergedObject;
+                continue;
+            }
+        }
         if (hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
             const mergedObject = mergeCloseoutSummaryObjectField(payload[key], summary?.[key]);
             if (mergedObject) {
@@ -914,6 +927,7 @@ const requiresCloseoutEvidenceEvaluationForRuntime = (summary) => {
         isCloseoutPrimaryApiSuccessRoute(routeEvidence));
 };
 const isLegacyCloseoutEvidenceEvaluationCompatOnly = (summary, evaluation) => !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
+    evaluation.blockers.length === 1 &&
     evaluation.blockers.some((blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence");
 const missingCloseoutEvidenceEvaluation = () => ({
     decision: "FAIL",
