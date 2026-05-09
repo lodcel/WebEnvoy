@@ -230,4 +230,23 @@ describe("evaluateXhsSearchPrimaryPassiveApiReadinessForContract", () => {
       ])
     });
   });
+
+  it("does not treat generic runtime failures as a risk surface blocker", () => {
+    expect(
+      evaluateXhsSearchPrimaryPassiveApiReadinessForContract({
+        expected: expectedBinding,
+        summary: {
+          route_evidence: routeEvidence,
+          request_context: requestContext,
+          runtime_stop: {
+            reason: "TARGET_API_RESPONSE_INVALID"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: []
+    });
+  });
 });

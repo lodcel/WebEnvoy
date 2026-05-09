@@ -29,10 +29,30 @@ const sameInteger = (left, right) => {
     const normalizedRight = asInteger(right);
     return normalizedLeft !== null && normalizedRight !== null && normalizedLeft === normalizedRight;
 };
-const resolveObservedRiskSurface = (summary, routeEvidence, requestContext) => asString(routeEvidence?.risk_surface_classification) ??
-    asString(requestContext?.risk_surface_classification) ??
-    asString(asObject(summary?.account_safety)?.reason) ??
-    asString(asObject(summary?.runtime_stop)?.reason);
+const XHS_HARD_STOP_RISK_SURFACES = new Set([
+    "XHS_LOGIN_REQUIRED",
+    "SESSION_EXPIRED",
+    "CAPTCHA_REQUIRED",
+    "XHS_ACCOUNT_RISK_PAGE",
+    "ACCOUNT_ABNORMAL",
+    "BROWSER_ENV_ABNORMAL",
+    "SECURITY_REDIRECT",
+    "XSEC_TOKEN_MISSING",
+    "XSEC_TOKEN_EMPTY",
+    "XSEC_TOKEN_STALE",
+    "XSEC_SOURCE_MISMATCH"
+]);
+const normalizeHardStopRiskSurface = (value) => {
+    const riskSurface = asString(value);
+    if (riskSurface === null || !XHS_HARD_STOP_RISK_SURFACES.has(riskSurface)) {
+        return null;
+    }
+    return riskSurface;
+};
+const resolveObservedRiskSurface = (summary, routeEvidence, requestContext) => normalizeHardStopRiskSurface(routeEvidence?.risk_surface_classification) ??
+    normalizeHardStopRiskSurface(requestContext?.risk_surface_classification) ??
+    normalizeHardStopRiskSurface(asObject(summary?.account_safety)?.reason) ??
+    normalizeHardStopRiskSurface(asObject(summary?.runtime_stop)?.reason);
 export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (input) => {
     const summary = asObject(input.summary);
     const routeEvidence = asObject(summary?.route_evidence);
