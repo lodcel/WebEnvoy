@@ -7,6 +7,7 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     ? value
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS = {
     "xhs.search": "xhs.note.search.v1",
@@ -87,6 +88,49 @@ const buildLoopbackXhsReadGateBundle = (input) => {
             gate,
             auditRecord
         })
+    };
+};
+const toLoopbackProfileRef = (profile) => `profile/${profile}`;
+const buildLoopbackXhsSearchPageUrl = (query) => {
+    const url = new URL("https://www.xiaohongshu.com/search_result");
+    if (query.length > 0) {
+        url.searchParams.set("keyword", query);
+    }
+    return url.toString();
+};
+const resolveLoopbackXhsSearchActionRef = (options) => options.search_action_ref === "action/xhs.search/submit_enter"
+    ? "action/xhs.search/submit_enter"
+    : "action/xhs.search/submit_query";
+const buildLoopbackXhsSearchPassiveApiContractSummaryFields = (input) => {
+    const actionRef = resolveLoopbackXhsSearchActionRef(input.options);
+    const pageUrl = buildLoopbackXhsSearchPageUrl(input.query);
+    const profileRef = toLoopbackProfileRef(input.profile);
+    const targetTabId = asInteger(input.options.target_tab_id);
+    return {
+        route_evidence: {
+            route: "xhs.search.api",
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success",
+            evidence_class: "passive_api_capture",
+            profile_ref: profileRef,
+            target_tab_id: targetTabId,
+            page_url: pageUrl,
+            run_id: input.runId,
+            action_ref: actionRef
+        },
+        request_context: {
+            status: "exact_hit",
+            request_id: "req-loopback-001",
+            method: "POST",
+            request_url: input.requestUrl,
+            query: input.query,
+            profile_ref: profileRef,
+            target_tab_id: targetTabId,
+            page_url: pageUrl,
+            run_id: input.runId,
+            action_ref: actionRef
+        }
     };
 };
 class InMemoryPort {
@@ -302,10 +346,12 @@ class InMemoryContentScriptRuntime {
             payload: {
                 summary: capabilityResult === undefined
                     ? {
+                        ...(overrides?.summary ?? {}),
                         ...gateBundle.payload
                     }
                     : {
                         capability_result: capabilityResult,
+                        ...(overrides?.summary ?? {}),
                         ...gateBundle.payload
                     },
                 observability: {
@@ -477,6 +523,16 @@ class InMemoryContentScriptRuntime {
             });
         }
         if (simulated === "success") {
+            const successSummary = command === "xhs.search"
+                && options.xhs_search_passive_readiness_contract === true
+                ? buildLoopbackXhsSearchPassiveApiContractSummaryFields({
+                    runId: message.runId,
+                    profile: "loopback_profile",
+                    query: String(input.query ?? ""),
+                    options,
+                    requestUrl: spec.requestUrl
+                })
+                : undefined;
             return buildSuccessfulResult({
                 ability_id: String(ability.id ?? spec.abilityId),
                 layer: String(ability.layer ?? "L3"),
@@ -488,6 +544,7 @@ class InMemoryContentScriptRuntime {
                     duration_ms: 12
                 }
             }, {
+                ...(successSummary ? { summary: successSummary } : {}),
                 key_requests: [
                     {
                         request_id: "req-loopback-001",
