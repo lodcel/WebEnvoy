@@ -46,7 +46,10 @@ export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (input) =>
     }
     else {
         const routeId = asString(routeEvidence.route ?? routeEvidence.route_id);
-        if (routeId !== null && routeId !== "xhs.search.api" && routeId !== "xhs.search") {
+        if (routeId === null) {
+            pushUniqueBlocker(blockers, "missing_route_id", "route", "xhs.search readiness requires route_evidence.route or route_evidence.route_id");
+        }
+        else if (routeId !== "xhs.search.api" && routeId !== "xhs.search") {
             pushUniqueBlocker(blockers, "non_search_route", "route", "xhs.search readiness only accepts the xhs.search passive API route");
         }
         if (asString(routeEvidence.route_role) !== "primary") {

@@ -4,6 +4,7 @@ export type XhsSearchPrimaryPassiveApiReadinessDecision = "PASS" | "FAIL";
 
 export type XhsSearchPrimaryPassiveApiReadinessBlockerCode =
   | "missing_route_evidence"
+  | "missing_route_id"
   | "non_search_route"
   | "non_primary_route"
   | "non_api_path"
@@ -141,7 +142,14 @@ export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (
     );
   } else {
     const routeId = asString(routeEvidence.route ?? routeEvidence.route_id);
-    if (routeId !== null && routeId !== "xhs.search.api" && routeId !== "xhs.search") {
+    if (routeId === null) {
+      pushUniqueBlocker(
+        blockers,
+        "missing_route_id",
+        "route",
+        "xhs.search readiness requires route_evidence.route or route_evidence.route_id"
+      );
+    } else if (routeId !== "xhs.search.api" && routeId !== "xhs.search") {
       pushUniqueBlocker(
         blockers,
         "non_search_route",

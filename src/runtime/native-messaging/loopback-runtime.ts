@@ -952,7 +952,7 @@ class InMemoryBackgroundRelay {
           : {};
       const runId = String(request.params.run_id ?? request.id);
       const sessionId = String(request.params.session_id ?? this.#sessionId);
-      const profile = String(request.params.profile ?? "loopback_profile");
+      const profile = String(request.profile ?? "loopback_profile");
       let gatePayload: Record<string, unknown> | undefined;
 
       if (XHS_READ_COMMANDS.has(command)) {

@@ -185,6 +185,27 @@ describe("evaluateXhsSearchPrimaryPassiveApiReadinessForContract", () => {
     });
   });
 
+  it("fails when route_evidence is present but route id is missing", () => {
+    const malformedRouteEvidence = { ...routeEvidence };
+    delete (malformedRouteEvidence as { route?: string }).route;
+
+    expect(
+      evaluateXhsSearchPrimaryPassiveApiReadinessForContract({
+        expected: expectedBinding,
+        summary: {
+          route_evidence: malformedRouteEvidence,
+          request_context: requestContext
+        }
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "missing_route_id" })
+      ])
+    });
+  });
+
   it("fails when request_context binding is stale even if route_evidence still matches", () => {
     expect(
       evaluateXhsSearchPrimaryPassiveApiReadinessForContract({
