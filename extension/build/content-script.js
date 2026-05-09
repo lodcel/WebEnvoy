@@ -6644,6 +6644,7 @@ const {
 } = __webenvoy_module_xhs_search_telemetry;
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const requiresSignedContinuity = (spec) => spec.command === "xhs.detail" || spec.command === "xhs.user_home";
 const REQUEST_CONTEXT_FRESHNESS_WINDOW_MS = 5 * 60_000;
 const REQUEST_CONTEXT_WAIT_MAX_ATTEMPTS = 10;
 const REQUEST_CONTEXT_WAIT_RETRY_MS = 150;
@@ -8341,7 +8342,7 @@ const executeXhsRead = async (input, spec, env) => {
             }
         };
     }
-    if (isSecurityRedirectUrl(env.getLocationHref())) {
+    if (requiresSignedContinuity(spec) && isSecurityRedirectUrl(env.getLocationHref())) {
         return failClosedForSignedContinuity({
             abilityId: input.abilityId,
             spec,
@@ -8412,7 +8413,9 @@ const executeXhsRead = async (input, spec, env) => {
     });
     const requestContextResult = await readCapturedReadContextWithRetry(spec, expectedShape, env, activeFallbackBinding);
     if (requestContextResult.state !== "hit") {
-        if (requestContextResult.state === "stale" && requestContextResult.signedContinuity) {
+        if (requiresSignedContinuity(spec) &&
+            requestContextResult.state === "stale" &&
+            requestContextResult.signedContinuity) {
             const staleContinuityReason = resolveSignedContinuityFailure(requestContextResult.signedContinuity, requestContextResult.signedContinuity.observed_at, env.now(), env.getLocationHref()) ?? "XSEC_TOKEN_STALE";
             return failClosedForSignedContinuity({
                 abilityId: input.abilityId,

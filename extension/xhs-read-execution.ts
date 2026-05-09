@@ -123,6 +123,9 @@ type XhsReadCommandSpec = {
   buildDataRef: (params: XhsDetailParams | XhsUserHomeParams, payload: JsonRecord) => JsonRecord;
 };
 
+const requiresSignedContinuity = (spec: XhsReadCommandSpec): boolean =>
+  spec.command === "xhs.detail" || spec.command === "xhs.user_home";
+
 type DetailRequestShape = {
   command: "xhs.detail";
   method: "POST";
@@ -2441,7 +2444,7 @@ const executeXhsRead = async (
     };
   }
 
-  if (isSecurityRedirectUrl(env.getLocationHref())) {
+  if (requiresSignedContinuity(spec) && isSecurityRedirectUrl(env.getLocationHref())) {
     return failClosedForSignedContinuity(
       {
         abilityId: input.abilityId,
@@ -2545,7 +2548,11 @@ const executeXhsRead = async (
     activeFallbackBinding
   );
   if (requestContextResult.state !== "hit") {
-    if (requestContextResult.state === "stale" && requestContextResult.signedContinuity) {
+    if (
+      requiresSignedContinuity(spec) &&
+      requestContextResult.state === "stale" &&
+      requestContextResult.signedContinuity
+    ) {
       const staleContinuityReason =
         resolveSignedContinuityFailure(
           requestContextResult.signedContinuity,
