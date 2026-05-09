@@ -90,7 +90,7 @@ const buildLoopbackXhsReadGateBundle = (input) => {
         })
     };
 };
-const toLoopbackProfileRef = (profile) => `profile/${profile}`;
+const toLoopbackProfileRef = (profile) => profile.startsWith("profile/") ? profile : `profile/${profile}`;
 const buildLoopbackXhsSearchPageUrl = (query) => {
     const url = new URL("https://www.xiaohongshu.com/search_result");
     if (query.length > 0) {
@@ -104,7 +104,7 @@ const resolveLoopbackXhsSearchActionRef = (options) => options.search_action_ref
 const buildLoopbackXhsSearchPassiveApiContractSummaryFields = (input) => {
     const actionRef = resolveLoopbackXhsSearchActionRef(input.options);
     const pageUrl = buildLoopbackXhsSearchPageUrl(input.query);
-    const profileRef = toLoopbackProfileRef(input.profile);
+    const profileRef = toLoopbackProfileRef(asString(input.options.__runtime_profile_ref) ?? input.profile);
     const targetTabId = asInteger(input.options.target_tab_id);
     return {
         route_evidence: {

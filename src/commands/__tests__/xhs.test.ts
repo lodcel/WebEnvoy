@@ -7932,6 +7932,7 @@ describe("normalizeGateOptionsForContract", () => {
           requested_execution_mode: "live_read_high_risk",
           risk_state: "allowed",
           xhs_search_passive_readiness_contract: true,
+          __runtime_profile_ref: "profile-search-passive-readiness-001",
           approval_record: createIssue209FormalApprovalRecord(decisionId, approvalId),
           audit_record: createIssue209FormalAuditRecord(requestId, decisionId, approvalId)
         }
@@ -7948,7 +7949,7 @@ describe("normalizeGateOptionsForContract", () => {
           path_kind: "api",
           evidence_status: "success",
           evidence_class: "passive_api_capture",
-          profile_ref: "profile/loopback_profile",
+          profile_ref: "profile/profile-search-passive-readiness-001",
           target_tab_id: 32,
           run_id: runId,
           action_ref: "action/xhs.search/submit_query"
@@ -7956,7 +7957,7 @@ describe("normalizeGateOptionsForContract", () => {
         request_context: {
           status: "exact_hit",
           query: "露营装备",
-          profile_ref: "profile/loopback_profile",
+          profile_ref: "profile/profile-search-passive-readiness-001",
           target_tab_id: 32,
           run_id: runId,
           action_ref: "action/xhs.search/submit_query"
@@ -7967,7 +7968,7 @@ describe("normalizeGateOptionsForContract", () => {
       evaluateXhsSearchPrimaryPassiveApiReadinessForContract({
         expected: {
           query: "露营装备",
-          profile_ref: "profile/loopback_profile",
+          profile_ref: "profile/profile-search-passive-readiness-001",
           target_tab_id: 32,
           page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5%E8%A3%85%E5%A4%87",
           run_id: runId,

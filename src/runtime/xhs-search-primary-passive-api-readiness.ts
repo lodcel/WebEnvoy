@@ -210,16 +210,27 @@ export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (
     );
   }
 
-  const observedProfileRef =
-    normalizeProfileRef(routeEvidence?.profile_ref) ?? normalizeProfileRef(requestContext?.profile_ref);
-  const observedTargetTabId =
-    asInteger(routeEvidence?.target_tab_id) ?? asInteger(requestContext?.target_tab_id);
-  const observedPageUrl = asString(routeEvidence?.page_url) ?? asString(requestContext?.page_url);
-  const observedRunId = asString(routeEvidence?.run_id) ?? asString(requestContext?.run_id);
-  const observedActionRef = asString(routeEvidence?.action_ref) ?? asString(requestContext?.action_ref);
+  const routeProfileRef = normalizeProfileRef(routeEvidence?.profile_ref);
+  const requestContextProfileRef = normalizeProfileRef(requestContext?.profile_ref);
+  const routeTargetTabId = asInteger(routeEvidence?.target_tab_id);
+  const requestContextTargetTabId = asInteger(requestContext?.target_tab_id);
+  const routePageUrl = asString(routeEvidence?.page_url);
+  const requestContextPageUrl = asString(requestContext?.page_url);
+  const routeRunId = asString(routeEvidence?.run_id);
+  const requestContextRunId = asString(requestContext?.run_id);
+  const routeActionRef = asString(routeEvidence?.action_ref);
+  const requestContextActionRef = asString(requestContext?.action_ref);
   const observedQuery = asString(requestContext?.query);
+  const observedProfileRef = routeProfileRef ?? requestContextProfileRef;
+  const observedTargetTabId = routeTargetTabId ?? requestContextTargetTabId;
+  const observedPageUrl = routePageUrl ?? requestContextPageUrl;
+  const observedRunId = routeRunId ?? requestContextRunId;
+  const observedActionRef = routeActionRef ?? requestContextActionRef;
 
-  if (!sameProfile(expected.profile_ref, observedProfileRef)) {
+  if (
+    (routeEvidence !== null && !sameProfile(expected.profile_ref, routeProfileRef)) ||
+    (requestContext !== null && !sameProfile(expected.profile_ref, requestContextProfileRef))
+  ) {
     pushUniqueBlocker(
       blockers,
       "missing_profile_binding",
@@ -227,7 +238,10 @@ export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (
       "xhs.search readiness evidence must bind the current profile_ref"
     );
   }
-  if (!sameInteger(expected.target_tab_id, observedTargetTabId)) {
+  if (
+    (routeEvidence !== null && !sameInteger(expected.target_tab_id, routeTargetTabId)) ||
+    (requestContext !== null && !sameInteger(expected.target_tab_id, requestContextTargetTabId))
+  ) {
     pushUniqueBlocker(
       blockers,
       "missing_tab_binding",
@@ -235,7 +249,10 @@ export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (
       "xhs.search readiness evidence must bind the current target_tab_id"
     );
   }
-  if (!sameString(expected.run_id, observedRunId)) {
+  if (
+    (routeEvidence !== null && !sameString(expected.run_id, routeRunId)) ||
+    (requestContext !== null && !sameString(expected.run_id, requestContextRunId))
+  ) {
     pushUniqueBlocker(
       blockers,
       "missing_run_binding",
@@ -243,7 +260,10 @@ export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (
       "xhs.search readiness evidence must bind the current run_id"
     );
   }
-  if (!sameString(expected.page_url, observedPageUrl)) {
+  if (
+    (routeEvidence !== null && !sameString(expected.page_url, routePageUrl)) ||
+    (requestContext !== null && !sameString(expected.page_url, requestContextPageUrl))
+  ) {
     pushUniqueBlocker(
       blockers,
       "missing_page_binding",
@@ -251,14 +271,28 @@ export const evaluateXhsSearchPrimaryPassiveApiReadinessForContract = (
       "xhs.search readiness evidence must bind the current page_url"
     );
   }
-  if (observedActionRef === null) {
+  if (routeEvidence !== null && routeActionRef === null) {
     pushUniqueBlocker(
       blockers,
       "missing_action_binding",
       "binding",
       "xhs.search readiness evidence must bind the current action_ref"
     );
-  } else if (!sameString(expected.action_ref, observedActionRef)) {
+  }
+  if (requestContext !== null && requestContextActionRef === null) {
+    pushUniqueBlocker(
+      blockers,
+      "missing_action_binding",
+      "binding",
+      "xhs.search readiness evidence must bind the current action_ref"
+    );
+  }
+  if (
+    (routeEvidence !== null && routeActionRef !== null && !sameString(expected.action_ref, routeActionRef)) ||
+    (requestContext !== null &&
+      requestContextActionRef !== null &&
+      !sameString(expected.action_ref, requestContextActionRef))
+  ) {
     pushUniqueBlocker(
       blockers,
       "action_mismatch",

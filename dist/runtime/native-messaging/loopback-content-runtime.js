@@ -10,7 +10,7 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
-const toLoopbackProfileRef = (profile) => `profile/${profile}`;
+const toLoopbackProfileRef = (profile) => profile.startsWith("profile/") ? profile : `profile/${profile}`;
 const buildLoopbackXhsSearchPageUrl = (query) => {
     const url = new URL("https://www.xiaohongshu.com/search_result");
     if (query.length > 0) {
@@ -24,7 +24,7 @@ const resolveLoopbackXhsSearchActionRef = (options) => options.search_action_ref
 const buildLoopbackXhsSearchPassiveApiContractSummaryFields = (input) => {
     const actionRef = resolveLoopbackXhsSearchActionRef(input.options);
     const pageUrl = buildLoopbackXhsSearchPageUrl(input.query);
-    const profileRef = toLoopbackProfileRef(input.profile);
+    const profileRef = toLoopbackProfileRef(asString(input.options.__runtime_profile_ref) ?? input.profile);
     const targetTabId = asInteger(input.options.target_tab_id);
     return {
         route_evidence: {

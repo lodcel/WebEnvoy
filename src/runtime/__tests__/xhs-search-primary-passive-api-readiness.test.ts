@@ -163,4 +163,29 @@ describe("evaluateXhsSearchPrimaryPassiveApiReadinessForContract", () => {
       ])
     });
   });
+
+  it("fails when request_context binding is stale even if route_evidence still matches", () => {
+    expect(
+      evaluateXhsSearchPrimaryPassiveApiReadinessForContract({
+        expected: expectedBinding,
+        summary: {
+          route_evidence: routeEvidence,
+          request_context: {
+            ...requestContext,
+            profile_ref: "profile/other_profile",
+            target_tab_id: 64,
+            run_id: "run-other-001"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "missing_profile_binding" }),
+        expect.objectContaining({ blocker_code: "missing_tab_binding" }),
+        expect.objectContaining({ blocker_code: "missing_run_binding" })
+      ])
+    });
+  });
 });

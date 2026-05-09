@@ -20,7 +20,8 @@ const asInteger = (value: unknown): number | null =>
 
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 
-const toLoopbackProfileRef = (profile: string): string => `profile/${profile}`;
+const toLoopbackProfileRef = (profile: string): string =>
+  profile.startsWith("profile/") ? profile : `profile/${profile}`;
 
 const buildLoopbackXhsSearchPageUrl = (query: string): string => {
   const url = new URL("https://www.xiaohongshu.com/search_result");
@@ -44,7 +45,9 @@ const buildLoopbackXhsSearchPassiveApiContractSummaryFields = (input: {
 }): Record<string, unknown> => {
   const actionRef = resolveLoopbackXhsSearchActionRef(input.options);
   const pageUrl = buildLoopbackXhsSearchPageUrl(input.query);
-  const profileRef = toLoopbackProfileRef(input.profile);
+  const profileRef = toLoopbackProfileRef(
+    asString(input.options.__runtime_profile_ref) ?? input.profile
+  );
   const targetTabId = asInteger(input.options.target_tab_id);
 
   return {
