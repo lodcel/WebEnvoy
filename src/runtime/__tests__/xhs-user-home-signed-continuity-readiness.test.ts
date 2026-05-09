@@ -176,4 +176,53 @@ describe("evaluateXhsUserHomeSignedContinuityReadinessForContract", () => {
       ])
     });
   });
+
+  it("fails when success only carries a whitespace xsec_token", () => {
+    expect(
+      evaluateXhsUserHomeSignedContinuityReadinessForContract({
+        expected,
+        summary: {
+          ...successSummary,
+          signed_continuity: {
+            ...successSummary.signed_continuity,
+            xsec_token: "   "
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "signed_continuity_xsec_token_missing"
+        })
+      ])
+    });
+  });
+
+  it("fails when success points at a non-canonical user_home host", () => {
+    expect(
+      evaluateXhsUserHomeSignedContinuityReadinessForContract({
+        expected,
+        summary: {
+          ...successSummary,
+          signed_continuity: {
+            ...successSummary.signed_continuity,
+            user_home_url:
+              "https://example.com/user/profile/user-home-001?xsec_token=token-001&xsec_source=pc_search",
+            target_url:
+              "https://example.com/user/profile/user-home-001?xsec_token=token-001&xsec_source=pc_search"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "signed_continuity_user_home_mismatch"
+        })
+      ])
+    });
+  });
 });

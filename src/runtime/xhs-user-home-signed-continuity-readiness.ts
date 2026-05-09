@@ -72,7 +72,8 @@ const asString = (value: unknown): string | null => {
   if (typeof value !== "string") {
     return null;
   }
-  return value;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 };
 
 const pushUniqueBlocker = (
@@ -93,6 +94,9 @@ const resolveMatchedUserId = (value: string | null): string | null => {
   }
   try {
     const url = new URL(value);
+    if (url.hostname !== "www.xiaohongshu.com") {
+      return null;
+    }
     const match = /^\/user\/profile\/([^/?#]+)/.exec(url.pathname);
     return match?.[1] ?? null;
   } catch {
