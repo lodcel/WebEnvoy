@@ -659,6 +659,172 @@ describe("xhs read request-context exact-shape reuse", () => {
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
+  it("fails closed for user_home exact hits when signed continuity lacks xsec_token", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-001"
+        },
+        options: createLiveReadOptions("run-user-continuity-missing-001", "profile_tab"),
+        executionContext: createExecutionContext("run-user-continuity-missing-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () =>
+          createUserHomeArtifact({
+            referrer: "https://www.xiaohongshu.com/user/profile/user-001?xsec_source=pc_search"
+          })
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected signed continuity failure");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "XSEC_TOKEN_MISSING",
+      request_context_result: "signed_continuity_invalid",
+      signed_continuity: {
+        user_home_url: "https://www.xiaohongshu.com/user/profile/user-001?xsec_source=pc_search",
+        token_presence: "missing",
+        xsec_token: null,
+        xsec_source: "pc_search"
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for user_home exact hits when xsec_source does not match allowed continuity sources", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-001"
+        },
+        options: createLiveReadOptions("run-user-continuity-source-mismatch-001", "profile_tab"),
+        executionContext: createExecutionContext("run-user-continuity-source-mismatch-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () =>
+          createUserHomeArtifact({
+            referrer:
+              "https://www.xiaohongshu.com/user/profile/user-001?xsec_token=token-user-001&xsec_source=unexpected"
+          })
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected signed continuity failure");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "XSEC_SOURCE_MISMATCH",
+      request_context_result: "signed_continuity_invalid",
+      signed_continuity: {
+        xsec_token: "token-user-001",
+        xsec_source: "unexpected"
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for user_home exact hits when signed continuity is stale", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-001"
+        },
+        options: createLiveReadOptions("run-user-continuity-stale-001", "profile_tab"),
+        executionContext: createExecutionContext("run-user-continuity-stale-001")
+      },
+      createEnvironment({
+        now: () => 1_710_000_400_001,
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () =>
+          createUserHomeArtifact({
+            observed_at: 1_710_000_000_000
+          })
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected signed continuity stale failure");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "XSEC_TOKEN_STALE",
+      request_context_result: "signed_continuity_invalid",
+      signed_continuity: {
+        xsec_token: "token-user-001",
+        xsec_source: "pc_search",
+        token_presence: "present"
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for user_home exact hits when the page has redirected to a security surface", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-001"
+        },
+        options: createLiveReadOptions("run-user-continuity-security-001", "profile_tab"),
+        executionContext: createExecutionContext("run-user-continuity-security-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/security/verify",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () => createUserHomeArtifact()
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected security redirect continuity failure");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "SECURITY_REDIRECT",
+      request_context_result: "signed_continuity_invalid"
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
   it("fails closed for detail exact hits when xsec_source does not match allowed continuity sources", async () => {
     const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
     const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
@@ -2664,9 +2830,8 @@ describe("xhs read request-context exact-shape reuse", () => {
 
     expect(result.ok).toBe(false);
     expect(result.payload.details).toMatchObject({
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "stale",
-      request_context_miss_reason: "template_stale"
+      reason: "XSEC_TOKEN_STALE",
+      request_context_result: "signed_continuity_invalid"
     });
     expect(callSignature).not.toHaveBeenCalled();
     expect(fetchJson).not.toHaveBeenCalled();
@@ -2724,12 +2889,8 @@ describe("xhs read request-context exact-shape reuse", () => {
 
     expect(result.ok).toBe(false);
     expect(result.payload.details).toMatchObject({
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "stale",
-      request_context_miss_reason: "template_stale",
-      captured_request_shape: {
-        user_id: "user-001"
-      }
+      reason: "XSEC_TOKEN_STALE",
+      request_context_result: "signed_continuity_invalid"
     });
     expect(callSignature).not.toHaveBeenCalled();
     expect(fetchJson).not.toHaveBeenCalled();

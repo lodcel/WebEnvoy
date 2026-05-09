@@ -1700,7 +1700,7 @@ const executeXhsRead = async (input, spec, env) => {
             }
         };
     }
-    if (spec.command === "xhs.detail" && isSecurityRedirectUrl(env.getLocationHref())) {
+    if (isSecurityRedirectUrl(env.getLocationHref())) {
         return failClosedForSignedContinuity({
             abilityId: input.abilityId,
             spec,
@@ -1771,9 +1771,7 @@ const executeXhsRead = async (input, spec, env) => {
     });
     const requestContextResult = await readCapturedReadContextWithRetry(spec, expectedShape, env, activeFallbackBinding);
     if (requestContextResult.state !== "hit") {
-        if (spec.command === "xhs.detail" &&
-            requestContextResult.state === "stale" &&
-            requestContextResult.signedContinuity) {
+        if (requestContextResult.state === "stale" && requestContextResult.signedContinuity) {
             return failClosedForSignedContinuity({
                 abilityId: input.abilityId,
                 spec,

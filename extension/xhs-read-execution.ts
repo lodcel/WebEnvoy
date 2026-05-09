@@ -2441,7 +2441,7 @@ const executeXhsRead = async (
     };
   }
 
-  if (spec.command === "xhs.detail" && isSecurityRedirectUrl(env.getLocationHref())) {
+  if (isSecurityRedirectUrl(env.getLocationHref())) {
     return failClosedForSignedContinuity(
       {
         abilityId: input.abilityId,
@@ -2545,11 +2545,7 @@ const executeXhsRead = async (
     activeFallbackBinding
   );
   if (requestContextResult.state !== "hit") {
-    if (
-      spec.command === "xhs.detail" &&
-      requestContextResult.state === "stale" &&
-      requestContextResult.signedContinuity
-    ) {
+    if (requestContextResult.state === "stale" && requestContextResult.signedContinuity) {
       return failClosedForSignedContinuity(
         {
           abilityId: input.abilityId,
