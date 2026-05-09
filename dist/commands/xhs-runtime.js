@@ -454,9 +454,10 @@ const hasUsableIndependentCloseoutEvidencePayload = (record) => {
 };
 const hasExplicitCloseoutProductionAuditMarker = (record) => record?.closeout_audit_required === true ||
     hasOwn(record, "closeout_readiness") ||
+    (asString(asObject(record?.closeout_evidence_evaluation)?.evaluator) !== null &&
+        !hasIndependentCloseoutEvidencePayloadMarker(record)) ||
     (asObject(record?.closeout_evidence_evaluation) !== null &&
-        (!hasIndependentCloseoutEvidencePayloadMarker(record) ||
-            asObject(record?.request_admission_result) !== null ||
+        (asObject(record?.request_admission_result) !== null ||
             asObject(record?.execution_audit) !== null));
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
     "closeout_evidence_input",
@@ -1183,7 +1184,7 @@ const isXhsLiveRouteEvidenceForCloseoutAudit = (record) => isCloseoutPrimaryApiS
     asString(record?.route_evidence_class) === "passive_api_capture" ||
     asString(record?.evidence_class) === "passive_api_capture";
 const hasCloseoutRouteEvaluationMarker = (record) => {
-    if (asObject(record?.closeout_evidence_evaluation) &&
+    if (asString(asObject(record?.closeout_evidence_evaluation)?.evaluator) !== null &&
         !hasIndependentCloseoutEvidencePayloadMarker(record)) {
         return true;
     }

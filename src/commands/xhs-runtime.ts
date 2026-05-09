@@ -585,9 +585,10 @@ const hasUsableIndependentCloseoutEvidencePayload = (
 const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
   record?.closeout_audit_required === true ||
   hasOwn(record, "closeout_readiness") ||
+  (asString(asObject(record?.closeout_evidence_evaluation)?.evaluator) !== null &&
+    !hasIndependentCloseoutEvidencePayloadMarker(record)) ||
   (asObject(record?.closeout_evidence_evaluation) !== null &&
-    (!hasIndependentCloseoutEvidencePayloadMarker(record) ||
-      asObject(record?.request_admission_result) !== null ||
+    (asObject(record?.request_admission_result) !== null ||
       asObject(record?.execution_audit) !== null));
 
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
@@ -1530,7 +1531,7 @@ const isXhsLiveRouteEvidenceForCloseoutAudit = (
 
 const hasCloseoutRouteEvaluationMarker = (record: JsonObject | null | undefined): boolean => {
   if (
-    asObject(record?.closeout_evidence_evaluation) &&
+    asString(asObject(record?.closeout_evidence_evaluation)?.evaluator) !== null &&
     !hasIndependentCloseoutEvidencePayloadMarker(record)
   ) {
     return true;
