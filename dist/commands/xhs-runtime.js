@@ -643,7 +643,9 @@ const mergeCloseoutSummaryObjectField = (rootValue, summaryValue, options = {}) 
             continue;
         }
         if (key === "evidence_rounds") {
-            const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(rootField, summaryField);
+            const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(rootField, summaryField, {
+                dropSparseRootRounds: true
+            });
             if (mergedRounds) {
                 merged[key] = mergedRounds;
                 continue;
@@ -763,7 +765,7 @@ const toCloseoutEvidenceExpected = (record) => {
     return {
         latest_head_sha: asString(record.latest_head_sha),
         run_id: asString(record.run_id),
-        artifact_identity: asString(record.artifact_identity),
+        artifact_identity: asString(record.artifact_identity ?? record.artifact_ref),
         artifact_identities: asStringArray(record.artifact_identities),
         profile_ref: normalizeCloseoutProfileRef(asString(record.profile_ref)),
         target_tab_id: asInteger(record.target_tab_id),
@@ -783,7 +785,7 @@ const toCloseoutEvidenceRound = (record) => {
         reproduced_multi_round: record.reproduced_multi_round === true,
         head_sha: asString(record.head_sha),
         run_id: asString(record.run_id),
-        artifact_identity: asString(record.artifact_identity),
+        artifact_identity: asString(record.artifact_identity ?? record.artifact_ref),
         profile_ref: normalizeCloseoutProfileRef(asString(record.profile_ref)),
         target_tab_id: asInteger(record.target_tab_id),
         page_url: asString(record.page_url),
