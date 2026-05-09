@@ -100,8 +100,7 @@ const resolveMatchedUserId = (value: string | null): string | null => {
     const match = /^\/user\/profile\/([^/?#]+)/.exec(url.pathname);
     return match?.[1] ?? null;
   } catch {
-    const match = /\/user\/profile\/([^/?#]+)/.exec(value);
-    return match?.[1] ?? null;
+    return null;
   }
 };
 
