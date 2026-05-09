@@ -573,14 +573,13 @@ const toCloseoutRoundSemanticKey = (value) => {
         .filter((part) => part !== null);
     return routeParts.length > 0 ? `route:${routeParts.join("\u0000")}` : `raw:${JSON.stringify(value)}`;
 };
-const mergeCloseoutEvidenceRoundRecordValues = (rootValue, summaryValue) => {
+const mergeCloseoutEvidenceRoundRecordValues = (rootValue, summaryValue, options = {}) => {
     const rootRounds = Array.isArray(rootValue) && rootValue.length > 0 ? rootValue : [];
     const summaryRounds = Array.isArray(summaryValue) && summaryValue.length > 0 ? summaryValue : [];
     if (rootRounds.length === 0 && summaryRounds.length === 0) {
         return null;
     }
-    const rootRoundsForMerge = rootRounds.length === summaryRounds.length &&
-        isRicherCloseoutSummaryField(rootRounds, summaryRounds)
+    const rootRoundsForMerge = options.dropSparseRootRounds
         ? rootRounds.filter((round) => !isSparseCloseoutSummaryField(round))
         : rootRounds;
     const byRoundKey = new Map();
@@ -684,7 +683,9 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
             }
         }
         if (key === "closeout_evidence_rounds" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
-            const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(payload[key], summary?.[key]);
+            const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(payload[key], summary?.[key], {
+                dropSparseRootRounds: true
+            });
             if (mergedRounds) {
                 picked[key] = mergedRounds;
                 continue;

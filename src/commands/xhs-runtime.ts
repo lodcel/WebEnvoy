@@ -726,18 +726,17 @@ const toCloseoutRoundSemanticKey = (value: unknown): string => {
 
 const mergeCloseoutEvidenceRoundRecordValues = (
   rootValue: unknown,
-  summaryValue: unknown
+  summaryValue: unknown,
+  options: { dropSparseRootRounds?: boolean } = {}
 ): unknown[] | null => {
   const rootRounds = Array.isArray(rootValue) && rootValue.length > 0 ? rootValue : [];
   const summaryRounds = Array.isArray(summaryValue) && summaryValue.length > 0 ? summaryValue : [];
   if (rootRounds.length === 0 && summaryRounds.length === 0) {
     return null;
   }
-  const rootRoundsForMerge =
-    rootRounds.length === summaryRounds.length &&
-    isRicherCloseoutSummaryField(rootRounds, summaryRounds)
-      ? rootRounds.filter((round) => !isSparseCloseoutSummaryField(round))
-      : rootRounds;
+  const rootRoundsForMerge = options.dropSparseRootRounds
+    ? rootRounds.filter((round) => !isSparseCloseoutSummaryField(round))
+    : rootRounds;
   const byRoundKey = new Map<string, unknown>();
   for (const round of [...rootRoundsForMerge, ...summaryRounds]) {
     const key = toCloseoutRoundSemanticKey(round);
@@ -854,7 +853,9 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObj
       }
     }
     if (key === "closeout_evidence_rounds" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
-      const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(payload[key], summary?.[key]);
+      const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(payload[key], summary?.[key], {
+        dropSparseRootRounds: true
+      });
       if (mergedRounds) {
         picked[key] = mergedRounds;
         continue;
