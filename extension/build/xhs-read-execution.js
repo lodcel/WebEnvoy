@@ -1772,11 +1772,12 @@ const executeXhsRead = async (input, spec, env) => {
     const requestContextResult = await readCapturedReadContextWithRetry(spec, expectedShape, env, activeFallbackBinding);
     if (requestContextResult.state !== "hit") {
         if (requestContextResult.state === "stale" && requestContextResult.signedContinuity) {
+            const staleContinuityReason = resolveSignedContinuityFailure(requestContextResult.signedContinuity, requestContextResult.signedContinuity.observed_at, env.now(), env.getLocationHref()) ?? "XSEC_TOKEN_STALE";
             return failClosedForSignedContinuity({
                 abilityId: input.abilityId,
                 spec,
                 expectedShape,
-                reason: "XSEC_TOKEN_STALE",
+                reason: staleContinuityReason,
                 continuity: requestContextResult.signedContinuity,
                 gate,
                 auditRecord

@@ -790,6 +790,51 @@ describe("xhs read request-context exact-shape reuse", () => {
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
+  it("preserves missing-token precedence on stale user_home continuity", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-001"
+        },
+        options: createLiveReadOptions("run-user-continuity-stale-missing-001", "profile_tab"),
+        executionContext: createExecutionContext("run-user-continuity-stale-missing-001")
+      },
+      createEnvironment({
+        now: () => 1_710_000_400_001,
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () =>
+          createUserHomeArtifact({
+            observed_at: 1_710_000_000_000,
+            referrer: "https://www.xiaohongshu.com/user/profile/user-001?xsec_source=pc_search"
+          })
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected stale missing-token continuity failure");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "XSEC_TOKEN_MISSING",
+      request_context_result: "signed_continuity_invalid",
+      signed_continuity: {
+        token_presence: "missing",
+        xsec_token: null,
+        xsec_source: "pc_search"
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
   it("fails closed for user_home exact hits when the page has redirected to a security surface", async () => {
     const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
     const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
