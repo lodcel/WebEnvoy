@@ -1,3 +1,8 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { CommandDefinition, CommandExecutionResult, JsonObject, RuntimeContext } from "../core/types.js";
 import { CliError } from "../core/errors.js";
 import { mapCapabilitySummaryForContract } from "../core/capability-output.js";
@@ -16,6 +21,10 @@ import {
   type CloseoutHardStopRiskClassification,
   type CloseoutHardStopRiskReason
 } from "../runtime/closeout-hard-stop-risk.js";
+import {
+  evaluateCloseoutEvidence,
+  type EvaluateCloseoutEvidenceInput
+} from "../runtime/closeout-evidence-evaluator.js";
 import { verifyCloseoutCanonicalExecutionAudit } from "../runtime/closeout-canonical-execution-audit-verifier.js";
 import { ProfileStore } from "../runtime/profile-store.js";
 import {
@@ -70,6 +79,91 @@ const asObject = (value: unknown): JsonObject | null =>
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const WEBENVOY_RUNTIME_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+const resolveGitHeadForCwd = (cwd: string): { root: string; head: string } | null => {
+  const result = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel", "HEAD"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"]
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+  const [root, head] = result.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (!root || !head) {
+    return null;
+  }
+  return { root, head };
+};
+
+const isWebEnvoyCheckoutRoot = (root: string): boolean => {
+  try {
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+      name?: unknown;
+    };
+    return packageJson.name === "@webenvoy/cli";
+  } catch {
+    return false;
+  }
+};
+
+const isWebEnvoySourceCheckoutRoot = (root: string): boolean =>
+  isWebEnvoyCheckoutRoot(root) && existsSync(resolve(root, "src", "commands", "xhs-runtime.ts"));
+
+const resolvePackageGitHeadForCwd = (cwd: string): string | null => {
+  let current = resolve(cwd);
+  while (true) {
+    try {
+      const packageJson = JSON.parse(readFileSync(resolve(current, "package.json"), "utf8")) as {
+        gitHead?: unknown;
+        name?: unknown;
+      };
+      const gitHead = asString(packageJson.gitHead);
+      if (packageJson.name === "@webenvoy/cli" && gitHead !== null) {
+        return gitHead;
+      }
+    } catch {
+      // Keep walking toward the filesystem root; packaged dist may not sit at cwd.
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+};
+
+const resolveRuntimeBuildMetadataHeadForCwd = (cwd: string): string | null => {
+  let current = resolve(cwd);
+  while (true) {
+    for (const metadataPath of [
+      resolve(current, "dist", "runtime-build-metadata.json"),
+      resolve(current, "runtime-build-metadata.json")
+    ]) {
+      try {
+        const metadata = JSON.parse(readFileSync(metadataPath, "utf8")) as {
+          gitHead?: unknown;
+          name?: unknown;
+        };
+        const gitHead = asString(metadata.gitHead);
+        if (metadata.name === "@webenvoy/cli" && gitHead !== null) {
+          return gitHead;
+        }
+      } catch {
+        // Keep walking toward the filesystem root; dist-only runtime metadata is optional.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+};
 
 const asPositiveInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
@@ -373,12 +467,12 @@ const readPersistedSessionRhythmBlockStatus = async (input: {
 };
 
 const asInteger = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.trunc(value);
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
   }
   if (typeof value === "string" && value.trim().length > 0) {
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+    return Number.isInteger(parsed) ? parsed : null;
   }
   return null;
 };
@@ -461,17 +555,967 @@ const pickCanonicalSummaryField = (
   return asObject(value) ?? undefined;
 };
 
-const hasExplicitCloseoutProductionPathMarker = (record: JsonObject | null | undefined): boolean =>
-  record?.closeout_audit_required === true ||
-  hasOwn(record, "closeout_evidence_evaluation") ||
-  hasOwn(record, "closeout_readiness") ||
+const hasExplicitCloseoutEvidencePayloadMarker = (
+  record: JsonObject | null | undefined
+): boolean =>
+  hasUsableIndependentCloseoutEvidencePayload(record) ||
   hasOwn(record, "closeout_route_evidence");
+
+const hasIndependentCloseoutEvidencePayloadMarker = (
+  record: JsonObject | null | undefined
+): boolean =>
+  (hasOwn(record, "closeout_evidence_input") && record?.closeout_evidence_input !== null) ||
+  (hasOwn(record, "closeout_evidence_expected") && record?.closeout_evidence_expected !== null) ||
+  (hasOwn(record, "closeout_evidence_rounds") && record?.closeout_evidence_rounds !== null);
+
+const hasUsableIndependentCloseoutEvidencePayload = (
+  record: JsonObject | null | undefined
+): boolean => {
+  const closeoutEvidenceInput = asObject(record?.closeout_evidence_input);
+  return (
+    (closeoutEvidenceInput !== null &&
+      (asObject(closeoutEvidenceInput.expected) !== null ||
+        asObject(closeoutEvidenceInput.evidence) !== null ||
+        toCloseoutEvidenceRoundRecords(closeoutEvidenceInput.evidence_rounds) !== null)) ||
+    asObject(record?.closeout_evidence_expected) !== null ||
+    toCloseoutEvidenceRoundRecords(record?.closeout_evidence_rounds) !== null
+  );
+};
+
+const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | undefined): boolean =>
+  record?.closeout_audit_required === true ||
+  hasOwn(record, "closeout_readiness") ||
+  (asString(asObject(record?.closeout_evidence_evaluation)?.evaluator) !== null &&
+    !hasIndependentCloseoutEvidencePayloadMarker(record)) ||
+  (asObject(record?.closeout_evidence_evaluation) !== null &&
+    (asObject(record?.request_admission_result) !== null ||
+      asObject(record?.execution_audit) !== null));
+
+const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
+  "closeout_evidence_input",
+  "closeout_evidence_expected",
+  "closeout_evidence_rounds",
+  "closeout_route_evidence",
+  "route_evidence"
+] as const;
+
+const CLOSEOUT_BINDING_FIELD_KEYS = new Set([
+  "latest_head_sha",
+  "run_id",
+  "artifact_identity",
+  "artifact_identities",
+  "profile_ref",
+  "target_tab_id",
+  "page_url",
+  "action_ref"
+]);
+
+const isSparseCloseoutSummaryField = (value: unknown): boolean => {
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  const object = asObject(value);
+  if (object === null) {
+    return false;
+  }
+  const values = Object.values(object);
+  return (
+    values.length === 0 ||
+    values.every(
+      (item) =>
+        item === null ||
+        item === undefined ||
+        isSparseCloseoutSummaryField(item)
+    )
+  );
+};
+
+const scoreCloseoutSummaryFieldQuality = (value: unknown): number => {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((total, item) => total + scoreCloseoutSummaryFieldQuality(item), 0);
+  }
+  const object = asObject(value);
+  if (object === null) {
+    return 1;
+  }
+  return Object.values(object).reduce<number>(
+    (total, item) => total + scoreCloseoutSummaryFieldQuality(item),
+    0
+  );
+};
+
+const isRicherCloseoutSummaryField = (rootValue: unknown, summaryValue: unknown): boolean => {
+  if (summaryValue === null || summaryValue === undefined || isSparseCloseoutSummaryField(summaryValue)) {
+    return false;
+  }
+  if (isSparseCloseoutSummaryField(rootValue)) {
+    return true;
+  }
+  if (Array.isArray(summaryValue)) {
+    if (!Array.isArray(rootValue) || summaryValue.length > rootValue.length) {
+      return true;
+    }
+    return (
+      summaryValue.length === rootValue.length &&
+      scoreCloseoutSummaryFieldQuality(summaryValue) > scoreCloseoutSummaryFieldQuality(rootValue)
+    );
+  }
+  const rootObject = asObject(rootValue);
+  const summaryObject = asObject(summaryValue);
+  if (!rootObject || !summaryObject) {
+    return false;
+  }
+  return Object.entries(summaryObject).some(([key, value]) => {
+    if (value === null || value === undefined || isSparseCloseoutSummaryField(value)) {
+      return false;
+    }
+    if (!hasOwn(rootObject, key)) {
+      return true;
+    }
+    return isRicherCloseoutSummaryField(rootObject[key], value);
+  });
+};
+
+const pickCloseoutSummaryFieldValue = (rootValue: unknown, summaryValue: unknown): unknown => {
+  if (
+    summaryValue !== null &&
+    summaryValue !== undefined &&
+    (rootValue === undefined ||
+      rootValue === null ||
+      isSparseCloseoutSummaryField(rootValue) ||
+      isRicherCloseoutSummaryField(rootValue, summaryValue))
+  ) {
+    return summaryValue;
+  }
+  return rootValue;
+};
+
+const toCloseoutRoundSemanticKey = (value: unknown): string => {
+  const record = asObject(value);
+  if (!record) {
+    return `raw:${JSON.stringify(value)}`;
+  }
+  const artifactIdentity = asString(record.artifact_identity ?? record.artifact_ref);
+  if (artifactIdentity !== null) {
+    return `artifact:${artifactIdentity}`;
+  }
+  const roundId = asString(record.round_id ?? record.round_ref);
+  if (roundId !== null) {
+    return `round:${roundId}`;
+  }
+  const routeParts = [
+    record.route_name,
+    record.route_role,
+    record.path_kind,
+    record.evidence_status,
+    record.evidence_class,
+    record.head_sha,
+    record.run_id,
+    record.profile_ref,
+    record.target_tab_id,
+    record.page_url,
+    record.action_ref
+  ]
+    .map((part) => (typeof part === "number" ? String(part) : asString(part)))
+    .filter((part): part is string => part !== null);
+  return routeParts.length > 0 ? `route:${routeParts.join("\u0000")}` : `raw:${JSON.stringify(value)}`;
+};
+
+const mergeCloseoutEvidenceRoundRecordValues = (
+  rootValue: unknown,
+  summaryValue: unknown,
+  options: { dropSparseRootRounds?: boolean } = {}
+): unknown[] | null => {
+  const rootRounds = Array.isArray(rootValue) && rootValue.length > 0 ? rootValue : [];
+  const summaryRounds = Array.isArray(summaryValue) && summaryValue.length > 0 ? summaryValue : [];
+  if (rootRounds.length === 0 && summaryRounds.length === 0) {
+    return null;
+  }
+  const rootRoundsForMerge = options.dropSparseRootRounds
+    ? rootRounds.filter((round) => !isSparseCloseoutSummaryField(round))
+    : rootRounds;
+  const byRoundKey = new Map<string, unknown>();
+  for (const round of [...rootRoundsForMerge, ...summaryRounds]) {
+    const key = toCloseoutRoundSemanticKey(round);
+    const existing = byRoundKey.get(key);
+    if (
+      existing === undefined ||
+      scoreCloseoutSummaryFieldQuality(round) > scoreCloseoutSummaryFieldQuality(existing)
+    ) {
+      byRoundKey.set(key, round);
+    }
+  }
+  return [...byRoundKey.values()];
+};
+
+const mergeCloseoutArrayValues = (rootValue: unknown, summaryValue: unknown): unknown[] | null => {
+  if (!Array.isArray(rootValue) || !Array.isArray(summaryValue)) {
+    return null;
+  }
+  if (rootValue.length === 0 && summaryValue.length === 0) {
+    return null;
+  }
+  if (rootValue.length === 0) {
+    return summaryValue;
+  }
+  if (summaryValue.length === 0) {
+    return rootValue;
+  }
+  if (isRicherCloseoutSummaryField(rootValue, summaryValue)) {
+    return summaryValue;
+  }
+  const seen = new Set<string>();
+  return [...rootValue, ...summaryValue].filter((item) => {
+    const key = typeof item === "string" ? item : JSON.stringify(item);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+const mergeCloseoutSummaryObjectField = (
+  rootValue: unknown,
+  summaryValue: unknown,
+  options: { preferSummaryBindings?: boolean } = {}
+): JsonObject | null => {
+  const rootObject = asObject(rootValue);
+  const summaryObject = asObject(summaryValue);
+  if (!rootObject || !summaryObject) {
+    return null;
+  }
+  const merged: JsonObject = {};
+  for (const [key, value] of Object.entries(rootObject)) {
+    if (value !== null && value !== undefined && !isSparseCloseoutSummaryField(value)) {
+      merged[key] = value;
+    }
+  }
+  for (const key of Object.keys(summaryObject)) {
+    const rootField = hasOwn(rootObject, key) ? rootObject[key] : undefined;
+    const summaryField = summaryObject[key];
+    if (
+      options.preferSummaryBindings !== false &&
+      CLOSEOUT_BINDING_FIELD_KEYS.has(key) &&
+      summaryField !== null &&
+      summaryField !== undefined &&
+      !isSparseCloseoutSummaryField(summaryField)
+    ) {
+      merged[key] = summaryField;
+      continue;
+    }
+    if (key === "evidence_rounds") {
+      const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(rootField, summaryField, {
+        dropSparseRootRounds: true
+      });
+      if (mergedRounds) {
+        merged[key] = mergedRounds;
+        continue;
+      }
+    }
+    const mergedArray = mergeCloseoutArrayValues(rootField, summaryField);
+    if (mergedArray) {
+      merged[key] = mergedArray;
+      continue;
+    }
+    const mergedObject = mergeCloseoutSummaryObjectField(rootField, summaryField, options);
+    if (mergedObject) {
+      merged[key] = mergedObject;
+      continue;
+    }
+    const picked = pickCloseoutSummaryFieldValue(rootField, summaryField);
+    if (picked !== undefined) {
+      merged[key] = picked;
+    }
+  }
+  return merged;
+};
+
+const mergeCloseoutEvidenceInputSummaryField = (
+  rootValue: unknown,
+  summaryValue: unknown
+): JsonObject | null => {
+  return mergeCloseoutSummaryObjectField(rootValue, summaryValue, {
+    preferSummaryBindings: false
+  });
+};
+
+export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObject): JsonObject => {
+  const summary = asObject(payload.summary);
+  const picked: JsonObject = {};
+  for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+    if (key === "closeout_evidence_input" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
+      const mergedInput = mergeCloseoutEvidenceInputSummaryField(payload[key], summary?.[key]);
+      if (mergedInput) {
+        picked[key] = mergedInput;
+        continue;
+      }
+    }
+    if (key === "closeout_evidence_rounds" && hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
+      const mergedRounds = mergeCloseoutEvidenceRoundRecordValues(payload[key], summary?.[key], {
+        dropSparseRootRounds: true
+      });
+      if (mergedRounds) {
+        picked[key] = mergedRounds;
+        continue;
+      }
+    }
+    if (
+      (key === "closeout_evidence_expected" ||
+        key === "closeout_route_evidence" ||
+        key === "route_evidence") &&
+      hasOwn(payload, key) &&
+      hasOwn(summary ?? undefined, key)
+    ) {
+      const mergedObject = mergeCloseoutSummaryObjectField(payload[key], summary?.[key], {
+        preferSummaryBindings: false
+      });
+      if (mergedObject) {
+        picked[key] = mergedObject;
+        continue;
+      }
+    }
+    if (hasOwn(payload, key) && hasOwn(summary ?? undefined, key)) {
+      const mergedObject = mergeCloseoutSummaryObjectField(payload[key], summary?.[key]);
+      if (mergedObject) {
+        picked[key] = mergedObject;
+        continue;
+      }
+    }
+    if (
+      hasOwn(payload, key) &&
+      hasOwn(summary ?? undefined, key) &&
+      summary?.[key] !== null &&
+      summary?.[key] !== undefined &&
+      (isSparseCloseoutSummaryField(payload[key]) ||
+        isRicherCloseoutSummaryField(payload[key], summary[key]))
+    ) {
+      picked[key] = summary[key];
+      continue;
+    }
+    if (hasOwn(payload, key) && payload[key] !== null && payload[key] !== undefined) {
+      picked[key] = payload[key];
+      continue;
+    }
+    if (hasOwn(payload, key) && payload[key] === null) {
+      if (hasOwn(summary ?? undefined, key) && summary?.[key] !== null && summary?.[key] !== undefined) {
+        picked[key] = summary[key];
+        continue;
+      }
+      picked[key] = null;
+      continue;
+    }
+    if (hasOwn(summary ?? undefined, key)) {
+      picked[key] = summary?.[key];
+    }
+  }
+  return picked;
+};
 
 const isCloseoutPrimaryApiSuccessRoute = (record: JsonObject | null | undefined): boolean => {
   const routeRole = asString(record?.route_role);
   const pathKind = asString(record?.path_kind);
   const evidenceStatus = asString(record?.evidence_status);
   return routeRole === "primary" && pathKind === "api" && evidenceStatus === "success";
+};
+
+const asStringArray = (value: unknown): string[] | null =>
+  Array.isArray(value)
+    ? value
+        .map((item) => asString(item))
+        .filter((item): item is string => item !== null)
+    : null;
+
+const normalizeCloseoutProfileRef = (value: string | null | undefined): string | null => {
+  const profileRef = asString(value);
+  if (profileRef === null) {
+    return null;
+  }
+  return profileRef.startsWith("profile/") ? profileRef : `profile/${profileRef}`;
+};
+
+const toCloseoutEvidenceExpected = (
+  record: JsonObject | null | undefined
+): EvaluateCloseoutEvidenceInput["expected"] | null => {
+  if (!record) {
+    return null;
+  }
+  return {
+    latest_head_sha: asString(record.latest_head_sha),
+    run_id: asString(record.run_id),
+    artifact_identity: asString(record.artifact_identity ?? record.artifact_ref),
+    artifact_identities: asStringArray(record.artifact_identities),
+    profile_ref: normalizeCloseoutProfileRef(asString(record.profile_ref)),
+    target_tab_id: asInteger(record.target_tab_id),
+    page_url: asString(record.page_url),
+    action_ref: asString(record.action_ref)
+  };
+};
+
+const toCloseoutEvidenceRound = (
+  record: JsonObject | null | undefined
+): EvaluateCloseoutEvidenceInput["evidence"] | null => {
+  if (!record) {
+    return null;
+  }
+  return {
+    route_role: asString(record.route_role),
+    path_kind: asString(record.path_kind),
+    evidence_status: asString(record.evidence_status),
+    evidence_class: asString(record.evidence_class ?? record.route_evidence_class),
+    reproduced_multi_round: record.reproduced_multi_round === true,
+    head_sha: asString(record.head_sha),
+    run_id: asString(record.run_id),
+    artifact_identity: asString(record.artifact_identity ?? record.artifact_ref),
+    profile_ref: normalizeCloseoutProfileRef(asString(record.profile_ref)),
+    target_tab_id: asInteger(record.target_tab_id),
+    page_url: asString(record.page_url),
+    action_ref: asString(record.action_ref)
+  };
+};
+
+const selectCloseoutEvidenceRound = (
+  expected: EvaluateCloseoutEvidenceInput["expected"] | null,
+  roundRecords: unknown[] | null
+): EvaluateCloseoutEvidenceInput["evidence"] | null => {
+  if (!roundRecords) {
+    return null;
+  }
+  let firstCompleteRound: EvaluateCloseoutEvidenceInput["evidence"] | null = null;
+  for (const roundRecord of roundRecords) {
+    const round = toCloseoutEvidenceRound(asObject(roundRecord));
+    if (!isCompleteCloseoutEvidenceRound(round)) {
+      continue;
+    }
+    firstCompleteRound ??= round;
+    if (closeoutEvidenceMatchesExpected(expected, round)) {
+      return round;
+    }
+  }
+  return firstCompleteRound;
+};
+
+const isCompleteCloseoutEvidenceExpected = (
+  expected: EvaluateCloseoutEvidenceInput["expected"] | null
+): expected is EvaluateCloseoutEvidenceInput["expected"] =>
+  !!expected &&
+  expected.latest_head_sha !== null &&
+  expected.run_id !== null &&
+  (expected.artifact_identity !== null ||
+    (Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0)) &&
+  expected.profile_ref !== null &&
+  expected.target_tab_id !== null &&
+  expected.page_url !== null &&
+  expected.action_ref !== null;
+
+const isCompleteCloseoutEvidenceRound = (
+  evidence: EvaluateCloseoutEvidenceInput["evidence"] | null
+): evidence is EvaluateCloseoutEvidenceInput["evidence"] =>
+  !!evidence &&
+  evidence.route_role !== null &&
+  evidence.path_kind !== null &&
+  evidence.evidence_status !== null &&
+  evidence.evidence_class !== null &&
+  evidence.head_sha !== null &&
+  evidence.run_id !== null &&
+  evidence.artifact_identity !== null &&
+  evidence.profile_ref !== null &&
+  evidence.target_tab_id !== null &&
+    evidence.page_url !== null &&
+    evidence.action_ref !== null;
+
+const closeoutEvidenceMatchesExpected = (
+  expected: EvaluateCloseoutEvidenceInput["expected"] | null,
+  evidence: EvaluateCloseoutEvidenceInput["evidence"] | null
+): boolean => {
+  if (!isCompleteCloseoutEvidenceExpected(expected) || !isCompleteCloseoutEvidenceRound(evidence)) {
+    return false;
+  }
+  const expectedArtifactIdentities =
+    Array.isArray(expected.artifact_identities) && expected.artifact_identities.length > 0
+      ? expected.artifact_identities
+      : expected.artifact_identity === null
+        ? []
+        : [expected.artifact_identity];
+  const observedArtifactIdentity = asString(evidence.artifact_identity);
+  return (
+    expected.latest_head_sha === evidence.head_sha &&
+    expected.run_id === evidence.run_id &&
+    observedArtifactIdentity !== null &&
+    expectedArtifactIdentities.includes(observedArtifactIdentity) &&
+    expected.profile_ref === evidence.profile_ref &&
+    expected.target_tab_id === evidence.target_tab_id &&
+    expected.page_url === evidence.page_url &&
+    expected.action_ref === evidence.action_ref
+  );
+};
+
+const fillMissingTrustedExpectedBinding = (
+  expected: EvaluateCloseoutEvidenceInput["expected"] | null,
+  trusted?: CloseoutEvidenceTrustedExpectedBinding | null
+): EvaluateCloseoutEvidenceInput["expected"] | null => {
+  if (!expected) {
+    return null;
+  }
+  return {
+    ...expected,
+    latest_head_sha: expected.latest_head_sha ?? asString(trusted?.latestHeadSha),
+    run_id: expected.run_id ?? asString(trusted?.runId),
+    profile_ref: expected.profile_ref ?? normalizeCloseoutProfileRef(trusted?.profileRef),
+    target_tab_id: expected.target_tab_id ?? asInteger(trusted?.targetTabId)
+  };
+};
+
+interface CloseoutEvidenceTrustedExpectedBinding {
+  latestHeadSha?: string | null;
+  requiresLatestHeadSha?: boolean | null;
+  runId?: string | null;
+  profileRef?: string | null;
+  targetTabId?: number | null;
+}
+
+export const resolveXhsCloseoutRuntimeLatestHeadShaForContract = (cwd: string): string | null => {
+  const envHeadSha = asString(process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA);
+  if (envHeadSha !== null) {
+    return envHeadSha;
+  }
+  const packageEnvHeadSha = asString(process.env.WEBENVOY_RUNTIME_LATEST_HEAD_SHA);
+  if (packageEnvHeadSha !== null) {
+    return packageEnvHeadSha;
+  }
+  const cwdGitHead = resolveGitHeadForCwd(cwd);
+  const runtimeGitHead = resolveGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+  if (
+    cwdGitHead &&
+    runtimeGitHead &&
+    cwdGitHead.root === runtimeGitHead.root &&
+    isWebEnvoySourceCheckoutRoot(runtimeGitHead.root)
+  ) {
+    return cwdGitHead.head;
+  }
+  if (runtimeGitHead && isWebEnvoySourceCheckoutRoot(runtimeGitHead.root)) {
+    return runtimeGitHead.head;
+  }
+  const runtimeBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+  if (runtimeBuildMetadataHead !== null) {
+    return runtimeBuildMetadataHead;
+  }
+  const runtimePackageHead = resolvePackageGitHeadForCwd(WEBENVOY_RUNTIME_ROOT);
+  if (runtimePackageHead !== null) {
+    return runtimePackageHead;
+  }
+  if (cwdGitHead && isWebEnvoyCheckoutRoot(cwdGitHead.root)) {
+    return cwdGitHead.head;
+  }
+  const cwdBuildMetadataHead = resolveRuntimeBuildMetadataHeadForCwd(cwd);
+  if (cwdBuildMetadataHead !== null) {
+    return cwdBuildMetadataHead;
+  }
+  const cwdPackageHead = resolvePackageGitHeadForCwd(cwd);
+  if (cwdPackageHead !== null) {
+    return cwdPackageHead;
+  }
+  if (runtimeGitHead && isWebEnvoyCheckoutRoot(runtimeGitHead.root)) {
+    return runtimeGitHead.head;
+  }
+  return null;
+};
+
+export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input: {
+  cwd: string;
+  runId: string;
+  profileRef?: string | null;
+  targetTabId?: number | null;
+  summary: JsonObject;
+}): CloseoutEvidenceTrustedExpectedBinding => {
+  const requiresCloseoutEvidenceEvaluation = requiresCloseoutEvidenceEvaluationForRuntime(input.summary);
+  const runtimeLatestHeadSha = requiresCloseoutEvidenceEvaluation
+    ? resolveXhsCloseoutRuntimeLatestHeadShaForContract(input.cwd)
+    : null;
+  return {
+    ...(requiresCloseoutEvidenceEvaluation ? { requiresLatestHeadSha: true } : {}),
+    ...(requiresCloseoutEvidenceEvaluation && runtimeLatestHeadSha !== null
+      ? { latestHeadSha: runtimeLatestHeadSha }
+      : {}),
+    runId: input.runId,
+    profileRef: normalizeCloseoutProfileRef(input.profileRef),
+    targetTabId: input.targetTabId
+  };
+};
+
+const toCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | null => {
+  if (!Array.isArray(records)) {
+    return null;
+  }
+  return records;
+};
+
+const hasCloseoutEvidenceRoundRecords = (records: unknown[] | null): boolean =>
+  Array.isArray(records) && records.length > 0;
+
+const unionCloseoutEvidenceRoundRecords = (
+  ...recordGroups: Array<unknown[] | null>
+): unknown[] | null => {
+  return mergeCloseoutEvidenceRoundRecordValues(
+    recordGroups[0] ?? [],
+    recordGroups.slice(1).flatMap((recordGroup) => recordGroup ?? [])
+  );
+};
+
+const buildCloseoutEvidenceInputForRuntime = (
+  summary: JsonObject,
+  trustedExpectedBinding?: CloseoutEvidenceTrustedExpectedBinding | null
+): EvaluateCloseoutEvidenceInput | null => {
+  const explicitInput = asObject(summary.closeout_evidence_input);
+  const routeEvidence =
+    asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
+  const routeEvidenceRequiresCloseout = isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+  const explicitRoundRecords = toCloseoutEvidenceRoundRecords(explicitInput?.evidence_rounds);
+  const summaryRoundRecords = toCloseoutEvidenceRoundRecords(summary.closeout_evidence_rounds);
+  const hasDeterministicRoundSource =
+    hasCloseoutEvidenceRoundRecords(explicitRoundRecords) ||
+    hasCloseoutEvidenceRoundRecords(summaryRoundRecords);
+  const deterministicRoundRecords = unionCloseoutEvidenceRoundRecords(
+    explicitRoundRecords,
+    summaryRoundRecords
+  );
+  const routeEvidenceRound = toCloseoutEvidenceRound(routeEvidence);
+  const routeRoundRecords = hasDeterministicRoundSource
+    ? null
+    : unionCloseoutEvidenceRoundRecords(
+        routeEvidenceRound ? [routeEvidenceRound] : null,
+        toCloseoutEvidenceRoundRecords(routeEvidence?.evidence_rounds)
+      );
+  const roundRecords = deterministicRoundRecords ?? routeRoundRecords;
+  const trustedExpectedBindingInput = {
+    ...(trustedExpectedBinding ?? {})
+  };
+  const explicitExpectedCandidate = toCloseoutEvidenceExpected(asObject(explicitInput?.expected));
+  const summaryExpectedCandidate = toCloseoutEvidenceExpected(
+    asObject(summary.closeout_evidence_expected)
+  );
+  const explicitExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(
+    explicitExpectedCandidate,
+    trustedExpectedBindingInput
+  );
+  const summaryExpectedCandidateWithTrustedRun = fillMissingTrustedExpectedBinding(
+    summaryExpectedCandidate,
+    trustedExpectedBindingInput
+  );
+  const explicitExpected = isCompleteCloseoutEvidenceExpected(explicitExpectedCandidateWithTrustedRun)
+    ? explicitExpectedCandidateWithTrustedRun
+    : null;
+  const summaryExpected = isCompleteCloseoutEvidenceExpected(summaryExpectedCandidateWithTrustedRun)
+    ? summaryExpectedCandidateWithTrustedRun
+    : null;
+  const expected = explicitExpected ?? summaryExpected;
+  const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
+  const routeEvidenceCanProvideRound =
+    routeEvidenceRequiresCloseout &&
+    roundRecords !== null &&
+    isCompleteCloseoutEvidenceExpected(expected) &&
+    closeoutEvidenceMatchesExpected(expected, routeEvidenceRound);
+  const selectedEvidenceRound = selectCloseoutEvidenceRound(expected, roundRecords);
+  const firstParsedEvidenceRound = roundRecords
+    ? toCloseoutEvidenceRound(asObject(roundRecords[0]) ?? {})
+    : null;
+  const firstEvidenceRoundCanProvideRound =
+    roundRecords !== null &&
+    isCompleteCloseoutEvidenceExpected(expected) &&
+    isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
+  const deterministicRoundsCanProvideEvidence =
+    firstEvidenceRoundCanProvideRound && (roundRecords?.length ?? 0) >= 2;
+  const canonicalEvidenceRoundCanProvideRound =
+    firstEvidenceRoundCanProvideRound &&
+    expected !== null &&
+    selectedEvidenceRound !== null &&
+    expected.artifact_identity !== null &&
+    selectedEvidenceRound.artifact_identity === expected.artifact_identity;
+  const explicitEvidenceCandidate = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
+  const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
+    ? explicitEvidenceCandidate
+    : null;
+  const evidence =
+    explicitEvidence ??
+    (deterministicRoundsCanProvideEvidence && canonicalEvidenceRoundCanProvideRound
+      ? selectedEvidenceRound
+      : null) ??
+    (expected?.artifact_identity === null && deterministicRoundsCanProvideEvidence
+      ? selectedEvidenceRound
+      : null) ??
+    (routeEvidenceCanProvideRound ? routeEvidenceRound : null) ??
+    (explicitExpectedBinding && deterministicRoundsCanProvideEvidence ? selectedEvidenceRound : null) ??
+    (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
+    explicitEvidence ??
+    (roundRecords !== null ? firstParsedEvidenceRound : null);
+  if (!expected || !evidence) {
+    return null;
+  }
+
+  const evidenceRounds: EvaluateCloseoutEvidenceInput["evidence"][] | null = roundRecords
+    ? []
+    : null;
+  if (roundRecords && evidenceRounds) {
+    for (const roundRecord of roundRecords) {
+      const round = toCloseoutEvidenceRound(asObject(roundRecord) ?? {});
+      if (!round) {
+        return null;
+      }
+      evidenceRounds.push(round);
+    }
+  }
+
+  return {
+    expected,
+    evidence,
+    ...(evidenceRounds ? { evidence_rounds: evidenceRounds } : {})
+  };
+};
+
+const requiresCloseoutEvidenceEvaluationForRuntime = (summary: JsonObject): boolean => {
+  if (hasUsableIndependentCloseoutEvidencePayload(summary)) {
+    return true;
+  }
+  const routeEvidence =
+    asObject(summary.closeout_route_evidence) ?? asObject(summary.route_evidence);
+  return (
+    hasExplicitCloseoutProductionAuditMarker(summary) &&
+    isCloseoutPrimaryApiSuccessRoute(routeEvidence)
+  );
+};
+
+const isLegacyCloseoutEvidenceEvaluationCompatOnly = (
+  summary: JsonObject,
+  evaluation: ReturnType<typeof evaluateCloseoutEvidence>
+): boolean =>
+  !hasIndependentCloseoutEvidencePayloadMarker(summary) &&
+  evaluation.blockers.length === 1 &&
+  evaluation.blockers.some(
+    (blockerItem) => blockerItem.blocker_code === "missing_multi_round_evidence"
+  );
+
+const missingCloseoutEvidenceEvaluation = (): ReturnType<typeof evaluateCloseoutEvidence> => ({
+  decision: "FAIL",
+  passed: false,
+  blockers: [
+    {
+      blocker_code: "missing_multi_round_evidence",
+      blocker_layer: "route",
+      message: "closeout evidence input is missing or cannot be parsed"
+    }
+  ],
+  evaluated_route: "unknown_route:unknown_path:unknown_class:unknown_status",
+  route_role: null,
+  path_kind: null,
+  evidence_status: null,
+  evidence_class: null,
+  reproduced_multi_round: false,
+  freshness: {
+    latest_head_available: false,
+    latest_head_matches: false,
+    run_matches: false,
+    artifact_matches: false,
+    expected_latest_head_sha: null,
+    observed_head_sha: null,
+    expected_run_id: null,
+    observed_run_id: null,
+    expected_artifact_identity: null,
+    expected_artifact_identities: [],
+    accepted_artifact_identities: [],
+    observed_artifact_identity: null
+  },
+  bindings: {
+    profile_bound: false,
+    tab_bound: false,
+    page_bound: false,
+    action_bound: false,
+    expected_profile_ref: null,
+    observed_profile_ref: null,
+    expected_target_tab_id: null,
+    observed_target_tab_id: null,
+    expected_page_url: null,
+    observed_page_url: null,
+    expected_action_ref: null,
+    observed_action_ref: null
+  },
+  multi_round: {
+    accepted_round_count: 0,
+    unique_artifact_count: 0,
+    expected_artifact_observed: false
+  }
+});
+
+export const evaluateXhsCloseoutEvidenceForContract = (
+  summary: JsonObject,
+  options?: CloseoutEvidenceTrustedExpectedBinding
+): ReturnType<typeof evaluateCloseoutEvidence> | null => {
+  const input = buildCloseoutEvidenceInputForRuntime(summary, options);
+  if (input) {
+    return applyTrustedExpectedBindingCheck(evaluateCloseoutEvidence(input), options);
+  }
+  return requiresCloseoutEvidenceEvaluationForRuntime(summary)
+    ? missingCloseoutEvidenceEvaluation()
+    : null;
+};
+
+const applyTrustedExpectedBindingCheck = (
+  evaluation: ReturnType<typeof evaluateCloseoutEvidence>,
+  trusted?: CloseoutEvidenceTrustedExpectedBinding | null
+): ReturnType<typeof evaluateCloseoutEvidence> => {
+  const blockers = [...evaluation.blockers];
+  const trustedLatestHeadSha = asString(trusted?.latestHeadSha);
+  const requiresTrustedLatestHeadSha = trusted?.requiresLatestHeadSha === true;
+  const trustedRunId = asString(trusted?.runId);
+  const trustedProfileRef = normalizeCloseoutProfileRef(trusted?.profileRef);
+  const trustedTargetTabId = asInteger(trusted?.targetTabId);
+  let freshness = evaluation.freshness;
+  let bindings = evaluation.bindings;
+
+  if (requiresTrustedLatestHeadSha && trustedLatestHeadSha === null) {
+    freshness = {
+      ...freshness,
+      latest_head_available: false,
+      latest_head_matches: false
+    };
+    pushUniqueCloseoutEvaluationBlocker(
+      blockers,
+      closeoutEvaluationBlocker(
+        "missing_latest_head",
+        "freshness",
+        "closeout runtime head must be resolved before evaluating production evidence"
+      )
+    );
+  } else if (
+    trustedLatestHeadSha !== null &&
+    evaluation.freshness.expected_latest_head_sha !== trustedLatestHeadSha
+  ) {
+    freshness = {
+      ...freshness,
+      latest_head_matches: false
+    };
+    pushUniqueCloseoutEvaluationBlocker(
+      blockers,
+      closeoutEvaluationBlocker(
+        "stale_head",
+        "freshness",
+        "closeout expected head must match the runtime head"
+      )
+    );
+  }
+
+  if (trustedRunId !== null && evaluation.freshness.expected_run_id !== trustedRunId) {
+    freshness = {
+      ...freshness,
+      run_matches: false
+    };
+    pushUniqueCloseoutEvaluationBlocker(
+      blockers,
+      closeoutEvaluationBlocker(
+        "stale_run",
+        "freshness",
+        "closeout expected run must match the runtime run"
+      )
+    );
+  }
+
+  if (trustedProfileRef !== null && evaluation.bindings.expected_profile_ref !== trustedProfileRef) {
+    bindings = {
+      ...bindings,
+      profile_bound: false
+    };
+    pushUniqueCloseoutEvaluationBlocker(
+      blockers,
+      closeoutEvaluationBlocker(
+        "missing_profile_binding",
+        "binding",
+        "closeout expected profile must match the runtime profile"
+      )
+    );
+  }
+
+  if (
+    trustedTargetTabId !== null &&
+    evaluation.bindings.expected_target_tab_id !== trustedTargetTabId
+  ) {
+    bindings = {
+      ...bindings,
+      tab_bound: false
+    };
+    pushUniqueCloseoutEvaluationBlocker(
+      blockers,
+      closeoutEvaluationBlocker(
+        "missing_tab_binding",
+        "binding",
+        "closeout expected tab must match the runtime target tab"
+      )
+    );
+  }
+
+  if (blockers.length === evaluation.blockers.length) {
+    return evaluation;
+  }
+
+  return {
+    ...evaluation,
+    decision: "FAIL",
+    passed: false,
+    blockers,
+    freshness,
+    bindings
+  };
+};
+
+const closeoutEvaluationBlocker = (
+  blocker_code: ReturnType<typeof evaluateCloseoutEvidence>["blockers"][number]["blocker_code"],
+  blocker_layer: ReturnType<typeof evaluateCloseoutEvidence>["blockers"][number]["blocker_layer"],
+  message: string
+): ReturnType<typeof evaluateCloseoutEvidence>["blockers"][number] => ({
+  blocker_code,
+  blocker_layer,
+  message
+});
+
+const pushUniqueCloseoutEvaluationBlocker = (
+  blockers: ReturnType<typeof evaluateCloseoutEvidence>["blockers"],
+  nextBlocker: ReturnType<typeof evaluateCloseoutEvidence>["blockers"][number]
+): void => {
+  if (blockers.some((existingBlocker) => existingBlocker.blocker_code === nextBlocker.blocker_code)) {
+    return;
+  }
+  blockers.push(nextBlocker);
+};
+
+const assertCloseoutEvidenceForRuntime = (
+  ability: AbilityRef,
+  trustedExpectedBinding: CloseoutEvidenceTrustedExpectedBinding,
+  summary: JsonObject
+): void => {
+  const evaluation = evaluateXhsCloseoutEvidenceForContract(summary, trustedExpectedBinding);
+  if (!evaluation) {
+    return;
+  }
+  summary.closeout_evidence_evaluation = evaluation;
+  if (evaluation.passed) {
+    return;
+  }
+  if (isLegacyCloseoutEvidenceEvaluationCompatOnly(summary, evaluation)) {
+    summary.closeout_evidence_compat_mode = "legacy_route_evidence_non_blocking";
+    return;
+  }
+  throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout evidence evaluation invalid", {
+    retryable: false,
+    details: {
+      ability_id: ability.id,
+      stage: "execution",
+      reason: "CLOSEOUT_EVIDENCE_EVALUATION_INVALID",
+      run_id: trustedExpectedBinding.runId,
+      closeout_evidence_evaluation: evaluation,
+      ...(asObject(summary.execution_audit) ? { execution_audit: summary.execution_audit } : {})
+    }
+  });
 };
 
 const isXhsLiveRouteEvidenceForCloseoutAudit = (
@@ -482,6 +1526,13 @@ const isXhsLiveRouteEvidenceForCloseoutAudit = (
   asString(record?.evidence_class) === "passive_api_capture";
 
 const hasCloseoutRouteEvaluationMarker = (record: JsonObject | null | undefined): boolean => {
+  if (
+    asString(asObject(record?.closeout_evidence_evaluation)?.evaluator) !== null &&
+    !hasIndependentCloseoutEvidencePayloadMarker(record)
+  ) {
+    return true;
+  }
+
   if (
     isCloseoutPrimaryApiSuccessRoute(record) &&
     (hasOwn(record, "closeout_evidence") || hasOwn(record, "closeout_evidence_evaluation"))
@@ -494,13 +1545,12 @@ const hasCloseoutRouteEvaluationMarker = (record: JsonObject | null | undefined)
     return true;
   }
 
-  const closeoutRouteEvidence = asObject(record?.closeout_route_evidence);
-  if (isCloseoutPrimaryApiSuccessRoute(closeoutRouteEvidence)) {
-    return true;
-  }
-
-  const routeEvidence = asObject(record?.route_evidence);
-  return hasExplicitCloseoutProductionPathMarker(record) && isCloseoutPrimaryApiSuccessRoute(routeEvidence);
+  const routeEvidence =
+    asObject(record?.closeout_route_evidence) ?? asObject(record?.route_evidence);
+  return (
+    hasExplicitCloseoutProductionAuditMarker(record) &&
+    isCloseoutPrimaryApiSuccessRoute(routeEvidence)
+  );
 };
 
 export const requiresCanonicalExecutionAuditForContract = (input: {
@@ -512,7 +1562,7 @@ export const requiresCanonicalExecutionAuditForContract = (input: {
   const summary = asObject(input.summary) ?? asObject(payload?.summary);
   const details = asObject(input.details);
   return [payload, summary, details].some(
-    (record) => hasExplicitCloseoutProductionPathMarker(record) || hasCloseoutRouteEvaluationMarker(record)
+    (record) => hasExplicitCloseoutProductionAuditMarker(record) || hasCloseoutRouteEvaluationMarker(record)
   );
 };
 
@@ -522,10 +1572,29 @@ export const shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract = (inp
   summary?: Record<string, unknown> | null;
 }): boolean => {
   const summary = asObject(input.summary);
+  const closeoutRouteEvidence = asObject(summary?.closeout_route_evidence);
+  const legacyRouteEvidence = asObject(summary?.route_evidence);
   return (
     XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS.has(input.abilityId) &&
     isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
-    isXhsLiveRouteEvidenceForCloseoutAudit(asObject(summary?.route_evidence))
+    (isXhsLiveRouteEvidenceForCloseoutAudit(closeoutRouteEvidence) ||
+      isXhsLiveRouteEvidenceForCloseoutAudit(legacyRouteEvidence))
+  );
+};
+
+export const requiresCloseoutAuditForXhsBridgeSummaryForContract = (input: {
+  abilityId: string;
+  requestedExecutionMode: XhsExecutionMode;
+  summary?: Record<string, unknown> | null;
+}): boolean => {
+  const summary = asObject(input.summary);
+  return (
+    hasExplicitCloseoutProductionAuditMarker(summary) ||
+    shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+      abilityId: input.abilityId,
+      requestedExecutionMode: input.requestedExecutionMode,
+      summary
+    })
   );
 };
 
@@ -534,21 +1603,30 @@ const markCloseoutAuditRequiredForXhsLiveRouteEvidence = (input: {
   requestedExecutionMode: XhsExecutionMode;
   payload: JsonObject;
 }): void => {
+  const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(
+    input.payload
+  );
+  const summary = asObject(input.payload.summary);
+  const mergedSummary = {
+    ...(summary ?? {}),
+    ...closeoutEvidenceSummaryFields
+  };
   if (
-    !shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+    !requiresCloseoutAuditForXhsBridgeSummaryForContract({
       abilityId: input.abilityId,
       requestedExecutionMode: input.requestedExecutionMode,
-      summary: asObject(input.payload.summary)
+      summary: mergedSummary
     })
   ) {
     return;
   }
-  const summary = asObject(input.payload.summary);
   if (summary) {
+    Object.assign(summary, closeoutEvidenceSummaryFields);
     summary.closeout_audit_required = true;
     return;
   }
   input.payload.summary = {
+    ...closeoutEvidenceSummaryFields,
     closeout_audit_required: true
   };
 };
@@ -584,6 +1662,20 @@ const copyCloseoutCanonicalAuditIntoFailureDetails = (
     details.execution_audit = canonicalAudit;
   }
 };
+
+const hasFailureCanonicalAuditSurface = (
+  payload: Record<string, unknown>,
+  details: JsonObject
+): boolean =>
+  asObject(payload.request_admission_result) !== null ||
+  asObject(asObject(payload.summary)?.request_admission_result) !== null ||
+  asObject(details.request_admission_result) !== null ||
+  asObject(payload.execution_audit) !== null ||
+  asObject(asObject(payload.summary)?.execution_audit) !== null ||
+  asObject(details.execution_audit) !== null ||
+  payload.closeout_audit_required === true ||
+  details.closeout_audit_required === true ||
+  asObject(payload.summary)?.closeout_audit_required === true;
 
 const assertCloseoutCanonicalExecutionAuditForRuntime = (
   ability: AbilityRef,
@@ -631,7 +1723,19 @@ const assertCloseoutCanonicalExecutionAuditForRuntime = (
       ability_id: ability.id,
       stage: "execution",
       reason: "CLOSEOUT_CANONICAL_EXECUTION_AUDIT_INVALID",
-      closeout_canonical_execution_audit: result
+      closeout_canonical_execution_audit: result,
+      ...("success" in input && asObject(input.success.summary)?.closeout_evidence_evaluation
+        ? {
+            closeout_evidence_evaluation: asObject(input.success.summary)
+              ?.closeout_evidence_evaluation
+          }
+        : {}),
+      ...("success" in input && asObject(input.success.summary)?.closeout_evidence_compat_mode
+        ? {
+            closeout_evidence_compat_mode: asObject(input.success.summary)
+              ?.closeout_evidence_compat_mode
+          }
+        : {})
     }
   });
 };
@@ -694,6 +1798,7 @@ const pickGateErrorDetails = (
     "consumer_gate_result",
     "closeout_audit_required",
     "closeout_evidence_evaluation",
+    "closeout_evidence_compat_mode",
     "closeout_readiness",
     "closeout_route_evidence",
     "route_evidence_evaluation",
@@ -973,11 +2078,66 @@ const toCliExecutionError = (
   ability: AbilityRef,
   payload: Record<string, unknown>,
   fallbackMessage: string,
-  expectedRunId: string
+  expectedRunId: string,
+  closeoutRuntimeBinding?: {
+    cwd: string;
+    profileRef?: string | null;
+    targetTabId?: number | null;
+  }
 ): CliError => {
   const details = asObject(payload.details);
   const pickedDetails = pickGateErrorDetails(payload, details);
-  if (requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails })) {
+  let closeoutEvidenceEvaluationForDetails: unknown;
+  let closeoutEvidenceCompatModeForDetails: unknown;
+  if (closeoutRuntimeBinding) {
+    const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(payload);
+    const requestAdmissionResult = pickCanonicalSummaryField(payload, "request_admission_result");
+    const executionAudit = pickCanonicalSummaryField(payload, "execution_audit");
+    const mergedSummary = {
+      ...(asObject(payload.summary) ?? {}),
+      ...closeoutEvidenceSummaryFields
+    };
+    if (requiresCloseoutEvidenceEvaluationForRuntime(mergedSummary)) {
+      const summary = mapCapabilitySummaryForContract(ability.id, {
+        ...mergedSummary,
+        ...(asObject(payload.consumer_gate_result)
+          ? { consumer_gate_result: asObject(payload.consumer_gate_result) }
+          : {}),
+        ...(requestAdmissionResult !== undefined
+          ? { request_admission_result: requestAdmissionResult }
+          : {}),
+        ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
+      });
+      assertCloseoutEvidenceForRuntime(
+        ability,
+        buildXhsCloseoutEvidenceTrustedBindingForContract({
+          cwd: closeoutRuntimeBinding.cwd,
+          runId: expectedRunId,
+          profileRef: closeoutRuntimeBinding.profileRef,
+          targetTabId: closeoutRuntimeBinding.targetTabId,
+          summary
+        }),
+        summary
+      );
+      if (asObject(summary.closeout_evidence_evaluation)) {
+        closeoutEvidenceEvaluationForDetails = summary.closeout_evidence_evaluation;
+      }
+      if (asString(summary.closeout_evidence_compat_mode)) {
+        closeoutEvidenceCompatModeForDetails = summary.closeout_evidence_compat_mode;
+      }
+    }
+  }
+  const requiresFailureCanonicalAudit =
+    requiresCanonicalExecutionAuditForContract({ payload, details: pickedDetails }) ||
+    (asObject(closeoutEvidenceEvaluationForDetails) !== null &&
+      hasFailureCanonicalAuditSurface(payload, pickedDetails));
+  if (requiresFailureCanonicalAudit) {
+    if (asObject(closeoutEvidenceEvaluationForDetails)) {
+      pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
+    }
+    if (asString(closeoutEvidenceCompatModeForDetails)) {
+      pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
+    }
     copyCloseoutCanonicalAuditIntoFailureDetails(payload, pickedDetails);
     assertCloseoutCanonicalExecutionAuditForRuntime(
       ability,
@@ -990,6 +2150,12 @@ const toCliExecutionError = (
         }
       }
     );
+  }
+  if (asObject(closeoutEvidenceEvaluationForDetails)) {
+    pickedDetails.closeout_evidence_evaluation = closeoutEvidenceEvaluationForDetails;
+  }
+  if (asString(closeoutEvidenceCompatModeForDetails)) {
+    pickedDetails.closeout_evidence_compat_mode = closeoutEvidenceCompatModeForDetails;
   }
   const closeoutHardStopRisk = classifyCloseoutHardStopRiskForPayload(payload);
   const reason =
@@ -1805,7 +2971,12 @@ const xhsReadCommand = async (
         envelope.ability,
         bridgeResult.payload,
         bridgeResult.error.message,
-        context.run_id
+        context.run_id,
+        {
+          cwd: context.cwd,
+          profileRef: context.profile,
+          targetTabId: gate.targetTabId
+        }
       );
     }
 
@@ -1842,7 +3013,12 @@ const xhsReadCommand = async (
         envelope.ability,
         bridgeResult.payload,
         "XHS recovery probe detected account-safety risk",
-        context.run_id
+        context.run_id,
+        {
+          cwd: context.cwd,
+          profileRef: context.profile,
+          targetTabId: gate.targetTabId
+        }
       );
     }
 
@@ -1855,13 +3031,22 @@ const xhsReadCommand = async (
       bridgeResult.payload,
       "execution_audit"
     );
-    const closeoutAuditRequired = shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+    const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(
+      bridgeResult.payload
+    );
+    const mergedBridgeSummary = {
+      ...(asObject(bridgeResult.payload.summary) ?? {}),
+      ...closeoutEvidenceSummaryFields
+    };
+    const closeoutAuditRequired = requiresCloseoutAuditForXhsBridgeSummaryForContract({
       abilityId: envelope.ability.id,
       requestedExecutionMode: gate.requestedExecutionMode,
-      summary: asObject(bridgeResult.payload.summary)
+      summary: mergedBridgeSummary
     });
+    const bridgeSummaryForMapping = { ...mergedBridgeSummary };
+    delete bridgeSummaryForMapping.closeout_audit_required;
     const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
-      ...(asObject(bridgeResult.payload.summary) ?? {}),
+      ...bridgeSummaryForMapping,
       session_id: bridgeSessionId,
       requested_execution_mode: gate.requestedExecutionMode,
       ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),
@@ -1871,6 +3056,17 @@ const xhsReadCommand = async (
         : {}),
       ...(executionAudit !== undefined ? { execution_audit: executionAudit } : {})
     });
+    assertCloseoutEvidenceForRuntime(
+      envelope.ability,
+      buildXhsCloseoutEvidenceTrustedBindingForContract({
+        cwd: context.cwd,
+        runId: context.run_id,
+        profileRef: context.profile,
+        targetTabId: gate.targetTabId,
+        summary
+      }),
+      summary
+    );
     if (requiresCanonicalExecutionAuditForContract({ payload: bridgeResult.payload, summary })) {
       assertCloseoutCanonicalExecutionAuditForRuntime(
         envelope.ability,
