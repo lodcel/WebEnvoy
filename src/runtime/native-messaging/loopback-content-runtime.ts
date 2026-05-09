@@ -270,13 +270,13 @@ export class InMemoryContentScriptRuntime {
       const auditRecord = buildLoopbackAuditRecord({
         runId: message.runId,
         sessionId: message.sessionId,
-        profile: "loopback_profile",
+        profile: message.profile,
         gate
       });
       const gateBundle = buildLoopbackGatePayload({
         runId: message.runId,
         sessionId: message.sessionId,
-        profile: "loopback_profile",
+        profile: message.profile,
         gate,
         auditRecord
       });
@@ -534,7 +534,7 @@ export class InMemoryContentScriptRuntime {
             && options.xhs_search_passive_readiness_contract === true
             ? buildLoopbackXhsSearchPassiveApiContractSummaryFields({
                 runId: message.runId,
-                profile: "loopback_profile",
+                profile: message.profile,
                 query: String(normalizedInput.query ?? ""),
                 options,
                 requestUrl: commandSpec.request_url

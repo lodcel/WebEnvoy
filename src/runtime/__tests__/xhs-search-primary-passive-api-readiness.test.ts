@@ -164,6 +164,27 @@ describe("evaluateXhsSearchPrimaryPassiveApiReadinessForContract", () => {
     });
   });
 
+  it("fails when the observed passive route is not the xhs.search API route", () => {
+    expect(
+      evaluateXhsSearchPrimaryPassiveApiReadinessForContract({
+        expected: expectedBinding,
+        summary: {
+          route_evidence: {
+            ...routeEvidence,
+            route: "xhs.detail.api"
+          },
+          request_context: requestContext
+        }
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "non_search_route" })
+      ])
+    });
+  });
+
   it("fails when request_context binding is stale even if route_evidence still matches", () => {
     expect(
       evaluateXhsSearchPrimaryPassiveApiReadinessForContract({

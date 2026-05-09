@@ -11,6 +11,7 @@ export type ContentForwardMessage = {
   commandParams: Record<string, unknown>;
   runId: string;
   sessionId: string;
+  profile: string;
 };
 
 export type ContentResultMessage = {

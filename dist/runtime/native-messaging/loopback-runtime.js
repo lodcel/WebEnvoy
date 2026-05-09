@@ -325,7 +325,7 @@ class InMemoryContentScriptRuntime {
             commandRequestId: message.commandParams.request_id,
             gateInvocationId: message.commandParams.gate_invocation_id,
             sessionId: message.sessionId,
-            profile: "loopback_profile"
+            profile: message.profile
         });
         const consumerGateResult = gateBundle.consumerGateResult;
         const successObservability = {
@@ -527,7 +527,7 @@ class InMemoryContentScriptRuntime {
                 && options.xhs_search_passive_readiness_contract === true
                 ? buildLoopbackXhsSearchPassiveApiContractSummaryFields({
                     runId: message.runId,
-                    profile: "loopback_profile",
+                    profile: message.profile,
                     query: String(input.query ?? ""),
                     options,
                     requestUrl: spec.requestUrl
@@ -781,6 +781,7 @@ class InMemoryBackgroundRelay {
                 : {};
             const runId = String(request.params.run_id ?? request.id);
             const sessionId = String(request.params.session_id ?? this.#sessionId);
+            const profile = String(request.params.profile ?? "loopback_profile");
             let gatePayload;
             if (XHS_READ_COMMANDS.has(command)) {
                 const ability = typeof commandParams.ability === "object" && commandParams.ability !== null
@@ -797,7 +798,7 @@ class InMemoryBackgroundRelay {
                     commandRequestId: commandParams.request_id,
                     gateInvocationId: commandParams.gate_invocation_id,
                     sessionId,
-                    profile: "loopback_profile"
+                    profile
                 });
                 gatePayload = gateBundle.payload;
                 if (gateBundle.consumerGateResult.gate_decision === "blocked") {
@@ -865,7 +866,8 @@ class InMemoryBackgroundRelay {
                 command,
                 commandParams,
                 runId,
-                sessionId
+                sessionId,
+                profile
             });
             return;
         }
