@@ -22,6 +22,7 @@ type ContentMessage =
       commandParams: Record<string, unknown>;
       runId: string;
       sessionId: string;
+      profile: string;
     }
   | {
       kind: "result";
@@ -38,6 +39,9 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const asInteger = (value: unknown): number | null =>
+  typeof value === "number" && Number.isInteger(value) ? value : null;
 
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS: Record<string, string> = {
@@ -152,6 +156,64 @@ const buildLoopbackXhsReadGateBundle = (input: {
       gate,
       auditRecord
     })
+  };
+};
+
+const toLoopbackProfileRef = (profile: string): string =>
+  profile.startsWith("profile/") ? profile : `profile/${profile}`;
+
+const buildLoopbackXhsSearchPageUrl = (query: string): string => {
+  const url = new URL("https://www.xiaohongshu.com/search_result");
+  if (query.length > 0) {
+    url.searchParams.set("keyword", query);
+  }
+  return url.toString();
+};
+
+const resolveLoopbackXhsSearchActionRef = (options: Record<string, unknown>): string =>
+  options.search_action_ref === "action/xhs.search/submit_enter"
+    ? "action/xhs.search/submit_enter"
+    : "action/xhs.search/submit_query";
+
+const buildLoopbackXhsSearchPassiveApiContractSummaryFields = (input: {
+  runId: string;
+  profile: string;
+  query: string;
+  options: Record<string, unknown>;
+  requestUrl: string;
+}): Record<string, unknown> => {
+  const actionRef = resolveLoopbackXhsSearchActionRef(input.options);
+  const pageUrl = buildLoopbackXhsSearchPageUrl(input.query);
+  const profileRef = toLoopbackProfileRef(
+    asString(input.options.__runtime_profile_ref) ?? input.profile
+  );
+  const targetTabId = asInteger(input.options.target_tab_id);
+
+  return {
+    route_evidence: {
+      route: "xhs.search.api",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      profile_ref: profileRef,
+      target_tab_id: targetTabId,
+      page_url: pageUrl,
+      run_id: input.runId,
+      action_ref: actionRef
+    },
+    request_context: {
+      status: "exact_hit",
+      request_id: "req-loopback-001",
+      method: "POST",
+      request_url: input.requestUrl,
+      query: input.query,
+      profile_ref: profileRef,
+      target_tab_id: targetTabId,
+      page_url: pageUrl,
+      run_id: input.runId,
+      action_ref: actionRef
+    }
   };
 };
 
@@ -384,7 +446,7 @@ class InMemoryContentScriptRuntime {
       commandRequestId: message.commandParams.request_id,
       gateInvocationId: message.commandParams.gate_invocation_id,
       sessionId: message.sessionId,
-      profile: "loopback_profile"
+      profile: message.profile
     });
     const consumerGateResult = gateBundle.consumerGateResult;
     const successObservability = {
@@ -402,6 +464,7 @@ class InMemoryContentScriptRuntime {
       capabilityResult: unknown,
       overrides?: {
         key_requests?: Array<Record<string, unknown>>;
+        summary?: Record<string, unknown>;
       }
     ) => ({
       kind: "result" as const,
@@ -411,10 +474,12 @@ class InMemoryContentScriptRuntime {
         summary:
           capabilityResult === undefined
             ? {
+                ...(overrides?.summary ?? {}),
                 ...gateBundle.payload
               }
             : {
                 capability_result: capabilityResult,
+                ...(overrides?.summary ?? {}),
                 ...gateBundle.payload
               },
         observability: {
@@ -600,6 +665,17 @@ class InMemoryContentScriptRuntime {
     }
 
     if (simulated === "success") {
+      const successSummary =
+        command === "xhs.search"
+          && options.xhs_search_passive_readiness_contract === true
+          ? buildLoopbackXhsSearchPassiveApiContractSummaryFields({
+              runId: message.runId,
+              profile: message.profile,
+              query: String(input.query ?? ""),
+              options,
+              requestUrl: spec.requestUrl
+            })
+          : undefined;
       return buildSuccessfulResult(
         {
           ability_id: String(ability.id ?? spec.abilityId),
@@ -613,6 +689,7 @@ class InMemoryContentScriptRuntime {
           }
         },
         {
+          ...(successSummary ? { summary: successSummary } : {}),
           key_requests: [
             {
               request_id: "req-loopback-001",
@@ -875,6 +952,7 @@ class InMemoryBackgroundRelay {
           : {};
       const runId = String(request.params.run_id ?? request.id);
       const sessionId = String(request.params.session_id ?? this.#sessionId);
+      const profile = String(request.profile ?? "loopback_profile");
       let gatePayload: Record<string, unknown> | undefined;
 
       if (XHS_READ_COMMANDS.has(command)) {
@@ -966,7 +1044,8 @@ class InMemoryBackgroundRelay {
         command,
         commandParams,
         runId,
-        sessionId
+        sessionId,
+        profile
       });
       return;
     }

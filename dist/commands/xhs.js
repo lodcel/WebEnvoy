@@ -1,2 +1,3 @@
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
+export { evaluateXhsSearchPrimaryPassiveApiReadinessForContract } from "../runtime/xhs-search-primary-passive-api-readiness.js";
 export { ensureOfficialChromeRuntimeReady, evaluateXhsCloseoutEvidenceForContract, buildXhsCloseoutEvidenceTrustedBindingForContract, normalizeGateOptionsForContract, pickXhsCloseoutEvidenceSummaryFieldsForContract, requiresCloseoutAuditForXhsBridgeSummaryForContract, requiresCanonicalExecutionAuditForContract, resolveForwardTimeoutMsForContract, resolveXhsCloseoutRuntimeLatestHeadShaForContract, shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract, xhsCommands } from "./xhs-runtime.js";

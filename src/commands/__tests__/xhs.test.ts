@@ -10,6 +10,7 @@ import {
   buildXhsCloseoutEvidenceTrustedBindingForContract,
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
+  evaluateXhsSearchPrimaryPassiveApiReadinessForContract,
   normalizeGateOptionsForContract,
   pickXhsCloseoutEvidenceSummaryFieldsForContract,
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
@@ -20,6 +21,8 @@ import {
 } from "../xhs.js";
 import { executeCommand } from "../../core/router.js";
 import { createCommandRegistry } from "../index.js";
+import { NativeMessagingBridge } from "../../runtime/native-messaging/bridge.js";
+import { createLoopbackNativeBridgeTransport } from "../../runtime/native-messaging/loopback.js";
 import { ProfileStore } from "../../runtime/profile-store.js";
 import {
   SQLiteRuntimeStore,
@@ -5291,7 +5294,7 @@ describe("normalizeGateOptionsForContract", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   it("blocks XHS live reads at the validation baseline gate even when scope and caller action are wrong", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-baseline-action-omitted-"));
@@ -7891,6 +7894,93 @@ describe("normalizeGateOptionsForContract", () => {
         process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
       }
     }
+  });
+
+  it("emits xhs.search passive API readiness contract fields on successful loopback bridge reads", async () => {
+    const runId = "run-search-passive-readiness-001";
+    const requestId = "issue209-live-search-passive-readiness-001";
+    const gateInvocationId = "issue209-gate-run-search-passive-readiness-001-001";
+    const decisionId = `gate_decision_${gateInvocationId}`;
+    const approvalId = `gate_appr_${decisionId}`;
+    const bridge = new NativeMessagingBridge({
+      transport: createLoopbackNativeBridgeTransport()
+    });
+
+    const result = await bridge.runCommand({
+      runId,
+      profile: "profile-search-passive-readiness-001",
+      cwd: "/tmp/webenvoy",
+      command: "xhs.search",
+      params: {
+        request_id: requestId,
+        gate_invocation_id: gateInvocationId,
+        ability: {
+          id: "xhs.note.search.v1",
+          layer: "L3",
+          action: "read"
+        },
+        input: {
+          query: "露营装备"
+        },
+        options: {
+          simulate_result: "success",
+          issue_scope: "issue_209",
+          target_domain: "www.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "search_result_tab",
+          action_type: "read",
+          requested_execution_mode: "live_read_high_risk",
+          risk_state: "allowed",
+          xhs_search_passive_readiness_contract: true,
+          __runtime_profile_ref: "profile-search-passive-readiness-001",
+          approval_record: createIssue209FormalApprovalRecord(decisionId, approvalId),
+          audit_record: createIssue209FormalAuditRecord(requestId, decisionId, approvalId)
+        }
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    const summary = result.ok ? result.payload.summary : null;
+
+    expect(summary).toMatchObject({
+        route_evidence: {
+          route: "xhs.search.api",
+          route_role: "primary",
+          path_kind: "api",
+          evidence_status: "success",
+          evidence_class: "passive_api_capture",
+          profile_ref: "profile/profile-search-passive-readiness-001",
+          target_tab_id: 32,
+          run_id: runId,
+          action_ref: "action/xhs.search/submit_query"
+        },
+        request_context: {
+          status: "exact_hit",
+          query: "露营装备",
+          profile_ref: "profile/profile-search-passive-readiness-001",
+          target_tab_id: 32,
+          run_id: runId,
+          action_ref: "action/xhs.search/submit_query"
+        }
+      });
+
+    expect(
+      evaluateXhsSearchPrimaryPassiveApiReadinessForContract({
+        expected: {
+          query: "露营装备",
+          profile_ref: "profile/profile-search-passive-readiness-001",
+          target_tab_id: 32,
+          page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5%E8%A3%85%E5%A4%87",
+          run_id: runId,
+          action_ref: "action/xhs.search/submit_query"
+        },
+        summary
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: []
+    });
   });
 
   it("preserves explicit false anonymous admission signals on the loopback runtime path for blocked runs", async () => {

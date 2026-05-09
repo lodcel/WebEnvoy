@@ -75,6 +75,7 @@ export class InMemoryBackgroundRelay {
                 : {};
             const runId = String(request.params.run_id ?? request.id);
             const sessionId = String(request.params.session_id ?? this.#sessionId);
+            const profile = String(request.profile ?? "loopback_profile");
             let gatePayload;
             if (XHS_READ_COMMANDS.has(command)) {
                 const ability = typeof commandParams.ability === "object" && commandParams.ability !== null
@@ -163,7 +164,8 @@ export class InMemoryBackgroundRelay {
                 command,
                 commandParams,
                 runId,
-                sessionId
+                sessionId,
+                profile
             });
             return;
         }
