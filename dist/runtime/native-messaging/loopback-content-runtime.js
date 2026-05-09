@@ -214,13 +214,13 @@ export class InMemoryContentScriptRuntime {
             const auditRecord = buildLoopbackAuditRecord({
                 runId: message.runId,
                 sessionId: message.sessionId,
-                profile: message.profile,
+                profile: "loopback_profile",
                 gate
             });
             const gateBundle = buildLoopbackGatePayload({
                 runId: message.runId,
                 sessionId: message.sessionId,
-                profile: message.profile,
+                profile: "loopback_profile",
                 gate,
                 auditRecord
             });

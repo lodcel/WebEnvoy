@@ -103,13 +103,13 @@ export class InMemoryBackgroundRelay {
                 const auditRecord = buildLoopbackAuditRecord({
                     runId,
                     sessionId,
-                    profile,
+                    profile: "loopback_profile",
                     gate
                 });
                 gatePayload = buildLoopbackGatePayload({
                     runId,
                     sessionId,
-                    profile,
+                    profile: "loopback_profile",
                     gate,
                     auditRecord
                 });

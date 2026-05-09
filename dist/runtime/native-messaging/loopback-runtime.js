@@ -798,7 +798,7 @@ class InMemoryBackgroundRelay {
                     commandRequestId: commandParams.request_id,
                     gateInvocationId: commandParams.gate_invocation_id,
                     sessionId,
-                    profile
+                    profile: "loopback_profile"
                 });
                 gatePayload = gateBundle.payload;
                 if (gateBundle.consumerGateResult.gate_decision === "blocked") {
