@@ -123,6 +123,9 @@ type XhsReadCommandSpec = {
   buildDataRef: (params: XhsDetailParams | XhsUserHomeParams, payload: JsonRecord) => JsonRecord;
 };
 
+const requiresSignedContinuity = (spec: XhsReadCommandSpec): boolean =>
+  spec.command === "xhs.detail" || spec.command === "xhs.user_home";
+
 type DetailRequestShape = {
   command: "xhs.detail";
   method: "POST";
@@ -2441,7 +2444,7 @@ const executeXhsRead = async (
     };
   }
 
-  if (spec.command === "xhs.detail" && isSecurityRedirectUrl(env.getLocationHref())) {
+  if (requiresSignedContinuity(spec) && isSecurityRedirectUrl(env.getLocationHref())) {
     return failClosedForSignedContinuity(
       {
         abilityId: input.abilityId,
@@ -2546,16 +2549,23 @@ const executeXhsRead = async (
   );
   if (requestContextResult.state !== "hit") {
     if (
-      spec.command === "xhs.detail" &&
+      requiresSignedContinuity(spec) &&
       requestContextResult.state === "stale" &&
       requestContextResult.signedContinuity
     ) {
+      const staleContinuityReason =
+        resolveSignedContinuityFailure(
+          requestContextResult.signedContinuity,
+          requestContextResult.signedContinuity.observed_at,
+          env.now(),
+          env.getLocationHref()
+        ) ?? "XSEC_TOKEN_STALE";
       return failClosedForSignedContinuity(
         {
           abilityId: input.abilityId,
           spec,
           expectedShape,
-          reason: "XSEC_TOKEN_STALE",
+          reason: staleContinuityReason,
           continuity: requestContextResult.signedContinuity,
           gate,
           auditRecord
