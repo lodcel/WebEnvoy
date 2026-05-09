@@ -7304,7 +7304,10 @@ const resolveReadRequestContext = (spec, artifact, expectedShape, now, options) 
                 return {
                     state: "stale",
                     reason: "template_stale",
-                    shape: derivedShape ?? expectedShape
+                    shape: derivedShape ?? expectedShape,
+                    signedContinuity: derivedShape === null
+                        ? null
+                        : resolveSignedContinuity(spec, derivedShape, rejectedObservation)
                 };
             }
             const rejectedDiagnostics = resolveRejectedSourceDiagnostics(spec, rejectedObservation);
@@ -7366,7 +7369,8 @@ const resolveReadRequestContext = (spec, artifact, expectedShape, now, options) 
         return {
             state: "stale",
             reason: "template_stale",
-            shape: derivedShape
+            shape: derivedShape,
+            signedContinuity: resolveSignedContinuity(spec, derivedShape, artifact)
         };
     }
     if (status.rejectionReason) {
@@ -7478,6 +7482,16 @@ const failClosedForSignedContinuity = (input, env) => {
         category: "page_changed"
     }), input.gate, input.auditRecord), input.gate.execution_audit);
 };
+const createRedirectSignedContinuity = (spec, href) => ({
+    source_url: href,
+    target_url: null,
+    ...(spec.command === "xhs.detail" ? { detail_url: href } : { user_home_url: href }),
+    xsec_token: null,
+    xsec_source: null,
+    token_presence: "missing",
+    observed_at: null,
+    source_route: "unknown"
+});
 const buildActiveFallbackTemplateBinding = (input) => ({
     profile_ref: input.executionContext.profile,
     session_id: input.executionContext.sessionId,
@@ -8327,6 +8341,17 @@ const executeXhsRead = async (input, spec, env) => {
             }
         };
     }
+    if (spec.command === "xhs.detail" && isSecurityRedirectUrl(env.getLocationHref())) {
+        return failClosedForSignedContinuity({
+            abilityId: input.abilityId,
+            spec,
+            expectedShape: deriveReadShapeFromCommand(spec, input.params),
+            reason: "SECURITY_REDIRECT",
+            continuity: createRedirectSignedContinuity(spec, env.getLocationHref()),
+            gate,
+            auditRecord
+        }, env);
+    }
     const accountSafetySurface = classifyXhsAccountSafetySurface({
         href: env.getLocationHref(),
         title: env.getDocumentTitle(),
@@ -8387,6 +8412,19 @@ const executeXhsRead = async (input, spec, env) => {
     });
     const requestContextResult = await readCapturedReadContextWithRetry(spec, expectedShape, env, activeFallbackBinding);
     if (requestContextResult.state !== "hit") {
+        if (spec.command === "xhs.detail" &&
+            requestContextResult.state === "stale" &&
+            requestContextResult.signedContinuity) {
+            return failClosedForSignedContinuity({
+                abilityId: input.abilityId,
+                spec,
+                expectedShape,
+                reason: "XSEC_TOKEN_STALE",
+                continuity: requestContextResult.signedContinuity,
+                gate,
+                auditRecord
+            }, env);
+        }
         const pageStateRoot = await resolvePageStateRoot();
         if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
             const failureSurface = resolveRequestContextFailureSurface(spec, requestContextResult);

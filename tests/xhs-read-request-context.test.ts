@@ -744,6 +744,85 @@ describe("xhs read request-context exact-shape reuse", () => {
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
+  it("fails closed for detail exact hits when signed continuity is stale", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-001"
+        },
+        options: createLiveReadOptions("run-detail-continuity-stale-001", "explore_detail_tab"),
+        executionContext: createExecutionContext("run-detail-continuity-stale-001")
+      },
+      createEnvironment({
+        now: () => 1_710_000_400_001,
+        getLocationHref: () => "https://www.xiaohongshu.com/explore/note-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () =>
+          createDetailArtifact({
+            observed_at: 1_710_000_000_000
+          })
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected signed continuity stale failure");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "XSEC_TOKEN_STALE",
+      request_context_result: "signed_continuity_invalid",
+      signed_continuity: {
+        xsec_token: "token-note-001",
+        xsec_source: "pc_search",
+        token_presence: "present"
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for detail exact hits when the page has redirected to a security surface", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-001"
+        },
+        options: createLiveReadOptions("run-detail-continuity-security-001", "explore_detail_tab"),
+        executionContext: createExecutionContext("run-detail-continuity-security-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/security/verify",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () => createDetailArtifact()
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected security redirect continuity failure");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "SECURITY_REDIRECT",
+      request_context_result: "signed_continuity_invalid"
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
   it("waits for captured detail context before failing closed on a fresh navigation", async () => {
     const fetchJson = vi.fn(async () => ({
       status: 200,
@@ -1805,9 +1884,8 @@ describe("xhs read request-context exact-shape reuse", () => {
 
     expect(result.ok).toBe(false);
     expect(result.payload.details).toMatchObject({
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "stale",
-      request_context_miss_reason: "template_stale"
+      reason: "XSEC_TOKEN_STALE",
+      request_context_result: "signed_continuity_invalid"
     });
     expect(callSignature).not.toHaveBeenCalled();
     expect(fetchJson).not.toHaveBeenCalled();
