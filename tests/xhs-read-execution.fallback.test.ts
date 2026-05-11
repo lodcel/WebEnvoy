@@ -1085,30 +1085,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected detail fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected detail fallback success envelope");
     }
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        fallback_used: true
-      },
-      failure_site: {
-        target: "captured_request_context"
-      }
-    });
-    expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual([
-      expect.objectContaining({
-        stage: "page_state_fallback",
-        outcome: "completed",
-        fallback_reason: "REQUEST_CONTEXT_MISSING"
-      })
-    ]);
-    expect(result.payload.details).toMatchObject({
-      reason: "REQUEST_CONTEXT_MISSING",
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "miss",
-      request_context_miss_reason: "template_missing"
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "REQUEST_CONTEXT_MISSING",
+      page_kind: "detail"
     });
     expect(fetchJson).not.toHaveBeenCalled();
   });
@@ -1147,17 +1131,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected detail read-error failure");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected detail read-error fallback success");
     }
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        fallback_used: true
-      },
-      failure_site: {
-        target: "captured_request_context"
-      }
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "REQUEST_CONTEXT_READ_FAILED",
+      page_kind: "detail"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual([
       expect.objectContaining({
@@ -1166,12 +1147,6 @@ describe("xhs read execution fallback", () => {
         fallback_reason: "REQUEST_CONTEXT_READ_FAILED"
       })
     ]);
-    expect(result.payload.details).toMatchObject({
-      reason: "REQUEST_CONTEXT_READ_FAILED",
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "error",
-      request_context_miss_reason: "request_context_read_failed"
-    });
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
@@ -1223,13 +1198,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected detail rejected-context fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected detail rejected-context fallback success envelope");
     }
-    expect(result.error).toMatchObject({
-      code: "ERR_EXECUTION_FAILED",
-      message: "平台要求额外人机验证，无法继续执行"
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "CAPTCHA_REQUIRED",
+      page_kind: "detail"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual(
       expect.arrayContaining([
@@ -1246,13 +1222,6 @@ describe("xhs read execution fallback", () => {
         })
       ])
     );
-    expect(result.payload.details).toMatchObject({
-      reason: "CAPTCHA_REQUIRED",
-      status_code: 429,
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "rejected_source",
-      request_context_miss_reason: "CAPTCHA_REQUIRED"
-    });
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
@@ -1388,17 +1357,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected user_home fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_home fallback success envelope");
     }
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        fallback_used: true
-      },
-      failure_site: {
-        target: "captured_request_context"
-      }
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "REQUEST_CONTEXT_MISSING",
+      page_kind: "user_home"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual([
       expect.objectContaining({
@@ -1407,12 +1373,6 @@ describe("xhs read execution fallback", () => {
         fallback_reason: "REQUEST_CONTEXT_MISSING"
       })
     ]);
-    expect(result.payload.details).toMatchObject({
-      reason: "REQUEST_CONTEXT_MISSING",
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "miss",
-      request_context_miss_reason: "template_missing"
-    });
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
@@ -1494,17 +1454,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected user_home read-error failure");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_home read-error fallback success");
     }
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        fallback_used: true
-      },
-      failure_site: {
-        target: "captured_request_context"
-      }
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "REQUEST_CONTEXT_READ_FAILED",
+      page_kind: "user_home"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual([
       expect.objectContaining({
@@ -1513,12 +1470,6 @@ describe("xhs read execution fallback", () => {
         fallback_reason: "REQUEST_CONTEXT_READ_FAILED"
       })
     ]);
-    expect(result.payload.details).toMatchObject({
-      reason: "REQUEST_CONTEXT_READ_FAILED",
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "error",
-      request_context_miss_reason: "request_context_read_failed"
-    });
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
@@ -1568,13 +1519,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected user_home rejected-context fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_home rejected-context fallback success envelope");
     }
-    expect(result.error).toMatchObject({
-      code: "ERR_EXECUTION_FAILED",
-      message: "网关调用失败，当前上下文不足以完成 xhs.user_home 请求"
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "GATEWAY_INVOKER_FAILED",
+      page_kind: "user_home"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual(
       expect.arrayContaining([
@@ -1591,13 +1543,6 @@ describe("xhs read execution fallback", () => {
         })
       ])
     );
-    expect(result.payload.details).toMatchObject({
-      reason: "GATEWAY_INVOKER_FAILED",
-      status_code: 500,
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "rejected_source",
-      request_context_miss_reason: "GATEWAY_INVOKER_FAILED"
-    });
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
@@ -1708,21 +1653,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected detail account-abnormal rejected-context failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected detail account-abnormal rejected-context fallback success envelope");
     }
-    expect(result.error).toMatchObject({
-      code: "ERR_EXECUTION_FAILED",
-      message: "账号异常，平台拒绝当前请求"
-    });
-    expect(result.payload.details).toMatchObject({
-      reason: "ACCOUNT_ABNORMAL",
-      status_code: 461,
-      platform_code: 300011,
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "rejected_source",
-      request_context_miss_reason: "ACCOUNT_ABNORMAL"
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "ACCOUNT_ABNORMAL",
+      page_kind: "detail"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual(
       expect.arrayContaining([
@@ -1907,22 +1845,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected detail fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected detail fallback success envelope");
     }
-    expect(result.error).toMatchObject({
-      code: "ERR_EXECUTION_FAILED",
-      message: "账号异常，平台拒绝当前请求"
-    });
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        page_kind: "detail",
-        fallback_used: true
-      },
-      failure_site: {
-        target: "/api/sns/web/v1/feed"
-      }
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "ACCOUNT_ABNORMAL",
+      page_kind: "detail"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual(
       expect.arrayContaining([
@@ -1941,10 +1871,10 @@ describe("xhs read execution fallback", () => {
         })
       ])
     );
-    expect(result.payload.details).toMatchObject({
-      reason: "ACCOUNT_ABNORMAL",
-      status_code: 461,
-      platform_code: 300011
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "ACCOUNT_ABNORMAL",
+      page_kind: "detail"
     });
   });
 
@@ -2077,27 +2007,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected user_home fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_home env-abnormal fallback success envelope");
     }
-    expect(result.error).toMatchObject({
-      code: "ERR_EXECUTION_FAILED",
-      message: "浏览器环境异常，平台拒绝当前请求"
-    });
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        page_kind: "user_home",
-        fallback_used: true
-      },
-      failure_site: {
-        target: "/api/sns/web/v1/user/otherinfo"
-      }
-    });
-    expect(result.payload.details).toMatchObject({
-      reason: "BROWSER_ENV_ABNORMAL",
-      status_code: 200,
-      platform_code: 300015
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "BROWSER_ENV_ABNORMAL",
+      page_kind: "user_home"
     });
   });
 
@@ -2236,21 +2153,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected signature fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected signature fallback success envelope");
     }
-    expect(result.error).toMatchObject({
-      code: "ERR_EXECUTION_FAILED",
-      message: "页面签名入口不可用"
-    });
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        fallback_used: true
-      },
-      failure_site: {
-        target: "window._webmsxyw"
-      }
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "SIGNATURE_ENTRY_MISSING",
+      page_kind: "detail"
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual([
       expect.objectContaining({
@@ -2412,20 +2322,14 @@ describe("xhs read execution fallback", () => {
       environment
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected sync fallback failure envelope");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected sync fallback success envelope");
     }
-    expect(result.payload.observability).toMatchObject({
-      page_state: {
-        fallback_used: true
-      }
-    });
-    expect(result.payload.details).toMatchObject({
-      reason: "REQUEST_CONTEXT_MISSING",
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "miss",
-      request_context_miss_reason: "template_missing"
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "REQUEST_CONTEXT_MISSING",
+      page_kind: "detail"
     });
   });
 

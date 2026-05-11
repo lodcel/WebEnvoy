@@ -161,7 +161,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-validation-source-main-world-unbound-001",
@@ -210,7 +210,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-validation-source-main-world-bound-001",
       targetTabId: 44
@@ -274,7 +274,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-validation-source-main-world-old-001",
       targetTabId: 44
@@ -328,7 +328,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext({
       allowed_execution_modes: ["dry_run", "recon", "live_read_limited"]
@@ -350,8 +350,8 @@ describe("extension service worker / gate and approval", () => {
       timeout_ms: 50
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
       11,
@@ -375,7 +375,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-001",
       targetTabId: 44
@@ -449,7 +449,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-force-reload-001",
       targetTabId: 44
@@ -570,7 +570,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-open-result-card-001",
@@ -642,7 +642,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-slash-url-001",
       targetTabId: 44
@@ -704,7 +704,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-owner-001",
       targetTabId: 44
@@ -769,7 +769,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeStaleRestoreBindingLease(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-stale-bootstrap-001",
       targetTabId: 44
@@ -842,7 +842,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-stale-bootstrap-validation-001",
@@ -912,7 +912,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-stale-bootstrap-no-lease-001",
@@ -979,7 +979,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-stale-bootstrap-mismatch-001",
@@ -1050,7 +1050,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-nav-not-ready-001",
       targetTabId: 44
@@ -1125,20 +1125,20 @@ describe("extension service worker / gate and approval", () => {
     respondHandshake(firstPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-previous-001",
       targetTabId: 44
     });
 
     firstPort.onDisconnectListeners[0]?.();
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     respondHandshake(secondPort, {
       sessionId: "nm-session-002"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(secondPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-cross-session-001",
       targetTabId: 44,
@@ -1211,7 +1211,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-url-drift-001",
       targetTabId: 44
@@ -1270,7 +1270,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-stale-001",
       targetTabId: 44
@@ -1331,7 +1331,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-query-fail-001",
       targetTabId: 44
@@ -1395,7 +1395,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-full-url-001",
       targetTabId: 55
@@ -1458,7 +1458,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-update-fail-001",
       targetTabId: 44
@@ -1510,7 +1510,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-create-fail-001",
       targetTabId: 44
@@ -1568,7 +1568,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-no-safety-gate-001",
@@ -1622,7 +1622,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-runtime-gate-001",
@@ -1672,7 +1672,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-action-replay-001",
       targetTabId: 44
@@ -1732,7 +1732,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-target-replay-001",
       targetTabId: 44
@@ -1798,7 +1798,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-binding-mismatch-001",
       targetTabId: 55
@@ -1858,7 +1858,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-query-fail-001",
@@ -1908,7 +1908,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-get-fail-001",
@@ -1965,7 +1965,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-update-fail-001",
       targetTabId: 44
@@ -2027,7 +2027,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
       runId: "run-restore-xhs-search-tab-post-update-query-fail-001",
       targetTabId: 44
@@ -2088,7 +2088,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-restore-xhs-search-tab-create-fail-001",
@@ -2140,7 +2140,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-error-payload-001",
@@ -2181,7 +2181,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwardedError = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -2219,7 +2219,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const fingerprintContext = createFingerprintRuntimeContext();
     const runId = "run-xhs-live-allowed-error-payload-001";
     const requestId = "req-xhs-live-allowed-error-payload-001";
@@ -2318,7 +2318,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwardedError = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -2351,7 +2351,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext();
     const runId = "run-xhs-live-formal-source-sw-001";
@@ -2421,7 +2421,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwardedError = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -2448,7 +2448,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-canonical-live-mode-001";
     const requestId = "req-xhs-canonical-live-mode-001";
@@ -2566,7 +2566,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwarded = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -2606,7 +2606,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-canonical-live-no-granted-at-001";
     const requestId = "req-xhs-canonical-live-no-granted-at-001";
@@ -2719,7 +2719,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwarded = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -2762,7 +2762,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-canonical-live-scope-mismatch-001";
     const requestId = "req-xhs-canonical-live-scope-mismatch-001";
@@ -2836,8 +2836,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -2888,7 +2888,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-canonical-live-fingerprint-missing-001";
     const requestId = "req-xhs-canonical-live-fingerprint-missing-001";
@@ -2953,8 +2953,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -2992,7 +2992,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-admission-draft-001";
     const requestId = "req-xhs-admission-draft-001";
@@ -3078,9 +3078,9 @@ describe("extension service worker / gate and approval", () => {
     });
     await waitForBridgeTurn();
 
-    const sentMessage = chromeApi.tabs.sendMessage.mock.calls[0]?.[1] as
-      | { commandParams?: Record<string, unknown> }
-      | undefined;
+    const sentMessage = chromeApi.tabs.sendMessage.mock.calls
+      .map((call) => call[1] as { id?: string; commandParams?: Record<string, unknown> })
+      .find((message) => message.id === runId);
     const sentCommandParams = asRecord(sentMessage?.commandParams);
     expect(asRecord(sentCommandParams?.approval_record)).toMatchObject({
       approved: true,
@@ -3140,7 +3140,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwarded = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -3168,7 +3168,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-canonical-error-payload-001",
@@ -3268,7 +3268,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwardedError = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -3303,7 +3303,7 @@ describe("extension service worker / gate and approval", () => {
     chromeApi.tabs.sendMessage.mockRejectedValue(new Error("content script missing"));
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-anon-forward-failed-001",
@@ -3357,8 +3357,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const forwardedError = await vi.waitFor(() => {
       const message = firstPort.postMessage.mock.calls
@@ -3387,7 +3387,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const fingerprintContext = createFingerprintRuntimeContext();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -3486,7 +3486,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwardedError = await vi.waitFor(() => {
       const message = firstPort.postMessage.mock.calls
@@ -3533,7 +3533,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-tab-pin-001",
@@ -3548,8 +3548,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -3580,7 +3580,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwarded = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { summary?: Record<string, unknown> } })
@@ -3620,7 +3620,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-detail-tab-pin-001",
@@ -3642,8 +3642,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -3671,7 +3671,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-user-home-tab-pin-001",
@@ -3693,8 +3693,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -3721,7 +3721,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-detail-tab-bind-001",
@@ -3743,8 +3743,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     const failure = await vi.waitFor(() => {
       const message = firstPort.postMessage.mock.calls
         .map((call) => call[0] as Record<string, unknown>)
@@ -3776,7 +3776,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-auto-tab-query-failed-001",
@@ -3793,8 +3793,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -3833,7 +3833,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-user-home-target-page-invalid-001",
@@ -3855,8 +3855,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     const failure = await vi.waitFor(() => {
       const message = firstPort.postMessage.mock.calls
         .map((call) => call[0] as Record<string, unknown>)
@@ -3884,7 +3884,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-detail-note-missing-001",
@@ -3905,8 +3905,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const failure = await vi.waitFor(() => {
       const message = firstPort.postMessage.mock.calls
@@ -3935,7 +3935,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-user-home-user-missing-001",
@@ -3956,8 +3956,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const failure = await vi.waitFor(() => {
       const message = firstPort.postMessage.mock.calls
@@ -3995,7 +3995,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-options-shape-001",
@@ -4020,8 +4020,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -4055,7 +4055,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-cross-window-tab-001",
@@ -4072,8 +4072,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -4097,7 +4097,7 @@ describe("extension service worker / gate and approval", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-no-tab-001",
@@ -4112,7 +4112,7 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const forwardResult = firstPort.postMessage.mock.calls
@@ -4151,7 +4151,7 @@ describe("extension service worker / gate and approval", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-missing-page-001",
@@ -4168,8 +4168,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const blocked = firstPort.postMessage.mock.calls
@@ -4216,7 +4216,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-autotab-001",
@@ -4251,8 +4251,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const proactiveContentScriptInject = executeScript.mock.calls.find(
@@ -4307,7 +4307,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-issue-208-editor-input-missing-validation-001";
     const fingerprintContext = createFingerprintRuntimeContext({
@@ -4348,8 +4348,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -4374,7 +4374,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalledWith(
       32,
@@ -4425,7 +4425,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-issue-208-canonical-editor-input-001";
     const fingerprintContext = createFingerprintRuntimeContext({
@@ -4544,7 +4544,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
   });
 
   it("falls back to global xhs tab resolution when currentWindow query is empty", async () => {
@@ -4561,7 +4561,7 @@ describe("extension service worker / gate and approval", () => {
     });
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-editor-input-globaltab-001",
@@ -4578,8 +4578,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -4596,7 +4596,7 @@ describe("extension service worker / gate and approval", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-missing-requested-mode-001",
@@ -4613,7 +4613,7 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as {
@@ -4652,7 +4652,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-mode-blocked-001",
@@ -4672,8 +4672,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -4814,7 +4814,7 @@ describe("extension service worker / gate and approval", () => {
     });
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-mode-query-failed-001",
@@ -4834,8 +4834,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -4888,7 +4888,7 @@ describe("extension service worker / gate and approval", () => {
     });
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const fingerprintContext = createFingerprintRuntimeContext();
     const runId = "run-xhs-live-mode-clean-query-failed-001";
     const requestId = "req-xhs-live-mode-clean-query-failed-001";
@@ -4926,8 +4926,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -4979,7 +4979,7 @@ describe("extension service worker / gate and approval", () => {
     });
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-mode-invalid-domain-001",
@@ -5000,8 +5000,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     expect(
@@ -5057,7 +5057,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-limited-blocked-001",
@@ -5077,8 +5077,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -5129,7 +5129,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-limited-invocation-linkage-001",
@@ -5151,8 +5151,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -5204,7 +5204,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-limited-rollout-blocked-001",
@@ -5225,8 +5225,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -5258,7 +5258,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue209-write-limited-bg-blocked-001",
@@ -5293,8 +5293,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -5342,7 +5342,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-mode-paused-001",
@@ -5373,8 +5373,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5411,7 +5411,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-paused-write-001",
@@ -5445,8 +5445,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -5468,7 +5468,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-missing-action-type-bg-001",
@@ -5499,8 +5499,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5523,7 +5523,7 @@ describe("extension service worker / gate and approval", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
         id: "run-xhs-ability-action-mismatch-bg-001",
@@ -5556,8 +5556,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -5586,7 +5586,7 @@ describe("extension service worker / gate and approval", () => {
       ]);
       startChromeBackgroundBridge(blockedChromeApi);
       respondHandshake(blockedPort);
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       blockedPort.onMessageListeners[0]?.({
         id: `run-xhs-issue-208-${state}-missing-approval-001`,
@@ -5620,8 +5620,8 @@ describe("extension service worker / gate and approval", () => {
         },
         timeout_ms: 100
       });
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
 
       expect(blockedChromeApi.tabs.sendMessage).not.toHaveBeenCalled();
       const blocked = blockedPort.postMessage.mock.calls
@@ -5640,7 +5640,7 @@ describe("extension service worker / gate and approval", () => {
       ]);
       startChromeBackgroundBridge(approvedChromeApi);
       respondHandshake(approvedPort);
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       approvedPort.onMessageListeners[0]?.({
         id: `run-xhs-issue-208-${state}-approved-001`,
@@ -5674,8 +5674,8 @@ describe("extension service worker / gate and approval", () => {
         },
         timeout_ms: 100
       });
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
 
       expect(approvedChromeApi.tabs.sendMessage).not.toHaveBeenCalled();
       expect(runtimeMessageListeners).toHaveLength(1);
@@ -5701,7 +5701,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const fingerprintContext = createFingerprintRuntimeContext({
       live_allowed: false,
       live_decision: "dry_run_only",
@@ -5736,8 +5736,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5764,7 +5764,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const fingerprintContext = createFingerprintRuntimeContext({
       live_allowed: true,
       live_decision: "dry_run_only",
@@ -5803,8 +5803,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5835,7 +5835,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-blocked-by-fingerprint-003",
@@ -5856,8 +5856,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5889,7 +5889,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-blocked-by-fingerprint-untrusted-001",
@@ -5911,8 +5911,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5937,7 +5937,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext();
     await primeTrustedFingerprintContext({
@@ -5970,8 +5970,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5995,7 +5995,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const startupRunId = "run-xhs-live-trusted-by-runtime-start-001";
     const liveRunId = "run-xhs-live-consume-startup-trust-002";
@@ -6030,7 +6030,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
     chromeApi.tabs.sendMessage.mockClear();
 
     const liveRequestId = `${liveRunId}-live`;
@@ -6073,7 +6073,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const profile = "profile-a";
     const pingRunId = "run-ping-no-trust-001";
@@ -6100,8 +6100,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -6123,7 +6123,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
     chromeApi.tabs.sendMessage.mockClear();
 
     firstPort.onMessageListeners[0]?.({
@@ -6178,7 +6178,7 @@ describe("extension service worker / gate and approval", () => {
     respondHandshake(firstPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext();
     await primeTrustedFingerprintContext({
@@ -6190,13 +6190,13 @@ describe("extension service worker / gate and approval", () => {
     chromeApi.tabs.sendMessage.mockClear();
 
     firstPort.onDisconnectListeners[0]?.();
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     respondHandshake(secondPort, {
       sessionId: "nm-session-002"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -6227,8 +6227,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = secondPort.postMessage.mock.calls
@@ -6260,7 +6260,7 @@ describe("extension service worker / gate and approval", () => {
     respondHandshake(firstPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const profile = "profile-a";
     const startupRunId = "run-xhs-live-recovery-keep-trust-startup-001";
@@ -6276,13 +6276,13 @@ describe("extension service worker / gate and approval", () => {
     chromeApi.tabs.sendMessage.mockClear();
 
     firstPort.onDisconnectListeners[0]?.();
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     respondHandshake(secondPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const firstAttemptId = `${liveRunId}-blocked-before-reprime`;
     secondPort.onMessageListeners[0]?.({
@@ -6305,8 +6305,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const blockedDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === firstAttemptId
@@ -6379,7 +6379,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const allowed = secondPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string })
@@ -6397,7 +6397,7 @@ describe("extension service worker / gate and approval", () => {
     respondHandshake(firstPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const startupRunId = "run-startup-trust-001";
     const liveRunId = "run-live-followup-002";
@@ -6433,8 +6433,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const liveDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === liveRunId
@@ -6459,7 +6459,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-live-stop-untrusted-001";
     const profile = "profile-a";
@@ -6486,8 +6486,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -6506,7 +6506,7 @@ describe("extension service worker / gate and approval", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const stopDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === stopRequestId
@@ -6535,8 +6535,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const liveDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === liveRequestId
@@ -6564,7 +6564,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-live-trust-rotate-001";
     const profile = "profile-a";
@@ -6615,8 +6615,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -6640,7 +6640,7 @@ describe("extension service worker / gate and approval", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-live-context-drift-001";
     const profile = "profile-a";
@@ -6680,8 +6680,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const firstBlocked = firstPort.postMessage.mock.calls
@@ -6711,8 +6711,8 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const secondBlocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })

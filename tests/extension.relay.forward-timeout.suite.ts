@@ -189,7 +189,7 @@ describe("extension background relay contract / forward and timeout", () => {
       stage: "execution",
       reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT",
       forward_failure_stage: "content_script_forward_timeout",
-      timeout_ms: 1,
+      timeout_ms: 10,
       native_timeout_ms: 10
     });
   });

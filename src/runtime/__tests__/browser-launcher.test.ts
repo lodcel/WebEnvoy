@@ -229,7 +229,7 @@ const executeBundledDryRunSearch = async (bundlePath: string) => {
   const context: Record<string, unknown> = {};
   context.globalThis = context;
   runInNewContext(
-    `${bundleSource}\n;globalThis.__bundle_test_exports = { __webenvoy_module_xhs_search };`,
+    `${bundleSource}\n;globalThis.__bundle_test_exports = globalThis.__webenvoy_content_script_bundle_modules;`,
     context,
     { filename: bundlePath }
   );

@@ -171,9 +171,9 @@ export const respondHandshake = (
 };
 
 export const waitForBridgeTurn = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve();
+  }
 };
 
 export const waitForPostedMessage = async (

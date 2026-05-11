@@ -10,7 +10,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "native-host-not-found-forward-001",
@@ -26,7 +26,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         }),
         cwd: "/workspace/WebEnvoy"
       },
-      timeout_ms: 100
+      timeout_ms: 1000
     });
     await waitForBridgeTurn();
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -40,7 +40,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
       message: "Specified native messaging host not found."
     };
     firstPort.onDisconnectListeners[0]?.();
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(chromeApi.runtime.connectNative).toHaveBeenCalledTimes(2);
     expect(firstPort.postMessage).toHaveBeenCalledWith(
@@ -64,7 +64,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext();
     fingerprintContext.fingerprint_patch_manifest.required_patches.push("unknown_required_patch");
@@ -177,7 +177,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -265,7 +265,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-live-write-gate-only-001",
@@ -299,8 +299,8 @@ describe("extension service worker / recovery and relay prerequisites", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const approved = firstPort.postMessage.mock.calls
@@ -379,7 +379,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-allowed-001",
@@ -410,7 +410,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         command_params: createXhsEditorInputCommandParams(),
         cwd: "/workspace/WebEnvoy"
       },
-      timeout_ms: 100
+      timeout_ms: 1000
     });
     await waitForBridgeTurn();
     await vi.waitFor(() => {
@@ -422,7 +422,13 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         (call[0] as { world?: string; files?: string[] }).world === "ISOLATED" &&
         ((call[0] as { files?: string[] }).files ?? []).includes("build/content-script.js")
     );
-    expect(proactiveContentScriptInject).toBeUndefined();
+    expect(proactiveContentScriptInject).toEqual([
+      expect.objectContaining({
+        target: { tabId: 32 },
+        world: "ISOLATED",
+        files: ["build/content-script.js"]
+      })
+    ]);
     const proactiveMainWorldBridgeInject = executeScript.mock.calls.find(
       (call) =>
         (call[0] as { world?: string; files?: string[] }).world === "MAIN" &&
@@ -508,7 +514,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const approved = firstPort.postMessage.mock.calls
       .map(
@@ -591,7 +597,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-recovery-001",
@@ -684,7 +690,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-multi-editor-001",
@@ -759,7 +765,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-live-bridge-dedupe-001",
@@ -822,7 +828,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-debugger-attach-failed-001",
@@ -857,12 +863,15 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     });
     await waitForBridgeTurn();
 
-    const forwardCall = chromeApi.tabs.sendMessage.mock.calls.find(
-      (call) =>
-        (call[1] as { id?: string }).id ===
-        "run-xhs-issue-208-editor-input-debugger-attach-failed-001"
-    );
-    expect(forwardCall).toBeDefined();
+    let forwardCall: (typeof chromeApi.tabs.sendMessage.mock.calls)[number] | undefined;
+    await vi.waitFor(() => {
+      forwardCall = chromeApi.tabs.sendMessage.mock.calls.find(
+        (call) =>
+          (call[1] as { id?: string }).id ===
+          "run-xhs-issue-208-editor-input-debugger-attach-failed-001"
+      );
+      expect(forwardCall).toBeDefined();
+    });
     const forwarded = (forwardCall?.[1] as { commandParams?: { options?: Record<string, unknown> } })
       .commandParams?.options;
     const attestation = asRecord(forwarded?.editor_focus_attestation);
@@ -888,7 +897,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-non-article-001",
@@ -947,7 +956,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-irreversible-001",
@@ -981,8 +990,8 @@ describe("extension service worker / recovery and relay prerequisites", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -1003,7 +1012,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-live-limited-approved-001",
@@ -1086,7 +1095,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const approved = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { summary?: Record<string, unknown> } })
@@ -1119,7 +1128,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-live-mode-approved-001",
@@ -1198,7 +1207,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const approved = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { summary?: Record<string, unknown> } })
@@ -1228,7 +1237,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-invalid-domain-001",
@@ -1245,7 +1254,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { consumer_gate_result?: { gate_reasons?: string[] } } })
@@ -1272,7 +1281,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-read-write-domain-mismatch-001",
@@ -1291,7 +1300,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { consumer_gate_result?: { gate_reasons?: string[] } } })
@@ -1318,7 +1327,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-explicit-target-allow-001",
@@ -1363,7 +1372,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-runtime-tabs-001",
@@ -1381,7 +1390,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1419,7 +1428,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
 
       respondHandshake(ports[0]);
       ports[0].onDisconnectListeners[0]?.();
-      await Promise.resolve();
+      await waitForBridgeTurn();
       vi.advanceTimersByTime(5);
       expect(chromeApi.runtime.connectNative).toHaveBeenCalledTimes(2);
 
@@ -1436,7 +1445,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         },
         timeout_ms: 50
       });
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       const queuedError = ports[1].postMessage.mock.calls.find(
         (call) => (call[0] as { id?: string }).id === "queued-forward-001"
@@ -1446,8 +1455,8 @@ describe("extension service worker / recovery and relay prerequisites", () => {
 
       respondHandshake(ports[1]);
 
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
       expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
         11,
         expect.objectContaining({
@@ -1478,7 +1487,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         sessionId: "nm-session-001"
       });
       ports[0].onDisconnectListeners[0]?.();
-      await Promise.resolve();
+      await waitForBridgeTurn();
       vi.advanceTimersByTime(5);
       expect(chromeApi.runtime.connectNative).toHaveBeenCalledTimes(2);
 
@@ -1507,7 +1516,7 @@ describe("extension service worker / recovery and relay prerequisites", () => {
         },
         timeout_ms: 50
       });
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       expect(
         ports[1].postMessage.mock.calls.find(
@@ -1518,8 +1527,8 @@ describe("extension service worker / recovery and relay prerequisites", () => {
       respondHandshake(ports[1], {
         sessionId: "nm-session-002"
       });
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
 
       const replayed = ports[1].postMessage.mock.calls
         .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })

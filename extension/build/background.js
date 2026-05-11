@@ -43,6 +43,9 @@ const xhsSearchInputSelectors = [
     'input[placeholder*="search" i]',
     'input:not([type="hidden"])'
 ];
+const reserveXhsForwardResponseSafetyMs = (timeoutMs) => timeoutMs > xhsForwardResponseSafetyMs
+    ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
+    : timeoutMs;
 const xhsSearchButtonSelectors = [
     'button[type="submit"]',
     'button[class*="search" i]',
@@ -4821,7 +4824,7 @@ class ChromeBackgroundBridge {
         }
         const forwardTimeoutMs = Math.max(1, Math.floor(timeoutMs));
         const pendingTimeoutMs = XHS_GATE_COMMANDS.has(command) || command === "runtime.bootstrap"
-            ? Math.max(1, forwardTimeoutMs - xhsForwardResponseSafetyMs)
+            ? reserveXhsForwardResponseSafetyMs(forwardTimeoutMs)
             : forwardTimeoutMs;
         const timeoutError = command === "runtime.bootstrap"
             ? {

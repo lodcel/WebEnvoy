@@ -7726,65 +7726,6 @@ const createRedirectSignedContinuity = (spec, href) => ({
     observed_at: null,
     source_route: "unknown"
 });
-const resolveRuntimeTargetUrlFromOptions = (options) => {
-    const upstreamAuthorization = asRecord(options.upstream_authorization_request);
-    const runtimeTarget = asRecord(upstreamAuthorization?.runtime_target);
-    return asString(runtimeTarget?.url);
-};
-const createSyntheticActiveFetchRequestContextResult = (input) => {
-    if (input.spec.command !== "xhs.detail") {
-        if (input.spec.command !== "xhs.user_home") {
-            return null;
-        }
-    }
-    const href = input.env.getLocationHref();
-    const signedSourceUrl = resolveRuntimeTargetUrlFromOptions(input.executionInput.options) ?? href;
-    const continuityUrl = resolveSignedContinuityUrl(input.spec, input.expectedShape, signedSourceUrl);
-    if (!continuityUrl) {
-        return null;
-    }
-    const now = input.env.now();
-    const pageContextNamespace = createPageContextNamespace(href);
-    const requestUrl = input.spec.buildUrl(input.executionInput.params);
-    const templateHeaders = input.spec.command === "xhs.detail"
-        ? { "X-S-Common": JSON.stringify({ detailId: input.expectedShape.note_id }) }
-        : { "X-S-Common": JSON.stringify({ userId: input.expectedShape.user_id }) };
-    const artifact = {
-        route_evidence_class: "passive_api_capture",
-        source_kind: "page_request",
-        transport: "synthetic_active_fetch_bootstrap",
-        template_identity: `synthetic_active_fetch_bootstrap:${pageContextNamespace}:${serializeReadShape(input.expectedShape)}:${now}`,
-        shape: input.spec.command === "xhs.detail"
-            ? { note_id: input.expectedShape.note_id }
-            : { user_id: input.expectedShape.user_id },
-        method: input.spec.method,
-        url: requestUrl,
-        referrer: continuityUrl.toString(),
-        page_url: href,
-        page_context_namespace: pageContextNamespace,
-        shape_key: serializeReadShape(input.expectedShape),
-        profile_ref: input.executionInput.executionContext.profile,
-        session_id: input.executionInput.executionContext.sessionId,
-        target_tab_id: typeof input.executionInput.options.actual_target_tab_id === "number"
-            ? input.executionInput.options.actual_target_tab_id
-            : null,
-        run_id: input.executionInput.executionContext.runId,
-        action_ref: input.executionInput.abilityAction,
-        observed_at: now,
-        captured_at: now,
-        request: {
-            url: requestUrl,
-            body: input.requestPayload,
-            headers: templateHeaders
-        },
-        template_headers: templateHeaders
-    };
-    const resolved = resolveReadRequestContext(input.spec, artifact, input.expectedShape, now, {
-        allowDetailRequestFallback: true,
-        allowDetailResponseBareIdAlias: true
-    });
-    return resolved.state === "hit" ? resolved : null;
-};
 const createExplicitRequestContextResult = (input) => {
     const artifact = asRecord(input.artifact);
     if (!artifact) {
@@ -8921,18 +8862,6 @@ const executeXhsRead = async (input, spec, env) => {
         env
     }) ??
         (await readCapturedReadContextWithRetry(spec, expectedShape, env, activeFallbackBinding));
-    if (requestContextResult.state !== "hit") {
-        const syntheticActiveFetchContext = createSyntheticActiveFetchRequestContextResult({
-            spec,
-            expectedShape,
-            executionInput: input,
-            env,
-            requestPayload: builtPayload
-        });
-        if (syntheticActiveFetchContext) {
-            requestContextResult = syntheticActiveFetchContext;
-        }
-    }
     if (requestContextResult.state !== "hit") {
         if (requiresSignedContinuity(spec) &&
             requestContextResult.state === "stale" &&
