@@ -1150,7 +1150,7 @@ describe("xhs read execution fallback", () => {
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
-  it("preserves CAPTCHA_REQUIRED during detail page-state fallback for rejected exact-hit request context", async () => {
+  it("blocks CAPTCHA_REQUIRED instead of converting it into detail page-state fallback", async () => {
     const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0 } }));
     const result = await executeXhsDetail(
       {
@@ -1198,14 +1198,15 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      throw new Error("expected detail rejected-context fallback success envelope");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected detail captcha failure envelope");
     }
-    expect(result.payload.summary.route_evidence).toMatchObject({
-      evidence_class: "page_state_fallback",
-      fallback_reason: "CAPTCHA_REQUIRED",
-      page_kind: "detail"
+    expect(result.error).toMatchObject({ code: "ERR_EXECUTION_FAILED" });
+    expect(result.payload.details).toMatchObject({
+      reason: "CAPTCHA_REQUIRED",
+      status_code: 429,
+      platform_code: 429001
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual(
       expect.arrayContaining([
@@ -1214,11 +1215,6 @@ describe("xhs read execution fallback", () => {
           outcome: "failed",
           status_code: 429,
           failure_reason: "CAPTCHA_REQUIRED"
-        }),
-        expect.objectContaining({
-          stage: "page_state_fallback",
-          outcome: "completed",
-          fallback_reason: "CAPTCHA_REQUIRED"
         })
       ])
     );
@@ -1653,14 +1649,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      throw new Error("expected detail account-abnormal rejected-context fallback success envelope");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected detail account-abnormal failure envelope");
     }
-    expect(result.payload.summary.route_evidence).toMatchObject({
-      evidence_class: "page_state_fallback",
-      fallback_reason: "ACCOUNT_ABNORMAL",
-      page_kind: "detail"
+    expect(result.payload.details).toMatchObject({
+      reason: "ACCOUNT_ABNORMAL",
+      status_code: 461,
+      platform_code: 300011
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual(
       expect.arrayContaining([
@@ -1669,11 +1665,6 @@ describe("xhs read execution fallback", () => {
           outcome: "failed",
           status_code: 461,
           failure_reason: "ACCOUNT_ABNORMAL"
-        }),
-        expect.objectContaining({
-          stage: "page_state_fallback",
-          outcome: "completed",
-          fallback_reason: "ACCOUNT_ABNORMAL"
         })
       ])
     );
@@ -1807,7 +1798,7 @@ describe("xhs read execution fallback", () => {
     });
   });
 
-  it("uses detail page-state fallback when feed api is blocked but note state is still present", async () => {
+  it("blocks detail account-abnormal api failures even when note state is still present", async () => {
     const result = await executeXhsDetail(
       {
         abilityId: "xhs.note.detail.v1",
@@ -1845,14 +1836,14 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      throw new Error("expected detail fallback success envelope");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected detail account-abnormal api failure envelope");
     }
-    expect(result.payload.summary.route_evidence).toMatchObject({
-      evidence_class: "page_state_fallback",
-      fallback_reason: "ACCOUNT_ABNORMAL",
-      page_kind: "detail"
+    expect(result.payload.details).toMatchObject({
+      reason: "ACCOUNT_ABNORMAL",
+      status_code: 461,
+      platform_code: 300011
     });
     expect((result.payload.observability as Record<string, unknown>).key_requests).toEqual(
       expect.arrayContaining([
@@ -1860,22 +1851,9 @@ describe("xhs read execution fallback", () => {
           stage: "request",
           outcome: "failed",
           failure_reason: "ACCOUNT_ABNORMAL"
-        }),
-        expect.objectContaining({
-          stage: "page_state_fallback",
-          outcome: "completed",
-          fallback_reason: "ACCOUNT_ABNORMAL",
-          data_ref: {
-            note_id: "note-001"
-          }
         })
       ])
     );
-    expect(result.payload.summary.route_evidence).toMatchObject({
-      evidence_class: "page_state_fallback",
-      fallback_reason: "ACCOUNT_ABNORMAL",
-      page_kind: "detail"
-    });
   });
 
   it("uses detail DOM fallback when feed api returns gateway failure after the target note page is open", async () => {
@@ -1971,7 +1949,7 @@ describe("xhs read execution fallback", () => {
     });
   });
 
-  it("uses user_home page-state fallback when profile api returns env-abnormal but page state remains readable", async () => {
+  it("blocks user_home env-abnormal api failures instead of converting them into page-state fallback", async () => {
     const result = await executeXhsUserHome(
       {
         abilityId: "xhs.user.home.v1",
@@ -2007,14 +1985,15 @@ describe("xhs read execution fallback", () => {
       })
     );
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      throw new Error("expected user_home env-abnormal fallback success envelope");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected user_home env-abnormal failure envelope");
     }
-    expect(result.payload.summary.route_evidence).toMatchObject({
-      evidence_class: "page_state_fallback",
-      fallback_reason: "BROWSER_ENV_ABNORMAL",
-      page_kind: "user_home"
+    expect(result.error).toMatchObject({ code: "ERR_EXECUTION_FAILED" });
+    expect(result.payload.details).toMatchObject({
+      reason: "BROWSER_ENV_ABNORMAL",
+      status_code: 200,
+      platform_code: 300015
     });
   });
 

@@ -4828,6 +4828,42 @@ class ChromeBackgroundBridge {
       });
       return;
     }
+    const sourceTabId = sourceTab.id;
+    const bootstrap = this.#runtimeTrustState.getBootstrap(profile);
+    const trusted = this.#runtimeTrustState.getTrusted(profile, sessionId);
+    const bootstrapBindsTarget =
+      !!bootstrap &&
+      (bootstrap.status === "pending" || bootstrap.status === "ready") &&
+      bootstrap.sessionId === sessionId &&
+      bootstrap.runId === runId &&
+      bootstrap.sourceTabId === sourceTabId &&
+      bootstrap.sourceDomain === targetDomain &&
+      bootstrap.sourcePage === targetPage;
+    const trustedBindsTarget =
+      !!trusted &&
+      trusted.sessionId === sessionId &&
+      trusted.runId === runId &&
+      trusted.sourceTabId === sourceTabId &&
+      trusted.sourceDomain === targetDomain &&
+      trusted.sourcePage === targetPage;
+    if (!bootstrapBindsTarget && !trustedBindsTarget) {
+      fail(
+        "RESULT_CARD_MANAGED_TAB_NOT_BOUND",
+        "runtime.xhs_open_result_card requires a current managed tab binding",
+        {
+          requested_target_tab_id: targetTabId,
+          bootstrap_source_tab_id: bootstrap?.sourceTabId ?? null,
+          bootstrap_source_domain: bootstrap?.sourceDomain ?? null,
+          bootstrap_source_page: bootstrap?.sourcePage ?? null,
+          bootstrap_run_id: bootstrap?.runId ?? null,
+          trusted_source_tab_id: trusted?.sourceTabId ?? null,
+          trusted_source_domain: trusted?.sourceDomain ?? null,
+          trusted_source_page: trusted?.sourcePage ?? null,
+          trusted_run_id: trusted?.runId ?? null
+        }
+      );
+      return;
+    }
     const sourceUrl = typeof sourceTab.url === "string" ? sourceTab.url : null;
     if (!xhsRestoreSearchUrlsMatch(sourceUrl, sourceUrl ?? "")) {
       fail("RESULT_CARD_SOURCE_PAGE_MISMATCH", "runtime.xhs_open_result_card requires search_result page", {
@@ -4836,7 +4872,7 @@ class ChromeBackgroundBridge {
       return;
     }
     const target = await this.#probeXhsSearchResultCardTarget({
-      tabId: sourceTab.id,
+      tabId: sourceTabId,
       noteId,
       detailUrl,
       title,
@@ -4847,11 +4883,25 @@ class ChromeBackgroundBridge {
       return;
     }
     const debuggerApi = this.chromeApi.debugger;
+    let debuggerAttached = false;
+    const detachDebugger = async () => {
+      if (!debuggerApi || !debuggerAttached) {
+        return;
+      }
+      try {
+        await debuggerApi.detach({ tabId: sourceTabId });
+      } catch {
+        // Best-effort detach; keep primary failure semantics.
+      } finally {
+        debuggerAttached = false;
+      }
+    };
     let capturedRequestContextArtifact: Record<string, unknown> | null = null;
     let detailNetworkCapture: Promise<Record<string, unknown> | null> | null = null;
     if (debuggerApi && noteId) {
       try {
         await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
+        debuggerAttached = true;
         try {
           await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
           detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(
@@ -4874,8 +4924,9 @@ class ChromeBackgroundBridge {
         return;
       }
       try {
-        if (!detailNetworkCapture) {
+        if (!detailNetworkCapture && !debuggerAttached) {
           await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
+          debuggerAttached = true;
           try {
             await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
             detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(
@@ -4889,6 +4940,7 @@ class ChromeBackgroundBridge {
         }
         await this.#dispatchEditorInputDebuggerClick(sourceTab.id, target);
       } catch (error) {
+        await detachDebugger();
         fail(
           "RESULT_CARD_CLICK_FAILED",
           error instanceof Error ? error.message : String(error),
@@ -4914,6 +4966,7 @@ class ChromeBackgroundBridge {
       this.#isGenericXhsExploreUrl(asNonEmptyString(resolvedNavigation.details.observed_url))
     ) {
       if (!this.chromeApi.tabs.update) {
+        await detachDebugger();
         fail("RESULT_CARD_FOLLOWUP_NAVIGATION_UNAVAILABLE", "chrome.tabs.update is unavailable", {
           ...resolvedNavigation.details,
           target_url: target.targetUrl
@@ -4926,6 +4979,7 @@ class ChromeBackgroundBridge {
           active: true
         });
       } catch (error) {
+        await detachDebugger();
         fail(
           "RESULT_CARD_FOLLOWUP_NAVIGATION_FAILED",
           error instanceof Error ? error.message : String(error),
@@ -4944,19 +4998,14 @@ class ChromeBackgroundBridge {
       });
     }
     if (!resolvedNavigation.ok) {
+      await detachDebugger();
       fail(resolvedNavigation.reason, resolvedNavigation.message, resolvedNavigation.details);
       return;
     }
     if (detailNetworkCapture) {
       capturedRequestContextArtifact = await detailNetworkCapture.catch(() => null);
     }
-    if (debuggerApi) {
-      try {
-        await debuggerApi.detach({ tabId: sourceTab.id });
-      } catch {
-        // Best-effort detach after click / capture.
-      }
-    }
+    await detachDebugger();
     const resolvedTargetTabId = typeof resolvedNavigation.tab.id === "number"
       ? resolvedNavigation.tab.id
       : sourceTab.id;

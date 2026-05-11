@@ -6876,6 +6876,18 @@ const BACKEND_REJECTED_SOURCE_REASONS = new Set([
     "CAPTCHA_REQUIRED",
     "TARGET_API_RESPONSE_INVALID"
 ]);
+const PAGE_STATE_FALLBACK_HARD_STOP_REASONS = new Set([
+    "XHS_LOGIN_REQUIRED",
+    "SESSION_EXPIRED",
+    "ACCOUNT_ABNORMAL",
+    "XHS_ACCOUNT_RISK_PAGE",
+    "BROWSER_ENV_ABNORMAL",
+    "CAPTCHA_REQUIRED",
+    "SECURITY_REDIRECT",
+    "TARGET_API_RESPONSE_INVALID"
+]);
+const canUsePageStateFallbackForReason = (spec, params, pageStateRoot, reason) => !PAGE_STATE_FALLBACK_HARD_STOP_REASONS.has(reason) &&
+    canUsePageStateFallback(spec, params, asRecord(pageStateRoot));
 const XHS_DETAIL_SPEC = {
     command: "xhs.detail",
     endpoint: DETAIL_ENDPOINT,
@@ -8878,8 +8890,8 @@ const executeXhsRead = async (input, spec, env) => {
             }, env);
         }
         const pageStateRoot = await resolvePageStateRoot();
-        if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
-            const failureSurface = resolveRequestContextFailureSurface(spec, requestContextResult);
+        const failureSurface = resolveRequestContextFailureSurface(spec, requestContextResult);
+        if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failureSurface.reasonCode)) {
             return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, builtPayload, startedAt, {
                 reason: failureSurface.reasonCode,
                 message: failureSurface.message,
@@ -8937,7 +8949,7 @@ const executeXhsRead = async (input, spec, env) => {
     }
     catch (error) {
         const pageStateRoot = await resolvePageStateRoot();
-        if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
+        if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, "SIGNATURE_ENTRY_MISSING")) {
             return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
                 reason: "SIGNATURE_ENTRY_MISSING",
                 message: "页面签名入口不可用",
@@ -8987,7 +8999,7 @@ const executeXhsRead = async (input, spec, env) => {
     catch (error) {
         const failure = inferReadRequestException(spec, error);
         const pageStateRoot = await resolvePageStateRoot();
-        if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
+        if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failure.reason)) {
             return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
                 reason: failure.reason,
                 message: failure.message
@@ -9015,7 +9027,7 @@ const executeXhsRead = async (input, spec, env) => {
     if (response.status >= 400 || (businessCode !== null && businessCode !== 0)) {
         const failure = inferReadFailure(spec, response.status, response.body);
         const pageStateRoot = await resolvePageStateRoot();
-        if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
+        if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failure.reason)) {
             return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
                 reason: failure.reason,
                 message: failure.message,
@@ -9045,7 +9057,7 @@ const executeXhsRead = async (input, spec, env) => {
     }
     if (!responseContainsRequestedTarget(spec, input.params, response.body)) {
         const pageStateRoot = await resolvePageStateRoot();
-        if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
+        if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, "TARGET_DATA_NOT_FOUND")) {
             return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
                 reason: "TARGET_DATA_NOT_FOUND",
                 message: `${spec.command} 接口返回成功但未包含目标数据`,

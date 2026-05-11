@@ -571,6 +571,10 @@ describe("extension service worker / gate and approval", () => {
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
     await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-xhs-open-result-card-001",
+      targetTabId: 44
+    });
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-open-result-card-001",
@@ -619,6 +623,150 @@ describe("extension service worker / gate and approval", () => {
       xsec_source: "pc_search"
     });
   });
+
+  it("blocks XHS result-card open when the target tab is not bound to the current run", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi, debuggerAttach } = createChromeApi([firstPort]);
+
+    chromeApi.tabs.get.mockResolvedValue({
+      id: 44,
+      url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
+      active: true,
+      status: "complete"
+    });
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-xhs-open-result-card-other-001",
+      targetTabId: 44
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-xhs-open-result-card-unbound-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-open-result-card-unbound-001",
+        command: "runtime.xhs_open_result_card",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "search_result_tab",
+          target_tab_id: 44,
+          note_id: "69f74b1d000000002300489f",
+          detail_url:
+            "https://www.xiaohongshu.com/explore/69f74b1d000000002300489f?xsec_token=token-001",
+          title: "无敌无敌爱的冷白皮！",
+          xsec_source: "pc_search",
+          action_ref: "action/xhs.search/open_result_card"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    expect(debuggerAttach).not.toHaveBeenCalled();
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-xhs-open-result-card-unbound-001",
+      status: "error"
+    });
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; payload?: { details?: Record<string, unknown> } })
+      .find((message) => message.id === "run-xhs-open-result-card-unbound-001");
+    expect(response?.payload?.details).toMatchObject({
+      reason: "RESULT_CARD_MANAGED_TAB_NOT_BOUND",
+      bootstrap_run_id: "run-xhs-open-result-card-other-001",
+      bootstrap_source_tab_id: 44
+    });
+  });
+
+  it("detaches debugger when XHS result-card navigation never reaches the target detail page", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi, executeScript, debuggerAttach, debuggerDetach } = createChromeApi([firstPort]);
+    const noteId = "69f74b1d000000002300489f";
+    const originalHref =
+      "https://www.xiaohongshu.com/explore/69f74b1d000000002300489f?xsec_token=token-001";
+
+    chromeApi.tabs.get.mockResolvedValue({
+      id: 44,
+      url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
+      active: true,
+      status: "complete"
+    });
+    chromeApi.tabs.query.mockResolvedValue([
+      {
+        id: 44,
+        url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
+        active: true,
+        status: "complete"
+      }
+    ]);
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-xhs-open-result-card-timeout-001",
+      targetTabId: 44
+    });
+    firstPort.postMessage.mockClear();
+    executeScript.mockImplementation(async (input: Record<string, unknown>) => {
+      const args = Array.isArray(input.args) ? input.args : [];
+      if (args.length === 4) {
+        return [
+          {
+            result: {
+              locator: "a.search-result-card",
+              targetKey: "body > a:nth-of-type(1)",
+              centerX: 180,
+              centerY: 220,
+              originalHref,
+              targetUrl: `${originalHref}&xsec_source=pc_search`,
+              noteId
+            }
+          }
+        ];
+      }
+      return [{ result: true }];
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-xhs-open-result-card-timeout-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-open-result-card-timeout-001",
+        command: "runtime.xhs_open_result_card",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "search_result_tab",
+          target_tab_id: 44,
+          note_id: noteId,
+          detail_url: originalHref,
+          title: "无敌无敌爱的冷白皮！",
+          xsec_source: "pc_search",
+          action_ref: "action/xhs.search/open_result_card"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 10
+    });
+    await waitForBridgeTurn();
+
+    await vi.waitFor(() => {
+      expect(debuggerAttach).toHaveBeenCalledWith({ tabId: 44 }, "1.3");
+      expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
+    }, {
+      timeout: 6500
+    });
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-xhs-open-result-card-timeout-001",
+      status: "error"
+    });
+  }, 8000);
 
   it("accepts trailing-slash equivalent XHS search URL after restore navigation", async () => {
     const firstPort = createMockPort();
