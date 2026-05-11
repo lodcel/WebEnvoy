@@ -1,11 +1,25 @@
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { installFingerprintRuntimeViaMainWorld, verifyFingerprintRuntimeViaMainWorld } from "./content-script-main-world.js";
 const AUDIO_PATCH_EPSILON = 1e-12;
+const FINGERPRINT_PROBE_TIMEOUT_MS = 1_500;
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
 const asString = (value) => typeof value === "string" && value.length > 0 ? value : null;
 const asStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+const withFingerprintProbeTimeout = async (promise, fallback) => await new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+    };
+    const timer = setTimeout(() => finish(fallback), FINGERPRINT_PROBE_TIMEOUT_MS);
+    promise.then(finish).catch(() => finish(fallback));
+});
 const cloneFingerprintRuntimeContextWithInjection = (runtime, injection) => injection
     ? {
         ...runtime,
@@ -112,7 +126,7 @@ const probeAudioFirstSample = async () => {
     }
     try {
         const offlineAudioContext = new offlineAudioCtor(1, 256, 44_100);
-        const renderedBuffer = await offlineAudioContext.startRendering();
+        const renderedBuffer = await withFingerprintProbeTimeout(offlineAudioContext.startRendering(), null);
         if (!renderedBuffer || typeof renderedBuffer.getChannelData !== "function") {
             return null;
         }
@@ -134,7 +148,7 @@ const probeBatteryApi = async () => {
         return false;
     }
     try {
-        const battery = asRecord(await getBattery());
+        const battery = asRecord(await withFingerprintProbeTimeout(getBattery(), null));
         return typeof battery?.level === "number" && typeof battery?.charging === "boolean";
     }
     catch {
@@ -166,10 +180,10 @@ const verifyFingerprintInstallResult = async (input) => {
     const probeDetails = {};
     if (requiredPatches.includes("audio_context")) {
         const postInstallAudioSample = await probeAudioFirstSample();
-        const audioPatched = postInstallAudioSample !== null &&
-            (input.preInstallAudioSample === null ||
-                Math.abs(postInstallAudioSample - input.preInstallAudioSample) > AUDIO_PATCH_EPSILON ||
-                reportedAppliedPatches.includes("audio_context"));
+        const audioPatched = reportedAppliedPatches.includes("audio_context") ||
+            (postInstallAudioSample !== null &&
+                (input.preInstallAudioSample === null ||
+                    Math.abs(postInstallAudioSample - input.preInstallAudioSample) > AUDIO_PATCH_EPSILON));
         probeDetails.audio_context = {
             pre_install_first_sample: input.preInstallAudioSample,
             post_install_first_sample: postInstallAudioSample,

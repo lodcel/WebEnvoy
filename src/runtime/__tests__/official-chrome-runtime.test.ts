@@ -425,6 +425,22 @@ describe("prepareOfficialChromeRuntime", () => {
     expect(bridge.runCommand).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
+        command: "runtime.ping",
+        params: expect.objectContaining({
+          fingerprint_runtime: expect.objectContaining({
+            fingerprint_profile_bundle: null
+          }),
+          target_domain: "www.xiaohongshu.com",
+          target_tab_id: 52,
+          target_page: "search_result_tab",
+          requested_at: expect.any(String),
+          timeout_ms: 120_000
+        })
+      })
+    );
+    expect(bridge.runCommand).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
         command: "runtime.readiness",
         params: expect.objectContaining({
           target_domain: "www.xiaohongshu.com",
@@ -1437,7 +1453,12 @@ describe("prepareOfficialChromeRuntime", () => {
     expect(bridge.runCommand).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        command: "runtime.readiness"
+        command: "runtime.ping",
+        params: expect.objectContaining({
+          fingerprint_runtime: expect.objectContaining({
+            fingerprint_profile_bundle: null
+          })
+        })
       })
     );
     expect(bridge.runCommand).toHaveBeenNthCalledWith(
@@ -1446,6 +1467,7 @@ describe("prepareOfficialChromeRuntime", () => {
         command: "runtime.readiness"
       })
     );
+    expect(bridge.runCommand).toHaveBeenCalledTimes(3);
   });
 
   it("fails with explicit diagnostics when bridge readiness omits execution-surface signals", async () => {

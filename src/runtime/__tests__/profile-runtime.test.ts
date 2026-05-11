@@ -99,6 +99,69 @@ const createReadyRuntimeBridge = () => ({
   }
 });
 
+const createTargetReadyRuntimeBridge = (input: {
+  targetTabId: number;
+  targetDomain: string;
+  targetPage: string;
+  omitManagedTargetPage?: boolean;
+}) => ({
+  runCommand: async ({
+    command,
+    params,
+    profile,
+    runId
+  }: {
+    command: string;
+    params: Record<string, unknown>;
+    profile: string | null;
+    runId: string;
+  }) => {
+    if (command === "runtime.bootstrap") {
+      return {
+        ok: true as const,
+        payload: {
+          result: {
+            version: "v1",
+            run_id: runId,
+            runtime_context_id: String(params.runtime_context_id),
+            profile,
+            status: "ready"
+          }
+        },
+        relay_path: "host>background"
+      };
+    }
+    if (command === "runtime.readiness") {
+      const targetRequested = hasExplicitRuntimeTargetBinding(params);
+      return {
+        ok: true as const,
+        payload: {
+          bootstrap_state: "ready",
+          transport_state: "ready",
+          ...(targetRequested
+            ? {
+                managed_target_tab_id: input.targetTabId,
+                managed_target_domain: input.targetDomain,
+                ...(input.omitManagedTargetPage === true
+                  ? {}
+                  : { managed_target_page: input.targetPage }),
+                target_tab_continuity: "runtime_trust_state",
+                observed_runtime_session_id: "nm-session-target-ready-001",
+                observed_runtime_instance_id: `nm-session-target-ready-001:${runId}:${buildRuntimeBootstrapContextId(
+                  profile ?? "unknown",
+                  runId
+                )}`,
+                takeover_evidence_observed_at: "2999-01-01T00:00:00.000Z"
+              }
+            : {})
+        },
+        relay_path: "host>background"
+      };
+    }
+    throw new Error(`unexpected bridge command: ${command}`);
+  }
+});
+
 const hasExplicitRuntimeTargetBinding = (params: Record<string, unknown>): boolean =>
   Object.prototype.hasOwnProperty.call(params, "target_domain") ||
   Object.prototype.hasOwnProperty.call(params, "target_tab_id") ||
@@ -1988,6 +2051,128 @@ describe("profile-runtime identity preflight", () => {
         manifestPath,
         expectedOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"
       }
+    });
+  });
+
+  it("preserves target readiness evidence for the active runtime owner", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-target-evidence-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "target_evidence_profile"
+    });
+    const service = createTestService({
+      bridgeFactory: () =>
+        createTargetReadyRuntimeBridge({
+          targetTabId: 123,
+          targetDomain: "www.xiaohongshu.com",
+          targetPage: "search_result_tab"
+        })
+    });
+
+    await service.start({
+      cwd: baseDir,
+      profile: "target_evidence_profile",
+      runId: "run-runtime-target-evidence-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    await expect(
+      service.status({
+        cwd: baseDir,
+        profile: "target_evidence_profile",
+        runId: "run-runtime-target-evidence-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          },
+          target_domain: "www.xiaohongshu.com",
+          target_tab_id: 123,
+          target_page: "search_result_tab",
+          requested_at: "2026-05-09T06:12:00.000Z"
+        }
+      })
+    ).resolves.toMatchObject({
+      lockHeld: true,
+      identityBindingState: "bound",
+      transportState: "ready",
+      bootstrapState: "ready",
+      runtimeReadiness: "ready",
+      runtimeTakeoverEvidence: expect.objectContaining({
+        managedTargetTabId: 123,
+        managedTargetDomain: "www.xiaohongshu.com",
+        managedTargetPage: "search_result_tab",
+        targetTabContinuity: "runtime_trust_state"
+      })
+    });
+  });
+
+  it("fills legacy runtime readiness target page from a verified request binding", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-legacy-target-page-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "legacy_target_page_profile"
+    });
+    const service = createTestService({
+      bridgeFactory: () =>
+        createTargetReadyRuntimeBridge({
+          targetTabId: 123,
+          targetDomain: "www.xiaohongshu.com",
+          targetPage: "search_result_tab",
+          omitManagedTargetPage: true
+        })
+    });
+
+    await service.start({
+      cwd: baseDir,
+      profile: "legacy_target_page_profile",
+      runId: "run-runtime-legacy-target-page-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    await expect(
+      service.status({
+        cwd: baseDir,
+        profile: "legacy_target_page_profile",
+        runId: "run-runtime-legacy-target-page-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          },
+          target_domain: "www.xiaohongshu.com",
+          target_tab_id: 123,
+          target_page: "search_result_tab",
+          requested_at: "2026-05-09T06:20:00.000Z"
+        }
+      })
+    ).resolves.toMatchObject({
+      runtimeTakeoverEvidence: expect.objectContaining({
+        managedTargetTabId: 123,
+        managedTargetDomain: "www.xiaohongshu.com",
+        managedTargetPage: "search_result_tab",
+        targetTabContinuity: "runtime_trust_state"
+      })
     });
   });
 

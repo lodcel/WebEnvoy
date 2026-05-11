@@ -18,7 +18,8 @@ const asInteger = (value) => {
 const REQUEST_CONTEXT_FRESHNESS_WINDOW_MS = 5 * 60 * 1000;
 const REQUEST_CONTEXT_WAIT_MAX_MS = 15_000;
 const REQUEST_CONTEXT_WAIT_RETRY_MS = 250;
-const REQUEST_CONTEXT_FORWARD_DEADLINE_SAFETY_MS = 1_000;
+const REQUEST_CONTEXT_FORWARD_DEADLINE_SAFETY_MS = 6_000;
+const CLOSEOUT_PROVENANCE_BIND_FRESH_WINDOW_MS = 30_000;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const toIsoString = (value) => new Date(value).toISOString();
 const normalizeSearchQueryText = (value) => {
@@ -256,11 +257,27 @@ const performSearchPassiveAction = async (input, env) => {
             query: input.params.query,
             pageUrl: env.getLocationHref(),
             runId: input.executionContext.runId,
-            actionRef: input.executionContext.gateInvocationId ?? input.executionContext.runId
+            actionRef: input.executionContext.gateInvocationId ?? input.executionContext.runId,
+            timeoutMs: Math.min(typeof input.options.timeout_ms === "number" &&
+                Number.isFinite(input.options.timeout_ms) &&
+                input.options.timeout_ms > 0
+                ? Math.floor(input.options.timeout_ms)
+                : 6_000, 12_000),
+            debuggerActionAllowed: input.options.closeout_evidence_evaluation === true ||
+                input.options.closeout_audit_required === true
         }));
     }
-    catch {
-        return null;
+    catch (error) {
+        return {
+            evidence_class: "humanized_action",
+            action_kind: "passive_action_diagnostic",
+            action_ref: input.executionContext.gateInvocationId ?? input.executionContext.runId,
+            run_id: input.executionContext.runId,
+            page_url: env.getLocationHref(),
+            query: input.params.query,
+            failed_before_evidence: true,
+            error: error instanceof Error ? error.message : String(error)
+        };
     }
 };
 const withExecutionAuditInFailurePayload = (result, executionAudit) => {
@@ -687,7 +704,9 @@ const resolveRequestContextState = async (requestInput, env) => {
             diagnostics
         };
     };
-    const maxAttempts = resolveRequestContextWaitMaxAttempts(requestInput.options, requestInput.elapsedBeforeWaitMs);
+    const maxAttempts = requestInput.failFastOnMiss === true
+        ? 1
+        : resolveRequestContextWaitMaxAttempts(requestInput.options, requestInput.elapsedBeforeWaitMs);
     let lastState = await lookupOnce({
         deferTransientMisses: maxAttempts > 1
     });
@@ -700,6 +719,95 @@ const resolveRequestContextState = async (requestInput, env) => {
         });
     }
     return lastState;
+};
+const resolveDebuggerNetworkRequestContextState = (input) => {
+    const debuggerAction = asRecord(input.passiveActionEvidence?.debugger_action);
+    const context = asRecord(debuggerAction?.debugger_network_context);
+    if (!context || context.source !== "chrome_debugger_network") {
+        return null;
+    }
+    const request = asRecord(context.request);
+    const response = asRecord(context.response);
+    const requestBody = asRecord(request?.body);
+    const responseBody = asRecord(response?.body);
+    const url = asString(context.url);
+    const status = asInteger(context.status);
+    const capturedAt = asInteger(context.captured_at) ?? input.now;
+    if (!url ||
+        status === null ||
+        status >= 400 ||
+        asString(requestBody?.keyword) !== input.query ||
+        asInteger(responseBody?.code) !== 0) {
+        return null;
+    }
+    return {
+        status: "hit",
+        template: {
+            request: {
+                url,
+                headers: asRecord(request?.headers) ?? {},
+                body: request?.body ?? null
+            },
+            response: {
+                body: response?.body ?? null
+            },
+            referrer: input.pageUrl,
+            capturedAt,
+            pageContextNamespace: input.pageContextNamespace
+        },
+        pageContextNamespace: input.pageContextNamespace,
+        shapeKey: input.shapeKey
+    };
+};
+const describePassiveActionEvidenceForDiagnosis = (passiveActionEvidence) => {
+    if (!passiveActionEvidence) {
+        return ["humanized_action=null"];
+    }
+    const actionKind = asString(passiveActionEvidence.action_kind);
+    const error = asString(passiveActionEvidence.error);
+    const debuggerAction = asRecord(passiveActionEvidence.debugger_action);
+    const debuggerError = asRecord(debuggerAction?.error);
+    const debuggerErrorString = asString(debuggerAction?.error);
+    const summarizeValue = (key) => {
+        const value = passiveActionEvidence[key];
+        if (typeof value === "boolean" || typeof value === "number") {
+            return `${key}:${String(value)}`;
+        }
+        if (typeof value === "string" && value.length > 0) {
+            return `${key}:${value}`;
+        }
+        return null;
+    };
+    const actionSummary = [
+        "submit_triggered",
+        "same_query_preflight_submit_triggered",
+        "same_query_preflight_mode",
+        "same_query_preflight_state_change_source",
+        "same_query_search_input_refresh_source",
+        "search_input_found",
+        "query_matched",
+        "same_query_input_matched",
+        "same_query_perturbed",
+        "same_query_preflight_submitted",
+        "same_query_search_input_refreshed",
+        "search_form_found",
+        "search_button_found"
+    ]
+        .map((key) => summarizeValue(key))
+        .filter((entry) => typeof entry === "string")
+        .join(",");
+    return [
+        actionKind ? `humanized_action_kind=${actionKind}` : "humanized_action_kind=unknown",
+        error ? `humanized_action_error=${error}` : null,
+        asString(debuggerError?.code) ? `debugger_action_error_code=${asString(debuggerError?.code)}` : null,
+        asString(debuggerError?.message)
+            ? `debugger_action_error_message=${asString(debuggerError?.message)}`
+            : null,
+        debuggerErrorString ? `debugger_action_error=${debuggerErrorString}` : null,
+        debuggerAction ? `debugger_action=${JSON.stringify(debuggerAction)}` : null,
+        actionSummary ? `humanized_action_summary=${actionSummary}` : null,
+        `humanized_action=${JSON.stringify(passiveActionEvidence)}`
+    ].filter((entry) => typeof entry === "string");
 };
 export const executeXhsSearch = async (input, env) => {
     const executionStartedAt = env.now();
@@ -1026,7 +1134,11 @@ export const executeXhsSearch = async (input, env) => {
         const expectedProvenance = buildExpectedRequestContextProvenance();
         const result = await env.configureCapturedRequestContextProvenance({
             page_context_namespace: createPageContextNamespace(env.getLocationHref()),
-            ...expectedProvenance
+            ...expectedProvenance,
+            ...(input.options.closeout_evidence_evaluation === true ||
+                input.options.closeout_audit_required === true
+                ? { bind_fresh_window_ms: CLOSEOUT_PROVENANCE_BIND_FRESH_WINDOW_MS }
+                : {})
         }).catch(() => null);
         const record = asRecord(result);
         return (record?.configured === true &&
@@ -1049,18 +1161,76 @@ export const executeXhsSearch = async (input, env) => {
         sort: input.params.sort ?? "general",
         note_type: input.params.note_type ?? 0
     };
-    const passiveActionStartedAt = env.now();
-    const passiveActionEvidence = await performSearchPassiveAction(input, env);
-    if (!(await confirmCurrentRequestContextProvenance())) {
+    if (input.options.__request_context_provenance_confirmed !== true &&
+        !(await confirmCurrentRequestContextProvenance())) {
         return createProvenanceUnconfirmedFailure();
     }
-    const requestContextState = await resolveRequestContextState({
-        params: input.params,
-        options: input.options,
-        minObservedAt: passiveActionEvidence ? passiveActionStartedAt : null,
-        elapsedBeforeWaitMs: env.now() - executionStartedAt,
-        expectedProvenance: buildExpectedRequestContextProvenance()
-    }, env);
+    const closeoutPassiveExactHitOnly = input.options.closeout_evidence_evaluation === true ||
+        input.options.closeout_audit_required === true;
+    let passiveActionStartedAt = null;
+    let passiveActionEvidence = null;
+    let requestContextState;
+    if (closeoutPassiveExactHitOnly) {
+        requestContextState = await resolveRequestContextState({
+            params: input.params,
+            options: input.options,
+            minObservedAt: null,
+            elapsedBeforeWaitMs: env.now() - executionStartedAt,
+            expectedProvenance: buildExpectedRequestContextProvenance(),
+            failFastOnMiss: true
+        }, env);
+        if (requestContextState.status === "hit") {
+            passiveActionEvidence = {
+                evidence_class: "humanized_action",
+                action_kind: "existing_passive_exact_hit",
+                action_ref: input.executionContext.gateInvocationId ?? input.executionContext.runId,
+                run_id: input.executionContext.runId,
+                page_url: env.getLocationHref(),
+                query: input.params.query,
+                skipped_reason: "closeout_passive_exact_hit_already_available",
+                trigger_surface: "xhs.search_result"
+            };
+        }
+        else {
+            passiveActionStartedAt = env.now();
+            passiveActionEvidence = await performSearchPassiveAction(input, env);
+            if (!(await confirmCurrentRequestContextProvenance())) {
+                return createProvenanceUnconfirmedFailure();
+            }
+            requestContextState = await resolveRequestContextState({
+                params: input.params,
+                options: input.options,
+                minObservedAt: passiveActionStartedAt,
+                elapsedBeforeWaitMs: env.now() - executionStartedAt,
+                expectedProvenance: buildExpectedRequestContextProvenance()
+            }, env);
+        }
+    }
+    else {
+        passiveActionStartedAt = env.now();
+        passiveActionEvidence = await performSearchPassiveAction(input, env);
+        if (!(await confirmCurrentRequestContextProvenance())) {
+            return createProvenanceUnconfirmedFailure();
+        }
+        requestContextState = await resolveRequestContextState({
+            params: input.params,
+            options: input.options,
+            minObservedAt: passiveActionEvidence ? passiveActionStartedAt : null,
+            elapsedBeforeWaitMs: env.now() - executionStartedAt,
+            expectedProvenance: buildExpectedRequestContextProvenance()
+        }, env);
+    }
+    if (requestContextState.status !== "hit") {
+        requestContextState =
+            resolveDebuggerNetworkRequestContextState({
+                passiveActionEvidence: passiveActionEvidence ? passiveActionEvidence : null,
+                query: input.params.query,
+                pageContextNamespace: requestContextState.pageContextNamespace,
+                shapeKey: requestContextState.shapeKey,
+                now: env.now(),
+                pageUrl: env.getLocationHref()
+            }) ?? requestContextState;
+    }
     if (requestContextState.status !== "hit") {
         const backendRejectedReason = requestContextState.detailReason &&
             BACKEND_REJECTED_SOURCE_REASONS.has(requestContextState.detailReason)
@@ -1124,82 +1294,84 @@ export const executeXhsSearch = async (input, env) => {
                 category: isBackendRejectedSource ? "request_failed" : "page_changed"
             }), gate, auditRecord), gate.execution_audit);
         }
-        const domExtraction = isCurrentSearchPageForQuery(env.getLocationHref(), input.params.query)
-            ? await resolveSearchDomExtraction(env)
-            : null;
-        if (domExtraction) {
-            const count = domExtraction.cards.length;
-            return {
-                ok: true,
-                payload: {
-                    summary: {
-                        capability_result: {
-                            ability_id: input.abilityId,
-                            layer: input.abilityLayer,
-                            action: gate.consumer_gate_result.action_type ?? input.abilityAction,
-                            outcome: "success",
-                            data_ref: {
-                                query: input.params.query
+        if (!closeoutPassiveExactHitOnly) {
+            const domExtraction = isCurrentSearchPageForQuery(env.getLocationHref(), input.params.query)
+                ? await resolveSearchDomExtraction(env)
+                : null;
+            if (domExtraction) {
+                const count = domExtraction.cards.length;
+                return {
+                    ok: true,
+                    payload: {
+                        summary: {
+                            capability_result: {
+                                ability_id: input.abilityId,
+                                layer: input.abilityLayer,
+                                action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+                                outcome: "success",
+                                data_ref: {
+                                    query: input.params.query
+                                },
+                                metrics: {
+                                    count,
+                                    duration_ms: Math.max(0, env.now() - startedAt)
+                                }
                             },
-                            metrics: {
-                                count,
-                                duration_ms: Math.max(0, env.now() - startedAt)
+                            scope_context: gate.scope_context,
+                            gate_input: {
+                                run_id: auditRecord.run_id,
+                                session_id: auditRecord.session_id,
+                                profile: auditRecord.profile,
+                                ...gate.gate_input
+                            },
+                            gate_outcome: gate.gate_outcome,
+                            read_execution_policy: gate.read_execution_policy,
+                            issue_action_matrix: gate.issue_action_matrix,
+                            consumer_gate_result: gate.consumer_gate_result,
+                            request_admission_result: gate.request_admission_result,
+                            execution_audit: gate.execution_audit,
+                            approval_record: gate.approval_record,
+                            risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+                            audit_record: auditRecord,
+                            ...layer2InteractionSummary(layer2Interaction),
+                            route_evidence: {
+                                evidence_class: "dom_state_extraction",
+                                profile_ref: input.executionContext.profile,
+                                target_tab_id: gate.consumer_gate_result.target_tab_id,
+                                page_url: env.getLocationHref(),
+                                run_id: input.executionContext.runId,
+                                action_ref: input.executionContext.gateInvocationId ?? input.executionContext.runId,
+                                extraction_layer: domExtraction.extraction_layer,
+                                extraction_locator: domExtraction.extraction_locator,
+                                extracted_at: toIsoString(env.now()),
+                                target_continuity: buildSearchTargetContinuity(domExtraction.cards),
+                                risk_surface_classification: "none",
+                                ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
+                                item_kind: "search_card",
+                                cards: domExtraction.cards
+                            },
+                            request_context: {
+                                status: "missing",
+                                reason: requestContextState.failureReason,
+                                page_context_namespace: requestContextState.pageContextNamespace,
+                                shape_key: requestContextState.shapeKey,
+                                available_shape_keys: requestContextState.availableShapeKeys,
+                                ...(requestContextState.diagnostics
+                                    ? { diagnostics: requestContextState.diagnostics }
+                                    : {})
                             }
                         },
-                        scope_context: gate.scope_context,
-                        gate_input: {
-                            run_id: auditRecord.run_id,
-                            session_id: auditRecord.session_id,
-                            profile: auditRecord.profile,
-                            ...gate.gate_input
-                        },
-                        gate_outcome: gate.gate_outcome,
-                        read_execution_policy: gate.read_execution_policy,
-                        issue_action_matrix: gate.issue_action_matrix,
-                        consumer_gate_result: gate.consumer_gate_result,
-                        request_admission_result: gate.request_admission_result,
-                        execution_audit: gate.execution_audit,
-                        approval_record: gate.approval_record,
-                        risk_state_output: resolveRiskStateOutput(gate, auditRecord),
-                        audit_record: auditRecord,
-                        ...layer2InteractionSummary(layer2Interaction),
-                        route_evidence: {
-                            evidence_class: "dom_state_extraction",
-                            profile_ref: input.executionContext.profile,
-                            target_tab_id: gate.consumer_gate_result.target_tab_id,
-                            page_url: env.getLocationHref(),
-                            run_id: input.executionContext.runId,
-                            action_ref: input.executionContext.gateInvocationId ?? input.executionContext.runId,
-                            extraction_layer: domExtraction.extraction_layer,
-                            extraction_locator: domExtraction.extraction_locator,
-                            extracted_at: toIsoString(env.now()),
-                            target_continuity: buildSearchTargetContinuity(domExtraction.cards),
-                            risk_surface_classification: "none",
-                            ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
-                            item_kind: "search_card",
-                            cards: domExtraction.cards
-                        },
-                        request_context: {
-                            status: "missing",
-                            reason: requestContextState.failureReason,
-                            page_context_namespace: requestContextState.pageContextNamespace,
-                            shape_key: requestContextState.shapeKey,
-                            available_shape_keys: requestContextState.availableShapeKeys,
-                            ...(requestContextState.diagnostics
-                                ? { diagnostics: requestContextState.diagnostics }
-                                : {})
-                        }
-                    },
-                    observability: createObservability({
-                        href: env.getLocationHref(),
-                        title: env.getDocumentTitle(),
-                        readyState: env.getReadyState(),
-                        requestId: `req-${env.randomId()}`,
-                        outcome: "completed",
-                        includeKeyRequest: false
-                    })
-                }
-            };
+                        observability: createObservability({
+                            href: env.getLocationHref(),
+                            title: env.getDocumentTitle(),
+                            readyState: env.getReadyState(),
+                            requestId: `req-${env.randomId()}`,
+                            outcome: "completed",
+                            includeKeyRequest: false
+                        })
+                    }
+                };
+            }
         }
         return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", summary, {
             ability_id: input.abilityId,
@@ -1223,7 +1395,8 @@ export const executeXhsSearch = async (input, env) => {
                 : {}),
             ...(typeof requestContextState.observedAt === "number"
                 ? { request_context_observed_at: requestContextState.observedAt }
-                : {})
+                : {}),
+            ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {})
         }, createObservability({
             href: env.getLocationHref(),
             title: env.getDocumentTitle(),
@@ -1242,7 +1415,14 @@ export const executeXhsSearch = async (input, env) => {
         }), createDiagnosis({
             reason,
             summary,
-            category: isBackendRejectedSource ? "request_failed" : "page_changed"
+            category: isBackendRejectedSource ? "request_failed" : "page_changed",
+            evidence: [
+                ...describePassiveActionEvidenceForDiagnosis(passiveActionEvidence ? passiveActionEvidence : null),
+                `request_context_reason=${requestContextState.failureReason}`,
+                `request_context_available_shape_key_count=${requestContextState.availableShapeKeys.length}`,
+                `request_context_available_shape_keys=${requestContextState.availableShapeKeys.join("|")}`,
+                `request_context_shape_key=${requestContextState.shapeKey}`
+            ]
         }), gate, auditRecord), gate.execution_audit);
     }
     const headers = {

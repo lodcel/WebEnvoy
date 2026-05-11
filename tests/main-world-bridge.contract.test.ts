@@ -496,6 +496,7 @@ describe("main-world bridge contract", () => {
       headers: {
         "content-type": "application/json"
       },
+      referrer: "https://www.xiaohongshu.com/search_result/",
       body: JSON.stringify({ keyword: "contract" })
     });
     env.mockWindow.history?.pushState({}, "", SEARCH_PAGE_HREF);

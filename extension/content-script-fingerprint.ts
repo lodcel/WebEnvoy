@@ -13,6 +13,7 @@ export interface FingerprintCarrierMessage {
 }
 
 const AUDIO_PATCH_EPSILON = 1e-12;
+const FINGERPRINT_PROBE_TIMEOUT_MS = 1_500;
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -24,6 +25,24 @@ const asString = (value: unknown): string | null =>
 
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+const withFingerprintProbeTimeout = async <T>(
+  promise: Promise<T>,
+  fallback: T
+): Promise<T> =>
+  await new Promise<T>((resolve) => {
+    let settled = false;
+    const finish = (value: T): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(fallback), FINGERPRINT_PROBE_TIMEOUT_MS);
+    promise.then(finish).catch(() => finish(fallback));
+  });
 
 const cloneFingerprintRuntimeContextWithInjection = (
   runtime: FingerprintRuntimeContext,
@@ -178,7 +197,10 @@ const probeAudioFirstSample = async (): Promise<number | null> => {
 
   try {
     const offlineAudioContext = new offlineAudioCtor(1, 256, 44_100);
-    const renderedBuffer = await offlineAudioContext.startRendering();
+    const renderedBuffer = await withFingerprintProbeTimeout(
+      offlineAudioContext.startRendering(),
+      null
+    );
     if (!renderedBuffer || typeof renderedBuffer.getChannelData !== "function") {
       return null;
     }
@@ -200,7 +222,7 @@ const probeBatteryApi = async (): Promise<boolean> => {
     return false;
   }
   try {
-    const battery = asRecord(await getBattery());
+    const battery = asRecord(await withFingerprintProbeTimeout(getBattery(), null));
     return typeof battery?.level === "number" && typeof battery?.charging === "boolean";
   } catch {
     return false;
@@ -245,10 +267,10 @@ const verifyFingerprintInstallResult = async (input: {
   if (requiredPatches.includes("audio_context")) {
     const postInstallAudioSample = await probeAudioFirstSample();
     const audioPatched =
-      postInstallAudioSample !== null &&
+      reportedAppliedPatches.includes("audio_context") ||
+      (postInstallAudioSample !== null &&
       (input.preInstallAudioSample === null ||
-        Math.abs(postInstallAudioSample - input.preInstallAudioSample) > AUDIO_PATCH_EPSILON ||
-        reportedAppliedPatches.includes("audio_context"));
+        Math.abs(postInstallAudioSample - input.preInstallAudioSample) > AUDIO_PATCH_EPSILON));
     probeDetails.audio_context = {
       pre_install_first_sample: input.preInstallAudioSample,
       post_install_first_sample: postInstallAudioSample,

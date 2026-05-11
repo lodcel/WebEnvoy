@@ -1337,7 +1337,7 @@ export class ProfileRuntimeService {
       readiness.transportState !== "not_connected" &&
       readiness.runtimeReadiness === "recoverable";
     const evidenceReadiness =
-      staleBootstrapRecoverable && observedTargetReadiness !== null
+      observedTargetReadiness !== null
         ? observedTargetReadiness
         : attachableReadyRuntime && observedReadyAttachReadiness !== null
           ? observedReadyAttachReadiness
@@ -1350,6 +1350,9 @@ export class ProfileRuntimeService {
       observedRunId: accessState.observedRunId,
       requestRunId: input.runId,
       requestRuntimeContextId: buildRuntimeBootstrapContextId(input.profile, input.runId),
+      requestedTargetTabId: input.params.target_tab_id,
+      requestedTargetDomain: input.params.target_domain,
+      requestedTargetPage: input.params.target_page,
       readiness: evidenceReadiness,
       attachableReadyRuntime,
       orphanRecoverable: attachableRecoverableRuntime,
@@ -1525,6 +1528,9 @@ export class ProfileRuntimeService {
       observedRunId: accessState.observedRunId,
       requestRunId: input.runId,
       requestRuntimeContextId: buildRuntimeBootstrapContextId(input.profile, input.runId),
+      requestedTargetTabId: input.params.target_tab_id,
+      requestedTargetDomain: input.params.target_domain,
+      requestedTargetPage: input.params.target_page,
       readiness: evidenceReadiness,
       attachableReadyRuntime,
       orphanRecoverable: attachableRecoverableRuntime,
@@ -2301,6 +2307,9 @@ export class ProfileRuntimeService {
     observedRunId: string;
     requestRunId: string;
     requestRuntimeContextId: string;
+    requestedTargetTabId?: unknown;
+    requestedTargetDomain?: unknown;
+    requestedTargetPage?: unknown;
     readiness: RuntimeReadinessSnapshot;
     attachableReadyRuntime: boolean;
     orphanRecoverable: boolean;
@@ -2331,6 +2340,22 @@ export class ProfileRuntimeService {
     const takeoverEvidenceObservedAt = asNonEmptyString(
       readinessDetails.takeover_evidence_observed_at
     );
+    const managedTargetTabId = asInteger(readinessDetails.managed_target_tab_id);
+    const managedTargetDomain = asNonEmptyString(readinessDetails.managed_target_domain);
+    const targetTabContinuity = asNonEmptyString(readinessDetails.target_tab_continuity);
+    const requestedTargetTabId = asInteger(input.requestedTargetTabId);
+    const requestedTargetDomain = asNonEmptyString(input.requestedTargetDomain);
+    const requestedTargetPage = asNonEmptyString(input.requestedTargetPage);
+    const managedTargetPage =
+      asNonEmptyString(readinessDetails.managed_target_page) ??
+      (targetTabContinuity === "runtime_trust_state" &&
+      managedTargetTabId !== null &&
+      requestedTargetTabId === managedTargetTabId &&
+      managedTargetDomain !== null &&
+      requestedTargetDomain === managedTargetDomain &&
+      requestedTargetPage !== null
+        ? requestedTargetPage
+        : null);
 
     return {
       mode: readyAttach
@@ -2363,10 +2388,10 @@ export class ProfileRuntimeService {
           : null,
       requestRunId: staleBootstrapRebind ? input.requestRunId : null,
       requestRuntimeContextId: staleBootstrapRebind ? input.requestRuntimeContextId : null,
-      managedTargetTabId: asInteger(readinessDetails.managed_target_tab_id),
-      managedTargetDomain: asNonEmptyString(readinessDetails.managed_target_domain),
-      managedTargetPage: asNonEmptyString(readinessDetails.managed_target_page),
-      targetTabContinuity: asNonEmptyString(readinessDetails.target_tab_continuity),
+      managedTargetTabId,
+      managedTargetDomain,
+      managedTargetPage,
+      targetTabContinuity,
       takeoverEvidenceObservedAt: staleBootstrapRebind ? takeoverEvidenceObservedAt : null
     };
   }
