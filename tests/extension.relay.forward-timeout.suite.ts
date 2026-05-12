@@ -152,6 +152,48 @@ describe("extension background relay contract / forward and timeout", () => {
     expect(response.error?.code).toBe("ERR_TRANSPORT_TIMEOUT");
   });
 
+  it("returns structured execution timeout before native bridge timeout for xhs read commands", async () => {
+    const contentScript = new ContentScriptHandler();
+    const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 3_000 });
+
+    const responsePromise = waitForResponse(relay);
+    relay.onNativeRequest({
+      id: "xhs-forward-timeout-001",
+      method: "bridge.forward",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-forward-timeout-001",
+        command: "xhs.search",
+        command_params: {
+          simulate_no_response: true,
+          ability: {
+            id: "xhs.note.search.v1",
+            layer: "L3",
+            action: "read"
+          },
+          input: {
+            query: "露营"
+          },
+          options: approvedLiveOptions
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      profile: "profile-a",
+      timeout_ms: 10
+    });
+
+    const response = await responsePromise;
+    expect(response.status).toBe("error");
+    expect(response.error?.code).toBe("ERR_EXECUTION_FAILED");
+    expect(asRecord(response.payload)?.details).toMatchObject({
+      stage: "execution",
+      reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT",
+      forward_failure_stage: "content_script_forward_timeout",
+      timeout_ms: 10,
+      native_timeout_ms: 10
+    });
+  });
+
   it("passes xhs.search execution payload through relay on error", async () => {
     const contentScript = new ContentScriptHandler({
       xhsEnv: {

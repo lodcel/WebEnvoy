@@ -443,12 +443,16 @@ export class NativeMessagingBridge {
       const success = ensureBridgeSuccess(response, "forward failed");
       const payload = success.payload ?? {};
       const message = typeof payload.message === "string" ? payload.message : "pong";
+      const contentScriptDiagnostics = asObject(payload.content_script_diagnostics);
       this.#session.completeForward();
       const snapshot = this.#session.snapshot();
       const relayPath = String(success.summary.relay_path ?? "host>unknown");
 
       return {
         message,
+        ...(contentScriptDiagnostics
+          ? { content_script_diagnostics: contentScriptDiagnostics }
+          : {}),
         transport: {
           protocol: BRIDGE_PROTOCOL,
           state: snapshot.state,

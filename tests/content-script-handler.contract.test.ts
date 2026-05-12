@@ -7,6 +7,7 @@ import {
   MAIN_WORLD_EVENT_BOOTSTRAP,
   requestXhsSearchJsonViaMainWorld,
   resetMainWorldEventChannelForContract,
+  resolveContentCommandDeadlineMsForContract,
   resolveFingerprintContextForContract,
   resolveMainWorldEventNamesForSecret
 } from "../extension/content-script-handler.js";
@@ -1153,6 +1154,11 @@ describe("content-script handler contract", () => {
       await waitForResult(results);
 
       const payload = results[0]?.payload as Record<string, unknown>;
+      expect(payload?.content_script_diagnostics).toMatchObject({
+        source: "content_script_handler",
+        build_marker: "issue650-closeout-deadline-v1",
+        supports_xhs_search_debugger_action_mode: true
+      });
       const fingerprintRuntime = payload?.fingerprint_runtime as Record<string, unknown>;
       const injection = fingerprintRuntime?.injection as Record<string, unknown>;
       expect(injection?.installed).toBe(true);
@@ -1210,6 +1216,42 @@ describe("content-script handler contract", () => {
       expect(
         (mockWindow as Window & Record<string, unknown>).__webenvoy_main_world_bridge_installed__
       ).toBeUndefined();
+    });
+  });
+
+  it("does not drop later bridge-instance results that reuse a completed id", async () => {
+    await withMockMainWorld(async () => {
+      const handler = new ContentScriptHandler();
+      const results: Array<Record<string, unknown>> = [];
+      handler.onResult((message) => {
+        results.push(message as unknown as Record<string, unknown>);
+      });
+
+      const createPing = (runId: string) => ({
+        kind: "forward" as const,
+        id: "run-1",
+        runId,
+        tabId: 1,
+        profile: "profile-a",
+        cwd: "/workspace/WebEnvoy",
+        timeoutMs: 1_000,
+        command: "runtime.ping",
+        params: {},
+        commandParams: {},
+        fingerprintContext: null
+      });
+
+      handler.onBackgroundMessage(createPing("run-first-bridge"));
+      await waitForResult(results);
+
+      handler.onBackgroundMessage(createPing("run-second-bridge"));
+      await waitForResult(results, 2);
+
+      expect(results).toHaveLength(2);
+      expect(results.map((message) => (message.payload as Record<string, unknown>)?.message)).toEqual([
+        "pong",
+        "pong"
+      ]);
     });
   });
 
@@ -2166,7 +2208,7 @@ describe("content-script handler contract", () => {
         const guardedKeydownIndex = eventSequence.indexOf("keydown:defaultPrevented");
         expect(settleTimeouts.filter((timeout) => timeout === 180)).toHaveLength(5);
         expect(submitCount).toBe(2);
-        expect(preventedSubmitCount).toBe(1);
+        expect(preventedSubmitCount).toBe(2);
         expect(buttonClickCount).toBe(2);
         expect(capturedLookupCount).toBeGreaterThan(0);
         expect(perturbValueIndex).toBeGreaterThan(-1);
@@ -3680,6 +3722,21 @@ describe("content-script handler contract", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("allows closeout xhs.search passive capture to outlive the default content deadline", () => {
+    expect(
+      resolveContentCommandDeadlineMsForContract(60_000, {
+        timeout_ms: 60_000,
+        closeout_evidence_evaluation: true,
+        closeout_audit_required: true
+      })
+    ).toBe(55_000);
+    expect(
+      resolveContentCommandDeadlineMsForContract(60_000, {
+        timeout_ms: 60_000
+      })
+    ).toBe(20_000);
   });
 
   it("preserves AbortError name when main-world search request times out via extension rpc", async () => {

@@ -354,6 +354,10 @@ const buildContentScriptBundle = async () => {
   const xhsReadExecutionModule = renderClassicModule({
     moduleVar: "__webenvoy_module_xhs_read_execution",
     prelude: [
+      "const {",
+      "  createPageContextNamespace,",
+      "  createUserHomeRequestShape",
+      "} = __webenvoy_module_xhs_search_types;",
       "const { createAuditRecord, resolveGate } = __webenvoy_module_xhs_search_gate;",
       "const {",
       "  classifyXhsAccountSafetySurface,",
@@ -448,6 +452,12 @@ const buildContentScriptBundle = async () => {
       "const { executeXhsDetail } = __webenvoy_module_xhs_detail;",
       "const { executeXhsUserHome } = __webenvoy_module_xhs_user_home;",
       "const { performEditorInputValidation } = __webenvoy_module_xhs_editor_input;",
+      "const {",
+      "  SEARCH_ENDPOINT,",
+      "  createPageContextNamespace,",
+      "  createSearchRequestShape,",
+      "  serializeSearchRequestShape",
+      "} = __webenvoy_module_xhs_search_types;",
       "const { ensureFingerprintRuntimeContext } = __webenvoy_module_fingerprint_profile;",
       "const {",
       "  buildFailedFingerprintInjectionContext,",
@@ -506,7 +516,7 @@ const buildContentScriptBundle = async () => {
     exports: ["bootstrapContentScript"]
   });
 
-  return [
+  const bundleSource = [
     "/* WebEnvoy classic content script bundle for Chrome MV3 content_scripts. */",
     "",
     riskStateModule,
@@ -532,8 +542,19 @@ const buildContentScriptBundle = async () => {
     contentScriptMainWorldModule,
     contentScriptFingerprintModule,
     handlerModule,
-    contentScriptModule
+    contentScriptModule,
+    "globalThis.__webenvoy_content_script_bundle_modules = {",
+    "  __webenvoy_module_xhs_search,",
+    "  __webenvoy_module_xhs_detail,",
+    "  __webenvoy_module_xhs_user_home,",
+    "  __webenvoy_module_xhs_search_gate,",
+    "  __webenvoy_module_content_script_handler",
+    "};"
   ].join("\n");
+
+  return wrapClassicBundleInIife({
+    bundleSource
+  });
 };
 
 const buildMainWorldBridgeBundle = async () => {

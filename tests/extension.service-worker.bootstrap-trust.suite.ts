@@ -72,7 +72,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     respondHandshake(firstPort);
     await waitForBridgeTurn();
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-after-open-001",
@@ -88,10 +88,10 @@ describe("extension service worker / bootstrap and trust", () => {
       timeout_ms: 50
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
       11,
       expect.objectContaining({
@@ -110,7 +110,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-retry-inject-001",
@@ -149,8 +149,8 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-001",
@@ -175,7 +175,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-001",
@@ -200,8 +200,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-001",
@@ -218,7 +218,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -270,7 +270,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -297,7 +297,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-tab-pick-001",
@@ -348,7 +348,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-main-world-recover-001",
@@ -417,7 +417,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-staged-reinject-001",
@@ -461,7 +461,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-startup-trust-001",
@@ -486,7 +486,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-startup-trust-001",
@@ -521,8 +521,8 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-startup-trust-002",
@@ -539,7 +539,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -559,7 +559,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-trusted-ready-001",
@@ -587,7 +587,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-trusted-ready-001",
@@ -634,7 +634,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-trusted-ready-002",
@@ -660,7 +660,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-trusted-probe-after-bootstrap-ready-003",
@@ -690,7 +690,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-readiness-trusted-ready-003",
@@ -710,7 +710,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-legacy-page-001",
@@ -737,7 +737,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-legacy-page-001",
@@ -775,7 +775,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-readiness-legacy-page-001",
@@ -797,7 +797,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-legacy-trusted-page-001",
@@ -824,7 +824,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-legacy-trusted-page-001",
@@ -916,7 +916,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-legacy-trusted-page-002",
@@ -941,7 +941,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-page-conflict-001",
@@ -967,7 +967,7 @@ describe("extension service worker / bootstrap and trust", () => {
         },
         cwd: "/workspace/WebEnvoy"
       },
-      timeout_ms: 100
+      timeout_ms: 1000
     });
     await waitForBridgeTurn();
 
@@ -1003,7 +1003,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-page-conflict-001",
@@ -1031,7 +1031,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-readiness-page-conflict-001",
@@ -1052,7 +1052,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-stale-page-conflict-001",
@@ -1114,7 +1114,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-stale-page-conflict-001",
@@ -1135,7 +1135,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-stale-no-attestation-001",
@@ -1188,7 +1188,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-stale-no-attestation-001",
@@ -1206,7 +1206,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-generic-001",
@@ -1231,7 +1231,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-generic-001",
@@ -1256,8 +1256,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     await promoteBootstrapReadinessThroughPing({
       runtimeMessageListeners,
@@ -1282,7 +1282,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1330,7 +1330,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-direct-attest-001",
@@ -1389,8 +1389,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const forwardedCommands = chromeApi.tabs.sendMessage.mock.calls.map(
       (call) => (call[1] as { command?: string }).command
@@ -1406,7 +1406,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-ping-promote-001",
@@ -1431,7 +1431,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-ping-promote-001",
@@ -1456,8 +1456,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -1487,8 +1487,8 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-ping-promote-001",
@@ -1505,7 +1505,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1528,7 +1528,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-main-world-fail-001",
@@ -1553,7 +1553,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-main-world-fail-001",
@@ -1578,8 +1578,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -1604,8 +1604,8 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-main-world-fail-001",
@@ -1622,7 +1622,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1645,7 +1645,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-missing-patch-001",
@@ -1670,7 +1670,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-missing-patch-001",
@@ -1695,8 +1695,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -1721,8 +1721,8 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-missing-patch-001",
@@ -1739,7 +1739,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1762,7 +1762,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-old-001",
@@ -1787,7 +1787,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -1797,7 +1797,7 @@ describe("extension service worker / bootstrap and trust", () => {
       tabId: 77,
       tabUrl: "https://example.com/runtime-readiness"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-new-001",
@@ -1822,7 +1822,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-bootstrap-new-001",
@@ -1840,7 +1840,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-ready-001",
@@ -1865,7 +1865,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -1875,7 +1875,7 @@ describe("extension service worker / bootstrap and trust", () => {
       tabId: 77,
       tabUrl: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.postMessage.mockClear();
 
@@ -1896,8 +1896,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -1928,7 +1928,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-trusted-probe-after-ready-001",
@@ -1943,7 +1943,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-trusted-probe-after-ready-001",
@@ -1967,7 +1967,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-new-late-001",
@@ -1992,7 +1992,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -2003,7 +2003,7 @@ describe("extension service worker / bootstrap and trust", () => {
       tabId: 77,
       tabUrl: "https://example.com/runtime-readiness"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-after-stale-trust-001",
@@ -2020,7 +2020,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2043,7 +2043,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-same-run-old-ctx-001",
@@ -2068,7 +2068,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -2077,7 +2077,7 @@ describe("extension service worker / bootstrap and trust", () => {
       profile: "profile-a",
       fingerprintContext
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -2085,7 +2085,7 @@ describe("extension service worker / bootstrap and trust", () => {
       profile: "profile-a",
       fingerprintContext
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-same-run-old-ctx-001",
@@ -2102,7 +2102,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2125,7 +2125,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-owner-001",
@@ -2150,7 +2150,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-ping-owner-promote-001",
@@ -2167,8 +2167,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     await promoteBootstrapReadinessThroughPing({
       runtimeMessageListeners,
@@ -2193,7 +2193,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2223,7 +2223,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2253,7 +2253,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2276,7 +2276,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-new-late-001",
@@ -2301,7 +2301,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -2312,7 +2312,7 @@ describe("extension service worker / bootstrap and trust", () => {
       tabId: 77,
       tabUrl: "https://example.com/runtime-readiness"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-after-stale-trust-001",
@@ -2329,7 +2329,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2352,7 +2352,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-same-run-old-ctx-001",
@@ -2377,7 +2377,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -2386,7 +2386,7 @@ describe("extension service worker / bootstrap and trust", () => {
       profile: "profile-a",
       fingerprintContext
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -2394,7 +2394,7 @@ describe("extension service worker / bootstrap and trust", () => {
       profile: "profile-a",
       fingerprintContext
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-readiness-same-run-old-ctx-001",
@@ -2411,7 +2411,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2434,7 +2434,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-bootstrap-owner-001",
@@ -2459,7 +2459,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-ping-owner-promote-001",
@@ -2476,8 +2476,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     await promoteBootstrapReadinessThroughPing({
       runtimeMessageListeners,
@@ -2502,7 +2502,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2532,7 +2532,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2562,7 +2562,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 50
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2584,7 +2584,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext({
       allowed_execution_modes: ["dry_run", "recon", "live_read_limited"]
@@ -2606,8 +2606,8 @@ describe("extension service worker / bootstrap and trust", () => {
       timeout_ms: 50
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
       11,
@@ -2626,7 +2626,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-error-payload-001",
@@ -2698,6 +2698,132 @@ describe("extension service worker / bootstrap and trust", () => {
     });
   });
 
+  it("captures xhs.search debugger network context from the XHS API host", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi, runtimeMessageListeners, debuggerDetach, debuggerSendCommand } =
+      createChromeApi([firstPort]);
+    const searchEndpoint = "/api/sns/web/v1/search/notes";
+    let debuggerListener:
+      | ((
+          source: { tabId?: number },
+          method: string,
+          params?: Record<string, unknown>
+        ) => void)
+      | null = null;
+    const debuggerOnEvent = {
+      addListener: vi.fn(
+        (
+          listener: (
+            source: { tabId?: number },
+            method: string,
+            params?: Record<string, unknown>
+          ) => void
+        ) => {
+          debuggerListener = listener;
+        }
+      ),
+      removeListener: vi.fn(
+        (
+          listener: (
+            source: { tabId?: number },
+            method: string,
+            params?: Record<string, unknown>
+          ) => void
+        ) => {
+          if (debuggerListener === listener) {
+            debuggerListener = null;
+          }
+        }
+      )
+    };
+    (chromeApi.debugger as unknown as { onEvent: typeof debuggerOnEvent }).onEvent = debuggerOnEvent;
+    debuggerSendCommand.mockImplementation(async (_target: Record<string, unknown>, method: string) => {
+      if (method === "Network.enable") {
+        queueMicrotask(() => {
+          debuggerListener?.({ tabId: 32 }, "Network.requestWillBeSent", {
+            requestId: "edith-search-001",
+            request: {
+              url: `https://edith.xiaohongshu.com${searchEndpoint}`,
+              method: "POST",
+              headers: {
+                "content-type": "application/json;charset=utf-8"
+              },
+              postData: JSON.stringify({ keyword: "露营", page: 1 })
+            }
+          });
+          debuggerListener?.({ tabId: 32 }, "Network.responseReceived", {
+            requestId: "edith-search-001",
+            response: {
+              status: 200,
+              headers: {
+                "content-type": "application/json"
+              }
+            }
+          });
+          debuggerListener?.({ tabId: 32 }, "Network.loadingFinished", {
+            requestId: "edith-search-001"
+          });
+        });
+        return {};
+      }
+      if (method === "Network.getResponseBody") {
+        return {
+          body: JSON.stringify({ code: 0, data: { items: [] } }),
+          base64Encoded: false
+        };
+      }
+      return {};
+    });
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    const response = await new Promise<Record<string, unknown>>((resolve) => {
+      const handled = runtimeMessageListeners[0]?.(
+        {
+          kind: "xhs-search-debugger-action",
+          query: "露营",
+          action_mode: "page_reload",
+          timeout_ms: 1000
+        },
+        {
+          tab: {
+            id: 32,
+            url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5"
+          }
+        },
+        (message) => resolve(message as Record<string, unknown>)
+      );
+      expect(handled).toBe(true);
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        debugger_network_context: {
+          source: "chrome_debugger_network",
+          route_evidence_class: "passive_api_capture",
+          url: `https://edith.xiaohongshu.com${searchEndpoint}`,
+          method: "POST",
+          status: 200,
+          request: {
+            body: {
+              keyword: "露营"
+            }
+          },
+          response: {
+            body: {
+              code: 0
+            }
+          }
+        }
+      }
+    });
+    expect(debuggerOnEvent.removeListener).toHaveBeenCalled();
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 32 });
+  });
+
   it("pins xhs.search to xiaohongshu tab instead of generic active tab", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);
@@ -2714,7 +2840,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-tab-pin-001",
@@ -2729,8 +2855,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -2761,7 +2887,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const forwarded = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { summary?: Record<string, unknown> } })
@@ -2800,7 +2926,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-options-shape-001",
@@ -2825,8 +2951,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -2860,7 +2986,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-cross-window-tab-001",
@@ -2877,8 +3003,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -2902,7 +3028,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-no-tab-001",
@@ -2917,7 +3043,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const forwardResult = firstPort.postMessage.mock.calls
@@ -2956,7 +3082,7 @@ describe("extension service worker / bootstrap and trust", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-missing-page-001",
@@ -2973,8 +3099,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const blocked = firstPort.postMessage.mock.calls
@@ -3021,7 +3147,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-autotab-001",
@@ -3056,8 +3182,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const proactiveContentScriptInject = executeScript.mock.calls.find(
@@ -3118,7 +3244,7 @@ describe("extension service worker / bootstrap and trust", () => {
     });
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-editor-input-globaltab-001",
@@ -3133,10 +3259,10 @@ describe("extension service worker / bootstrap and trust", () => {
         }),
         cwd: "/workspace/WebEnvoy"
       },
-      timeout_ms: 100
+      timeout_ms: 1000
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
@@ -3153,7 +3279,7 @@ describe("extension service worker / bootstrap and trust", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-missing-requested-mode-001",
@@ -3170,7 +3296,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as {
@@ -3209,7 +3335,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-mode-blocked-001",
@@ -3229,8 +3355,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -3353,7 +3479,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-limited-blocked-001",
@@ -3373,8 +3499,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -3429,7 +3555,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue209-write-limited-bg-blocked-001",
@@ -3464,8 +3590,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -3513,7 +3639,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-mode-paused-001",
@@ -3544,8 +3670,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -3582,7 +3708,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-paused-write-001",
@@ -3616,8 +3742,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -3639,7 +3765,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-missing-action-type-bg-001",
@@ -3670,8 +3796,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -3694,7 +3820,7 @@ describe("extension service worker / bootstrap and trust", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
         id: "run-xhs-ability-action-mismatch-bg-001",
@@ -3727,8 +3853,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
 
@@ -3757,7 +3883,7 @@ describe("extension service worker / bootstrap and trust", () => {
       ]);
       startChromeBackgroundBridge(blockedChromeApi);
       respondHandshake(blockedPort);
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       blockedPort.onMessageListeners[0]?.({
         id: `run-xhs-issue-208-${state}-missing-approval-001`,
@@ -3791,8 +3917,8 @@ describe("extension service worker / bootstrap and trust", () => {
         },
         timeout_ms: 100
       });
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
 
       expect(blockedChromeApi.tabs.sendMessage).not.toHaveBeenCalled();
       const blocked = blockedPort.postMessage.mock.calls
@@ -3811,7 +3937,7 @@ describe("extension service worker / bootstrap and trust", () => {
       ]);
       startChromeBackgroundBridge(approvedChromeApi);
       respondHandshake(approvedPort);
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       approvedPort.onMessageListeners[0]?.({
         id: `run-xhs-issue-208-${state}-approved-001`,
@@ -3845,8 +3971,8 @@ describe("extension service worker / bootstrap and trust", () => {
         },
         timeout_ms: 100
       });
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
 
       expect(approvedChromeApi.tabs.sendMessage).not.toHaveBeenCalled();
       expect(runtimeMessageListeners).toHaveLength(1);
@@ -3872,7 +3998,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const fingerprintContext = createFingerprintRuntimeContext({
       live_allowed: false,
       live_decision: "dry_run_only",
@@ -3907,8 +4033,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -3935,7 +4061,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const fingerprintContext = createFingerprintRuntimeContext({
       live_allowed: true,
       live_decision: "dry_run_only",
@@ -3974,8 +4100,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -4002,7 +4128,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-blocked-by-fingerprint-003",
@@ -4023,8 +4149,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -4052,7 +4178,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-live-blocked-by-fingerprint-untrusted-001",
@@ -4074,8 +4200,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -4100,7 +4226,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext();
     await primeTrustedFingerprintContext({
@@ -4133,8 +4259,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -4158,7 +4284,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const startupRunId = "run-xhs-live-trusted-by-runtime-start-001";
     const liveRunId = "run-xhs-live-consume-startup-trust-002";
@@ -4193,7 +4319,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
     chromeApi.tabs.sendMessage.mockClear();
 
     const liveRequestId = `${liveRunId}-live`;
@@ -4236,7 +4362,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const startupRunId = "run-xhs-live-trusted-omit-fingerprint-startup-001";
     const liveRunId = "run-xhs-live-trusted-omit-fingerprint-live-002";
@@ -4271,7 +4397,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
     chromeApi.tabs.sendMessage.mockClear();
 
     const liveRequestId = `${liveRunId}-live`;
@@ -4313,7 +4439,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const startupRunId = "run-xhs-dry-trusted-upgrade-startup-001";
     const dryRunId = "run-xhs-dry-trusted-upgrade-dry-002";
@@ -4376,7 +4502,7 @@ describe("extension service worker / bootstrap and trust", () => {
     chromeApi.tabs.query.mockImplementation(async () => []);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const startupRunId = "run-xhs-live-trusted-missing-tab-startup-001";
     const liveRunId = "run-xhs-live-trusted-missing-tab-live-002";
@@ -4411,7 +4537,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
     chromeApi.tabs.sendMessage.mockClear();
 
     const liveRequestId = `${liveRunId}-live`;
@@ -4434,8 +4560,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -4458,7 +4584,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const profile = "profile-a";
     const pingRunId = "run-ping-no-trust-001";
@@ -4485,8 +4611,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -4508,7 +4634,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
     chromeApi.tabs.sendMessage.mockClear();
 
     firstPort.onMessageListeners[0]?.({
@@ -4563,7 +4689,7 @@ describe("extension service worker / bootstrap and trust", () => {
     respondHandshake(firstPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext();
     await primeTrustedFingerprintContext({
@@ -4575,13 +4701,13 @@ describe("extension service worker / bootstrap and trust", () => {
     chromeApi.tabs.sendMessage.mockClear();
 
     firstPort.onDisconnectListeners[0]?.();
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     respondHandshake(secondPort, {
       sessionId: "nm-session-002"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
@@ -4612,8 +4738,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = secondPort.postMessage.mock.calls
@@ -4645,7 +4771,7 @@ describe("extension service worker / bootstrap and trust", () => {
     respondHandshake(firstPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const profile = "profile-a";
     const startupRunId = "run-xhs-live-recovery-keep-trust-startup-001";
@@ -4661,13 +4787,13 @@ describe("extension service worker / bootstrap and trust", () => {
     chromeApi.tabs.sendMessage.mockClear();
 
     firstPort.onDisconnectListeners[0]?.();
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     respondHandshake(secondPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const firstAttemptId = `${liveRunId}-blocked-before-reprime`;
     secondPort.onMessageListeners[0]?.({
@@ -4690,8 +4816,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const blockedDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === firstAttemptId
@@ -4764,7 +4890,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const allowed = secondPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string })
@@ -4782,7 +4908,7 @@ describe("extension service worker / bootstrap and trust", () => {
     respondHandshake(firstPort, {
       sessionId: "nm-session-001"
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const startupRunId = "run-startup-trust-001";
     const liveRunId = "run-live-followup-002";
@@ -4818,8 +4944,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const liveDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === liveRunId
@@ -4844,7 +4970,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-live-stop-untrusted-001";
     const profile = "profile-a";
@@ -4871,8 +4997,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     runtimeMessageListeners[0]?.(
       {
@@ -4891,7 +5017,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const stopDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === stopRequestId
@@ -4920,8 +5046,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const liveDispatch = chromeApi.tabs.sendMessage.mock.calls.find(
       (call) => (call[1] as { id?: string } | undefined)?.id === liveRequestId
@@ -4949,7 +5075,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-live-trust-rotate-001";
     const profile = "profile-a";
@@ -5000,8 +5126,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5025,7 +5151,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const runId = "run-xhs-live-context-drift-001";
     const profile = "profile-a";
@@ -5065,8 +5191,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const firstBlocked = firstPort.postMessage.mock.calls
@@ -5096,8 +5222,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     const secondBlocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -5119,7 +5245,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const fingerprintContext = createFingerprintRuntimeContext();
     fingerprintContext.fingerprint_patch_manifest.required_patches.push("unknown_required_patch");
@@ -5220,7 +5346,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
@@ -5308,7 +5434,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-live-write-gate-only-001",
@@ -5342,8 +5468,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const approved = firstPort.postMessage.mock.calls
@@ -5422,7 +5548,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-allowed-001",
@@ -5453,7 +5579,7 @@ describe("extension service worker / bootstrap and trust", () => {
         command_params: createXhsEditorInputCommandParams(),
         cwd: "/workspace/WebEnvoy"
       },
-      timeout_ms: 100
+      timeout_ms: 1000
     });
     await waitForBridgeTurn();
     await vi.waitFor(() => {
@@ -5465,7 +5591,13 @@ describe("extension service worker / bootstrap and trust", () => {
         (call[0] as { world?: string; files?: string[] }).world === "ISOLATED" &&
         ((call[0] as { files?: string[] }).files ?? []).includes("build/content-script.js")
     );
-    expect(proactiveContentScriptInject).toBeUndefined();
+    expect(proactiveContentScriptInject).toEqual([
+      expect.objectContaining({
+        target: { tabId: 32 },
+        world: "ISOLATED",
+        files: ["build/content-script.js"]
+      })
+    ]);
     await vi.waitFor(() => {
       expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
         32,
@@ -5539,7 +5671,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const approved = firstPort.postMessage.mock.calls
       .map(
@@ -5622,7 +5754,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-multi-editor-001",
@@ -5689,7 +5821,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-debugger-attach-failed-001",
@@ -5724,12 +5856,15 @@ describe("extension service worker / bootstrap and trust", () => {
     });
     await waitForBridgeTurn();
 
-    const forwardCall = chromeApi.tabs.sendMessage.mock.calls.find(
-      (call) =>
-        (call[1] as { id?: string }).id ===
-        "run-xhs-issue-208-editor-input-debugger-attach-failed-001"
-    );
-    expect(forwardCall).toBeDefined();
+    let forwardCall: (typeof chromeApi.tabs.sendMessage.mock.calls)[number] | undefined;
+    await vi.waitFor(() => {
+      forwardCall = chromeApi.tabs.sendMessage.mock.calls.find(
+        (call) =>
+          (call[1] as { id?: string }).id ===
+          "run-xhs-issue-208-editor-input-debugger-attach-failed-001"
+      );
+      expect(forwardCall).toBeDefined();
+    });
     const forwarded = (forwardCall?.[1] as { commandParams?: { options?: Record<string, unknown> } })
       .commandParams?.options;
     const attestation = asRecord(forwarded?.editor_focus_attestation);
@@ -5755,7 +5890,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-issue-208-editor-input-non-article-001",
@@ -5814,7 +5949,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-issue-208-irreversible-001",
@@ -5848,8 +5983,8 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
     const blocked = firstPort.postMessage.mock.calls
@@ -5870,7 +6005,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-live-limited-approved-001",
@@ -5953,7 +6088,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const approved = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { summary?: Record<string, unknown> } })
@@ -5986,7 +6121,7 @@ describe("extension service worker / bootstrap and trust", () => {
     ]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
     await primeTrustedFingerprintContext({
       runtimeMessageListeners,
       runId: "run-xhs-live-mode-approved-001",
@@ -6065,7 +6200,7 @@ describe("extension service worker / bootstrap and trust", () => {
         }
       }
     );
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const approved = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { summary?: Record<string, unknown> } })
@@ -6095,7 +6230,7 @@ describe("extension service worker / bootstrap and trust", () => {
     const { chromeApi } = createChromeApi([firstPort]);
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-invalid-domain-001",
@@ -6112,7 +6247,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { consumer_gate_result?: { gate_reasons?: string[] } } })
@@ -6139,7 +6274,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-read-write-domain-mismatch-001",
@@ -6158,7 +6293,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     const blocked = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: { consumer_gate_result?: { gate_reasons?: string[] } } })
@@ -6185,7 +6320,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-xhs-explicit-target-allow-001",
@@ -6230,7 +6365,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     firstPort.onMessageListeners[0]?.({
       id: "run-runtime-tabs-001",
@@ -6248,7 +6383,7 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 100
     });
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(firstPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -6286,7 +6421,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
       respondHandshake(ports[0]);
       ports[0].onDisconnectListeners[0]?.();
-      await Promise.resolve();
+      await waitForBridgeTurn();
       vi.advanceTimersByTime(5);
       expect(chromeApi.runtime.connectNative).toHaveBeenCalledTimes(2);
 
@@ -6303,7 +6438,7 @@ describe("extension service worker / bootstrap and trust", () => {
         },
         timeout_ms: 50
       });
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       const queuedError = ports[1].postMessage.mock.calls.find(
         (call) => (call[0] as { id?: string }).id === "queued-forward-001"
@@ -6313,8 +6448,8 @@ describe("extension service worker / bootstrap and trust", () => {
 
       respondHandshake(ports[1]);
 
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
       expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
         11,
         expect.objectContaining({
@@ -6341,7 +6476,7 @@ describe("extension service worker / bootstrap and trust", () => {
       });
 
       respondHandshake(ports[0]);
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       expect(
         setIntervalSpy.mock.calls.filter(([, intervalMs]) => intervalMs === 10_000)
@@ -6351,7 +6486,7 @@ describe("extension service worker / bootstrap and trust", () => {
       ).toHaveLength(0);
 
       ports[0].onDisconnectListeners[0]?.();
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       expect(clearIntervalSpy.mock.calls).toHaveLength(1);
       expect(
@@ -6359,11 +6494,11 @@ describe("extension service worker / bootstrap and trust", () => {
       ).toHaveLength(1);
 
       vi.advanceTimersByTime(5);
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
 
       respondHandshake(ports[1]);
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       expect(
         setIntervalSpy.mock.calls.filter(([, intervalMs]) => intervalMs === 10_000)
@@ -6388,7 +6523,7 @@ describe("extension service worker / bootstrap and trust", () => {
 
     respondHandshake(ports[0]);
     ports[0].onDisconnectListeners[0]?.();
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     for (let i = 1; i <= 6; i += 1) {
       ports[1].onMessageListeners[0]?.({
@@ -6406,7 +6541,7 @@ describe("extension service worker / bootstrap and trust", () => {
       });
     }
 
-    await Promise.resolve();
+    await waitForBridgeTurn();
     const overflowError = ports[1].postMessage.mock.calls.find(
       (call) => (call[0] as { id?: string }).id === "queued-overflow-6"
     );
@@ -6453,8 +6588,8 @@ describe("extension service worker / bootstrap and trust", () => {
       });
 
       vi.advanceTimersByTime(40);
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitForBridgeTurn();
+      await waitForBridgeTurn();
 
       expect(ports[1].postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -6500,7 +6635,7 @@ describe("extension service worker / bootstrap and trust", () => {
       });
 
       vi.advanceTimersByTime(30);
-      await Promise.resolve();
+      await waitForBridgeTurn();
 
       expect(ports[1].postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -6540,8 +6675,8 @@ describe("extension service worker / bootstrap and trust", () => {
       }
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(executeScript).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -6583,7 +6718,7 @@ describe("extension service worker / bootstrap and trust", () => {
       }
     );
 
-    await Promise.resolve();
+    await waitForBridgeTurn();
 
     expect(executeScript).not.toHaveBeenCalled();
     expect(response).toEqual({
@@ -6620,8 +6755,8 @@ describe("extension service worker / bootstrap and trust", () => {
       }
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForBridgeTurn();
+    await waitForBridgeTurn();
 
     expect(executeScript).toHaveBeenCalledTimes(1);
     expect(response).toEqual({

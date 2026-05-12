@@ -16,6 +16,7 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
+const CONTENT_SCRIPT_DIAGNOSTIC_BUILD_MARKER = "issue650-closeout-deadline-v1";
 const createCurrentPageContextNamespace = (href) => {
     const normalized = href.trim();
     if (normalized.length === 0) {
@@ -176,6 +177,105 @@ const requestXhsSignatureViaExtension = async (uri, body) => {
         throw new Error(typeof response.error?.message === "string" ? response.error.message : "xhs-sign failed");
     }
     return response.result;
+};
+const requestXhsSearchDebuggerActionViaExtension = async (input) => {
+    const runtime = globalThis.chrome?.runtime;
+    const sendMessage = runtime?.sendMessage;
+    if (!sendMessage) {
+        return {
+            ok: false,
+            error: {
+                code: "ERR_XHS_SEARCH_DEBUGGER_UNAVAILABLE",
+                message: "extension runtime.sendMessage is unavailable"
+            }
+        };
+    }
+    const request = {
+        kind: "xhs-search-debugger-action",
+        query: input.query,
+        run_id: input.runId,
+        action_ref: input.actionRef,
+        ...(typeof input.timeoutMs === "number" ? { timeout_ms: input.timeoutMs } : {}),
+        ...(input.actionMode ? { action_mode: input.actionMode } : {})
+    };
+    try {
+        const response = await new Promise((resolve, reject) => {
+            let settled = false;
+            const timeoutMs = typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs) && input.timeoutMs > 0
+                ? Math.floor(input.timeoutMs)
+                : 12_000;
+            const resolveOnce = (message) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                resolve(message);
+            };
+            const rejectOnce = (error) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                reject(error);
+            };
+            const timer = setTimeout(() => {
+                resolveOnce({
+                    ok: false,
+                    error: {
+                        code: "ERR_XHS_SEARCH_DEBUGGER_TIMEOUT",
+                        message: `xhs search debugger action timed out after ${timeoutMs}ms`
+                    }
+                });
+            }, timeoutMs);
+            try {
+                const maybePromise = sendMessage(request, (message) => {
+                    const lastError = globalThis.chrome?.runtime?.lastError;
+                    if (lastError?.message) {
+                        resolveOnce({
+                            ok: false,
+                            error: {
+                                code: "ERR_XHS_SEARCH_DEBUGGER_FAILED",
+                                message: lastError.message
+                            }
+                        });
+                        return;
+                    }
+                    resolveOnce(message ?? {
+                        ok: false,
+                        error: { code: "ERR_XHS_SEARCH_DEBUGGER_FAILED", message: "response missing" }
+                    });
+                });
+                if (maybePromise && typeof maybePromise.then === "function") {
+                    void maybePromise
+                        .then((message) => {
+                        if (message) {
+                            resolveOnce(message);
+                        }
+                    })
+                        .catch((error) => {
+                        rejectOnce(error);
+                    });
+                }
+            }
+            catch (error) {
+                rejectOnce(error);
+            }
+        });
+        return response.ok && response.result
+            ? { ok: true, result: response.result }
+            : { ok: false, error: response.error };
+    }
+    catch (error) {
+        return {
+            ok: false,
+            error: {
+                code: "ERR_XHS_SEARCH_DEBUGGER_FAILED",
+                message: error instanceof Error ? error.message : String(error)
+            }
+        };
+    }
 };
 const buildRuntimeBootstrapAckPayload = (input) => ({
     method: "runtime.bootstrap.ack",
@@ -391,18 +491,23 @@ const isCurrentSearchPageForQuery = (href, query) => {
 };
 const createSameQuerySearchPerturbation = (query, currentValue) => {
     const normalizedQuery = normalizeSearchQueryText(query);
-    const candidates = [query.slice(0, Math.max(0, query.length - 1)), `${query}x`, `${query} `];
-    return (candidates.find((candidate) => candidate !== currentValue &&
+    const candidates = [
+        query.length > 1 ? `${query} ` : null,
+        `${query}x`,
+        query.slice(0, Math.max(0, query.length - 1))
+    ];
+    return (candidates.find((candidate) => candidate !== null &&
+        candidate !== currentValue &&
         candidate !== query &&
         normalizeSearchQueryText(candidate) !== null &&
-        normalizeSearchQueryText(candidate) !== normalizedQuery) ?? `${query}x`);
+        (candidate.endsWith(" ") || normalizeSearchQueryText(candidate) !== normalizedQuery)) ?? `${query}x`);
 };
 const waitForXhsSearchPassiveActionTurn = async () => {
     await new Promise((resolve) => {
         setTimeout(resolve, 180);
     });
 };
-const XHS_SEARCH_INPUT_SELECTOR = 'input[type="search"], input[class*="search"], input[placeholder*="搜索"], input[placeholder*="search" i]';
+const XHS_SEARCH_INPUT_SELECTOR = 'input[type="search"], input[class*="search"], input[placeholder*="搜索"], input[placeholder*="search" i], input:not([type="hidden"])';
 const XHS_SEARCH_BUTTON_SELECTOR = 'button[type="submit"], button[class*="search" i], [role="button"][class*="search" i], [aria-label*="搜索"], [aria-label*="search" i], [title*="搜索"], [title*="search" i], [class*="search-icon" i], [class*="searchIcon" i], [class*="search-btn" i]';
 const isElementUsableForXhsSearch = (element) => {
     if (!element) {
@@ -524,8 +629,37 @@ const performXhsSearchPassiveAction = async (input) => {
             }
         };
         const dispatchTextChange = (target, value) => {
-            target.dispatchEvent(new InputEvent("input", { bubbles: true, data: value }));
+            target.dispatchEvent(new InputEvent("beforeinput", {
+                bubbles: true,
+                cancelable: true,
+                data: value,
+                inputType: "insertReplacementText"
+            }));
+            target.dispatchEvent(new InputEvent("input", {
+                bubbles: true,
+                data: value,
+                inputType: "insertReplacementText"
+            }));
             target.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        const replaceSearchInputText = (target, value) => {
+            target.focus();
+            const execCommand = document.execCommand?.bind(document);
+            if (typeof execCommand === "function") {
+                try {
+                    target.select?.();
+                    target.setSelectionRange?.(0, target.value.length);
+                    if (execCommand("insertText", false, value) === true) {
+                        dispatchTextChange(target, value);
+                        return;
+                    }
+                }
+                catch {
+                    // Fall back to the native value setter path below.
+                }
+            }
+            setSearchInputValue(target, value);
+            dispatchTextChange(target, value);
         };
         const triggerSubmit = (target, form, button, options) => {
             const preventNativeNavigation = (event) => {
@@ -642,13 +776,6 @@ const performXhsSearchPassiveAction = async (input) => {
                 }
             }
         };
-        const refreshSearchControls = () => {
-            const refreshed = resolveSearchControls();
-            searchInput = refreshed.searchInput;
-            searchForm = refreshed.searchForm;
-            searchButton = refreshed.searchButton;
-            return Boolean(searchInput);
-        };
         const currentInputValue = searchInput.value;
         const sameQueryInputMatched = queryMatched &&
             normalizeSearchQueryText(currentInputValue) === normalizeSearchQueryText(input.query);
@@ -664,6 +791,13 @@ const performXhsSearchPassiveAction = async (input) => {
         let sameQuerySearchInputRefreshSource = null;
         let preSubmitValueChanged = false;
         let inputSettleWaits = 0;
+        const refreshSearchControls = () => {
+            const refreshed = resolveSearchControls();
+            searchInput = refreshed.searchInput;
+            searchForm = refreshed.searchForm;
+            searchButton = refreshed.searchButton;
+            return Boolean(searchInput);
+        };
         const restoreConnectedSearchControls = (fallbackInput) => {
             if (fallbackInput.isConnected !== true || !isElementUsableForXhsSearch(fallbackInput)) {
                 return false;
@@ -746,11 +880,66 @@ const performXhsSearchPassiveAction = async (input) => {
             return false;
         };
         searchInput.focus();
+        if (sameQueryInputMatched && input.debuggerActionAllowed === true) {
+            sameQueryPreflightMode = "debugger_input_submit";
+            sameQuerySearchInputRefreshed = true;
+            sameQuerySearchInputRefreshSource = "same_query_existing_input";
+            await waitForXhsSearchPassiveActionTurn();
+            inputSettleWaits += 1;
+            const debuggerAction = input.debuggerActionAllowed === true
+                ? await requestXhsSearchDebuggerActionViaExtension({
+                    query: input.query,
+                    runId: input.runId,
+                    actionRef: input.actionRef,
+                    timeoutMs: input.timeoutMs,
+                    actionMode: "input_submit"
+                })
+                : {
+                    ok: false,
+                    error: {
+                        code: "ERR_XHS_SEARCH_DEBUGGER_NOT_REQUESTED",
+                        message: "debugger action is only enabled for closeout evidence capture"
+                    }
+                };
+            return {
+                evidence_class: "humanized_action",
+                action_kind: "keyboard_input",
+                action_ref: input.actionRef,
+                run_id: input.runId,
+                page_url: input.pageUrl,
+                query: input.query,
+                query_matched: queryMatched,
+                search_input_found: true,
+                same_query_input_matched: sameQueryInputMatched,
+                same_query_perturbed: sameQueryPerturbed,
+                same_query_preflight_submitted: sameQueryPreflightSubmitted,
+                same_query_preflight_submit_triggered: sameQueryPreflightSubmitTriggered,
+                same_query_preflight_mode: sameQueryPreflightMode,
+                same_query_preflight_state_change_observed: sameQueryPreflightStateChangeObserved,
+                same_query_preflight_state_change_source: sameQueryPreflightStateChangeSource,
+                same_query_preflight_state_change_attempts: sameQueryPreflightStateChangeAttempts,
+                same_query_search_input_refreshed: sameQuerySearchInputRefreshed,
+                same_query_search_input_refresh_attempts: sameQuerySearchInputRefreshAttempts,
+                same_query_search_input_refresh_source: sameQuerySearchInputRefreshSource,
+                pre_submit_value_changed: preSubmitValueChanged,
+                input_settle_waits: inputSettleWaits,
+                search_form_found: Boolean(searchForm),
+                search_button_found: Boolean(searchButton),
+                submit_triggered: null,
+                debugger_action: debuggerAction.ok && debuggerAction.result
+                    ? debuggerAction.result
+                    : {
+                        attempted: input.debuggerActionAllowed === true,
+                        ok: false,
+                        error: debuggerAction.error ?? null
+                    },
+                trigger_surface: "xhs.search_result"
+            };
+        }
         if (sameQueryInputMatched) {
             const preflightSearchInput = searchInput;
             const perturbedValue = createSameQuerySearchPerturbation(input.query, currentInputValue);
-            setSearchInputValue(searchInput, perturbedValue);
-            dispatchTextChange(searchInput, perturbedValue);
+            replaceSearchInputText(searchInput, perturbedValue);
             sameQueryPerturbed = true;
             preSubmitValueChanged = searchInput.value !== currentInputValue;
             await waitForXhsSearchPassiveActionTurn();
@@ -827,13 +1016,59 @@ const performXhsSearchPassiveAction = async (input) => {
             }
             searchInput.focus();
         }
-        setSearchInputValue(searchInput, input.query);
-        dispatchTextChange(searchInput, input.query);
+        replaceSearchInputText(searchInput, input.query);
         if (sameQueryInputMatched) {
             await waitForXhsSearchPassiveActionTurn();
             inputSettleWaits += 1;
         }
+        const debuggerAction = input.debuggerActionAllowed === true
+            ? await requestXhsSearchDebuggerActionViaExtension({
+                query: input.query,
+                runId: input.runId,
+                actionRef: input.actionRef,
+                timeoutMs: input.timeoutMs,
+                actionMode: "input_submit"
+            })
+            : {
+                ok: false,
+                error: {
+                    code: "ERR_XHS_SEARCH_DEBUGGER_NOT_REQUESTED",
+                    message: "debugger action is only enabled for closeout evidence capture"
+                }
+            };
+        if (debuggerAction.ok && debuggerAction.result) {
+            return {
+                evidence_class: "humanized_action",
+                action_kind: "keyboard_input",
+                action_ref: input.actionRef,
+                run_id: input.runId,
+                page_url: input.pageUrl,
+                query: input.query,
+                query_matched: queryMatched,
+                search_input_found: true,
+                same_query_input_matched: sameQueryInputMatched,
+                same_query_perturbed: sameQueryPerturbed,
+                same_query_preflight_submitted: sameQueryPreflightSubmitted,
+                same_query_preflight_submit_triggered: sameQueryPreflightSubmitTriggered,
+                same_query_preflight_mode: sameQueryPreflightMode,
+                same_query_preflight_state_change_observed: sameQueryPreflightStateChangeObserved,
+                same_query_preflight_state_change_source: sameQueryPreflightStateChangeSource,
+                same_query_preflight_state_change_attempts: sameQueryPreflightStateChangeAttempts,
+                same_query_search_input_refreshed: sameQuerySearchInputRefreshed,
+                same_query_search_input_refresh_attempts: sameQuerySearchInputRefreshAttempts,
+                same_query_search_input_refresh_source: sameQuerySearchInputRefreshSource,
+                pre_submit_value_changed: preSubmitValueChanged,
+                input_settle_waits: inputSettleWaits,
+                search_form_found: Boolean(searchForm),
+                search_button_found: Boolean(searchButton),
+                submit_triggered: debuggerAction.result.submit_triggered ?? "chrome_debugger",
+                trigger_surface: "xhs.search_result",
+                debugger_action: debuggerAction.result
+            };
+        }
         const submitTriggered = triggerSubmit(searchInput, searchForm, searchButton, {
+            preventNativeNavigation: Boolean(searchForm),
+            preventKeyboardDefault: Boolean(searchForm),
             preferButtonClick: Boolean(searchButton)
         });
         return {
@@ -861,10 +1096,45 @@ const performXhsSearchPassiveAction = async (input) => {
             search_form_found: Boolean(searchForm),
             search_button_found: Boolean(searchButton),
             submit_triggered: submitTriggered,
+            debugger_action: {
+                attempted: true,
+                ok: false,
+                error: debuggerAction.error ?? null
+            },
             trigger_surface: "xhs.search_result"
         };
     }
     if (queryMatched) {
+        const debuggerAction = input.debuggerActionAllowed === true
+            ? await requestXhsSearchDebuggerActionViaExtension({
+                query: input.query,
+                runId: input.runId,
+                actionRef: input.actionRef,
+                timeoutMs: input.timeoutMs,
+                actionMode: "page_reload"
+            })
+            : {
+                ok: false,
+                error: {
+                    code: "ERR_XHS_SEARCH_DEBUGGER_NOT_REQUESTED",
+                    message: "debugger action is only enabled for closeout evidence capture"
+                }
+            };
+        if (debuggerAction.ok && debuggerAction.result) {
+            return {
+                evidence_class: "humanized_action",
+                action_kind: "keyboard_input",
+                action_ref: input.actionRef,
+                run_id: input.runId,
+                page_url: input.pageUrl,
+                query: input.query,
+                query_matched: queryMatched,
+                search_input_found: false,
+                submit_triggered: debuggerAction.result.submit_triggered ?? "chrome_debugger",
+                trigger_surface: "xhs.search_result",
+                debugger_action: debuggerAction.result
+            };
+        }
         const target = document.scrollingElement ?? document.documentElement;
         const beforeScrollY = window.scrollY;
         const deltaY = 240;
@@ -889,6 +1159,11 @@ const performXhsSearchPassiveAction = async (input) => {
             query_matched: true,
             before_scroll_y: beforeScrollY,
             after_scroll_y: window.scrollY,
+            debugger_action: {
+                attempted: true,
+                ok: false,
+                error: debuggerAction.error ?? null
+            },
             trigger_surface: "xhs.search_result"
         };
     }
@@ -979,11 +1254,14 @@ const resolveTargetDomainFromHref = (href) => {
 const resolveTargetPageFromHref = (href, command) => {
     try {
         const url = new URL(href);
+        const isSearchResultDetailPath = /^\/search_result\/[^/?#]+/u.test(url.pathname);
+        if (command === "xhs.detail" &&
+            url.hostname === "www.xiaohongshu.com" &&
+            (url.pathname.startsWith("/explore/") || isSearchResultDetailPath)) {
+            return "explore_detail_tab";
+        }
         if (url.hostname === "www.xiaohongshu.com" && url.pathname.startsWith("/search_result")) {
             return "search_result_tab";
-        }
-        if (command === "xhs.detail" && url.hostname === "www.xiaohongshu.com" && url.pathname.startsWith("/explore/")) {
-            return "explore_detail_tab";
         }
         if (command === "xhs.user_home" &&
             url.hostname === "www.xiaohongshu.com" &&
@@ -999,8 +1277,92 @@ const resolveTargetPageFromHref = (href, command) => {
         return null;
     }
 };
+const resolveContentCommandDeadlineMs = (messageTimeoutMs, options) => {
+    if (typeof messageTimeoutMs !== "number" ||
+        !Number.isFinite(messageTimeoutMs) ||
+        messageTimeoutMs <= 10_000) {
+        return null;
+    }
+    const normalizedMessageTimeout = Math.floor(messageTimeoutMs);
+    const optionTimeout = typeof options.timeout_ms === "number" &&
+        Number.isFinite(options.timeout_ms) &&
+        options.timeout_ms > 0
+        ? Math.floor(options.timeout_ms)
+        : normalizedMessageTimeout;
+    const closeoutCaptureRequested = options.closeout_evidence_evaluation === true || options.closeout_audit_required === true;
+    const nativeSafetyWindowMs = Math.max(1, normalizedMessageTimeout - 5_000);
+    const maxCommandDeadlineMs = closeoutCaptureRequested
+        ? Math.max(20_000, Math.min(55_000, nativeSafetyWindowMs))
+        : 20_000;
+    return Math.max(1, Math.min(normalizedMessageTimeout, optionTimeout, maxCommandDeadlineMs));
+};
+export const resolveContentCommandDeadlineMsForContract = resolveContentCommandDeadlineMs;
+const maybeWithContentCommandDeadline = async (promise, input) => input.timeoutMs === null
+    ? await promise
+    : await withContentCommandDeadline(promise, {
+        timeoutMs: input.timeoutMs,
+        abilityId: input.abilityId,
+        command: input.command
+    });
+const withContentCommandDeadline = async (promise, input) => await new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+    };
+    const timer = setTimeout(() => {
+        finish({
+            ok: false,
+            error: {
+                code: "ERR_EXECUTION_FAILED",
+                message: `${input.command} content script execution timed out before native deadline`
+            },
+            payload: {
+                details: {
+                    ability_id: input.abilityId,
+                    stage: "execution",
+                    reason: "CONTENT_SCRIPT_EXECUTION_TIMEOUT",
+                    timeout_ms: input.timeoutMs
+                },
+                diagnosis: {
+                    category: "runtime_unavailable",
+                    stage: "runtime",
+                    component: "content-script",
+                    failure_site: {
+                        stage: "runtime",
+                        component: "content-script",
+                        target: input.command,
+                        summary: `${input.command} content script execution timed out before native deadline`
+                    },
+                    evidence: [`content_command_timeout_ms=${input.timeoutMs}`]
+                }
+            }
+        });
+    }, input.timeoutMs);
+    promise.then(finish).catch((error) => {
+        finish({
+            ok: false,
+            error: {
+                code: "ERR_EXECUTION_FAILED",
+                message: error instanceof Error ? error.message : String(error)
+            },
+            payload: {
+                details: {
+                    ability_id: input.abilityId,
+                    stage: "execution",
+                    reason: "CONTENT_SCRIPT_EXECUTION_FAILED"
+                }
+            }
+        });
+    });
+});
 export class ContentScriptHandler {
     #listeners = new Set();
+    #completedResultIds = new Set();
     #reachable = true;
     #xhsEnv;
     constructor(options) {
@@ -1017,6 +1379,7 @@ export class ContentScriptHandler {
         if (!this.#reachable) {
             return false;
         }
+        this.#completedResultIds.delete(message.id);
         if (message.commandParams.simulate_no_response === true) {
             return true;
         }
@@ -1029,9 +1392,7 @@ export class ContentScriptHandler {
             return true;
         }
         if (XHS_READ_COMMANDS.has(message.command)) {
-            void this.#handleXhsReadCommand(message).catch((error) => {
-                this.#emitUnexpectedXhsReadFailure(message, error);
-            });
+            this.#handleXhsReadCommandWithDeadline(message);
             return true;
         }
         const result = this.#handleForward(message);
@@ -1063,6 +1424,53 @@ export class ContentScriptHandler {
                     fingerprint_runtime: fingerprintRuntime
                 }
                 : {}
+        });
+    }
+    #handleXhsReadCommandWithDeadline(message) {
+        const options = asRecord(message.commandParams.options) ?? {};
+        const timeoutMs = resolveContentCommandDeadlineMs(message.timeoutMs, options);
+        let timer = null;
+        if (timeoutMs !== null) {
+            timer = setTimeout(() => {
+                this.#emit({
+                    kind: "result",
+                    id: message.id,
+                    ok: false,
+                    error: {
+                        code: "ERR_EXECUTION_FAILED",
+                        message: `${message.command} content script execution timed out before native deadline`
+                    },
+                    payload: {
+                        details: {
+                            ability_id: asString(asRecord(message.commandParams.ability)?.id) ?? "unknown",
+                            stage: "execution",
+                            reason: "CONTENT_SCRIPT_EXECUTION_TIMEOUT",
+                            timeout_ms: timeoutMs
+                        },
+                        diagnosis: {
+                            category: "runtime_unavailable",
+                            stage: "runtime",
+                            component: "content-script",
+                            failure_site: {
+                                stage: "runtime",
+                                component: "content-script",
+                                target: message.command,
+                                summary: `${message.command} content script execution timed out before native deadline`
+                            },
+                            evidence: [`content_command_timeout_ms=${timeoutMs}`]
+                        }
+                    }
+                });
+            }, timeoutMs);
+        }
+        void this.#handleXhsReadCommand(message)
+            .catch((error) => {
+            this.#emitUnexpectedXhsReadFailure(message, error);
+        })
+            .finally(() => {
+            if (timer !== null) {
+                clearTimeout(timer);
+            }
         });
     }
     async #installFingerprintIfPresent(message) {
@@ -1104,6 +1512,13 @@ export class ContentScriptHandler {
                 run_id: message.runId,
                 profile: message.profile,
                 cwd: message.cwd,
+                content_script_diagnostics: {
+                    source: "content_script_handler",
+                    build_marker: CONTENT_SCRIPT_DIAGNOSTIC_BUILD_MARKER,
+                    supports_xhs_search_debugger_action_mode: true,
+                    current_url: this.#safeXhsEnvValue(() => this.#xhsEnv.getLocationHref(), "unknown"),
+                    document_ready_state: this.#safeXhsEnvValue(() => this.#xhsEnv.getReadyState(), "unknown")
+                },
                 ...(fingerprintRuntime ? { fingerprint_runtime: fingerprintRuntime } : {})
             }
         });
@@ -1348,6 +1763,10 @@ export class ContentScriptHandler {
                     ...(options.limited_read_rollout_ready_true === true
                         ? { limited_read_rollout_ready_true: true }
                         : {}),
+                    ...(options.closeout_audit_required === true ? { closeout_audit_required: true } : {}),
+                    ...(options.closeout_evidence_evaluation === true
+                        ? { closeout_evidence_evaluation: true }
+                        : {}),
                     ...(options.xhs_recovery_probe === true ? { xhs_recovery_probe: true } : {}),
                     ...(typeof options.validation_action === "string"
                         ? { validation_action: options.validation_action }
@@ -1390,6 +1809,7 @@ export class ContentScriptHandler {
                 }
             };
             let result;
+            const contentCommandDeadlineMs = resolveContentCommandDeadlineMs(message.timeoutMs, options);
             const configureReadRequestContextProvenance = async () => {
                 if (typeof this.#xhsEnv.configureCapturedRequestContextProvenance !== "function") {
                     return true;
@@ -1403,13 +1823,28 @@ export class ContentScriptHandler {
                     action_ref: commonInput.abilityAction,
                     page_url: locationHref
                 };
-                const result = await this.#xhsEnv.configureCapturedRequestContextProvenance(expected).catch(() => null);
+                if (commonInput.options.closeout_audit_required !== true &&
+                    commonInput.options.closeout_evidence_evaluation !== true) {
+                    const result = await this.#xhsEnv.configureCapturedRequestContextProvenance(expected).catch(() => null);
+                    return capturedRequestContextProvenanceConfirmed(result, expected);
+                }
+                const timeoutMs = Math.max(1, Math.min(contentCommandDeadlineMs ?? 2_000, 2_000));
+                let timeout = null;
+                const result = await Promise.race([
+                    this.#xhsEnv.configureCapturedRequestContextProvenance(expected).catch(() => null),
+                    new Promise((resolve) => {
+                        timeout = setTimeout(() => resolve(null), timeoutMs);
+                    })
+                ]);
+                if (timeout) {
+                    clearTimeout(timeout);
+                }
                 return capturedRequestContextProvenanceConfirmed(result, expected);
             };
             if (message.command === "xhs.search") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
-                result = await executeXhsSearch({
+                result = await maybeWithContentCommandDeadline(executeXhsSearch({
                     ...commonInput,
                     params: {
                         query: searchInput.query,
@@ -1428,25 +1863,37 @@ export class ContentScriptHandler {
                         ...commonInput.options,
                         __request_context_provenance_confirmed: requestContextProvenanceConfirmed
                     }
-                }, this.#xhsEnv);
+                }, this.#xhsEnv), {
+                    timeoutMs: contentCommandDeadlineMs,
+                    abilityId: commonInput.abilityId,
+                    command: message.command
+                });
             }
             else if (message.command === "xhs.detail") {
                 void (await configureReadRequestContextProvenance());
-                result = await executeXhsDetail({
+                result = await maybeWithContentCommandDeadline(executeXhsDetail({
                     ...commonInput,
                     params: {
                         note_id: normalizedInput.note_id
                     }
-                }, this.#xhsEnv);
+                }, this.#xhsEnv), {
+                    timeoutMs: contentCommandDeadlineMs,
+                    abilityId: commonInput.abilityId,
+                    command: message.command
+                });
             }
             else {
                 void (await configureReadRequestContextProvenance());
-                result = await executeXhsUserHome({
+                result = await maybeWithContentCommandDeadline(executeXhsUserHome({
                     ...commonInput,
                     params: {
                         user_id: normalizedInput.user_id
                     }
-                }, this.#xhsEnv);
+                }, this.#xhsEnv), {
+                    timeoutMs: contentCommandDeadlineMs,
+                    abilityId: commonInput.abilityId,
+                    command: message.command
+                });
             }
             this.#emit(this.#toContentMessage(message.id, result, fingerprintRuntime));
         }
@@ -1495,6 +1942,12 @@ export class ContentScriptHandler {
         };
     }
     #emit(message) {
+        if (message.kind === "result" && typeof message.id === "string") {
+            if (this.#completedResultIds.has(message.id)) {
+                return;
+            }
+            this.#completedResultIds.add(message.id);
+        }
         for (const listener of this.#listeners) {
             listener(message);
         }

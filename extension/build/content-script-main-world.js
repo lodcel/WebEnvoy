@@ -248,7 +248,11 @@ export const configureCapturedRequestContextProvenanceViaMainWorld = async (inpu
             ...(typeof input.target_tab_id === "number" ? { target_tab_id: input.target_tab_id } : {}),
             ...(typeof input.run_id === "string" ? { run_id: input.run_id } : {}),
             ...(typeof input.action_ref === "string" ? { action_ref: input.action_ref } : {}),
-            ...(typeof input.page_url === "string" ? { page_url: input.page_url } : {})
+            ...(typeof input.page_url === "string" ? { page_url: input.page_url } : {}),
+            ...(typeof input.bind_fresh_window_ms === "number" &&
+                Number.isFinite(input.bind_fresh_window_ms)
+                ? { bind_fresh_window_ms: input.bind_fresh_window_ms }
+                : {})
         }
     });
     return asRecord(result);

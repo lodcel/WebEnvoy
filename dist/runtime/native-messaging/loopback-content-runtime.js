@@ -507,9 +507,11 @@ export class InMemoryContentScriptRuntime {
                                                 ? `${commandName} 接口返回了当前人机验证阻断`
                                                 : simulated === "generic_api_warning"
                                                     ? `${commandName} 接口返回了未识别的失败响应`
-                                                    : simulated === "signature_entry_missing"
-                                                        ? "页面签名入口不可用"
-                                                        : `网关调用失败，当前上下文不足以完成 ${commandName} 请求`
+                                                    : simulated === "request_context_missing_with_humanized_action"
+                                                        ? "当前页面现场缺少可复用的搜索请求模板"
+                                                        : simulated === "signature_entry_missing"
+                                                            ? "页面签名入口不可用"
+                                                            : `网关调用失败，当前上下文不足以完成 ${commandName} 请求`
                 },
                 payload: {
                     details: {
@@ -533,7 +535,25 @@ export class InMemoryContentScriptRuntime {
                                                         ? "TARGET_API_RESPONSE_INVALID"
                                                         : simulated === "signature_entry_missing"
                                                             ? "SIGNATURE_ENTRY_MISSING"
-                                                            : "GATEWAY_INVOKER_FAILED",
+                                                            : simulated === "request_context_missing_with_humanized_action"
+                                                                ? "REQUEST_CONTEXT_MISSING"
+                                                                : "GATEWAY_INVOKER_FAILED",
+                        ...(simulated === "request_context_missing_with_humanized_action"
+                            ? {
+                                humanized_action: {
+                                    evidence_class: "humanized_action",
+                                    action_kind: "keyboard_input",
+                                    debugger_action: {
+                                        attempted: true,
+                                        ok: false,
+                                        error: {
+                                            code: "ERR_XHS_SEARCH_DEBUGGER_FAILED",
+                                            message: "chrome.debugger attach failed: another debugger is already attached"
+                                        }
+                                    }
+                                }
+                            }
+                            : {}),
                         ...(simulated === "stale_account_safety_with_current_captcha"
                             ? {
                                 account_safety: {
@@ -601,7 +621,9 @@ export class InMemoryContentScriptRuntime {
                                         failure_reason: simulated === "classifier_only_account_abnormal" ||
                                             simulated === "classifier_account_abnormal_with_generic_diagnosis"
                                             ? "request_context_missing"
-                                            : simulated
+                                            : simulated === "request_context_missing_with_humanized_action"
+                                                ? "request_context_missing"
+                                                : simulated
                                     }
                                 ],
                         failure_site: {
@@ -613,7 +635,9 @@ export class InMemoryContentScriptRuntime {
                             summary: simulated === "classifier_only_account_abnormal" ||
                                 simulated === "classifier_account_abnormal_with_generic_diagnosis"
                                 ? "Account abnormal. Switch account and retry."
-                                : simulated
+                                : simulated === "request_context_missing_with_humanized_action"
+                                    ? "当前页面现场缺少可复用的搜索请求模板"
+                                    : simulated
                         }
                     },
                     diagnosis: {
@@ -629,14 +653,18 @@ export class InMemoryContentScriptRuntime {
                             summary: simulated === "classifier_only_account_abnormal" ||
                                 simulated === "classifier_account_abnormal_with_generic_diagnosis"
                                 ? "Account abnormal. Switch account and retry."
-                                : simulated
+                                : simulated === "request_context_missing_with_humanized_action"
+                                    ? "当前页面现场缺少可复用的搜索请求模板"
+                                    : simulated
                         },
                         evidence: [
                             simulated === "classifier_only_account_abnormal"
                                 ? "unclassified upstream failure"
                                 : simulated === "classifier_account_abnormal_with_generic_diagnosis"
                                     ? "SESSION_EXPIRED"
-                                    : simulated
+                                    : simulated === "request_context_missing_with_humanized_action"
+                                        ? "debugger_action_error_message=chrome.debugger attach failed: another debugger is already attached"
+                                        : simulated
                         ]
                     }
                 }

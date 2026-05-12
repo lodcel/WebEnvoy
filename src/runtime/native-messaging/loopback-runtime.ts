@@ -710,10 +710,10 @@ class InMemoryContentScriptRuntime {
       ok: false,
       error: {
         code: "ERR_EXECUTION_FAILED",
-        message:
-          simulated === "login_required"
-            ? `登录态缺失，无法执行 ${command}`
-            : simulated === "account_abnormal"
+          message:
+            simulated === "login_required"
+              ? `登录态缺失，无法执行 ${command}`
+              : simulated === "account_abnormal"
               ? "账号异常，平台拒绝当前请求"
               : simulated === "browser_env_abnormal"
                 ? "浏览器环境异常，平台拒绝当前请求"
@@ -727,6 +727,8 @@ class InMemoryContentScriptRuntime {
                     ? `${command} 接口返回了当前人机验证阻断`
                   : simulated === "generic_api_warning"
                     ? `${command} 接口返回了未识别的失败响应`
+                    : simulated === "request_context_missing_with_humanized_action"
+                      ? "当前页面现场缺少可复用的搜索请求模板"
                     : simulated === "signature_entry_missing"
                       ? "页面签名入口不可用"
                       : spec.failureSummary
@@ -752,9 +754,27 @@ class InMemoryContentScriptRuntime {
                     ? "TARGET_API_RESPONSE_INVALID"
                   : simulated === "generic_api_warning"
                     ? "TARGET_API_RESPONSE_INVALID"
+                    : simulated === "request_context_missing_with_humanized_action"
+                      ? "REQUEST_CONTEXT_MISSING"
                     : simulated === "signature_entry_missing"
                       ? "SIGNATURE_ENTRY_MISSING"
                       : "GATEWAY_INVOKER_FAILED",
+          ...(simulated === "request_context_missing_with_humanized_action"
+            ? {
+                humanized_action: {
+                  evidence_class: "humanized_action",
+                  action_kind: "keyboard_input",
+                  debugger_action: {
+                    attempted: true,
+                    ok: false,
+                    error: {
+                      code: "ERR_XHS_SEARCH_DEBUGGER_FAILED",
+                      message: "chrome.debugger attach failed: another debugger is already attached"
+                    }
+                  }
+                }
+              }
+            : {}),
           ...(simulated === "stale_account_safety_with_current_captcha"
             ? {
                 account_safety: {
@@ -828,6 +848,8 @@ class InMemoryContentScriptRuntime {
                       simulated === "classifier_only_account_abnormal"
                       || simulated === "classifier_account_abnormal_with_generic_diagnosis"
                         ? "request_context_missing"
+                        : simulated === "request_context_missing_with_humanized_action"
+                          ? "request_context_missing"
                         : simulated
                   }
                 ],
@@ -842,6 +864,8 @@ class InMemoryContentScriptRuntime {
               simulated === "classifier_only_account_abnormal"
               || simulated === "classifier_account_abnormal_with_generic_diagnosis"
                 ? "Account abnormal. Switch account and retry."
+                : simulated === "request_context_missing_with_humanized_action"
+                  ? "当前页面现场缺少可复用的搜索请求模板"
                 : simulated
           }
         },
@@ -860,6 +884,8 @@ class InMemoryContentScriptRuntime {
               simulated === "classifier_only_account_abnormal"
               || simulated === "classifier_account_abnormal_with_generic_diagnosis"
                 ? "Account abnormal. Switch account and retry."
+                : simulated === "request_context_missing_with_humanized_action"
+                  ? "当前页面现场缺少可复用的搜索请求模板"
                 : simulated
           },
           evidence: [
@@ -867,6 +893,8 @@ class InMemoryContentScriptRuntime {
               ? "unclassified upstream failure"
               : simulated === "classifier_account_abnormal_with_generic_diagnosis"
                 ? "SESSION_EXPIRED"
+              : simulated === "request_context_missing_with_humanized_action"
+                ? "debugger_action_error_message=chrome.debugger attach failed: another debugger is already attached"
               : simulated
           ]
         }

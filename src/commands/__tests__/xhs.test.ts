@@ -815,7 +815,15 @@ describe("ensureOfficialChromeRuntimeReady", () => {
     expect(bridge.runCommand).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        command: "runtime.readiness"
+        command: "runtime.ping",
+        params: expect.objectContaining({
+          fingerprint_runtime: expect.objectContaining({
+            fingerprint_profile_bundle: null
+          }),
+          target_domain: "www.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "search_result_tab"
+        })
       })
     );
     expect(bridge.runCommand).toHaveBeenNthCalledWith(
@@ -4991,6 +4999,98 @@ describe("normalizeGateOptionsForContract", () => {
       } else {
         process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
       }
+    }
+  });
+
+  it("preserves xhs.search humanized action diagnostics in CLI error details", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-humanized-action-diagnostics-"));
+    const runId = "run-humanized-action-diagnostics-001";
+    const requestId = "issue209-humanized-action-diagnostics-001";
+    const gateInvocationId = "issue209-gate-humanized-action-diagnostics-001";
+    const decisionId = `gate_decision_${gateInvocationId}`;
+    const approvalId = `gate_appr_${decisionId}`;
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+    try {
+      await seedXhsCloseoutReady({ cwd, profile: "xhs_humanized_action_diagnostics_profile" });
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.search",
+            profile: "xhs_humanized_action_diagnostics_profile",
+            run_id: runId,
+            params: {
+              request_id: requestId,
+              gate_invocation_id: gateInvocationId,
+              ability: {
+                id: "xhs.note.search.v1",
+                layer: "L3",
+                action: "read"
+              },
+              input: {
+                query: "露营"
+              },
+              options: {
+                simulate_result: "request_context_missing_with_humanized_action",
+                issue_scope: "issue_209",
+                target_domain: "www.xiaohongshu.com",
+                target_tab_id: 32,
+                target_page: "search_result_tab",
+                action_type: "read",
+                requested_execution_mode: "live_read_high_risk",
+                risk_state: "allowed",
+                approval_record: createIssue209FormalApprovalRecord(decisionId, approvalId),
+                audit_record: createIssue209FormalAuditRecord(requestId, decisionId, approvalId)
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: {
+          reason: "REQUEST_CONTEXT_MISSING",
+          humanized_action: {
+            evidence_class: "humanized_action",
+            action_kind: "keyboard_input",
+            debugger_action: {
+              attempted: true,
+              ok: false,
+              error: {
+                code: "ERR_XHS_SEARCH_DEBUGGER_FAILED",
+                message: "chrome.debugger attach failed: another debugger is already attached"
+              }
+            }
+          }
+        },
+        diagnosis: {
+          evidence: expect.arrayContaining([
+            "debugger_action_error_message=chrome.debugger attach failed: another debugger is already attached"
+          ])
+        }
+      });
+    } finally {
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      await rm(cwd, { recursive: true, force: true });
     }
   });
 

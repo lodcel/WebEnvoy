@@ -350,8 +350,11 @@ const isCompatibleSearchResultPageUrl = (
   } catch {
     return false;
   }
-  const leftKeyword = toTrimmedString(leftUrl.searchParams.get("keyword"));
   const rightKeyword = toTrimmedString(rightUrl.searchParams.get("keyword"));
+  const requestKeyword =
+    requestBody === undefined ? null : resolveSearchKeywordFromPayload(requestBody);
+  const leftKeyword =
+    toTrimmedString(leftUrl.searchParams.get("keyword")) ?? requestKeyword;
   if (
     !isSearchResultNamespaceUrl(leftUrl) ||
     !isSearchResultNamespaceUrl(rightUrl) ||
@@ -360,8 +363,6 @@ const isCompatibleSearchResultPageUrl = (
   ) {
     return false;
   }
-  const requestKeyword =
-    requestBody === undefined ? null : resolveSearchKeywordFromPayload(requestBody);
   if (!requestKeyword) {
     return true;
   }
@@ -1205,7 +1206,8 @@ const bindCapturedRequestContextProvenance = (
 const bindFreshUnprovenancedPassiveTemplates = (
   namespace: PageContextNamespace,
   provenance: CapturedRequestContextProvenance,
-  configuredAt: number
+  configuredAt: number,
+  freshWindowMs: number = PROVENANCE_BIND_FRESH_WINDOW_MS
 ): number => {
   const namespaceBuckets =
     mainWorldBridgeSharedState.capturedRequestContextBucketsByNamespace.get(namespace);
@@ -1223,7 +1225,7 @@ const bindFreshUnprovenancedPassiveTemplates = (
         template.route_evidence_class !== "passive_api_capture" ||
         hasCapturedRequestContextProvenance(template) ||
         observedAt <= 0 ||
-        configuredAt - observedAt > PROVENANCE_BIND_FRESH_WINDOW_MS ||
+        configuredAt - observedAt > freshWindowMs ||
         (provenance.page_url !== null &&
           template.referrer !== null &&
           template.referrer !== undefined &&
@@ -1270,7 +1272,17 @@ const handleCapturedRequestContextProvenanceSetRequest = async (
     page_url: asString(request.payload.page_url)
   };
   mainWorldBridgeSharedState.capturedRequestContextProvenanceByNamespace.set(namespace, provenance);
-  const boundFreshTemplates = bindFreshUnprovenancedPassiveTemplates(namespace, provenance, Date.now());
+  const requestedFreshWindowMs =
+    typeof request.payload.bind_fresh_window_ms === "number" &&
+    Number.isFinite(request.payload.bind_fresh_window_ms)
+      ? Math.max(1, Math.min(Math.floor(request.payload.bind_fresh_window_ms), 30_000))
+      : PROVENANCE_BIND_FRESH_WINDOW_MS;
+  const boundFreshTemplates = bindFreshUnprovenancedPassiveTemplates(
+    namespace,
+    provenance,
+    Date.now(),
+    requestedFreshWindowMs
+  );
   await emitMainWorldResult({
     id: request.id,
     ok: true,
@@ -1278,6 +1290,7 @@ const handleCapturedRequestContextProvenanceSetRequest = async (
       configured: true,
       page_context_namespace: namespace,
       bound_fresh_existing_templates: boundFreshTemplates,
+      bind_fresh_window_ms: requestedFreshWindowMs,
       ...provenance
     }
   });

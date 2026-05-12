@@ -110,6 +110,9 @@ export const classifyPageKind = (href) => {
     if (href.includes("creator.xiaohongshu.com/publish")) {
         return "compose";
     }
+    if (/\/search_result\/[^/?#]+/u.test(path)) {
+        return "detail";
+    }
     if (path.includes("/search_result")) {
         return "search";
     }
@@ -258,7 +261,7 @@ export const createDiagnosis = (input) => {
             target: semantics.target,
             summary: input.summary
         },
-        evidence: [input.reason, input.summary]
+        evidence: [input.reason, input.summary, ...(input.evidence ?? [])]
     };
 };
 export const createFailure = (code, message, details, observability, diagnosis, gate, auditRecord) => ({

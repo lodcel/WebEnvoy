@@ -33,6 +33,12 @@ interface PendingForward {
 
 const defaultForwardTimeoutMs = 3_000;
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const xhsForwardResponseSafetyMs = 5_000;
+
+const reserveXhsForwardResponseSafetyMs = (timeoutMs: number): number =>
+  timeoutMs > xhsForwardResponseSafetyMs
+    ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
+    : timeoutMs;
 
 const defaultReadTimeoutMs = (value: unknown): number | null => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -133,12 +139,57 @@ export class BackgroundRelay {
       });
       return;
     }
+    const pendingTimeoutMs = XHS_READ_COMMANDS.has(command)
+      ? reserveXhsForwardResponseSafetyMs(timeoutMs)
+      : timeoutMs;
     const timeout = setTimeout(() => {
-      this.#failPending(request.id, {
-        code: "ERR_TRANSPORT_TIMEOUT",
-        message: "content script forward timed out"
+      if (!XHS_READ_COMMANDS.has(command)) {
+        this.#failPending(request.id, {
+          code: "ERR_TRANSPORT_TIMEOUT",
+          message: "content script forward timed out"
+        });
+        return;
+      }
+      const pending = this.#takePending(request.id);
+      if (!pending || pending.suppressHostResponse === true) {
+        return;
+      }
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          relay_path: "host>background>content-script>background>host"
+        },
+        payload: {
+          details: {
+            stage: "execution",
+            reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT",
+            forward_failure_stage: "content_script_forward_timeout",
+            timeout_ms: pendingTimeoutMs,
+            native_timeout_ms: timeoutMs
+          },
+          diagnosis: {
+            category: "runtime_unavailable",
+            stage: "runtime",
+            component: "content-script",
+            failure_site: {
+              stage: "runtime",
+              component: "content-script",
+              target: command,
+              summary: "content script did not return before the native bridge deadline"
+            },
+            evidence: [
+              `content_script_forward_timeout_ms=${pendingTimeoutMs}`,
+              `native_forward_timeout_ms=${timeoutMs}`
+            ]
+          }
+        },
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          message: "content script did not return before the native bridge deadline"
+        }
       });
-    }, timeoutMs);
+    }, pendingTimeoutMs);
     this.#pending.set(request.id, { request, timeout });
     const commandParams =
       typeof request.params.command_params === "object" && request.params.command_params !== null
@@ -224,12 +275,10 @@ export class BackgroundRelay {
   }
 
   #failPending(id: string, error: { code: string; message: string }): void {
-    const pending = this.#pending.get(id);
+    const pending = this.#takePending(id);
     if (!pending) {
       return;
     }
-    clearTimeout(pending.timeout);
-    this.#pending.delete(id);
     this.#emit({
       id: pending.request.id,
       status: "error",
@@ -239,6 +288,16 @@ export class BackgroundRelay {
       ...(pending.gatePayload ? { payload: { ...pending.gatePayload } } : {}),
       error
     });
+  }
+
+  #takePending(id: string): PendingForward | null {
+    const pending = this.#pending.get(id);
+    if (!pending) {
+      return null;
+    }
+    clearTimeout(pending.timeout);
+    this.#pending.delete(id);
+    return pending;
   }
 
   #emit(message: BridgeResponse): void {

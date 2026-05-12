@@ -125,6 +125,9 @@ const XHS_MAIN_WORLD_REQUEST_PATH_ALLOWLIST = new Set([
 const editorInputDebuggerProbeWaitMs = 150;
 const xhsTargetRestoreNavigationTimeoutMs = 5_000;
 const xhsTargetRestoreNavigationPollMs = 100;
+const xhsOpenResultCardNavigationTimeoutMs = 5_000;
+const xhsForwardResponseSafetyMs = 5_000;
+const xhsPreForwardStageTimeoutMs = 5_000;
 const xhsStaleRestoreBindingLeaseMaxAgeMs = 120_000;
 const editorInputDebuggerEntryLabels = ["新的创作"] as const;
 const editorInputSelectors = [
@@ -132,6 +135,30 @@ const editorInputSelectors = [
   '[contenteditable="true"].tiptap.ProseMirror',
   '[contenteditable="true"].ProseMirror',
   '[contenteditable="true"][data-lexical-editor="true"]'
+] as const;
+const xhsSearchInputSelectors = [
+  'input[type="search"]',
+  'input[class*="search"]',
+  'input[placeholder*="搜索"]',
+  'input[placeholder*="search" i]',
+  'input:not([type="hidden"])'
+] as const;
+
+const reserveXhsForwardResponseSafetyMs = (timeoutMs: number): number =>
+  timeoutMs > xhsForwardResponseSafetyMs
+    ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
+    : timeoutMs;
+const xhsSearchButtonSelectors = [
+  'button[type="submit"]',
+  'button[class*="search" i]',
+  '[role="button"][class*="search" i]',
+  '[aria-label*="搜索"]',
+  '[aria-label*="search" i]',
+  '[title*="搜索"]',
+  '[title*="search" i]',
+  '[class*="search-icon" i]',
+  '[class*="searchIcon" i]',
+  '[class*="search-btn" i]'
 ] as const;
 const readTimeoutMs = (value: unknown): number | null => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -241,6 +268,14 @@ interface ExtensionChromeApi {
       params?: Record<string, unknown>
     ): Promise<unknown>;
     detach(target: { tabId: number }): Promise<void>;
+    onEvent?: {
+      addListener(
+        listener: (source: { tabId?: number }, method: string, params?: Record<string, unknown>) => void
+      ): void;
+      removeListener(
+        listener: (source: { tabId?: number }, method: string, params?: Record<string, unknown>) => void
+      ): void;
+    };
   };
 }
 
@@ -255,6 +290,21 @@ interface EditorInputProbeResult {
   entryButton: EditorInputProbeTarget | null;
   editor: EditorInputProbeTarget | null;
   editorFocused: boolean;
+}
+
+interface XhsSearchResultCardTarget extends EditorInputProbeTarget {
+  targetUrl: string;
+  originalHref: string | null;
+  noteId: string | null;
+}
+
+interface XhsSearchResultDebugCandidate extends EditorInputProbeTarget {
+  tagName: string;
+  titleText: string | null;
+  href: string | null;
+  noteId: string | null;
+  rootLocator: string | null;
+  rootTargetKey: string | null;
 }
 
 type XhsSignRequestMessage = {
@@ -287,6 +337,21 @@ type XhsMainWorldRequestResponseMessage = {
     body: unknown;
   };
   error?: { code: string; message: string; name?: string };
+};
+
+type XhsSearchDebuggerActionMessage = {
+  kind: "xhs-search-debugger-action";
+  query: string;
+  run_id?: string;
+  action_ref?: string;
+  timeout_ms?: number;
+  action_mode?: "page_reload" | "input_submit";
+};
+
+type XhsSearchDebuggerActionResponseMessage = {
+  ok: boolean;
+  result?: Record<string, unknown>;
+  error?: { code: string; message: string };
 };
 
 interface NativeHeartbeatMessage {
@@ -370,6 +435,12 @@ const XHS_MAIN_WORLD_REQUEST_DOMAIN_ALLOWLIST = new Set([
   XHS_WRITE_DOMAIN,
   XHS_READ_API_DOMAIN
 ]);
+const isXhsSearchResultDetailPath = (pathname: string): boolean =>
+  /^\/search_result\/[^/?#]+/u.test(pathname);
+const isXhsDetailLikePath = (pathname: string): boolean =>
+  pathname.startsWith("/explore/") ||
+  pathname.startsWith("/discovery/item/") ||
+  isXhsSearchResultDetailPath(pathname);
 const isXhsMainWorldRequestHostAllowed = (input: {
   senderHost: string;
   requestHost: string;
@@ -539,7 +610,7 @@ const tabMatchesRequestedXhsResource = (
   }
   const currentResourceId = parsed.pathname.split("/").filter((segment) => segment.length > 0).pop() ?? null;
   if (preferredPage === "explore_detail_tab") {
-    return parsed.pathname.startsWith("/explore/") && currentResourceId === resourceId;
+    return isXhsDetailLikePath(parsed.pathname) && currentResourceId === resourceId;
   }
   if (preferredPage === "profile_tab") {
     return parsed.pathname.startsWith("/user/profile/") && currentResourceId === resourceId;
@@ -552,10 +623,14 @@ const scoreXhsTab = (
   preferredPage: ReturnType<typeof resolvePreferredXhsReadPage>
 ): number => {
   const url = typeof tab.url === "string" ? tab.url : "";
+  const parsed = parseUrl(url);
+  const pathname = parsed?.pathname ?? "";
   const page =
-    url.includes("/search_result")
+    isXhsSearchResultDetailPath(pathname)
+      ? "explore_detail_tab"
+      : url.includes("/search_result")
       ? "search_result_tab"
-      : url.includes("/explore/")
+      : isXhsDetailLikePath(pathname)
         ? "explore_detail_tab"
         : url.includes("/user/profile/")
           ? "profile_tab"
@@ -1053,10 +1128,13 @@ const classifyXhsPage = (url: string, domain: string): string => {
 
   const pathname = parsed.pathname;
   if (domain === XHS_READ_DOMAIN) {
+    if (isXhsSearchResultDetailPath(pathname)) {
+      return "explore_detail_tab";
+    }
     if (pathname.includes("/search_result")) {
       return "search_result_tab";
     }
-    if (pathname.includes("/explore/")) {
+    if (isXhsDetailLikePath(pathname)) {
       return "explore_detail_tab";
     }
     if (pathname.includes("/user/profile/")) {
@@ -2233,6 +2311,10 @@ class ChromeBackgroundBridge {
         void this.#handleXhsSignRequest(message, sender, sendResponse);
         return true;
       }
+      if (this.#isXhsSearchDebuggerActionMessage(message)) {
+        void this.#handleXhsSearchDebuggerAction(message, sender, sendResponse);
+        return true;
+      }
       if (this.#isXhsMainWorldRequestMessage(message)) {
         void this.#handleXhsMainWorldRequest(message, sender, sendResponse);
         return true;
@@ -3073,6 +3155,22 @@ class ChromeBackgroundBridge {
       await this.#handleRuntimeReloadTab(request);
       return;
     }
+    if (command === "runtime.xhs_debug_page_state") {
+      await this.#handleRuntimeXhsDebugPageState(request);
+      return;
+    }
+    if (command === "runtime.xhs_debug_main_world_roundtrip") {
+      await this.#handleRuntimeXhsDebugMainWorldRoundtrip(request);
+      return;
+    }
+    if (command === "runtime.xhs_open_result_card") {
+      await this.#handleRuntimeXhsOpenResultCard(request);
+      return;
+    }
+    if (command === "runtime.xhs_debug_result_targets") {
+      await this.#handleRuntimeXhsDebugResultTargets(request);
+      return;
+    }
     if (command === "runtime.main_world_probe") {
       await this.#handleRuntimeMainWorldProbe(request);
       return;
@@ -3086,7 +3184,49 @@ class ChromeBackgroundBridge {
       return;
     }
 
-    await this.#dispatchForward(request);
+    try {
+      await this.#dispatchForward(request);
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      const failureName =
+        error instanceof Error && typeof error.name === "string" && error.name.length > 0
+          ? error.name
+          : "Error";
+      const xhsCommand = XHS_GATE_COMMANDS.has(command);
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          relay_path: "host>background>content-script>background>host"
+        },
+        payload: xhsCommand
+          ? {
+              details: {
+                stage: "execution",
+                reason: "BACKGROUND_FORWARD_EXCEPTION",
+                forward_failure_stage: "background_dispatch_exception",
+                error_name: failureName
+              },
+              diagnosis: {
+                category: "runtime_unavailable",
+                stage: "runtime",
+                component: "background",
+                failure_site: {
+                  stage: "runtime",
+                  component: "background",
+                  target: command,
+                  summary: failureMessage
+                },
+                evidence: [`background_forward_exception=${failureName}`]
+              }
+            }
+          : undefined,
+        error: {
+          code: xhsCommand ? "ERR_EXECUTION_FAILED" : "ERR_TRANSPORT_FORWARD_FAILED",
+          message: failureMessage
+        }
+      });
+    }
   }
 
   async #handleRuntimeBootstrap(request: BridgeRequest): Promise<void> {
@@ -3433,6 +3573,7 @@ class ChromeBackgroundBridge {
     const targetPage = asNonEmptyString(commandParams.target_page);
     const targetTabId = asInteger(commandParams.target_tab_id);
     const query = asNonEmptyString(commandParams.query);
+    const forceReload = commandParams.force_reload === true;
     const actionRef =
       asNonEmptyString(commandParams.action_ref) ??
       asNonEmptyString(commandParams.gate_invocation_id) ??
@@ -3595,9 +3736,9 @@ class ChromeBackgroundBridge {
       return;
     }
     let restoredTab = sourceTab;
-    let restoreAction: "already_matching" | "navigate_existing_tab";
+    let restoreAction: "already_matching" | "reload_matching_tab" | "navigate_existing_tab";
 
-    if (xhsRestoreSearchUrlsMatch(previousUrl, targetUrl)) {
+    if (xhsRestoreSearchUrlsMatch(previousUrl, targetUrl) && !forceReload) {
       restoreAction = "already_matching";
     } else {
       if (!this.chromeApi.tabs.update) {
@@ -3609,10 +3750,14 @@ class ChromeBackgroundBridge {
           url: targetUrl,
           active: true
         });
-        restoreAction = "navigate_existing_tab";
+        restoreAction = xhsRestoreSearchUrlsMatch(previousUrl, targetUrl)
+          ? "reload_matching_tab"
+          : "navigate_existing_tab";
       } catch (error) {
         fail(
-          "TARGET_RESTORE_NAVIGATION_FAILED",
+          forceReload && xhsRestoreSearchUrlsMatch(previousUrl, targetUrl)
+            ? "TARGET_RESTORE_RELOAD_FAILED"
+            : "TARGET_RESTORE_NAVIGATION_FAILED",
           error instanceof Error ? error.message : String(error),
           { previous_url: previousUrl, target_url: targetUrl }
         );
@@ -3759,6 +3904,1142 @@ class ChromeBackgroundBridge {
         }
       });
     }
+  }
+
+  #parseXhsDetailNoteIdFromUrl(value: string | null): string | null {
+    if (!value) {
+      return null;
+    }
+    try {
+      const parsed = new URL(value);
+      const match = parsed.pathname.match(
+        /^\/(?:explore|discovery\/item|search_result)\/([^/?#]+)/u
+      );
+      return match?.[1] ? decodeURIComponent(match[1]) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  #matchesXhsDetailTarget(tab: ExtensionTab | null, noteId: string | null, targetUrl: string): boolean {
+    const url = typeof tab?.url === "string" ? tab.url : null;
+    if (!url) {
+      return false;
+    }
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname !== XHS_READ_DOMAIN) {
+        return false;
+      }
+      if (!isXhsDetailLikePath(parsed.pathname)) {
+        return false;
+      }
+      if (noteId) {
+        return this.#parseXhsDetailNoteIdFromUrl(url) === noteId;
+      }
+      const target = new URL(targetUrl);
+      return parsed.pathname === target.pathname;
+    } catch {
+      return false;
+    }
+  }
+
+  #isGenericXhsExploreUrl(value: string | null): boolean {
+    if (!value) {
+      return false;
+    }
+    try {
+      const parsed = new URL(value);
+      return parsed.hostname === XHS_READ_DOMAIN && parsed.pathname === "/explore";
+    } catch {
+      return false;
+    }
+  }
+
+  async #probeXhsSearchResultCardTarget(input: {
+    tabId: number;
+    noteId: string | null;
+    detailUrl: string | null;
+    title: string | null;
+    desiredXsecSource: string;
+  }): Promise<XhsSearchResultCardTarget | null> {
+    const executeScript = this.chromeApi.scripting?.executeScript;
+    if (!executeScript) {
+      return null;
+    }
+    try {
+      const results = await executeScript({
+        target: { tabId: input.tabId },
+        world: "ISOLATED",
+        func: (noteId: unknown, detailUrl: unknown, title: unknown, desiredXsecSource: unknown) => {
+          const preferredNoteId = typeof noteId === "string" && noteId.length > 0 ? noteId : null;
+          const preferredDetailUrl =
+            typeof detailUrl === "string" && detailUrl.length > 0 ? detailUrl : null;
+          const preferredTitle = typeof title === "string" && title.length > 0 ? title : null;
+          const xsecSource =
+            typeof desiredXsecSource === "string" && desiredXsecSource.length > 0
+              ? desiredXsecSource
+              : "pc_search";
+          const isUsable = (value: unknown): HTMLAnchorElement | null => {
+            if (!(value instanceof HTMLAnchorElement)) {
+              return null;
+            }
+            const rect = value.getBoundingClientRect();
+            const style = window.getComputedStyle(value);
+            if (
+              value.hidden === true ||
+              rect.width <= 0 ||
+              rect.height <= 0 ||
+              style.visibility === "hidden" ||
+              style.display === "none"
+            ) {
+              return null;
+            }
+            return value;
+          };
+          const isVisibleElement = (value: unknown): HTMLElement | null => {
+            if (!(value instanceof HTMLElement)) {
+              return null;
+            }
+            const rect = value.getBoundingClientRect();
+            const style = window.getComputedStyle(value);
+            if (
+              value.hidden === true ||
+              rect.width <= 0 ||
+              rect.height <= 0 ||
+              style.visibility === "hidden" ||
+              style.display === "none"
+            ) {
+              return null;
+            }
+            return value;
+          };
+          const buildLocator = (element: HTMLElement): string => {
+            if (typeof element.id === "string" && element.id.length > 0) {
+              return `#${element.id}`;
+            }
+            const className =
+              typeof element.className === "string"
+                ? element.className
+                    .split(/\s+/)
+                    .map((token) => token.trim())
+                    .filter((token) => token.length > 0)
+                    .slice(0, 2)
+                    .join(".")
+                : "";
+            if (className) {
+              return `${element.tagName.toLowerCase()}.${className}`;
+            }
+            return element.tagName.toLowerCase();
+          };
+          const buildTargetKey = (element: HTMLElement): string => {
+            const segments: string[] = [];
+            let current: HTMLElement | null = element;
+            while (current) {
+              const parent: HTMLElement | null = current.parentElement;
+              const tagName = current.tagName.toLowerCase();
+              if (!parent) {
+                segments.unshift(current.id ? `${tagName}#${current.id}` : tagName);
+                break;
+              }
+              const siblings = Array.from(parent.children).filter(
+                (candidate): candidate is HTMLElement =>
+                  candidate instanceof HTMLElement && candidate.tagName === current?.tagName
+              );
+              const position = siblings.indexOf(current) + 1;
+              const idSegment = current.id ? `#${current.id}` : "";
+              segments.unshift(`${tagName}${idSegment}:nth-of-type(${position})`);
+              current = parent;
+            }
+            return segments.join(" > ");
+          };
+          const isClickableElement = (element: HTMLElement | null): boolean => {
+            if (!element) {
+              return false;
+            }
+            const role = element.getAttribute("role");
+            const tabIndex = typeof element.tabIndex === "number" ? element.tabIndex : -1;
+            const style = window.getComputedStyle(element);
+            return (
+              element instanceof HTMLAnchorElement ||
+              element instanceof HTMLButtonElement ||
+              role === "link" ||
+              role === "button" ||
+              typeof (element as HTMLElement & { onclick?: unknown }).onclick === "function" ||
+              element.hasAttribute("onclick") ||
+              tabIndex >= 0 ||
+              style.cursor === "pointer"
+            );
+          };
+          const resolveInteractiveTarget = (element: HTMLElement | null): HTMLElement | null => {
+            if (!element) {
+              return null;
+            }
+            const interactiveDescendant = Array.from(
+              element.querySelectorAll('a, button, [role="link"], [role="button"], [tabindex]')
+            )
+              .map((entry) => isVisibleElement(entry))
+              .find((entry): entry is HTMLElement => entry !== null && isClickableElement(entry));
+            if (interactiveDescendant) {
+              return interactiveDescendant;
+            }
+            let current: HTMLElement | null = element;
+            while (current) {
+              if (isClickableElement(current)) {
+                return current;
+              }
+              current = current.parentElement;
+            }
+            return element;
+          };
+          const parseNoteId = (href: string): string | null => {
+            try {
+              const parsed = new URL(href, location.href);
+              const match = parsed.pathname.match(
+                /^\/(?:explore|discovery\/item|search_result)\/([^/?#]+)/u
+              );
+              return match?.[1] ? decodeURIComponent(match[1]) : null;
+            } catch {
+              return null;
+            }
+          };
+          const normalizeTargetUrl = (href: string): string | null => {
+            try {
+              const parsed = new URL(href, location.href);
+              if (parsed.hostname === "www.xiaohongshu.com" && parsed.pathname.startsWith("/search_result/")) {
+                if (!parsed.searchParams.get("xsec_source")) {
+                  parsed.searchParams.set("xsec_source", xsecSource);
+                }
+                return parsed.toString();
+              }
+              if (
+                parsed.hostname !== "www.xiaohongshu.com" ||
+                (!parsed.pathname.startsWith("/explore/") &&
+                  !parsed.pathname.startsWith("/discovery/item/"))
+              ) {
+                return null;
+              }
+              if (!parsed.searchParams.get("xsec_source")) {
+                parsed.searchParams.set("xsec_source", xsecSource);
+              }
+              return parsed.toString();
+            } catch {
+              return null;
+            }
+          };
+          const anchors = Array.from(
+            document.querySelectorAll(
+              'a[href*="/explore/"], a[href*="/discovery/item/"], a[href*="/search_result/"]'
+            )
+          )
+            .map((entry) => isUsable(entry))
+            .filter((entry): entry is HTMLAnchorElement => entry !== null);
+          const preferredDetailPath = preferredDetailUrl
+            ? (() => {
+                try {
+                  return new URL(preferredDetailUrl, location.href).pathname;
+                } catch {
+                  return null;
+                }
+              })()
+            : null;
+          const anchor =
+            anchors.find((candidate) => {
+              const href = candidate.href;
+              const noteIdFromHref = parseNoteId(href);
+              if (
+                preferredNoteId &&
+                (noteIdFromHref === preferredNoteId || href.includes(`/${preferredNoteId}`))
+              ) {
+                return true;
+              }
+              if (preferredDetailPath) {
+                try {
+                  return new URL(href, location.href).pathname === preferredDetailPath;
+                } catch {
+                  return false;
+                }
+              }
+              return false;
+            }) ?? null;
+          const resolveAttributeFallback = (): {
+            element: HTMLElement;
+            targetUrl: string;
+            noteId: string | null;
+            originalHref: string | null;
+          } | null => {
+            const targetUrl = normalizeTargetUrl(preferredDetailUrl ?? "");
+            if ((!preferredNoteId && !preferredDetailPath) || !targetUrl) {
+              return null;
+            }
+            const candidates = Array.from(
+              document.querySelectorAll("a, div, article, section, li, span, p")
+            )
+              .map((entry) => isVisibleElement(entry))
+              .filter((entry): entry is HTMLElement => entry !== null);
+            const match = candidates.find((entry) => {
+              const attrValues = [
+                entry.getAttribute("href"),
+                entry.getAttribute("data-id"),
+                entry.getAttribute("data-note-id"),
+                entry.getAttribute("data-noteid"),
+                entry.getAttribute("id"),
+                entry.getAttribute("data-href"),
+                entry.getAttribute("data-url"),
+                entry.outerHTML
+              ]
+                .filter((value): value is string => typeof value === "string" && value.length > 0)
+                .join(" ");
+              if (preferredNoteId && attrValues.includes(preferredNoteId)) {
+                return true;
+              }
+              if (preferredDetailPath && attrValues.includes(preferredDetailPath)) {
+                return true;
+              }
+              return false;
+            });
+            if (!match) {
+              return null;
+            }
+            const clickable =
+              resolveInteractiveTarget(
+                isVisibleElement(
+                  match.closest(
+                    'a, [role="link"], button, [class*="note"], [class*="card"], article, section, li, div'
+                  )
+                ) ?? match
+              ) ?? match;
+            return {
+              element: clickable,
+              targetUrl,
+              noteId: parseNoteId(targetUrl),
+              originalHref: preferredDetailUrl
+            };
+          };
+          if (!anchor) {
+            const attributeFallback = resolveAttributeFallback();
+            if (attributeFallback) {
+              const rect = attributeFallback.element.getBoundingClientRect();
+              return {
+                locator: buildLocator(attributeFallback.element),
+                targetKey: buildTargetKey(attributeFallback.element),
+                centerX: Math.round(rect.left + rect.width / 2),
+                centerY: Math.round(rect.top + rect.height / 2),
+                originalHref: attributeFallback.originalHref,
+                targetUrl: attributeFallback.targetUrl,
+                noteId: attributeFallback.noteId
+              };
+            }
+            return null;
+          }
+          const rect = anchor.getBoundingClientRect();
+          const originalHref = anchor.href || null;
+          const targetUrl = normalizeTargetUrl(originalHref ?? "");
+          if (!targetUrl) {
+            return null;
+          }
+          anchor.setAttribute("href", targetUrl);
+          anchor.setAttribute("target", "_self");
+          return {
+            locator: buildLocator(anchor),
+            targetKey: buildTargetKey(anchor),
+            centerX: Math.round(rect.left + rect.width / 2),
+            centerY: Math.round(rect.top + rect.height / 2),
+            originalHref,
+            targetUrl,
+            noteId: parseNoteId(targetUrl)
+          };
+        },
+        args: [input.noteId, input.detailUrl, input.title, input.desiredXsecSource]
+      });
+      const record = asRecord(results[0]?.result ?? null);
+      const target = this.#parseEditorInputProbeTarget(record);
+      const targetUrl = asNonEmptyString(record?.targetUrl);
+      if (!target || !targetUrl) {
+        return null;
+      }
+      return {
+        ...target,
+        originalHref: asNonEmptyString(record?.originalHref),
+        targetUrl,
+        noteId: asNonEmptyString(record?.noteId)
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async #probeXhsSearchResultDebugCandidates(tabId: number): Promise<XhsSearchResultDebugCandidate[]> {
+    const executeScript = this.chromeApi.scripting?.executeScript;
+    if (!executeScript) {
+      return [];
+    }
+    try {
+      const results = await executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        func: () => {
+          const isVisibleElement = (value: unknown): HTMLElement | null => {
+            if (!(value instanceof HTMLElement)) {
+              return null;
+            }
+            const rect = value.getBoundingClientRect();
+            const style = window.getComputedStyle(value);
+            if (
+              value.hidden === true ||
+              rect.width <= 0 ||
+              rect.height <= 0 ||
+              style.visibility === "hidden" ||
+              style.display === "none"
+            ) {
+              return null;
+            }
+            return value;
+          };
+          const buildLocator = (element: HTMLElement): string => {
+            if (typeof element.id === "string" && element.id.length > 0) {
+              return `#${element.id}`;
+            }
+            const className =
+              typeof element.className === "string"
+                ? element.className
+                    .split(/\s+/)
+                    .map((token) => token.trim())
+                    .filter((token) => token.length > 0)
+                    .slice(0, 2)
+                    .join(".")
+                : "";
+            if (className) {
+              return `${element.tagName.toLowerCase()}.${className}`;
+            }
+            return element.tagName.toLowerCase();
+          };
+          const buildTargetKey = (element: HTMLElement): string => {
+            const segments: string[] = [];
+            let current: HTMLElement | null = element;
+            while (current) {
+              const parent: HTMLElement | null = current.parentElement;
+              const tagName = current.tagName.toLowerCase();
+              if (!parent) {
+                segments.unshift(current.id ? `${tagName}#${current.id}` : tagName);
+                break;
+              }
+              const siblings = Array.from(parent.children).filter(
+                (candidate): candidate is HTMLElement =>
+                  candidate instanceof HTMLElement && candidate.tagName === current?.tagName
+              );
+              const position = siblings.indexOf(current) + 1;
+              const idSegment = current.id ? `#${current.id}` : "";
+              segments.unshift(`${tagName}${idSegment}:nth-of-type(${position})`);
+              current = parent;
+            }
+            return segments.join(" > ");
+          };
+          const parseNoteId = (href: string | null): string | null => {
+            if (!href) {
+              return null;
+            }
+            try {
+              const parsed = new URL(href, location.href);
+              const match = parsed.pathname.match(
+                /^\/(?:explore|discovery\/item|search_result)\/([^/?#]+)/u
+              );
+              return match?.[1] ? decodeURIComponent(match[1]) : null;
+            } catch {
+              return null;
+            }
+          };
+          const candidates = Array.from(
+            document.querySelectorAll("a, button, [role='link'], [role='button'], [class*='note'], [class*='card'], article, section, li")
+          )
+            .map((entry) => isVisibleElement(entry))
+            .filter((entry): entry is HTMLElement => entry !== null)
+            .slice(0, 120)
+            .map((entry) => {
+              const rect = entry.getBoundingClientRect();
+              const root =
+                entry.closest('[class*="note"], [class*="card"], article, section, li') ??
+                entry.parentElement;
+              return {
+                locator: buildLocator(entry),
+                targetKey: buildTargetKey(entry),
+                centerX: Math.round(rect.left + rect.width / 2),
+                centerY: Math.round(rect.top + rect.height / 2),
+                tagName: entry.tagName.toLowerCase(),
+                titleText: (entry.innerText ?? entry.textContent ?? "").trim() || null,
+                href: entry instanceof HTMLAnchorElement ? entry.href || null : entry.getAttribute("href"),
+                noteId: parseNoteId(entry instanceof HTMLAnchorElement ? entry.href || null : entry.getAttribute("href")),
+                rootLocator: root instanceof HTMLElement ? buildLocator(root) : null,
+                rootTargetKey: root instanceof HTMLElement ? buildTargetKey(root) : null
+              };
+            });
+          return candidates;
+        }
+      });
+      const items = Array.isArray(results[0]?.result) ? results[0].result : [];
+      return items
+        .map((item) => {
+          const record = asRecord(item);
+          const target = this.#parseEditorInputProbeTarget(record);
+          if (!record || !target) {
+            return null;
+          }
+          return {
+            ...target,
+            tagName: asNonEmptyString(record.tagName) ?? "unknown",
+            titleText: asNonEmptyString(record.titleText),
+            href: asNonEmptyString(record.href),
+            noteId: asNonEmptyString(record.noteId),
+            rootLocator: asNonEmptyString(record.rootLocator),
+            rootTargetKey: asNonEmptyString(record.rootTargetKey)
+          } as XhsSearchResultDebugCandidate;
+        })
+        .filter((item): item is XhsSearchResultDebugCandidate => item !== null);
+    } catch {
+      return [];
+    }
+  }
+
+  async #handleRuntimeXhsDebugResultTargets(request: BridgeRequest): Promise<void> {
+    const commandParams = asRecord(request.params.command_params) ?? {};
+    const tabId = asInteger(commandParams.target_tab_id);
+    const profile = typeof request.profile === "string" ? request.profile : null;
+    const runId = String(request.params.run_id ?? request.id);
+    const sessionId = String(request.params.session_id ?? this.#sessionId);
+    if (!profile || tabId === null) {
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_debug_result_targets",
+          profile,
+          relay_path: "host>background"
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message: "runtime.xhs_debug_result_targets requires profile and target_tab_id"
+        }
+      });
+      return;
+    }
+    const candidates = await this.#probeXhsSearchResultDebugCandidates(tabId);
+    this.#emit({
+      id: request.id,
+      status: "success",
+      summary: {
+        session_id: sessionId,
+        run_id: runId,
+        command: "runtime.xhs_debug_result_targets",
+        profile,
+        tab_id: tabId,
+        relay_path: "host>background"
+      },
+      payload: {
+        target_tab_id: tabId,
+        candidates
+      },
+      error: null
+    });
+  }
+
+  async #handleRuntimeXhsDebugMainWorldRoundtrip(request: BridgeRequest): Promise<void> {
+    const commandParams = asRecord(request.params.command_params) ?? {};
+    const tabId = asInteger(commandParams.target_tab_id);
+    const profile = typeof request.profile === "string" ? request.profile : null;
+    const runId = String(request.params.run_id ?? request.id);
+    const sessionId = String(request.params.session_id ?? this.#sessionId);
+    const fingerprintRuntime = asRecord(commandParams.fingerprint_runtime) ?? {};
+    const mainWorldSecret =
+      asNonEmptyString(commandParams.main_world_secret) ??
+      `issue650-debug-main-world-${runId}`;
+    if (!profile || tabId === null || !this.chromeApi.scripting?.executeScript) {
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_debug_main_world_roundtrip",
+          profile,
+          relay_path: "host>background"
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message: "runtime.xhs_debug_main_world_roundtrip requires profile and target_tab_id"
+        }
+      });
+      return;
+    }
+    const { requestEvent, resultEvent, namespaceEvent } =
+      resolveMainWorldEventNamesForSecret(mainWorldSecret);
+    try {
+      await this.#ensureMainWorldBridgeInjected(request, tabId);
+      const results = await this.chromeApi.scripting.executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        func: async (
+          requestEventName: unknown,
+          resultEventName: unknown,
+          namespaceEventName: unknown,
+          runtime: unknown
+        ) => {
+          const requestEvent = typeof requestEventName === "string" ? requestEventName : "";
+          const resultEvent = typeof resultEventName === "string" ? resultEventName : "";
+          const namespaceEvent = typeof namespaceEventName === "string" ? namespaceEventName : "";
+          if (!requestEvent || !resultEvent || !namespaceEvent) {
+            return {
+              ok: false,
+              reason: "INVALID_EVENT_CHANNEL",
+              details: {
+                requestEvent,
+                resultEvent,
+                namespaceEvent
+              }
+            };
+          }
+          const requestId = `mwprobe-${Date.now()}`;
+          return await new Promise<Record<string, unknown>>((resolve) => {
+            let settled = false;
+            const finish = (value: Record<string, unknown>) => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              clearTimeout(timer);
+              window.removeEventListener(resultEvent, onResult as EventListener);
+              resolve(value);
+            };
+            const onResult = (event: Event) => {
+              const detail =
+                (event as CustomEvent<Record<string, unknown> | null>).detail ?? null;
+              finish({
+                ok: true,
+                detail
+              });
+            };
+            const timer = setTimeout(() => {
+              finish({
+                ok: false,
+                reason: "MAIN_WORLD_RESULT_TIMEOUT"
+              });
+            }, 2_000);
+            window.addEventListener(resultEvent, onResult as EventListener);
+            window.dispatchEvent(
+              new CustomEvent("__mw_bootstrap__", {
+                detail: {
+                  request_event: requestEvent,
+                  result_event: resultEvent,
+                  namespace_event: namespaceEvent
+                }
+              })
+            );
+            window.dispatchEvent(
+              new CustomEvent(requestEvent, {
+                detail: {
+                  id: requestId,
+                  type: "fingerprint-install",
+                  payload: {
+                    fingerprint_runtime: runtime
+                  }
+                }
+              })
+            );
+          });
+        },
+        args: [requestEvent, resultEvent, namespaceEvent, fingerprintRuntime]
+      });
+      const result = asRecord(results[0]?.result) ?? null;
+      this.#emit({
+        id: request.id,
+        status: "success",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_debug_main_world_roundtrip",
+          profile,
+          tab_id: tabId,
+          relay_path: "host>background>isolated-world>background>host"
+        },
+        payload: {
+          target_tab_id: tabId,
+          request_event: requestEvent,
+          result_event: resultEvent,
+          namespace_event: namespaceEvent,
+          result
+        },
+        error: null
+      });
+    } catch (error) {
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_debug_main_world_roundtrip",
+          profile,
+          tab_id: tabId,
+          relay_path: "host>background"
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message: error instanceof Error ? error.message : String(error)
+        }
+      });
+    }
+  }
+
+  async #handleRuntimeXhsDebugPageState(request: BridgeRequest): Promise<void> {
+    const commandParams = asRecord(request.params.command_params) ?? {};
+    const tabId = asInteger(commandParams.target_tab_id);
+    const profile = typeof request.profile === "string" ? request.profile : null;
+    const runId = String(request.params.run_id ?? request.id);
+    const sessionId = String(request.params.session_id ?? this.#sessionId);
+    if (!profile || tabId === null || !this.chromeApi.scripting?.executeScript) {
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_debug_page_state",
+          profile,
+          relay_path: "host>background"
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message: "runtime.xhs_debug_page_state requires profile and target_tab_id"
+        }
+      });
+      return;
+    }
+    try {
+      const results = await this.chromeApi.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: () => {
+          const asRecord = (value: unknown): Record<string, unknown> | null =>
+            typeof value === "object" && value !== null && !Array.isArray(value)
+              ? (value as Record<string, unknown>)
+              : null;
+          const root = asRecord((window as Window & { __INITIAL_STATE__?: unknown }).__INITIAL_STATE__);
+          const note = asRecord(root?.note);
+          const noteDetailMap = asRecord(note?.noteDetailMap);
+          const user = asRecord(root?.user);
+          return {
+            href: location.href,
+            title: document.title,
+            has_initial_state: root !== null,
+            top_level_keys: root ? Object.keys(root).slice(0, 50) : [],
+            note_detail_map_keys: noteDetailMap ? Object.keys(noteDetailMap).slice(0, 20) : [],
+            has_note_detail_map: noteDetailMap !== null,
+            note_detail_map_size: noteDetailMap ? Object.keys(noteDetailMap).length : 0,
+            user_keys: user ? Object.keys(user).slice(0, 30) : [],
+            has_user_root: user !== null,
+            has_board_root: asRecord(root?.board) !== null
+          };
+        }
+      });
+      this.#emit({
+        id: request.id,
+        status: "success",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_debug_page_state",
+          profile,
+          tab_id: tabId,
+          relay_path: "host>background>main-world>background>host"
+        },
+        payload: {
+          target_tab_id: tabId,
+          page_state: asRecord(results[0]?.result) ?? null
+        },
+        error: null
+      });
+    } catch (error) {
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_debug_page_state",
+          profile,
+          tab_id: tabId,
+          relay_path: "host>background"
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message: error instanceof Error ? error.message : String(error)
+        }
+      });
+    }
+  }
+
+  async #waitForXhsOpenResultCardNavigation(input: {
+    sourceTabId: number;
+    noteId: string | null;
+    targetUrl: string;
+    timeoutMs: number;
+  }): Promise<
+    | { ok: true; tab: ExtensionTab }
+    | { ok: false; reason: string; message: string; details: Record<string, unknown> }
+  > {
+    const deadline = Date.now() + Math.max(1, input.timeoutMs);
+    let lastObservedUrl: string | null = null;
+    let lastObservedStatus: string | null = null;
+    while (true) {
+      try {
+        const sourceTab = await this.#resolveTabById(input.sourceTabId);
+        lastObservedUrl = typeof sourceTab?.url === "string" ? sourceTab.url : null;
+        lastObservedStatus = typeof sourceTab?.status === "string" ? sourceTab.status : null;
+        if (
+          sourceTab &&
+          this.#matchesXhsDetailTarget(sourceTab, input.noteId, input.targetUrl) &&
+          lastObservedStatus === "complete"
+        ) {
+          return { ok: true, tab: sourceTab };
+        }
+      } catch {
+        // Continue with broader tab resolution below.
+      }
+      try {
+        const tabs = await this.chromeApi.tabs.query({});
+        const matched =
+          tabs.find(
+            (tab) =>
+              this.#matchesXhsDetailTarget(tab, input.noteId, input.targetUrl) &&
+              tab.active === true &&
+              tab.status === "complete"
+          ) ??
+          tabs.find(
+            (tab) =>
+              this.#matchesXhsDetailTarget(tab, input.noteId, input.targetUrl) &&
+              tab.status === "complete"
+          ) ??
+          null;
+        if (matched) {
+          return { ok: true, tab: matched };
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          reason: "RESULT_CARD_TARGET_QUERY_FAILED",
+          message: error instanceof Error ? error.message : String(error),
+          details: {
+            source_tab_id: input.sourceTabId,
+            target_url: input.targetUrl
+          }
+        };
+      }
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return {
+          ok: false,
+          reason: "RESULT_CARD_NAVIGATION_NOT_READY",
+          message: "runtime.xhs_open_result_card target tab did not reach detail page before timeout",
+          details: {
+            source_tab_id: input.sourceTabId,
+            target_url: input.targetUrl,
+            observed_url: lastObservedUrl,
+            observed_status: lastObservedStatus
+          }
+        };
+      }
+      await this.#sleep(Math.min(xhsTargetRestoreNavigationPollMs, remainingMs));
+    }
+  }
+
+  async #handleRuntimeXhsOpenResultCard(request: BridgeRequest): Promise<void> {
+    const commandParams = asRecord(request.params.command_params) ?? {};
+    const targetDomain = asNonEmptyString(commandParams.target_domain);
+    const targetPage = asNonEmptyString(commandParams.target_page);
+    const targetTabId = asInteger(commandParams.target_tab_id);
+    const noteId = asNonEmptyString(commandParams.note_id);
+    const detailUrl = asNonEmptyString(commandParams.detail_url);
+    const title = asNonEmptyString(commandParams.title);
+    const xsecSource = asNonEmptyString(commandParams.xsec_source) ?? "pc_search";
+    const actionRef =
+      asNonEmptyString(commandParams.action_ref) ??
+      asNonEmptyString(commandParams.gate_invocation_id) ??
+      "action/xhs.search/open_result_card";
+    const runId = String(request.params.run_id ?? request.id);
+    const sessionId = String(request.params.session_id ?? this.#sessionId);
+    const profile = typeof request.profile === "string" ? request.profile : null;
+    const fail = (reason: string, message: string, extra?: Record<string, unknown>) => {
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_open_result_card",
+          profile,
+          relay_path: "host>background"
+        },
+        payload: {
+          details: {
+            stage: "execution",
+            reason,
+            target_domain: targetDomain,
+            target_page: targetPage,
+            target_tab_id: targetTabId,
+            note_id: noteId,
+            detail_url: detailUrl,
+            title,
+            ...(extra ?? {})
+          }
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message
+        }
+      });
+    };
+
+    if (!profile) {
+      fail("RESULT_CARD_PROFILE_REQUIRED", "runtime.xhs_open_result_card requires a managed profile");
+      return;
+    }
+    if (targetDomain !== XHS_READ_DOMAIN || targetPage !== "search_result_tab" || targetTabId === null) {
+      fail(
+        "RESULT_CARD_INPUT_INVALID",
+        "runtime.xhs_open_result_card requires XHS search_result target and target_tab_id"
+      );
+      return;
+    }
+    let sourceTab: ExtensionTab | null = null;
+    try {
+      sourceTab = await this.#resolveTabById(targetTabId);
+    } catch (error) {
+      fail(
+        "RESULT_CARD_SOURCE_TAB_QUERY_FAILED",
+        error instanceof Error ? error.message : String(error),
+        { requested_target_tab_id: targetTabId }
+      );
+      return;
+    }
+    if (!sourceTab || typeof sourceTab.id !== "number") {
+      fail("RESULT_CARD_SOURCE_TAB_NOT_FOUND", "runtime.xhs_open_result_card could not find target_tab_id", {
+        requested_target_tab_id: targetTabId
+      });
+      return;
+    }
+    const sourceTabId = sourceTab.id;
+    const bootstrap = this.#runtimeTrustState.getBootstrap(profile);
+    const trusted = this.#runtimeTrustState.getTrusted(profile, sessionId);
+    const bootstrapBindsTarget =
+      !!bootstrap &&
+      (bootstrap.status === "pending" || bootstrap.status === "ready") &&
+      bootstrap.sessionId === sessionId &&
+      bootstrap.runId === runId &&
+      bootstrap.sourceTabId === sourceTabId &&
+      bootstrap.sourceDomain === targetDomain &&
+      bootstrap.sourcePage === targetPage;
+    const trustedBindsTarget =
+      !!trusted &&
+      trusted.sessionId === sessionId &&
+      trusted.runId === runId &&
+      trusted.sourceTabId === sourceTabId &&
+      trusted.sourceDomain === targetDomain &&
+      trusted.sourcePage === targetPage;
+    if (!bootstrapBindsTarget && !trustedBindsTarget) {
+      fail(
+        "RESULT_CARD_MANAGED_TAB_NOT_BOUND",
+        "runtime.xhs_open_result_card requires a current managed tab binding",
+        {
+          requested_target_tab_id: targetTabId,
+          bootstrap_source_tab_id: bootstrap?.sourceTabId ?? null,
+          bootstrap_source_domain: bootstrap?.sourceDomain ?? null,
+          bootstrap_source_page: bootstrap?.sourcePage ?? null,
+          bootstrap_run_id: bootstrap?.runId ?? null,
+          trusted_source_tab_id: trusted?.sourceTabId ?? null,
+          trusted_source_domain: trusted?.sourceDomain ?? null,
+          trusted_source_page: trusted?.sourcePage ?? null,
+          trusted_run_id: trusted?.runId ?? null
+        }
+      );
+      return;
+    }
+    const sourceUrl = typeof sourceTab.url === "string" ? sourceTab.url : null;
+    if (!xhsRestoreSearchUrlsMatch(sourceUrl, sourceUrl ?? "")) {
+      fail("RESULT_CARD_SOURCE_PAGE_MISMATCH", "runtime.xhs_open_result_card requires search_result page", {
+        page_url: sourceUrl
+      });
+      return;
+    }
+    const target = await this.#probeXhsSearchResultCardTarget({
+      tabId: sourceTabId,
+      noteId,
+      detailUrl,
+      title,
+      desiredXsecSource: xsecSource
+    });
+    if (!target) {
+      fail("RESULT_CARD_TARGET_NOT_FOUND", "runtime.xhs_open_result_card could not resolve a result card target");
+      return;
+    }
+    const debuggerApi = this.chromeApi.debugger;
+    let debuggerAttached = false;
+    const detachDebugger = async () => {
+      if (!debuggerApi || !debuggerAttached) {
+        return;
+      }
+      try {
+        await debuggerApi.detach({ tabId: sourceTabId });
+      } catch {
+        // Best-effort detach; keep primary failure semantics.
+      } finally {
+        debuggerAttached = false;
+      }
+    };
+    let capturedRequestContextArtifact: Record<string, unknown> | null = null;
+    let detailNetworkCapture: Promise<Record<string, unknown> | null> | null = null;
+    if (debuggerApi && noteId) {
+      try {
+        await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
+        debuggerAttached = true;
+        try {
+          await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
+          detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(
+            sourceTab.id,
+            noteId,
+            xhsOpenResultCardNavigationTimeoutMs
+          );
+        } catch {
+          detailNetworkCapture = null;
+        }
+      } catch {
+        detailNetworkCapture = null;
+      }
+    }
+
+    const domClickSucceeded = await this.#dispatchXhsResultCardDomClick(sourceTab.id, target);
+    if (!domClickSucceeded) {
+      if (!debuggerApi) {
+        fail("RESULT_CARD_DEBUGGER_UNAVAILABLE", "chrome.debugger is unavailable");
+        return;
+      }
+      try {
+        if (!detailNetworkCapture && !debuggerAttached) {
+          await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
+          debuggerAttached = true;
+          try {
+            await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
+            detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(
+              sourceTab.id,
+              noteId ?? "",
+              xhsOpenResultCardNavigationTimeoutMs
+            );
+          } catch {
+            detailNetworkCapture = null;
+          }
+        }
+        await this.#dispatchEditorInputDebuggerClick(sourceTab.id, target);
+      } catch (error) {
+        await detachDebugger();
+        fail(
+          "RESULT_CARD_CLICK_FAILED",
+          error instanceof Error ? error.message : String(error),
+          {
+            target_url: target.targetUrl,
+            result_card_locator: target.locator,
+            result_card_target_key: target.targetKey
+          }
+        );
+        return;
+      }
+    }
+    const navigation = await this.#waitForXhsOpenResultCardNavigation({
+      sourceTabId: sourceTab.id,
+      noteId: target.noteId,
+      targetUrl: target.targetUrl,
+      timeoutMs: xhsOpenResultCardNavigationTimeoutMs
+    });
+    let resolvedNavigation = navigation;
+    if (
+      !resolvedNavigation.ok &&
+      resolvedNavigation.reason === "RESULT_CARD_NAVIGATION_NOT_READY" &&
+      this.#isGenericXhsExploreUrl(asNonEmptyString(resolvedNavigation.details.observed_url))
+    ) {
+      if (!this.chromeApi.tabs.update) {
+        await detachDebugger();
+        fail("RESULT_CARD_FOLLOWUP_NAVIGATION_UNAVAILABLE", "chrome.tabs.update is unavailable", {
+          ...resolvedNavigation.details,
+          target_url: target.targetUrl
+        });
+        return;
+      }
+      try {
+        await this.chromeApi.tabs.update(sourceTab.id, {
+          url: target.targetUrl,
+          active: true
+        });
+      } catch (error) {
+        await detachDebugger();
+        fail(
+          "RESULT_CARD_FOLLOWUP_NAVIGATION_FAILED",
+          error instanceof Error ? error.message : String(error),
+          {
+            ...resolvedNavigation.details,
+            target_url: target.targetUrl
+          }
+        );
+        return;
+      }
+      resolvedNavigation = await this.#waitForXhsOpenResultCardNavigation({
+        sourceTabId: sourceTab.id,
+        noteId: target.noteId,
+        targetUrl: target.targetUrl,
+        timeoutMs: xhsOpenResultCardNavigationTimeoutMs
+      });
+    }
+    if (!resolvedNavigation.ok) {
+      await detachDebugger();
+      fail(resolvedNavigation.reason, resolvedNavigation.message, resolvedNavigation.details);
+      return;
+    }
+    if (detailNetworkCapture) {
+      capturedRequestContextArtifact = await detailNetworkCapture.catch(() => null);
+    }
+    await detachDebugger();
+    const resolvedTargetTabId = typeof resolvedNavigation.tab.id === "number"
+      ? resolvedNavigation.tab.id
+      : sourceTab.id;
+    this.#emit({
+      id: request.id,
+      status: "success",
+      summary: {
+        session_id: sessionId,
+        run_id: runId,
+        command: "runtime.xhs_open_result_card",
+        profile,
+        tab_id: resolvedTargetTabId,
+        relay_path: "host>background"
+      },
+      payload: {
+        target_tab_id: resolvedTargetTabId,
+        target_page: "explore_detail_tab",
+        target_url: target.targetUrl,
+        result_card_open_evidence: {
+          action_ref: actionRef,
+          source_tab_id: sourceTab.id,
+          target_tab_id: resolvedTargetTabId,
+          source_page_url: sourceUrl,
+          target_page_url: target.targetUrl,
+          note_id: target.noteId,
+          original_href: target.originalHref,
+          xsec_source: xsecSource,
+          result_card_locator: target.locator,
+          result_card_target_key: target.targetKey
+        },
+        captured_request_context_artifact: capturedRequestContextArtifact
+      },
+      error: null
+    });
   }
 
   async #handleRuntimeMainWorldProbe(request: BridgeRequest): Promise<void> {
@@ -4096,6 +5377,7 @@ class ChromeBackgroundBridge {
   async #handleRuntimeReadiness(request: BridgeRequest): Promise<void> {
     const profile = asNonEmptyString(request.profile);
     const bootstrap = profile ? this.#runtimeTrustState.getBootstrap(profile) : null;
+    const trusted = profile ? this.#runtimeTrustState.getTrusted(profile, this.#sessionId) : null;
     const requestRunId = asNonEmptyString(request.params.run_id);
     const readinessCommandParams = asRecord(request.params.command_params) ?? {};
     const requestRuntimeContextId = asNonEmptyString(readinessCommandParams.runtime_context_id);
@@ -4108,13 +5390,30 @@ class ChromeBackgroundBridge {
       binding: requestTargetBinding,
       requested: targetBindingRequested
     } = await this.#resolveRuntimeReadinessTargetBinding(request);
+    const observedTargetBindingMatches =
+      targetBindingRequested && requestTargetBinding
+        ? await this.#doesObservedTabMatchRuntimeTargetBinding(requestTargetBinding)
+        : false;
+    const bootstrapTargetBindingMatches =
+      !!bootstrap &&
+      this.#doesStrictTargetBindingMatch(requestTargetBinding, bootstrap, {
+        requirePage: true,
+        allowMissingStoredPage: true
+      });
+    const trustedTargetBindingMatches =
+      !!trusted &&
+      trusted.sessionId === this.#sessionId &&
+      (!bootstrap || trusted.runId === bootstrap.runId) &&
+      (!bootstrap || trusted.runtimeContextId === bootstrap.runtimeContextId) &&
+      this.#doesStrictTargetBindingMatch(requestTargetBinding, trusted, {
+        requirePage: true,
+        allowMissingStoredPage: true
+      });
     const targetBindingMatches =
       !targetBindingRequested ||
-      (!!bootstrap &&
-        this.#doesStrictTargetBindingMatch(requestTargetBinding, bootstrap, {
-          requirePage: true,
-          allowMissingStoredPage: true
-        }));
+      bootstrapTargetBindingMatches ||
+      trustedTargetBindingMatches ||
+      observedTargetBindingMatches;
     const bootstrapState =
       bootstrap === null
         ? "not_started"
@@ -4128,10 +5427,18 @@ class ChromeBackgroundBridge {
     const managedTargetTabId =
       targetBindingRequested && targetBindingMatches && typeof bootstrap?.sourceTabId === "number"
         ? bootstrap.sourceTabId
+        : targetBindingRequested && targetBindingMatches && typeof trusted?.sourceTabId === "number"
+          ? trusted.sourceTabId
+          : targetBindingRequested && targetBindingMatches && observedTargetBindingMatches
+            ? requestTargetBinding?.tabId ?? null
         : null;
     const managedTargetDomain =
       targetBindingRequested && targetBindingMatches && typeof bootstrap?.sourceDomain === "string"
         ? bootstrap.sourceDomain
+        : targetBindingRequested && targetBindingMatches && typeof trusted?.sourceDomain === "string"
+          ? trusted.sourceDomain
+          : targetBindingRequested && targetBindingMatches && observedTargetBindingMatches
+            ? requestTargetBinding?.domain ?? null
         : null;
     const managedTargetPage =
       targetBindingRequested && targetBindingMatches && requestTargetBinding?.page
@@ -4208,6 +5515,28 @@ class ChromeBackgroundBridge {
       },
       error: null
       });
+  }
+
+  async #doesObservedTabMatchRuntimeTargetBinding(
+    requestTargetBinding: RuntimeTargetBinding
+  ): Promise<boolean> {
+    if (!this.chromeApi.tabs?.get) {
+      return false;
+    }
+    try {
+      const tab = await this.chromeApi.tabs.get(requestTargetBinding.tabId);
+      const tabUrl = typeof tab.url === "string" ? tab.url : "";
+      const parsed = parseUrl(tabUrl);
+      if (!parsed || parsed.hostname !== requestTargetBinding.domain) {
+        return false;
+      }
+      if (requestTargetBinding.page === "search_result_tab") {
+        return parsed.pathname.includes("/search_result");
+      }
+      return requestTargetBinding.page === null;
+    } catch {
+      return false;
+    }
   }
 
   async #resolveRuntimeReadinessTargetBinding(request: BridgeRequest): Promise<{
@@ -4541,14 +5870,86 @@ class ChromeBackgroundBridge {
     let tabId: number | null;
     let consumerGateResult: XhsTargetGateResult["consumerGateResult"] | undefined;
     let gatePayload: XhsTargetGateResult["gatePayload"] | undefined;
-    if (XHS_GATE_COMMANDS.has(command)) {
-      const gateResult = await this.#evaluateXhsTargetGate({
-        ...dispatchRequest,
-        params: {
-          ...dispatchRequest.params,
-          command_params: commandParams
+    const runXhsPreForwardStage = async <T>(
+      stage: string,
+      operation: Promise<T>
+    ): Promise<T | null> => {
+      const remainingMs = requestDeadlineMs - Date.now();
+      if (!XHS_GATE_COMMANDS.has(command) || remainingMs <= 0) {
+        return operation;
+      }
+      const timeoutMs = Math.max(1, Math.min(xhsPreForwardStageTimeoutMs, remainingMs));
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      try {
+        return await Promise.race([
+          operation,
+          new Promise<null>((resolve) => {
+            timeout = setTimeout(() => resolve(null), timeoutMs);
+          })
+        ]);
+      } finally {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      }
+    };
+    const emitXhsPreForwardTimeout = (stage: string): void => {
+      if (suppressHostResponse) {
+        return;
+      }
+      this.#emit({
+        id: dispatchRequest.id,
+        status: "error",
+        summary: {
+          relay_path: "host>background>content-script>background>host"
+        },
+        payload: {
+          ...(gatePayload ? { ...gatePayload } : {}),
+          details: {
+            ...(asRecord(gatePayload?.details) ?? {}),
+            stage: "execution",
+            reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT",
+            forward_failure_stage: stage,
+            target_domain: consumerGateResult?.target_domain ?? null,
+            target_tab_id: consumerGateResult?.target_tab_id ?? null,
+            target_page: consumerGateResult?.target_page ?? null,
+            timeout_ms: xhsPreForwardStageTimeoutMs,
+            native_timeout_ms: Math.max(1, Math.floor(requestDeadlineMs - Date.now()))
+          },
+          diagnosis: {
+            category: "runtime_unavailable",
+            stage: "runtime",
+            component: "background",
+            failure_site: {
+              stage: "runtime",
+              component: "background",
+              target: command,
+              summary: `${stage} did not finish before the native bridge deadline`
+            },
+            evidence: [`xhs_pre_forward_stage=${stage}`]
+          }
+        },
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          message: `${stage} did not finish before the native bridge deadline`
         }
       });
+    };
+    if (XHS_GATE_COMMANDS.has(command)) {
+      const gateResult = await runXhsPreForwardStage(
+        "xhs_target_gate",
+        this.#evaluateXhsTargetGate({
+          ...dispatchRequest,
+          params: {
+            ...dispatchRequest.params,
+            command_params: commandParams
+          }
+        })
+      );
+      if (gateResult === null) {
+        emitXhsPreForwardTimeout("xhs_target_gate");
+        return;
+      }
       consumerGateResult = gateResult.consumerGateResult;
       gatePayload = gateResult.gatePayload;
       if (!gateResult.allowed || (!gateResult.targetTabId && !gateResult.gateOnly)) {
@@ -4669,7 +6070,14 @@ class ChromeBackgroundBridge {
 
     if (this.#shouldEnsureMainWorldBridge(command, xhsForwardState.requestedExecutionMode)) {
       try {
-        await this.#ensureMainWorldBridgeInjected(dispatchRequest, tabId);
+        const injected = await runXhsPreForwardStage(
+          "main_world_bridge_injection",
+          this.#ensureMainWorldBridgeInjected(dispatchRequest, tabId).then(() => true)
+        );
+        if (injected === null) {
+          emitXhsPreForwardTimeout("main_world_bridge_injection");
+          return;
+        }
       } catch (error) {
         if (suppressHostResponse) {
           return;
@@ -4690,8 +6098,45 @@ class ChromeBackgroundBridge {
       }
     }
 
+    if (XHS_GATE_COMMANDS.has(command)) {
+      try {
+        const injected = await runXhsPreForwardStage(
+          "content_script_injection",
+          this.#ensureContentScriptInjected(tabId).then(() => true)
+        );
+        if (injected === null) {
+          emitXhsPreForwardTimeout("content_script_injection");
+          return;
+        }
+      } catch (error) {
+        if (suppressHostResponse) {
+          return;
+        }
+        this.#emit({
+          id: dispatchRequest.id,
+          status: "error",
+          summary: {
+            relay_path: "host>background>content-script>background>host"
+          },
+          error: {
+            code: "ERR_TRANSPORT_FORWARD_FAILED",
+            message:
+              error instanceof Error ? error.message : "content script injection failed"
+          }
+        });
+        return;
+      }
+    }
+
     if (xhsForwardState.issue208EditorInputValidation) {
-      const editorFocusAttestation = await this.#buildEditorInputFocusAttestation(tabId);
+      const editorFocusAttestation = await runXhsPreForwardStage(
+        "editor_focus_attestation",
+        this.#buildEditorInputFocusAttestation(tabId)
+      );
+      if (editorFocusAttestation === null) {
+        emitXhsPreForwardTimeout("editor_focus_attestation");
+        return;
+      }
       commandParams = this.#injectEditorFocusAttestation(commandParams, editorFocusAttestation);
       dispatchRequest = {
         ...dispatchRequest,
@@ -4721,6 +6166,9 @@ class ChromeBackgroundBridge {
       return;
     }
     const forwardTimeoutMs = Math.max(1, Math.floor(timeoutMs));
+    const pendingTimeoutMs = XHS_GATE_COMMANDS.has(command) || command === "runtime.bootstrap"
+      ? reserveXhsForwardResponseSafetyMs(forwardTimeoutMs)
+      : forwardTimeoutMs;
     const timeoutError =
       command === "runtime.bootstrap"
         ? {
@@ -4732,11 +6180,58 @@ class ChromeBackgroundBridge {
             message: "content script forward timed out"
           };
     const timeout = setTimeout(() => {
-      this.#failPending(dispatchRequest.id, {
-        code: timeoutError.code,
-        message: timeoutError.message
+      if (!XHS_GATE_COMMANDS.has(command)) {
+        this.#failPending(dispatchRequest.id, {
+          code: timeoutError.code,
+          message: timeoutError.message
+        });
+        return;
+      }
+      const pending = this.#pendingState.take(dispatchRequest.id);
+      if (!pending || pending.suppressHostResponse === true) {
+        return;
+      }
+      this.#emit({
+        id: dispatchRequest.id,
+        status: "error",
+        summary: {
+          relay_path: "host>background>content-script>background>host"
+        },
+        payload: {
+          ...(pending.gatePayload ? { ...pending.gatePayload } : {}),
+          details: {
+            ...(asRecord(pending.gatePayload?.details) ?? {}),
+            stage: "execution",
+            reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT",
+            forward_failure_stage: "content_script_forward_timeout",
+            target_domain: consumerGateResult?.target_domain ?? null,
+            target_tab_id: consumerGateResult?.target_tab_id ?? tabId,
+            target_page: consumerGateResult?.target_page ?? null,
+            timeout_ms: pendingTimeoutMs,
+            native_timeout_ms: forwardTimeoutMs
+          },
+          diagnosis: {
+            category: "runtime_unavailable",
+            stage: "runtime",
+            component: "content-script",
+            failure_site: {
+              stage: "runtime",
+              component: "content-script",
+              target: command,
+              summary: "content script did not return before the native bridge deadline"
+            },
+            evidence: [
+              `content_script_forward_timeout_ms=${pendingTimeoutMs}`,
+              `native_forward_timeout_ms=${forwardTimeoutMs}`
+            ]
+          }
+        },
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          message: "content script did not return before the native bridge deadline"
+        }
       });
-    }, forwardTimeoutMs);
+    }, pendingTimeoutMs);
     this.#pendingState.register(dispatchRequest.id, {
       request: dispatchRequest,
       timeout,
@@ -5205,6 +6700,676 @@ class ChromeBackgroundBridge {
     });
   }
 
+  async #dispatchXhsResultCardDomClick(
+    tabId: number,
+    target: { targetKey: string; targetUrl: string }
+  ): Promise<boolean> {
+    const executeScript = this.chromeApi.scripting?.executeScript;
+    if (!executeScript) {
+      return false;
+    }
+    try {
+      const results = await executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        func: (targetKey: unknown, targetUrl: unknown) => {
+          const key = typeof targetKey === "string" && targetKey.length > 0 ? targetKey : null;
+          const href = typeof targetUrl === "string" && targetUrl.length > 0 ? targetUrl : null;
+          if (!key || !href) {
+            return false;
+          }
+          const element = document.querySelector(key);
+          if (!(element instanceof HTMLElement)) {
+            return false;
+          }
+          const anchor =
+            element instanceof HTMLAnchorElement
+              ? element
+              : element.closest("a") instanceof HTMLAnchorElement
+                ? (element.closest("a") as HTMLAnchorElement)
+                : null;
+          if (anchor) {
+            anchor.href = href;
+            anchor.target = "_self";
+          }
+          element.scrollIntoView?.({ block: "center", inline: "center" });
+          const dispatch = (type: string) =>
+            element.dispatchEvent(
+              new MouseEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                view: window
+              })
+            );
+          element.focus?.();
+          dispatch("mouseover");
+          dispatch("mousedown");
+          dispatch("mouseup");
+          dispatch("click");
+          return true;
+        },
+        args: [target.targetKey, target.targetUrl]
+      });
+      return results[0]?.result === true;
+    } catch {
+      return false;
+    }
+  }
+
+  async #probeXhsSearchTargets(tabId: number): Promise<{
+    input: EditorInputProbeTarget | null;
+    button: EditorInputProbeTarget | null;
+  } | null> {
+    const executeScript = this.chromeApi.scripting?.executeScript;
+    if (!executeScript) {
+      return null;
+    }
+    try {
+      const results = await executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        func: (inputSelectors: unknown, buttonSelectors: unknown) => {
+          const inputSelectorList = Array.isArray(inputSelectors)
+            ? inputSelectors.filter((item): item is string => typeof item === "string")
+            : [];
+          const buttonSelectorList = Array.isArray(buttonSelectors)
+            ? buttonSelectors.filter((item): item is string => typeof item === "string")
+            : [];
+          const isUsable = (value: unknown): HTMLElement | null => {
+            if (!(value instanceof HTMLElement)) {
+              return null;
+            }
+            const rect = value.getBoundingClientRect();
+            const style = window.getComputedStyle(value);
+            const disabled = (value as HTMLInputElement | HTMLButtonElement).disabled === true;
+            if (
+              disabled ||
+              value.hidden === true ||
+              rect.width <= 0 ||
+              rect.height <= 0 ||
+              style.visibility === "hidden" ||
+              style.display === "none"
+            ) {
+              return null;
+            }
+            return value;
+          };
+          const buildLocator = (element: HTMLElement): string => {
+            if (typeof element.id === "string" && element.id.length > 0) {
+              return `#${element.id}`;
+            }
+            const className =
+              typeof element.className === "string"
+                ? element.className
+                    .split(/\s+/)
+                    .map((token) => token.trim())
+                    .filter((token) => token.length > 0)
+                    .slice(0, 2)
+                    .join(".")
+                : "";
+            if (className) {
+              return `${element.tagName.toLowerCase()}.${className}`;
+            }
+            return element.tagName.toLowerCase();
+          };
+          const buildTargetKey = (element: HTMLElement): string => {
+            const segments: string[] = [];
+            let current: HTMLElement | null = element;
+            while (current) {
+              const parent: HTMLElement | null = current.parentElement;
+              const tagName = current.tagName.toLowerCase();
+              if (!parent) {
+                segments.unshift(current.id ? `${tagName}#${current.id}` : tagName);
+                break;
+              }
+              const siblings = Array.from(parent.children).filter(
+                (candidate): candidate is HTMLElement =>
+                  candidate instanceof HTMLElement && candidate.tagName === current?.tagName
+              );
+              const position = siblings.indexOf(current) + 1;
+              const idSegment = current.id ? `#${current.id}` : "";
+              segments.unshift(`${tagName}${idSegment}:nth-of-type(${position})`);
+              current = parent;
+            }
+            return segments.join(" > ");
+          };
+          const toTarget = (element: HTMLElement | null) => {
+            if (!element) {
+              return null;
+            }
+            const rect = element.getBoundingClientRect();
+            return {
+              locator: buildLocator(element),
+              targetKey: buildTargetKey(element),
+              centerX: Math.round(rect.left + rect.width / 2),
+              centerY: Math.round(rect.top + rect.height / 2)
+            };
+          };
+          const findFirst = (selectors: string[]): HTMLElement | null => {
+            for (const selector of selectors) {
+              const candidate = Array.from(document.querySelectorAll(selector))
+                .map((entry) => isUsable(entry))
+                .find((entry): entry is HTMLElement => entry !== null);
+              if (candidate) {
+                return candidate;
+              }
+            }
+            return null;
+          };
+          const input = findFirst(inputSelectorList);
+          const inputRoot =
+            input?.closest('[class*="search" i], [role="search"], header, nav, form') ??
+            input?.parentElement ??
+            document;
+          const scopedButton = Array.from(inputRoot.querySelectorAll(buttonSelectorList.join(",")))
+            .map((entry) => isUsable(entry))
+            .find((entry): entry is HTMLElement => entry !== null);
+          const button = scopedButton ?? findFirst(buttonSelectorList);
+          return {
+            input: toTarget(input),
+            button: toTarget(button)
+          };
+        },
+        args: [[...xhsSearchInputSelectors], [...xhsSearchButtonSelectors]]
+      });
+      const record = asRecord(results[0]?.result ?? null);
+      if (!record) {
+        return null;
+      }
+      return {
+        input: this.#parseEditorInputProbeTarget(record.input),
+        button: this.#parseEditorInputProbeTarget(record.button)
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async #selectXhsSearchInputText(tabId: number): Promise<boolean> {
+    const executeScript = this.chromeApi.scripting?.executeScript;
+    if (!executeScript) {
+      return false;
+    }
+    try {
+      const results = await executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        func: (inputSelectors: unknown) => {
+          const inputSelectorList = Array.isArray(inputSelectors)
+            ? inputSelectors.filter((item): item is string => typeof item === "string")
+            : [];
+          for (const selector of inputSelectorList) {
+            const input = Array.from(document.querySelectorAll(selector)).find(
+              (candidate): candidate is HTMLInputElement => candidate instanceof HTMLInputElement
+            );
+            if (!input) {
+              continue;
+            }
+            input.focus();
+            input.select?.();
+            input.setSelectionRange?.(0, input.value.length);
+            return true;
+          }
+          return false;
+        },
+        args: [[...xhsSearchInputSelectors]]
+      });
+      return results[0]?.result === true;
+    } catch {
+      return false;
+    }
+  }
+
+  #waitForXhsSearchDebuggerNetworkCapture(
+    tabId: number,
+    query: string,
+    timeoutMs: number
+  ): Promise<Record<string, unknown> | null> {
+    const debuggerApi = this.chromeApi.debugger;
+    const onEvent = debuggerApi?.onEvent;
+    if (!debuggerApi || !onEvent) {
+      return Promise.resolve(null);
+    }
+
+    type PendingRequest = {
+      url: string;
+      method: string;
+      requestHeaders: Record<string, string>;
+      requestBody: unknown;
+      status: number | null;
+      responseHeaders: Record<string, string>;
+      capturedAt: number;
+    };
+    const pending = new Map<string, PendingRequest>();
+    const parseBody = (value: unknown): unknown => {
+      if (typeof value !== "string" || value.length === 0) {
+        return null;
+      }
+      try {
+        return JSON.parse(value) as unknown;
+      } catch {
+        return value;
+      }
+    };
+    const parseHeaderRecord = (value: unknown): Record<string, string> => {
+      const record = asRecord(value);
+      if (!record) {
+        return {};
+      }
+      return Object.fromEntries(
+        Object.entries(record)
+          .filter((entry): entry is [string, string | number] =>
+            typeof entry[1] === "string" || typeof entry[1] === "number"
+          )
+          .map(([key, value]) => [key, String(value)])
+      );
+    };
+    const isSearchEndpoint = (url: string): boolean => {
+      try {
+        const parsed = new URL(url);
+        return parsed.hostname === XHS_READ_API_DOMAIN && parsed.pathname === SEARCH_ENDPOINT;
+      } catch {
+        return false;
+      }
+    };
+    const bodyMatchesQuery = (body: unknown): boolean => {
+      const record = asRecord(body);
+      return asNonEmptyString(record?.keyword) === query;
+    };
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: Record<string, unknown> | null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          onEvent.removeListener(listener);
+        } catch {
+          // Listener removal best effort.
+        }
+        resolve(value);
+      };
+      const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+      const listener = (
+        source: { tabId?: number },
+        method: string,
+        params?: Record<string, unknown>
+      ) => {
+        if (settled || source.tabId !== tabId || !params) {
+          return;
+        }
+        const requestId = asNonEmptyString(params.requestId);
+        if (!requestId) {
+          return;
+        }
+        if (method === "Network.requestWillBeSent") {
+          const request = asRecord(params.request);
+          const url = asNonEmptyString(request?.url);
+          const requestMethod = asNonEmptyString(request?.method);
+          if (!url || requestMethod !== "POST" || !isSearchEndpoint(url)) {
+            return;
+          }
+          const requestBody = parseBody(request?.postData);
+          if (!bodyMatchesQuery(requestBody)) {
+            return;
+          }
+          pending.set(requestId, {
+            url,
+            method: requestMethod,
+            requestHeaders: parseHeaderRecord(request?.headers),
+            requestBody,
+            status: null,
+            responseHeaders: {},
+            capturedAt: Date.now()
+          });
+          return;
+        }
+        if (method === "Network.responseReceived") {
+          const entry = pending.get(requestId);
+          if (!entry) {
+            return;
+          }
+          const response = asRecord(params.response);
+          entry.status = typeof response?.status === "number" ? response.status : null;
+          entry.responseHeaders = parseHeaderRecord(response?.headers);
+          return;
+        }
+        if (method === "Network.loadingFinished") {
+          const entry = pending.get(requestId);
+          if (!entry || entry.status === null) {
+            return;
+          }
+          void (async () => {
+            try {
+              const bodyResult = asRecord(
+                await debuggerApi.sendCommand({ tabId }, "Network.getResponseBody", { requestId })
+              );
+              const rawBody = asNonEmptyString(bodyResult?.body);
+              const responseBody =
+                bodyResult?.base64Encoded === true && rawBody
+                  ? parseBody(atob(rawBody))
+                  : parseBody(rawBody);
+              finish({
+                source: "chrome_debugger_network",
+                route_evidence_class: "passive_api_capture",
+                url: entry.url,
+                method: entry.method,
+                status: entry.status,
+                request: {
+                  headers: entry.requestHeaders,
+                  body: entry.requestBody
+                },
+                response: {
+                  headers: entry.responseHeaders,
+                  body: responseBody
+                },
+                captured_at: entry.capturedAt,
+                observed_at: Date.now()
+              });
+            } catch {
+              finish(null);
+            }
+          })();
+        }
+      };
+      onEvent.addListener(listener);
+    });
+  }
+
+  #waitForXhsDetailDebuggerNetworkCapture(
+    tabId: number,
+    noteId: string,
+    timeoutMs: number
+  ): Promise<Record<string, unknown> | null> {
+    const debuggerApi = this.chromeApi.debugger;
+    const onEvent = debuggerApi?.onEvent;
+    if (!debuggerApi || !onEvent) {
+      return Promise.resolve(null);
+    }
+
+    type PendingRequest = {
+      url: string;
+      method: string;
+      requestHeaders: Record<string, string>;
+      requestBody: unknown;
+      status: number | null;
+      responseHeaders: Record<string, string>;
+      capturedAt: number;
+    };
+    const pending = new Map<string, PendingRequest>();
+    const parseBody = (value: unknown): unknown => {
+      if (typeof value !== "string" || value.length === 0) {
+        return null;
+      }
+      try {
+        return JSON.parse(value) as unknown;
+      } catch {
+        return value;
+      }
+    };
+    const parseHeaderRecord = (value: unknown): Record<string, string> => {
+      const record = asRecord(value);
+      if (!record) {
+        return {};
+      }
+      return Object.fromEntries(
+        Object.entries(record)
+          .filter((entry): entry is [string, string | number] =>
+            typeof entry[1] === "string" || typeof entry[1] === "number"
+          )
+          .map(([key, value]) => [key, String(value)])
+      );
+    };
+    const isDetailEndpoint = (url: string): boolean => {
+      try {
+        const parsed = new URL(url);
+        return parsed.hostname === XHS_READ_API_DOMAIN && parsed.pathname === DETAIL_ENDPOINT;
+      } catch {
+        return false;
+      }
+    };
+    const bodyMatchesNoteId = (body: unknown): boolean => {
+      const record = asRecord(body);
+      return asNonEmptyString(record?.source_note_id) === noteId;
+    };
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: Record<string, unknown> | null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          onEvent.removeListener(listener);
+        } catch {
+          // Best-effort listener removal.
+        }
+        resolve(value);
+      };
+      const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+      const listener = (
+        source: { tabId?: number },
+        method: string,
+        params?: Record<string, unknown>
+      ) => {
+        if (settled || source.tabId !== tabId || !params) {
+          return;
+        }
+        const requestId = asNonEmptyString(params.requestId);
+        if (!requestId) {
+          return;
+        }
+        if (method === "Network.requestWillBeSent") {
+          const request = asRecord(params.request);
+          const url = asNonEmptyString(request?.url);
+          const requestMethod = asNonEmptyString(request?.method);
+          if (!url || requestMethod !== "POST" || !isDetailEndpoint(url)) {
+            return;
+          }
+          const requestBody = parseBody(request?.postData);
+          if (!bodyMatchesNoteId(requestBody)) {
+            return;
+          }
+          pending.set(requestId, {
+            url,
+            method: requestMethod,
+            requestHeaders: parseHeaderRecord(request?.headers),
+            requestBody,
+            status: null,
+            responseHeaders: {},
+            capturedAt: Date.now()
+          });
+          return;
+        }
+        if (method === "Network.responseReceived") {
+          const entry = pending.get(requestId);
+          if (!entry) {
+            return;
+          }
+          const response = asRecord(params.response);
+          entry.status = typeof response?.status === "number" ? response.status : null;
+          entry.responseHeaders = parseHeaderRecord(response?.headers);
+          return;
+        }
+        if (method === "Network.loadingFinished") {
+          const entry = pending.get(requestId);
+          if (!entry || entry.status === null) {
+            return;
+          }
+          void (async () => {
+            try {
+              const bodyResult = asRecord(
+                await debuggerApi.sendCommand({ tabId }, "Network.getResponseBody", { requestId })
+              );
+              const rawBody = asNonEmptyString(bodyResult?.body);
+              const responseBody =
+                bodyResult?.base64Encoded === true && rawBody
+                  ? parseBody(atob(rawBody))
+                  : parseBody(rawBody);
+              finish({
+                route_evidence_class: "passive_api_capture",
+                source_kind: "page_request",
+                method: entry.method,
+                url: entry.url,
+                referrer: null,
+                request: {
+                  headers: entry.requestHeaders,
+                  body: entry.requestBody
+                },
+                response: {
+                  headers: entry.responseHeaders,
+                  body: responseBody
+                },
+                status: entry.status,
+                captured_at: entry.capturedAt,
+                observed_at: Date.now()
+              });
+            } catch {
+              finish(null);
+            }
+          })();
+        }
+      };
+      onEvent.addListener(listener);
+    });
+  }
+
+  async #dispatchXhsSearchDebuggerAction(
+    tabId: number,
+    input: XhsSearchDebuggerActionMessage
+  ): Promise<Record<string, unknown>> {
+    const query = asNonEmptyString(input.query);
+    if (!query) {
+      throw new Error("xhs search query is required");
+    }
+    const debuggerApi = this.chromeApi.debugger;
+    if (!debuggerApi) {
+      throw new Error("chrome.debugger is unavailable");
+    }
+    const actionMode = input.action_mode === "page_reload" ? "page_reload" : "input_submit";
+    const targets = actionMode === "page_reload" ? null : await this.#probeXhsSearchTargets(tabId);
+    try {
+      await debuggerApi.attach({ tabId }, debuggerProtocolVersion);
+    } catch (error) {
+      throw new Error(
+        `chrome.debugger attach failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    try {
+      let networkCapture = this.#waitForXhsSearchDebuggerNetworkCapture(tabId, query, 5_000);
+      try {
+        await debuggerApi.sendCommand({ tabId }, "Network.enable");
+      } catch {
+        // Network capture is diagnostic/passive evidence; keep the primary action path available.
+      }
+      let submitTriggered = "debugger_page_reload";
+      let debuggerActionError: string | null = null;
+      if (actionMode === "page_reload") {
+        try {
+          await debuggerApi.sendCommand({ tabId }, "Page.reload", { ignoreCache: true });
+        } catch (error) {
+          debuggerActionError = error instanceof Error ? error.message : String(error);
+        }
+      } else if (targets?.input) {
+        try {
+          await this.#dispatchEditorInputDebuggerClick(tabId, targets.input);
+          await this.#sleep(60);
+          await this.#selectXhsSearchInputText(tabId);
+          await this.#sleep(30);
+          await debuggerApi.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+            type: "rawKeyDown",
+            key: "Backspace",
+            code: "Backspace",
+            windowsVirtualKeyCode: 8,
+            nativeVirtualKeyCode: 8
+          });
+          await debuggerApi.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: "Backspace",
+            code: "Backspace",
+            windowsVirtualKeyCode: 8,
+            nativeVirtualKeyCode: 8
+          });
+          await this.#sleep(80);
+          await debuggerApi.sendCommand({ tabId }, "Input.insertText", { text: query });
+          await this.#sleep(80);
+          await debuggerApi.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+            type: "rawKeyDown",
+            key: "Enter",
+            code: "Enter",
+            windowsVirtualKeyCode: 13,
+            nativeVirtualKeyCode: 13
+          });
+          await debuggerApi.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: "Enter",
+            code: "Enter",
+            windowsVirtualKeyCode: 13,
+            nativeVirtualKeyCode: 13
+          });
+          submitTriggered = targets.button
+            ? "debugger_enter_key_and_button_click"
+            : "debugger_enter_key";
+          if (targets.button) {
+            await this.#sleep(80);
+            await this.#dispatchEditorInputDebuggerClick(tabId, targets.button);
+          }
+        } catch (error) {
+          debuggerActionError = error instanceof Error ? error.message : String(error);
+        }
+      } else {
+        try {
+          await debuggerApi.sendCommand({ tabId }, "Page.reload", { ignoreCache: true });
+        } catch (error) {
+          debuggerActionError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      let debuggerNetworkContext = await networkCapture;
+      let reloadFallbackTriggered = false;
+      let reloadFallbackError: string | null = null;
+      if (!debuggerNetworkContext && actionMode === "page_reload") {
+        reloadFallbackTriggered = true;
+        networkCapture = this.#waitForXhsSearchDebuggerNetworkCapture(tabId, query, 8_000);
+        try {
+          await debuggerApi.sendCommand({ tabId }, "Page.reload", { ignoreCache: true });
+        } catch (error) {
+          reloadFallbackError = error instanceof Error ? error.message : String(error);
+        }
+        debuggerNetworkContext = await networkCapture;
+      }
+      return {
+        source: "chrome_debugger",
+        target_tab_id: tabId,
+        query,
+        run_id: asNonEmptyString(input.run_id),
+        action_ref: asNonEmptyString(input.action_ref),
+        requested_action_mode: actionMode,
+        search_input_locator: targets?.input?.locator ?? null,
+        search_input_target_key: targets?.input?.targetKey ?? null,
+        search_button_locator: targets?.button?.locator ?? null,
+        search_button_target_key: targets?.button?.targetKey ?? null,
+        input_reset_before_insert: Boolean(targets?.input),
+        submit_triggered: submitTriggered,
+        debugger_action_error: debuggerActionError,
+        reload_fallback_triggered: reloadFallbackTriggered,
+        reload_fallback_error: reloadFallbackError,
+        debugger_network_context: debuggerNetworkContext
+      };
+    } finally {
+      try {
+        await debuggerApi.detach({ tabId });
+      } catch {
+        // Keep primary failure semantics if detach races with Chrome.
+      }
+    }
+  }
+
   async #sleep(timeoutMs: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, timeoutMs));
   }
@@ -5240,6 +7405,10 @@ class ChromeBackgroundBridge {
         ? { missing_required_patches: [...missingRequiredPatches] }
         : {})
     };
+    const humanizedAction = asRecord(details.humanized_action);
+    if (humanizedAction) {
+      executionFailure.humanized_action = humanizedAction;
+    }
 
     const isFingerprintFailure = reason.startsWith("FINGERPRINT_");
     const gateOutcome = asRecord(gatePayload.gate_outcome);
@@ -5780,6 +7949,33 @@ class ChromeBackgroundBridge {
     );
   }
 
+  #isXhsSearchDebuggerActionMessage(message: unknown): message is XhsSearchDebuggerActionMessage {
+    const record = asRecord(message);
+    if (record?.kind !== "xhs-search-debugger-action") {
+      return false;
+    }
+    if (asNonEmptyString(record.query) === null) {
+      return false;
+    }
+    if (record.run_id !== undefined && asNonEmptyString(record.run_id) === null) {
+      return false;
+    }
+    if (record.action_ref !== undefined && asNonEmptyString(record.action_ref) === null) {
+      return false;
+    }
+    if (record.timeout_ms !== undefined && readTimeoutMs(record.timeout_ms) === null) {
+      return false;
+    }
+    if (
+      record.action_mode !== undefined &&
+      record.action_mode !== "page_reload" &&
+      record.action_mode !== "input_submit"
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   #isXhsMainWorldRequestMessage(message: unknown): message is XhsMainWorldRequestMessage {
     const record = asRecord(message);
     if (
@@ -6001,6 +8197,50 @@ class ChromeBackgroundBridge {
         ok: false,
         error: {
           code: "ERR_XHS_SIGN_FAILED",
+          message: error instanceof Error ? error.message : String(error)
+        }
+      });
+    }
+  }
+
+  async #handleXhsSearchDebuggerAction(
+    message: XhsSearchDebuggerActionMessage,
+    sender: RuntimeMessageSender,
+    sendResponse: (response: XhsSearchDebuggerActionResponseMessage) => void
+  ): Promise<void> {
+    const tabId = asInteger(sender.tab?.id);
+    const senderUrl = asNonEmptyString(sender.tab?.url);
+    const parsedSenderUrl = senderUrl ? parseUrl(senderUrl) : null;
+    if (tabId === null || !parsedSenderUrl || parsedSenderUrl.hostname !== "www.xiaohongshu.com") {
+      sendResponse({
+        ok: false,
+        error: {
+          code: "ERR_XHS_SEARCH_DEBUGGER_FORBIDDEN",
+          message: "xhs search debugger action is out of allowlist scope"
+        }
+      });
+      return;
+    }
+
+    try {
+      const timeoutMs = Math.min(readTimeoutMs(message.timeout_ms) ?? 12_000, 12_000);
+      const result = await Promise.race([
+        this.#dispatchXhsSearchDebuggerAction(tabId, message),
+        new Promise<Record<string, unknown>>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`xhs search debugger action timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+        })
+      ]);
+      sendResponse({
+        ok: true,
+        result
+      });
+    } catch (error) {
+      sendResponse({
+        ok: false,
+        error: {
+          code: "ERR_XHS_SEARCH_DEBUGGER_FAILED",
           message: error instanceof Error ? error.message : String(error)
         }
       });

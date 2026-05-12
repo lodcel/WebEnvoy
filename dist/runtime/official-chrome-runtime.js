@@ -253,6 +253,21 @@ const waitForOfficialChromeRuntimeReadinessViaBridge = async (input) => {
     }
     return readiness;
 };
+const primeOfficialChromeRuntimeTrustViaPing = async (input) => {
+    await input.bridge.runCommand({
+        runId: input.context.run_id,
+        profile: input.context.profile,
+        cwd: input.context.cwd,
+        command: "runtime.ping",
+        params: {
+            run_id: input.context.run_id,
+            runtime_context_id: buildRuntimeBootstrapContextId(input.context.profile ?? "", input.context.run_id),
+            fingerprint_runtime: input.fingerprintContext,
+            ...buildForwardTimeoutParams(input.context.params ?? {}),
+            ...buildOfficialChromeTargetParams(input.target)
+        }
+    });
+};
 const applyReadinessToStatus = (status, input) => ({
     ...status,
     runtimeReadiness: input.runtimeReadiness,
@@ -516,6 +531,18 @@ export const prepareOfficialChromeRuntime = async (input) => {
             bootstrapState === "stale" ||
             bootstrapState === "failed")) {
         await attemptExecutionBootstrap();
+        await primeOfficialChromeRuntimeTrustViaPing({
+            context: input.context,
+            bridge: input.bridge,
+            fingerprintContext: input.fingerprintContext,
+            target: {
+                requestedAt: runtimeBootstrapRequestedAt,
+                targetTabId: input.bootstrapTargetTabId,
+                targetDomain: input.bootstrapTargetDomain,
+                targetPage: input.bootstrapTargetPage,
+                targetResourceId: input.bootstrapTargetResourceId
+            }
+        }).catch(() => undefined);
         syncRuntimeStatus(await readStatus());
         if (runtimeReadiness !== "ready" && lockHeld && identityBindingState === "bound") {
             const bridgedReadiness = await readOfficialChromeRuntimeReadinessViaBridge({

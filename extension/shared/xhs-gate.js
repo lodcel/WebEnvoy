@@ -227,6 +227,28 @@ const actualUrlSatisfiesExpectedQuery = (expectedUrl, actualUrl) => {
   return true;
 };
 
+const parseXhsDetailLikeNoteId = (url) => {
+  if (!(url instanceof URL)) {
+    return null;
+  }
+  const match = url.pathname.match(/^\/(?:explore|discovery\/item|search_result)\/([^/?#]+)/u);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+};
+
+const isXhsDetailLikeUrl = (url) => parseXhsDetailLikeNoteId(url) !== null;
+
+const detailLikeRuntimeTargetUrlsMatch = (expectedUrl, actualUrl) => {
+  const expectedNoteId = parseXhsDetailLikeNoteId(expectedUrl);
+  const actualNoteId = parseXhsDetailLikeNoteId(actualUrl);
+  if (!expectedNoteId || !actualNoteId || expectedNoteId !== actualNoteId) {
+    return false;
+  }
+  if (expectedUrl.pathname === actualUrl.pathname) {
+    return actualUrlSatisfiesExpectedQuery(expectedUrl, actualUrl);
+  }
+  return true;
+};
+
 const matchesRuntimeTargetUrl = (input, actualTargetUrl) => {
   const runtimeTarget = input?.runtime_target;
   if (!runtimeTarget?.url || !runtimeTarget.domain || !runtimeTarget.page) {
@@ -244,7 +266,7 @@ const matchesRuntimeTargetUrl = (input, actualTargetUrl) => {
       }
     }
     if (runtimeTarget.page === "explore_detail_tab") {
-      if (!parsed.pathname.startsWith("/explore/")) {
+      if (!isXhsDetailLikeUrl(parsed)) {
         return false;
       }
     }
@@ -265,6 +287,13 @@ const matchesRuntimeTargetUrl = (input, actualTargetUrl) => {
       return true;
     }
     const actual = new URL(actualTargetUrl);
+    if (
+      runtimeTarget.page === "explore_detail_tab" &&
+      actual.protocol === parsed.protocol &&
+      actual.hostname === parsed.hostname
+    ) {
+      return detailLikeRuntimeTargetUrlsMatch(parsed, actual);
+    }
     return (
       actual.protocol === parsed.protocol &&
       actual.hostname === parsed.hostname &&

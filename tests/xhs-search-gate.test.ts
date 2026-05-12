@@ -642,6 +642,70 @@ describe("xhs-search gate helpers", () => {
     expect(gate.request_admission_result.reason_codes).not.toContain("TARGET_URL_CONTEXT_MISMATCH");
   });
 
+  it("allows detail runtime_target.url when XHS normalizes search_result detail route to explore", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "explore_detail_tab",
+      actualTargetDomain: "www.xiaohongshu.com",
+      actualTargetTabId: 12,
+      actualTargetPage: "explore_detail_tab",
+      actualTargetUrl:
+        "https://www.xiaohongshu.com/explore/note-001?xsec_source=pc_search",
+      actionType: "read",
+      abilityAction: "read",
+      requestedExecutionMode: "dry_run",
+      upstreamAuthorizationRequest: createUpstreamAuthorizationRequest({
+        resourceKind: "profile_session",
+        allowedActions: ["xhs.detail"],
+        allowedPages: ["explore_detail_tab"],
+        actionName: "xhs.detail",
+        page: "explore_detail_tab",
+        url:
+          "https://www.xiaohongshu.com/search_result/note-001?xsec_token=token-001&xsec_source=pc_search"
+      } as never)
+    });
+
+    expect(gate.request_admission_result).toMatchObject({
+      admission_decision: "allowed",
+      runtime_target_match: true
+    });
+    expect(gate.request_admission_result.reason_codes).not.toContain("TARGET_URL_CONTEXT_MISMATCH");
+  });
+
+  it("blocks detail runtime_target.url when search_result and explore note ids differ", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "explore_detail_tab",
+      actualTargetDomain: "www.xiaohongshu.com",
+      actualTargetTabId: 12,
+      actualTargetPage: "explore_detail_tab",
+      actualTargetUrl: "https://www.xiaohongshu.com/explore/note-999",
+      actionType: "read",
+      abilityAction: "read",
+      requestedExecutionMode: "dry_run",
+      upstreamAuthorizationRequest: createUpstreamAuthorizationRequest({
+        resourceKind: "profile_session",
+        allowedActions: ["xhs.detail"],
+        allowedPages: ["explore_detail_tab"],
+        actionName: "xhs.detail",
+        page: "explore_detail_tab",
+        url: "https://www.xiaohongshu.com/search_result/note-001"
+      } as never)
+    });
+
+    expect(gate.request_admission_result).toMatchObject({
+      admission_decision: "blocked",
+      runtime_target_match: false
+    });
+    expect(gate.request_admission_result.reason_codes).toContain("TARGET_URL_CONTEXT_MISMATCH");
+  });
+
   it("blocks stale legacy requested_execution_mode instead of letting it own canonical mode", () => {
     const gate = evaluateXhsGate({
       issueScope: "issue_209",

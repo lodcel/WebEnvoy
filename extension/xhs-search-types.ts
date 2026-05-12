@@ -42,10 +42,13 @@ export interface XhsSearchOptions {
   audit_record?: Record<string, unknown>;
   admission_context?: Record<string, unknown>;
   limited_read_rollout_ready_true?: boolean;
+  closeout_audit_required?: boolean;
+  closeout_evidence_evaluation?: boolean;
   xhs_recovery_probe?: boolean;
   validation_action?: string;
   validation_text?: string;
   __request_context_provenance_confirmed?: boolean;
+  explicit_request_context_artifact?: Record<string, unknown>;
   active_api_fetch_fallback?: ActiveApiFetchFallbackGateOptions;
   editor_focus_attestation?: EditorInputFocusAttestation | Record<string, unknown>;
 }
@@ -222,6 +225,8 @@ export interface XhsSearchEnvironment {
     pageUrl: string;
     runId: string;
     actionRef: string;
+    debuggerActionAllowed?: boolean;
+    timeoutMs?: number;
   }): Promise<unknown>;
   configureCapturedRequestContextProvenance?(input: {
     page_context_namespace: PageContextNamespace;
@@ -231,6 +236,7 @@ export interface XhsSearchEnvironment {
     run_id: string;
     action_ref: string;
     page_url: string;
+    bind_fresh_window_ms?: number;
   }): Promise<unknown>;
   sleep?(ms: number): Promise<void>;
   callSignature(uri: string, payload: JsonRecord): Promise<SignatureResult>;

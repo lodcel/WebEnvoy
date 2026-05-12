@@ -1788,6 +1788,7 @@ const pickGateErrorDetails = (
     "minimum_replay",
     "out_of_scope_actions",
     "execution_failure",
+    "humanized_action",
     "scope_context",
     "gate_input",
     "gate_outcome",

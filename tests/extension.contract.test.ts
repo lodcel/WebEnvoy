@@ -16,6 +16,7 @@ import {
 const repoRoot = path.resolve(path.join(import.meta.dirname, ".."));
 const extensionRoot = path.join(repoRoot, "extension");
 const manifestPath = path.join(extensionRoot, "manifest.json");
+const backgroundSourcePath = path.join(extensionRoot, "background.ts");
 const backgroundBuildPath = path.join(extensionRoot, "build", "background.js");
 const mainWorldBridgeBuildPath = path.join(extensionRoot, "build", "main-world-bridge.js");
 const contentScriptBuildPath = path.join(extensionRoot, "build", "content-script.js");
@@ -59,11 +60,8 @@ const loadBundleExports = (bundlePath: string, moduleVar: BundledXhsModuleVar) =
   context.structuredClone = structuredClone;
   context.performance = performance;
   context.URL = URL;
-  runInNewContext(
-    `${bundleSource}\n;globalThis.__bundle_test_exports = { ${moduleVar}, __webenvoy_module_xhs_search_gate };`,
-    context,
-    { filename: bundlePath }
-  );
+  runInNewContext(bundleSource, context, { filename: bundlePath });
+  context.__bundle_test_exports = context.__webenvoy_content_script_bundle_modules;
   return context.__bundle_test_exports as {
     [key: string]: {
       [exportName: string]: (input: Record<string, unknown>, env: Record<string, unknown>) => Promise<unknown>;
@@ -82,12 +80,9 @@ const loadBundledContentScriptHandlerModule = (
   if (!("performance" in context)) {
     context.performance = performance;
   }
-  runInNewContext(
-    `${bundleSource}\n;globalThis.__bundle_handler_exports = __webenvoy_module_content_script_handler;`,
-    context,
-    { filename: bundlePath }
-  );
-  return context.__bundle_handler_exports as BundledContentScriptHandlerModule;
+  runInNewContext(bundleSource, context, { filename: bundlePath });
+  const modules = context.__webenvoy_content_script_bundle_modules as Record<string, unknown> | undefined;
+  return modules?.__webenvoy_module_content_script_handler as BundledContentScriptHandlerModule;
 };
 
 const executeBundledXhsCommand = async (
@@ -651,6 +646,7 @@ describe("extension build contract", () => {
   it("emits chrome-loadable classic content-script bundle without top-level esm imports", () => {
     const contentScriptBuild = fs.readFileSync(contentScriptBuildPath, "utf8");
     const xhsEditorInputBuild = fs.readFileSync(xhsEditorInputBuildPath, "utf8");
+    expect(contentScriptBuild).toMatch(/^\(\(\) => \{/);
     expect(contentScriptBuild).toContain("bootstrapContentScript");
     expect(contentScriptBuild).toContain("installMainWorldEventChannelSecret");
     expect(contentScriptBuild).toContain("installFingerprintRuntimeViaMainWorld");
@@ -663,6 +659,21 @@ describe("extension build contract", () => {
     expect(contentScriptBuild).toMatch(
       /const \{\s*evaluateXhsGate,\s*resolveXhsGateDecisionId,\s*XHS_READ_DOMAIN,\s*XHS_WRITE_DOMAIN,\s*buildIssue209PostGateArtifacts\s*\} = __webenvoy_module_shared_xhs_gate;/s
     );
+  });
+
+  it("allows reinjecting the classic content-script bundle into an existing isolated world", () => {
+    const contentScriptBuild = fs.readFileSync(contentScriptBuildPath, "utf8");
+    const context: Record<string, unknown> = {};
+    context.globalThis = context;
+    context.structuredClone = structuredClone;
+    context.performance = performance;
+    context.URL = URL;
+
+    expect(() => {
+      runInNewContext(contentScriptBuild, context, { filename: `${contentScriptBuildPath}#a` });
+      runInNewContext(contentScriptBuild, context, { filename: `${contentScriptBuildPath}#b` });
+    }).not.toThrow();
+    expect(context.__webenvoy_content_script_bundle_modules).toBeDefined();
   });
 
   it("executes bundled xhs.search classic module without unresolved implementation references", async () => {
@@ -1782,6 +1793,8 @@ describe("extension build contract", () => {
         }
       }
     }));
+    const sleep = vi.fn(async () => {});
+    const performSearchPassiveAction = vi.fn(async () => null);
 
     await executeXhsSearch(
       {
@@ -2655,7 +2668,6 @@ describe("extension build contract", () => {
         }
       }
     }));
-
     await expect(
       executeXhsSearch(
         {
@@ -2725,6 +2737,214 @@ describe("extension build contract", () => {
 
     expect(sleep).not.toHaveBeenCalled();
     expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("does not use active fetch when closeout passive evidence is missing", async () => {
+    const admissionContext = buildLiveReadAdmissionContext({
+      runId: "run-source-search-closeout-passive-miss-001",
+      sessionId: "nm-session-source-search-closeout-passive-miss-001",
+      gateInvocationId: "issue650-gate-run-source-search-closeout-passive-miss-001",
+      targetTabId: 11,
+      targetPage: "search_result_tab"
+    });
+    const sleep = vi.fn(async () => {});
+    const performSearchPassiveAction = vi.fn(async () => ({
+      evidence_class: "humanized_action",
+      action_kind: "page_reload"
+    }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          items: []
+        }
+      }
+    }));
+    let lookupCount = 0;
+
+    await expect(
+      executeXhsSearch(
+        {
+          abilityId: "xhs.note.search.v1",
+          abilityLayer: "L3",
+          abilityAction: "read",
+          params: {
+            query: "露营装备"
+          },
+          options: {
+            timeout_ms: 60_000,
+            issue_scope: "issue_209",
+            target_domain: "www.xiaohongshu.com",
+            target_tab_id: 11,
+            target_page: "search_result_tab",
+            actual_target_domain: "www.xiaohongshu.com",
+            actual_target_tab_id: 11,
+            actual_target_page: "search_result_tab",
+            action_type: "read",
+            risk_state: "allowed",
+            requested_execution_mode: "live_read_high_risk",
+            closeout_audit_required: true,
+            closeout_evidence_evaluation: true,
+            upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
+              requestRef: "upstream_source_search_closeout_passive_miss_001",
+              actionName: "xhs.read_search_results",
+              targetPage: "search_result_tab",
+              targetTabId: 11,
+              profileRef: "profile-a",
+              approvalRefs: [
+                String(admissionContext.approval_admission_evidence.approval_admission_ref)
+              ],
+              auditRefs: [String(admissionContext.audit_admission_evidence.audit_admission_ref)]
+            }),
+            admission_context: admissionContext
+          },
+          executionContext: {
+            runId: "run-source-search-closeout-passive-miss-001",
+            sessionId: "nm-session-source-search-closeout-passive-miss-001",
+            profile: "profile-a",
+            gateInvocationId: "issue650-gate-run-source-search-closeout-passive-miss-001"
+          }
+        },
+        {
+          now: () => 1_710_000_000_000,
+          randomId: () => "source-req-closeout-passive-miss-001",
+          getLocationHref: () =>
+            "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5%E8%A3%85%E5%A4%87",
+          getDocumentTitle: () => "Search Result",
+          getReadyState: () => "complete",
+          getCookie: () => "a1=session-cookie",
+          sleep,
+          performSearchPassiveAction,
+          readCapturedRequestContext: async () => {
+            lookupCount += 1;
+            return null;
+          },
+          callSignature: async () => {
+            throw new Error("signature should not be used when request context is missing");
+          },
+          fetchJson
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      payload: {
+        details: {
+          reason: "REQUEST_CONTEXT_MISSING",
+          request_context_reason: "template_missing"
+        }
+      }
+    });
+
+    expect(lookupCount).toBeGreaterThan(1);
+    expect(sleep).toHaveBeenCalled();
+    expect(performSearchPassiveAction).toHaveBeenCalledTimes(1);
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("does not report DOM extraction as closeout xhs.search success", async () => {
+    const admissionContext = buildLiveReadAdmissionContext({
+      runId: "run-source-search-closeout-dom-fallback-001",
+      sessionId: "nm-session-source-search-closeout-dom-fallback-001",
+      gateInvocationId: "issue650-gate-run-source-search-closeout-dom-fallback-001",
+      targetTabId: 11,
+      targetPage: "search_result_tab"
+    });
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          items: []
+        }
+      }
+    }));
+    const sleep = vi.fn(async () => {});
+    const performSearchPassiveAction = vi.fn(async () => null);
+
+    await expect(
+      executeXhsSearch(
+        {
+          abilityId: "xhs.note.search.v1",
+          abilityLayer: "L3",
+          abilityAction: "read",
+          params: {
+            query: "露营装备"
+          },
+          options: {
+            timeout_ms: 60_000,
+            issue_scope: "issue_209",
+            target_domain: "www.xiaohongshu.com",
+            target_tab_id: 11,
+            target_page: "search_result_tab",
+            actual_target_domain: "www.xiaohongshu.com",
+            actual_target_tab_id: 11,
+            actual_target_page: "search_result_tab",
+            action_type: "read",
+            risk_state: "allowed",
+            requested_execution_mode: "live_read_high_risk",
+            closeout_audit_required: true,
+            closeout_evidence_evaluation: true,
+            upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
+              requestRef: "upstream_source_search_closeout_dom_fallback_001",
+              actionName: "xhs.read_search_results",
+              targetPage: "search_result_tab",
+              targetTabId: 11,
+              profileRef: "profile-a",
+              approvalRefs: [
+                String(admissionContext.approval_admission_evidence.approval_admission_ref)
+              ],
+              auditRefs: [String(admissionContext.audit_admission_evidence.audit_admission_ref)]
+            }),
+            admission_context: admissionContext
+          },
+          executionContext: {
+            runId: "run-source-search-closeout-dom-fallback-001",
+            sessionId: "nm-session-source-search-closeout-dom-fallback-001",
+            profile: "profile-a",
+            gateInvocationId: "issue650-gate-run-source-search-closeout-dom-fallback-001"
+          }
+        },
+        {
+          now: () => 1_710_000_000_000,
+          randomId: () => "source-req-closeout-dom-fallback-001",
+          getLocationHref: () =>
+            "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5%E8%A3%85%E5%A4%87",
+          getDocumentTitle: () => "Search Result",
+          getReadyState: () => "complete",
+          getCookie: () => "a1=session-cookie",
+          sleep,
+          performSearchPassiveAction,
+          readCapturedRequestContext: async () => null,
+          readPageStateRoot: async () => ({
+            feed: {
+              items: [
+                {
+                  title: "露营装备清单",
+                  detail_url:
+                    "https://www.xiaohongshu.com/explore/note-001?xsec_token=token-001&xsec_source=pc_search"
+                }
+              ]
+            }
+          }),
+          callSignature: async () => {
+            throw new Error("signature should not be used when request context is missing");
+          },
+          fetchJson
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      payload: {
+        details: {
+          reason: "REQUEST_CONTEXT_MISSING",
+          request_context_reason: "template_missing"
+        }
+      }
+    });
+
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(performSearchPassiveAction).toHaveBeenCalledTimes(1);
   });
 
   it("subtracts elapsed passive action time from the request-context wait budget", async () => {
@@ -3687,5 +3907,20 @@ describe("extension build contract", () => {
     expect(backgroundBuild).toContain("conditional_actions");
     expect(backgroundBuild).toContain("risk_transition_audit");
     expect(backgroundBuild).toContain("recovery_requirements");
+  });
+
+  it("keeps XHS debugger capture scoped to the API host instead of the page host", () => {
+    const backgroundSource = fs.readFileSync(backgroundSourcePath, "utf8");
+    const searchCapture = backgroundSource.match(
+      /const isSearchEndpoint = \(url: string\): boolean => \{[\s\S]*?const bodyMatchesQuery/
+    )?.[0];
+    const detailCapture = backgroundSource.match(
+      /const isDetailEndpoint = \(url: string\): boolean => \{[\s\S]*?const bodyMatchesNoteId/
+    )?.[0];
+
+    expect(searchCapture).toContain("parsed.hostname === XHS_READ_API_DOMAIN");
+    expect(searchCapture).not.toContain("parsed.hostname === XHS_READ_DOMAIN");
+    expect(detailCapture).toContain("parsed.hostname === XHS_READ_API_DOMAIN");
+    expect(detailCapture).not.toContain("parsed.hostname === XHS_READ_DOMAIN");
   });
 });

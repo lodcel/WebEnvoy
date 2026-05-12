@@ -20,6 +20,7 @@ import {
 type XhsReadCommandName = "xhs.detail" | "xhs.user_home";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const XHS_READ_API_ORIGIN = "https://edith.xiaohongshu.com";
 
 type CapturedReadRequestContextArtifact = {
   route_evidence_class?: "passive_api_capture" | "active_api_fetch_fallback" | string;
@@ -263,6 +264,26 @@ const BACKEND_REJECTED_SOURCE_REASONS = new Set<RequestContextMissReason>([
   "TARGET_API_RESPONSE_INVALID"
 ]);
 
+const PAGE_STATE_FALLBACK_HARD_STOP_REASONS = new Set<string>([
+  "XHS_LOGIN_REQUIRED",
+  "SESSION_EXPIRED",
+  "ACCOUNT_ABNORMAL",
+  "XHS_ACCOUNT_RISK_PAGE",
+  "BROWSER_ENV_ABNORMAL",
+  "CAPTCHA_REQUIRED",
+  "SECURITY_REDIRECT",
+  "TARGET_API_RESPONSE_INVALID"
+]);
+
+const canUsePageStateFallbackForReason = (
+  spec: XhsReadCommandSpec,
+  params: XhsDetailParams | XhsUserHomeParams,
+  pageStateRoot: unknown,
+  reason: string
+): boolean =>
+  !PAGE_STATE_FALLBACK_HARD_STOP_REASONS.has(reason) &&
+  canUsePageStateFallback(spec, params, asRecord(pageStateRoot));
+
 const XHS_DETAIL_SPEC: XhsReadCommandSpec = {
   command: "xhs.detail",
   endpoint: DETAIL_ENDPOINT,
@@ -270,9 +291,13 @@ const XHS_DETAIL_SPEC: XhsReadCommandSpec = {
   pageKind: "detail",
   requestClass: "xhs.detail",
   buildPayload: (params) => ({
-    source_note_id: (params as XhsDetailParams).note_id
+    source_note_id: (params as XhsDetailParams).note_id,
+    image_formats: ["jpg", "webp", "avif"],
+    extra: {
+      need_body_topic: "1"
+    }
   }),
-  buildUrl: () => "/api/sns/web/v1/feed",
+  buildUrl: () => `${XHS_READ_API_ORIGIN}${DETAIL_ENDPOINT}`,
   buildSignatureUri: () => DETAIL_ENDPOINT,
   buildDataRef: (params) => ({
     note_id: (params as XhsDetailParams).note_id
@@ -287,9 +312,9 @@ const XHS_USER_HOME_SPEC: XhsReadCommandSpec = {
   requestClass: "xhs.user_home",
   buildPayload: () => ({}),
   buildUrl: (params) =>
-    `/api/sns/web/v1/user/otherinfo?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
+    `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}&target_user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
   buildSignatureUri: (params) =>
-    `/api/sns/web/v1/user/otherinfo?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
+    `/api/sns/web/v1/user/otherinfo?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}&target_user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
   buildDataRef: (params) => ({
     user_id: (params as XhsUserHomeParams).user_id
   })
@@ -431,6 +456,14 @@ const resolveCapturedArtifactStatus = (value: unknown): {
 const resolveCapturedArtifactObservedAt = (value: unknown): number | null => {
   const record = asRecord(value);
   return asInteger(record?.observed_at) ?? asInteger(record?.captured_at);
+};
+
+const isSyntheticActiveFetchBootstrapArtifact = (value: unknown): boolean => {
+  const record = asRecord(value);
+  return (
+    asString(record?.transport) === "synthetic_active_fetch_bootstrap" ||
+    asString(record?.template_identity)?.startsWith("synthetic_active_fetch_bootstrap:") === true
+  );
 };
 
 const resolveCapturedTemplateIdentity = (
@@ -614,7 +647,11 @@ const resolveSignedContinuityUrl = (
     }
     if (spec.command === "xhs.detail") {
       const noteId = (expectedShape as DetailRequestShape).note_id;
-      const expectedPaths = [`/explore/${noteId}`, `/discovery/item/${noteId}`];
+      const expectedPaths = [
+        `/explore/${noteId}`,
+        `/discovery/item/${noteId}`,
+        `/search_result/${noteId}`
+      ];
       return expectedPaths.includes(url.pathname) ? url : null;
     }
     const userId = (expectedShape as UserHomeRequestShape).user_id;
@@ -1116,7 +1153,9 @@ const resolveReadRequestContext = (
         spec.command === "xhs.detail" ? (expectedShape as DetailRequestShape).note_id : null,
       allowDetailResponseBareIdAlias: options?.allowDetailResponseBareIdAlias ?? false,
       allowDetailRequestFallback:
-        spec.command === "xhs.detail" && !resolveCapturedArtifactStatus(artifact).rejectionReason
+        spec.command === "xhs.detail" &&
+        !resolveCapturedArtifactStatus(artifact).rejectionReason &&
+        !isSyntheticActiveFetchBootstrapArtifact(artifact)
           ? false
           : (options?.allowDetailRequestFallback ?? true)
     }
@@ -1320,6 +1359,23 @@ const createRedirectSignedContinuity = (
   observed_at: null,
   source_route: "unknown"
 });
+
+const createExplicitRequestContextResult = (input: {
+  spec: XhsReadCommandSpec;
+  expectedShape: ReadRequestShape;
+  artifact: unknown;
+  env: XhsSearchEnvironment;
+}): ReadRequestContextLookupResult | null => {
+  const artifact = asRecord(input.artifact);
+  if (!artifact) {
+    return null;
+  }
+  const resolved = resolveReadRequestContext(input.spec, artifact, input.expectedShape, input.env.now(), {
+    allowDetailRequestFallback: true,
+    allowDetailResponseBareIdAlias: true
+  });
+  return resolved.state === "hit" ? resolved : null;
+};
 
 const buildActiveFallbackTemplateBinding = (input: {
   executionContext: XhsExecutionContext;
@@ -1625,6 +1681,9 @@ const withExecutionAuditInFailurePayload = (
 const classifyPageKind = (href: string, fallback: XhsReadCommandSpec["pageKind"]): string => {
   if (href.includes("/login")) {
     return "login";
+  }
+  if (/\/search_result\/[^/?#]+/u.test(href)) {
+    return "detail";
   }
   if (href.includes("/search_result")) {
     return "search";
@@ -1947,6 +2006,125 @@ const hasDetailPageStateFallback = (params: XhsDetailParams, root: JsonRecord | 
   return asRecord(noteDetailMap?.[params.note_id]) !== null;
 };
 
+const parseDetailLikeNoteIdFromHref = (href: string): string | null => {
+  try {
+    const parsed = new URL(href);
+    const match = parsed.pathname.match(/^\/(?:explore|discovery\/item|search_result)\/([^/?#]+)/u);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+
+const parseUserProfileIdFromHref = (href: string): string | null => {
+  try {
+    const parsed = new URL(href);
+    const match = parsed.pathname.match(/^\/user\/profile\/([^/?#]+)/u);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeXhsDetailTitle = (title: string): string | null => {
+  const normalized = title
+    .replace(/\s+-\s+小红书\s*$/u, "")
+    .replace(/\s*\|\s*小红书\s*$/u, "")
+    .trim();
+  if (
+    !normalized ||
+    normalized === "XHS" ||
+    normalized === "小红书" ||
+    normalized === "小红书 - 你的生活兴趣社区"
+  ) {
+    return null;
+  }
+  return normalized;
+};
+
+const normalizeXhsUserHomeTitle = (title: string): string | null => {
+  const normalized = title
+    .replace(/\s+-\s+小红书\s*$/u, "")
+    .replace(/\s*\|\s*小红书\s*$/u, "")
+    .trim();
+  if (!normalized || normalized === "小红书" || normalized === "小红书 - 你的生活兴趣社区") {
+    return null;
+  }
+  return normalized;
+};
+
+const hasBlockingPageSurface = (bodyText: string): boolean => {
+  const normalized = bodyText.toLowerCase();
+  return (
+    bodyText.includes("验证码") ||
+    bodyText.includes("登录") ||
+    bodyText.includes("安全验证") ||
+    normalized.includes("captcha") ||
+    normalized.includes("security")
+  );
+};
+
+const createDetailDomPageStateRoot = (
+  params: XhsDetailParams,
+  env: XhsSearchEnvironment
+): JsonRecord | null => {
+  const href = env.getLocationHref();
+  if (parseDetailLikeNoteIdFromHref(href) !== params.note_id) {
+    return null;
+  }
+  if (classifyPageKind(href, "detail") !== "detail") {
+    return null;
+  }
+  const bodyText = env.getBodyText?.() ?? "";
+  const title = normalizeXhsDetailTitle(env.getDocumentTitle());
+  if (!title || bodyText.trim().length === 0 || hasBlockingPageSurface(bodyText)) {
+    return null;
+  }
+  return {
+    note: {
+      noteDetailMap: {
+        [params.note_id]: {
+          note_id: params.note_id,
+          title,
+          page_url: href,
+          source: "detail_dom_page_state"
+        }
+      }
+    }
+  };
+};
+
+const createUserHomeDomPageStateRoot = (
+  params: XhsUserHomeParams,
+  env: XhsSearchEnvironment
+): JsonRecord | null => {
+  const href = env.getLocationHref();
+  if (parseUserProfileIdFromHref(href) !== params.user_id) {
+    return null;
+  }
+  if (classifyPageKind(href, "user_home") !== "user_home") {
+    return null;
+  }
+  const bodyText = env.getBodyText?.() ?? "";
+  const nickname = normalizeXhsUserHomeTitle(env.getDocumentTitle());
+  if (!nickname || bodyText.trim().length === 0 || hasBlockingPageSurface(bodyText)) {
+    return null;
+  }
+  return {
+    user: {
+      userId: params.user_id,
+      basic_info: {
+        user_id: params.user_id,
+        nickname,
+        page_url: href,
+        source: "user_home_dom_page_state"
+      }
+    },
+    board: {},
+    note: {}
+  };
+};
+
 const asNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
@@ -2094,6 +2272,110 @@ const createPageStateFallbackFailure = (
     ),
     gate.execution_audit as JsonRecord | null
   );
+};
+
+const createPageStateFallbackSuccess = (
+  input: XhsReadExecutionInput,
+  spec: XhsReadCommandSpec,
+  gate: ReturnType<typeof resolveGate>,
+  auditRecord: ReturnType<typeof createAuditRecord>,
+  env: XhsSearchEnvironment,
+  payload: JsonRecord,
+  startedAt: number,
+  fallback: {
+    reason: string;
+    message: string;
+    statusCode?: number;
+    platformCode?: number;
+    requestAttempted?: boolean;
+  }
+): SearchExecutionResult => {
+  const requestId = `req-${env.randomId()}`;
+  const requestAttempted = fallback.requestAttempted !== false;
+  return {
+    ok: true,
+    payload: {
+      summary: {
+        capability_result: {
+          ability_id: input.abilityId,
+          layer: input.abilityLayer,
+          action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+          outcome: "success",
+          data_ref: spec.buildDataRef(input.params, payload),
+          metrics: {
+            count: 1,
+            duration_ms: Math.max(0, env.now() - startedAt)
+          }
+        },
+        scope_context: gate.scope_context,
+        gate_input: {
+          run_id: auditRecord.run_id,
+          session_id: auditRecord.session_id,
+          profile: auditRecord.profile,
+          ...gate.gate_input
+        },
+        gate_outcome: gate.gate_outcome,
+        read_execution_policy: gate.read_execution_policy,
+        issue_action_matrix: gate.issue_action_matrix,
+        consumer_gate_result: gate.consumer_gate_result,
+        request_admission_result: gate.request_admission_result,
+        execution_audit: gate.execution_audit,
+        approval_record: gate.approval_record,
+        risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+        audit_record: auditRecord,
+        route_evidence: {
+          evidence_class: "page_state_fallback",
+          fallback_reason: fallback.reason,
+          page_url: env.getLocationHref(),
+          page_kind: classifyPageKind(env.getLocationHref(), spec.pageKind),
+          target_tab_id:
+            typeof input.options.actual_target_tab_id === "number"
+              ? input.options.actual_target_tab_id
+              : typeof input.options.target_tab_id === "number"
+                ? input.options.target_tab_id
+                : null
+        }
+      },
+      observability: {
+        page_state: {
+          page_kind: classifyPageKind(env.getLocationHref(), spec.pageKind),
+          url: env.getLocationHref(),
+          title: env.getDocumentTitle(),
+          ready_state: env.getReadyState(),
+          fallback_used: true
+        },
+        key_requests: [
+          ...(requestAttempted
+            ? [
+                {
+                  request_id: requestId,
+                  stage: "request",
+                  method: spec.method,
+                  url: spec.endpoint,
+                  outcome: "failed",
+                  ...(typeof fallback.statusCode === "number"
+                    ? { status_code: fallback.statusCode }
+                    : {}),
+                  failure_reason: fallback.reason,
+                  request_class: spec.requestClass
+                }
+              ]
+            : []),
+          {
+            request_id: `${requestId}-page-state`,
+            stage: "page_state_fallback",
+            method: "N/A",
+            url: env.getLocationHref(),
+            outcome: "completed",
+            fallback_reason: fallback.reason,
+            data_ref: spec.buildDataRef(input.params, payload),
+            duration_ms: Math.max(0, env.now() - startedAt)
+          }
+        ],
+        failure_site: null
+      }
+    }
+  };
 };
 
 const createGateOnlySuccess = (
@@ -2348,7 +2630,13 @@ const executeXhsRead = async (
     if (mainWorldRecord) {
       return mainWorldRecord;
     }
-    return asRecord(env.getPageStateRoot?.());
+    const isolatedWorldRecord = asRecord(env.getPageStateRoot?.());
+    if (isolatedWorldRecord) {
+      return isolatedWorldRecord;
+    }
+    return spec.command === "xhs.detail"
+      ? createDetailDomPageStateRoot(input.params as XhsDetailParams, env)
+      : createUserHomeDomPageStateRoot(input.params as XhsUserHomeParams, env);
   };
 
   if (gate.consumer_gate_result.gate_decision === "blocked") {
@@ -2541,12 +2829,19 @@ const executeXhsRead = async (
     abilityAction: input.abilityAction,
     pageUrl: env.getLocationHref()
   });
-  const requestContextResult = await readCapturedReadContextWithRetry(
-    spec,
-    expectedShape,
-    env,
-    activeFallbackBinding
-  );
+  let requestContextResult =
+    createExplicitRequestContextResult({
+      spec,
+      expectedShape,
+      artifact: input.options.explicit_request_context_artifact,
+      env
+    }) ??
+    (await readCapturedReadContextWithRetry(
+      spec,
+      expectedShape,
+      env,
+      activeFallbackBinding
+    ));
   if (requestContextResult.state !== "hit") {
     if (
       requiresSignedContinuity(spec) &&
@@ -2574,12 +2869,11 @@ const executeXhsRead = async (
       );
     }
     const pageStateRoot = await resolvePageStateRoot();
-    if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
-      const failureSurface = resolveRequestContextFailureSurface(spec, requestContextResult);
-      return createPageStateFallbackFailure(input, spec, gate, auditRecord, env, builtPayload, startedAt, {
+    const failureSurface = resolveRequestContextFailureSurface(spec, requestContextResult);
+    if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failureSurface.reasonCode)) {
+      return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, builtPayload, startedAt, {
         reason: failureSurface.reasonCode,
         message: failureSurface.message,
-        detail: requestContextResult.reason,
         statusCode:
           requestContextResult.state === "rejected_source" ? (requestContextResult.statusCode ?? undefined) : undefined,
         platformCode:
@@ -2588,43 +2882,7 @@ const executeXhsRead = async (
             : undefined,
         requestAttempted:
           requestContextResult.state === "rejected_source" &&
-          BACKEND_REJECTED_SOURCE_REASONS.has(requestContextResult.reason),
-        failureSite: {
-          stage:
-            requestContextResult.state === "rejected_source" &&
-            BACKEND_REJECTED_SOURCE_REASONS.has(requestContextResult.reason)
-              ? "request"
-              : "execution",
-          component:
-            requestContextResult.state === "rejected_source" &&
-            BACKEND_REJECTED_SOURCE_REASONS.has(requestContextResult.reason)
-              ? "network"
-              : "page",
-          target:
-            requestContextResult.state === "rejected_source" &&
-            BACKEND_REJECTED_SOURCE_REASONS.has(requestContextResult.reason)
-              ? spec.endpoint
-              : "captured_request_context",
-          summary: failureSurface.message
-        },
-        requestContextDetails: {
-          request_context_result: failureSurface.resultKind,
-          request_context_lookup_state: requestContextResult.state,
-          request_context_miss_reason: requestContextResult.reason,
-          request_context_shape: expectedShape,
-          request_context_shape_key: serializeReadShape(expectedShape),
-          ...(requestContextResult.state === "rejected_source" &&
-          typeof requestContextResult.statusCode === "number"
-            ? { status_code: requestContextResult.statusCode }
-            : {}),
-          ...(requestContextResult.state === "rejected_source" &&
-          typeof requestContextResult.platformCode === "number"
-            ? { platform_code: requestContextResult.platformCode }
-            : {}),
-          ...("shape" in requestContextResult && requestContextResult.shape
-            ? { captured_request_shape: requestContextResult.shape }
-            : {})
-        }
+          BACKEND_REJECTED_SOURCE_REASONS.has(requestContextResult.reason)
       });
     }
     return failClosedForRequestContext(
@@ -2689,18 +2947,11 @@ const executeXhsRead = async (
     signature = await env.callSignature(signatureUri, requestPayload);
   } catch (error) {
     const pageStateRoot = await resolvePageStateRoot();
-    if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
-      return createPageStateFallbackFailure(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
+    if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, "SIGNATURE_ENTRY_MISSING")) {
+      return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
         reason: "SIGNATURE_ENTRY_MISSING",
         message: "页面签名入口不可用",
-        detail: error instanceof Error ? error.message : String(error),
-        requestAttempted: false,
-        failureSite: {
-          stage: "action",
-          component: "page",
-          target: "window._webmsxyw",
-          summary: "页面签名入口不可用"
-        }
+        requestAttempted: false
       });
     }
     return withExecutionAuditInFailurePayload(
@@ -2758,11 +3009,10 @@ const executeXhsRead = async (
   } catch (error) {
     const failure = inferReadRequestException(spec, error);
     const pageStateRoot = await resolvePageStateRoot();
-    if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
-      return createPageStateFallbackFailure(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
+    if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failure.reason)) {
+      return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
         reason: failure.reason,
-        message: failure.message,
-        detail: failure.detail
+        message: failure.message
       });
     }
     return withExecutionAuditInFailurePayload(
@@ -2799,11 +3049,10 @@ const executeXhsRead = async (
   if (response.status >= 400 || (businessCode !== null && businessCode !== 0)) {
     const failure = inferReadFailure(spec, response.status, response.body);
     const pageStateRoot = await resolvePageStateRoot();
-    if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
-      return createPageStateFallbackFailure(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
+    if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failure.reason)) {
+      return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
         reason: failure.reason,
         message: failure.message,
-        detail: failure.message,
         statusCode: response.status,
         platformCode: businessCode ?? undefined
       });
@@ -2842,11 +3091,10 @@ const executeXhsRead = async (
 
   if (!responseContainsRequestedTarget(spec, input.params, response.body)) {
     const pageStateRoot = await resolvePageStateRoot();
-    if (canUsePageStateFallback(spec, input.params, pageStateRoot)) {
-      return createPageStateFallbackFailure(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
+    if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, "TARGET_DATA_NOT_FOUND")) {
+      return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
         reason: "TARGET_DATA_NOT_FOUND",
         message: `${spec.command} 接口返回成功但未包含目标数据`,
-        detail: `${spec.command} response target missing`,
         statusCode: response.status
       });
     }

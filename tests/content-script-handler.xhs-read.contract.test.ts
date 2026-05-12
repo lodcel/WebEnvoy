@@ -809,22 +809,17 @@ describe("content-script handler xhs read commands", () => {
     expect(handler.onBackgroundMessage(message)).toBe(true);
     const result = await resultPromise;
     const payload = (result.payload ?? {}) as Record<string, unknown>;
-    const details = (payload.details ?? {}) as Record<string, unknown>;
     const observability = (payload.observability ?? {}) as Record<string, unknown>;
 
-    expect(result.ok).toBe(false);
-    expect(details).toMatchObject({
-      reason: "REQUEST_CONTEXT_MISSING",
-      request_context_result: "request_context_missing",
-      request_context_lookup_state: "miss",
-      request_context_miss_reason: "template_missing"
+    expect(result.ok).toBe(true);
+    expect(((payload.summary ?? {}) as Record<string, unknown>).route_evidence).toMatchObject({
+      evidence_class: "page_state_fallback",
+      fallback_reason: "REQUEST_CONTEXT_MISSING",
+      page_kind: "user_home"
     });
     expect(observability).toMatchObject({
       page_state: {
         fallback_used: true
-      },
-      failure_site: {
-        target: "captured_request_context"
       }
     });
     expect((observability.key_requests as unknown[] | undefined) ?? []).toEqual([

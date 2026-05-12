@@ -1471,6 +1471,182 @@ const runtimeTabs = async (context) => {
         await bridge?.close().catch(() => undefined);
     }
 };
+const runtimeReloadTab = async (context) => {
+    let bridge = null;
+    try {
+        bridge = resolveRuntimeBridge();
+        const result = await bridge.runCommand({
+            runId: context.run_id,
+            profile: context.profile,
+            cwd: context.cwd,
+            command: "runtime.reload_tab",
+            params: context.params
+        });
+        if (!result.ok) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", result.error.message, {
+                retryable: result.error.code === "ERR_TRANSPORT_TIMEOUT",
+                details: {
+                    ability_id: "runtime.reload_tab",
+                    stage: "execution",
+                    reason: result.error.code
+                }
+            });
+        }
+        return {
+            ...(asObject(result.payload) ?? {}),
+            relay_path: result.relay_path
+        };
+    }
+    catch (error) {
+        if (error instanceof NativeMessagingTransportError) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", `通信链路不可用: ${error.code}`, {
+                retryable: error.retryable,
+                cause: error,
+                details: {
+                    ability_id: "runtime.reload_tab",
+                    stage: "execution",
+                    reason: error.code
+                }
+            });
+        }
+        throw error;
+    }
+    finally {
+        await bridge?.close().catch(() => undefined);
+    }
+};
+const runtimeXhsOpenResultCard = async (context) => {
+    let bridge = null;
+    try {
+        bridge = resolveRuntimeBridge();
+        const result = await bridge.runCommand({
+            runId: context.run_id,
+            profile: context.profile,
+            cwd: context.cwd,
+            command: "runtime.xhs_open_result_card",
+            params: context.params
+        });
+        if (!result.ok) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", result.error.message, {
+                retryable: result.error.code === "ERR_TRANSPORT_TIMEOUT",
+                details: {
+                    ability_id: "runtime.xhs_open_result_card",
+                    stage: "execution",
+                    reason: result.error.code
+                }
+            });
+        }
+        return {
+            ...(asObject(result.payload) ?? {}),
+            relay_path: result.relay_path
+        };
+    }
+    catch (error) {
+        if (error instanceof NativeMessagingTransportError) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", `通信链路不可用: ${error.code}`, {
+                retryable: error.retryable,
+                cause: error,
+                details: {
+                    ability_id: "runtime.xhs_open_result_card",
+                    stage: "execution",
+                    reason: error.code
+                }
+            });
+        }
+        throw error;
+    }
+    finally {
+        await bridge?.close().catch(() => undefined);
+    }
+};
+const runtimeXhsDebugResultTargets = async (context) => {
+    let bridge = null;
+    try {
+        bridge = resolveRuntimeBridge();
+        const result = await bridge.runCommand({
+            runId: context.run_id,
+            profile: context.profile,
+            cwd: context.cwd,
+            command: "runtime.xhs_debug_result_targets",
+            params: context.params
+        });
+        if (!result.ok) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", result.error.message, {
+                retryable: result.error.code === "ERR_TRANSPORT_TIMEOUT",
+                details: {
+                    ability_id: "runtime.xhs_debug_result_targets",
+                    stage: "execution",
+                    reason: result.error.code
+                }
+            });
+        }
+        return {
+            ...(asObject(result.payload) ?? {}),
+            relay_path: result.relay_path
+        };
+    }
+    catch (error) {
+        if (error instanceof NativeMessagingTransportError) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", `通信链路不可用: ${error.code}`, {
+                retryable: error.retryable,
+                cause: error,
+                details: {
+                    ability_id: "runtime.xhs_debug_result_targets",
+                    stage: "execution",
+                    reason: error.code
+                }
+            });
+        }
+        throw error;
+    }
+    finally {
+        await bridge?.close().catch(() => undefined);
+    }
+};
+const runtimeXhsDebugPageState = async (context) => {
+    let bridge = null;
+    try {
+        bridge = resolveRuntimeBridge();
+        const result = await bridge.runCommand({
+            runId: context.run_id,
+            profile: context.profile,
+            cwd: context.cwd,
+            command: "runtime.xhs_debug_page_state",
+            params: context.params
+        });
+        if (!result.ok) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", result.error.message, {
+                retryable: result.error.code === "ERR_TRANSPORT_TIMEOUT",
+                details: {
+                    ability_id: "runtime.xhs_debug_page_state",
+                    stage: "execution",
+                    reason: result.error.code
+                }
+            });
+        }
+        return {
+            ...(asObject(result.payload) ?? {}),
+            relay_path: result.relay_path
+        };
+    }
+    catch (error) {
+        if (error instanceof NativeMessagingTransportError) {
+            throw new CliError("ERR_RUNTIME_UNAVAILABLE", `通信链路不可用: ${error.code}`, {
+                retryable: error.retryable,
+                cause: error,
+                details: {
+                    ability_id: "runtime.xhs_debug_page_state",
+                    stage: "execution",
+                    reason: error.code
+                }
+            });
+        }
+        throw error;
+    }
+    finally {
+        await bridge?.close().catch(() => undefined);
+    }
+};
 const isRuntimeRestoreXhsTargetMutation = (params) => asString(params.target_domain) === "www.xiaohongshu.com" &&
     asString(params.target_page) === "search_result_tab" &&
     typeof params.target_tab_id === "number" &&
@@ -1995,6 +2171,10 @@ const runtimeHelp = async () => ({
         "runtime.closeout_preflight",
         "runtime.closeout_gate",
         "runtime.tabs",
+        "runtime.reload_tab",
+        "runtime.xhs_open_result_card",
+        "runtime.xhs_debug_result_targets",
+        "runtime.xhs_debug_page_state",
         "runtime.restore_xhs_target",
         "runtime.xhs_closeout_validation_source",
         "runtime.xhs_closeout_validation",
@@ -2052,6 +2232,30 @@ export const runtimeCommands = () => [
         status: "implemented",
         requiresProfile: true,
         handler: runtimeTabs
+    },
+    {
+        name: "runtime.reload_tab",
+        status: "implemented",
+        requiresProfile: true,
+        handler: runtimeReloadTab
+    },
+    {
+        name: "runtime.xhs_open_result_card",
+        status: "implemented",
+        requiresProfile: true,
+        handler: runtimeXhsOpenResultCard
+    },
+    {
+        name: "runtime.xhs_debug_result_targets",
+        status: "implemented",
+        requiresProfile: true,
+        handler: runtimeXhsDebugResultTargets
+    },
+    {
+        name: "runtime.xhs_debug_page_state",
+        status: "implemented",
+        requiresProfile: true,
+        handler: runtimeXhsDebugPageState
     },
     {
         name: "runtime.restore_xhs_target",

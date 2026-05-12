@@ -2919,6 +2919,16 @@ const onRequest = (request) => {
     return;
   }
 
+  if (command === "runtime.ping") {
+    emit(
+      success(request, {
+        fingerprint_runtime: request.params?.command_params?.fingerprint_runtime ?? null
+      })
+    );
+    scheduleIdleExit();
+    return;
+  }
+
   if (command === "xhs.search") {
     const fingerprintContext = request.params?.command_params?.fingerprint_context ?? null;
     if (!fingerprintContext) {
