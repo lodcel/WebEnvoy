@@ -1219,6 +1219,42 @@ describe("content-script handler contract", () => {
     });
   });
 
+  it("does not drop later bridge-instance results that reuse a completed id", async () => {
+    await withMockMainWorld(async () => {
+      const handler = new ContentScriptHandler();
+      const results: Array<Record<string, unknown>> = [];
+      handler.onResult((message) => {
+        results.push(message as unknown as Record<string, unknown>);
+      });
+
+      const createPing = (runId: string) => ({
+        kind: "forward" as const,
+        id: "run-1",
+        runId,
+        tabId: 1,
+        profile: "profile-a",
+        cwd: "/workspace/WebEnvoy",
+        timeoutMs: 1_000,
+        command: "runtime.ping",
+        params: {},
+        commandParams: {},
+        fingerprintContext: null
+      });
+
+      handler.onBackgroundMessage(createPing("run-first-bridge"));
+      await waitForResult(results);
+
+      handler.onBackgroundMessage(createPing("run-second-bridge"));
+      await waitForResult(results, 2);
+
+      expect(results).toHaveLength(2);
+      expect(results.map((message) => (message.payload as Record<string, unknown>)?.message)).toEqual([
+        "pong",
+        "pong"
+      ]);
+    });
+  });
+
   it("does not trust forged main-world fingerprint-install success by request id only", async () => {
     await withMockMainWorld(async ({ mockWindow, mainWorldRequestEvent, mainWorldResultEvent }) => {
       (mockWindow as Window & Record<string, unknown>).__disableMainWorldBridgeFingerprintInstall__ =

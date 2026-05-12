@@ -11680,6 +11680,7 @@ class ContentScriptHandler {
         if (!this.#reachable) {
             return false;
         }
+        this.#completedResultIds.delete(message.id);
         if (message.commandParams.simulate_no_response === true) {
             return true;
         }
