@@ -199,6 +199,9 @@ type ActiveApiFetchFallbackGateResult =
       gate_decision: "allowed";
       reason_codes: [];
       route_evidence_class: "active_api_fetch_fallback";
+      route_role: "primary";
+      path_kind: "api";
+      evidence_status: "success";
       template_binding: JsonRecord;
       consumed_template: ActiveApiFetchFallbackTemplateEvidence;
     }
@@ -206,6 +209,9 @@ type ActiveApiFetchFallbackGateResult =
       gate_decision: "blocked";
       reason_codes: string[];
       route_evidence_class: "active_api_fetch_fallback";
+      route_role: "primary";
+      path_kind: "api";
+      evidence_status: "blocked";
       template_binding: JsonRecord;
       consumed_template: ActiveApiFetchFallbackTemplateEvidence;
     };
@@ -1487,6 +1493,9 @@ const resolveActiveApiFetchFallbackGate = (input: {
       gate_decision: "allowed",
       reason_codes: [],
       route_evidence_class: "active_api_fetch_fallback",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
       template_binding: {
         ...binding,
         runtime_attestation: runtimeAttestation,
@@ -1499,6 +1508,9 @@ const resolveActiveApiFetchFallbackGate = (input: {
     gate_decision: "blocked",
     reason_codes: reasonCodes,
     route_evidence_class: "active_api_fetch_fallback",
+    route_role: "primary",
+    path_kind: "api",
+    evidence_status: "blocked",
     template_binding: {
       ...binding,
       runtime_attestation: runtimeAttestation,

@@ -659,6 +659,116 @@ describe("content-script handler xhs read commands", () => {
 	    expect(fetchJson).toHaveBeenCalled();
 	  });
 
+  it("forwards explicit request-context artifacts into xhs.detail execution", async () => {
+    const explicitArtifact = {
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      transport: "fetch",
+      method: "POST",
+      path: "/api/sns/web/v1/feed",
+      url: "https://www.xiaohongshu.com/api/sns/web/v1/feed",
+      status: 200,
+      captured_at: 1_710_000_099_000,
+      observed_at: 1_710_000_099_000,
+      shape: {
+        command: "xhs.detail",
+        method: "POST",
+        pathname: "/api/sns/web/v1/feed",
+        note_id: "abc123"
+      },
+      profile_ref: "xhs_001",
+      session_id: "nm-session-001",
+      target_tab_id: 32,
+      run_id: "run-contract-001",
+      action_ref: "read",
+      page_url: "https://www.xiaohongshu.com/explore/abc123",
+      request: {
+        headers: {
+          "X-S-Common": "{\"detailId\":\"explicit-detail-id\"}"
+        },
+        body: {
+          source_note_id: "abc123"
+        }
+      },
+      response: {
+        headers: {},
+        body: {
+          code: 0,
+          data: {
+            note: {
+              note_id: "abc123"
+            }
+          }
+        }
+      },
+      referrer:
+        "https://www.xiaohongshu.com/explore/abc123?xsec_token=token-abc123&xsec_source=pc_search"
+    };
+    const readCapturedRequestContext = vi.fn(async () => null);
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          note: {
+            note_id: "abc123"
+          }
+        }
+      }
+    }));
+    const { handler, message } = createMessage({
+      command: "xhs.detail",
+      abilityId: "xhs.note.detail.v1",
+      targetPage: "explore_detail_tab",
+      href: "https://www.xiaohongshu.com/explore/abc123",
+      options: {
+        simulate_result: null,
+        explicit_request_context_artifact: explicitArtifact,
+        active_api_fetch_fallback: {
+          enabled: true,
+          account_safety_state: "clear",
+          rhythm_state: "allowed",
+          runtime_attestation: createActiveFallbackRuntimeAttestation()
+        }
+      },
+      fingerprintContext: createInstalledFingerprintContext(),
+      payload: {
+        note_id: "abc123"
+      },
+      xhsEnvOverrides: {
+        now: () => 1_710_000_100_000,
+        readCapturedRequestContext,
+        fetchJson
+      }
+    });
+
+    const resultPromise = waitForSingleResult(handler);
+    expect(handler.onBackgroundMessage(message)).toBe(true);
+    const result = await resultPromise;
+    const summary = ((result.payload ?? {}) as Record<string, unknown>).summary as Record<
+      string,
+      unknown
+    >;
+
+    expect(result.ok).toBe(true);
+    expect(readCapturedRequestContext).not.toHaveBeenCalled();
+    expect(summary.route_evidence).toMatchObject({
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      route_evidence_class: "active_api_fetch_fallback",
+      consumed_template: {
+        route_evidence_class: "passive_api_capture",
+        template_identity: expect.stringContaining("/api/sns/web/v1/feed")
+      }
+    });
+    expect(fetchJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "/api/sns/web/v1/feed"
+      })
+    );
+  });
+
 	  it("blocks active fallback when browser surface is only caller self-attested on the extension path", async () => {
 	    const callSignature = vi.fn(async () => ({
 	      "X-s": "signature",
