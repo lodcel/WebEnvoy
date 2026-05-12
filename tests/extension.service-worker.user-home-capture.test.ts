@@ -194,4 +194,56 @@ describe("runtime.xhs_capture_user_home_context", () => {
       "set-cookie": "[redacted]"
     });
   });
+
+  it("uses the forwarded timeout budget for user_home passive capture waits", async () => {
+    const port = createMockPort();
+    const { chromeApi, debuggerDetach, debuggerSendCommand } = createChromeApi([port]);
+    const runId = "run-user-home-capture-timeout-001";
+
+    chromeApi.tabs.query.mockResolvedValue([{ id: targetTabId, url: targetUrl, active: true }]);
+    debuggerSendCommand.mockResolvedValue({});
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(port);
+    await waitForBridgeTurn();
+    await primeProfileBootstrap(port, runId);
+    port.postMessage.mockClear();
+
+    port.onMessageListeners[0]?.({
+      id: runId,
+      method: "bridge.forward",
+      profile,
+      params: {
+        session_id: sessionId,
+        run_id: runId,
+        command: "runtime.xhs_capture_user_home_context",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: targetTabId,
+          user_id: userId
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 5
+    });
+
+    await waitForPostedMessage(port.postMessage, {
+      id: runId,
+      status: "error"
+    });
+
+    expect(debuggerSendCommand).toHaveBeenCalledWith(
+      { tabId: targetTabId },
+      "Page.reload",
+      { ignoreCache: true }
+    );
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: targetTabId });
+    const response = port.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === runId);
+    expect(asRecord(asRecord(response?.payload)?.details)).toMatchObject({
+      reason: "USER_HOME_CAPTURE_CONTEXT_MISSING"
+    });
+  });
 });

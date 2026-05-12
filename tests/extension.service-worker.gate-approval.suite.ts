@@ -511,17 +511,14 @@ describe("extension service worker / gate and approval", () => {
     const originalHref =
       "https://www.xiaohongshu.com/explore/69f74b1d000000002300489f?xsec_token=token-001";
     const targetUrl = `${originalHref}&xsec_source=pc_search`;
+    let sourceNavigatedToDetail = false;
 
     chromeApi.tabs.query.mockImplementation(async () => [
       {
         id: 44,
-        url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
-        active: true,
-        status: "complete"
-      },
-      {
-        id: 55,
-        url: targetUrl,
+        url: sourceNavigatedToDetail
+          ? targetUrl
+          : "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
         active: true,
         status: "complete"
       }
@@ -530,15 +527,9 @@ describe("extension service worker / gate and approval", () => {
       if (tabId === 44) {
         return {
           id: 44,
-          url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
-          active: true,
-          status: "complete"
-        };
-      }
-      if (tabId === 55) {
-        return {
-          id: 55,
-          url: targetUrl,
+          url: sourceNavigatedToDetail
+            ? targetUrl
+            : "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
           active: true,
           status: "complete"
         };
@@ -551,6 +542,7 @@ describe("extension service worker / gate and approval", () => {
         asRecord(params)?.type === "mouseReleased"
       ) {
         queueMicrotask(() => {
+          sourceNavigatedToDetail = true;
           for (const listener of debuggerOnEventListeners) {
             listener({ tabId: 44 }, "Network.requestWillBeSent", {
               requestId: "detail-request-001",
@@ -676,7 +668,7 @@ describe("extension service worker / gate and approval", () => {
     expect(asRecord(response?.payload)?.result_card_open_evidence).toMatchObject({
       action_ref: "action/xhs.search/open_result_card",
       source_tab_id: 44,
-      target_tab_id: 55,
+      target_tab_id: 44,
       target_page_url: targetUrl,
       note_id: noteId,
       xsec_source: "pc_search"
@@ -687,7 +679,7 @@ describe("extension service worker / gate and approval", () => {
       path: "/api/sns/web/v1/feed",
       profile_ref: "xhs_001",
       session_id: "nm-session-001",
-      target_tab_id: 55,
+      target_tab_id: 44,
       run_id: "run-xhs-open-result-card-001",
       action_ref: "read",
       page_url: targetUrl,

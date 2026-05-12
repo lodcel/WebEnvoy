@@ -4818,12 +4818,17 @@ class ChromeBackgroundBridge {
       fail("USER_HOME_CAPTURE_DEBUGGER_UNAVAILABLE", "chrome.debugger is unavailable");
       return;
     }
+    const captureTimeoutMs = readTimeoutMs(request.timeout_ms) ?? 10_000;
     let debuggerAttached = false;
     try {
       await debuggerApi.attach({ tabId: tab.id }, debuggerProtocolVersion);
       debuggerAttached = true;
       await debuggerApi.sendCommand({ tabId: tab.id }, "Network.enable");
-      const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(tab.id, userId, 10_000);
+      const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(
+        tab.id,
+        userId,
+        captureTimeoutMs
+      );
       await debuggerApi.sendCommand({ tabId: tab.id }, "Page.reload", { ignoreCache: true });
       const artifact = await capture;
       if (!artifact) {
@@ -5221,6 +5226,9 @@ class ChromeBackgroundBridge {
     const resolvedTargetTabId = typeof resolvedNavigation.tab.id === "number"
       ? resolvedNavigation.tab.id
       : sourceTab.id;
+    if (capturedRequestContextArtifact && resolvedTargetTabId !== sourceTab.id) {
+      capturedRequestContextArtifact = null;
+    }
     if (capturedRequestContextArtifact) {
       const capturedAt = asInteger(capturedRequestContextArtifact.captured_at) ?? Date.now();
       const pageContextNamespace = createPageContextNamespace(target.targetUrl);
