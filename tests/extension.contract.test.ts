@@ -16,6 +16,7 @@ import {
 const repoRoot = path.resolve(path.join(import.meta.dirname, ".."));
 const extensionRoot = path.join(repoRoot, "extension");
 const manifestPath = path.join(extensionRoot, "manifest.json");
+const backgroundSourcePath = path.join(extensionRoot, "background.ts");
 const backgroundBuildPath = path.join(extensionRoot, "build", "background.js");
 const mainWorldBridgeBuildPath = path.join(extensionRoot, "build", "main-world-bridge.js");
 const contentScriptBuildPath = path.join(extensionRoot, "build", "content-script.js");
@@ -3906,5 +3907,20 @@ describe("extension build contract", () => {
     expect(backgroundBuild).toContain("conditional_actions");
     expect(backgroundBuild).toContain("risk_transition_audit");
     expect(backgroundBuild).toContain("recovery_requirements");
+  });
+
+  it("keeps XHS debugger capture scoped to the API host instead of the page host", () => {
+    const backgroundSource = fs.readFileSync(backgroundSourcePath, "utf8");
+    const searchCapture = backgroundSource.match(
+      /const isSearchEndpoint = \(url: string\): boolean => \{[\s\S]*?const bodyMatchesQuery/
+    )?.[0];
+    const detailCapture = backgroundSource.match(
+      /const isDetailEndpoint = \(url: string\): boolean => \{[\s\S]*?const bodyMatchesNoteId/
+    )?.[0];
+
+    expect(searchCapture).toContain("parsed.hostname === XHS_READ_API_DOMAIN");
+    expect(searchCapture).not.toContain("parsed.hostname === XHS_READ_DOMAIN");
+    expect(detailCapture).toContain("parsed.hostname === XHS_READ_API_DOMAIN");
+    expect(detailCapture).not.toContain("parsed.hostname === XHS_READ_DOMAIN");
   });
 });

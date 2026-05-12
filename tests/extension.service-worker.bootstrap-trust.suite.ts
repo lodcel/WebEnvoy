@@ -2698,6 +2698,132 @@ describe("extension service worker / bootstrap and trust", () => {
     });
   });
 
+  it("captures xhs.search debugger network context from the XHS API host", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi, runtimeMessageListeners, debuggerDetach, debuggerSendCommand } =
+      createChromeApi([firstPort]);
+    const searchEndpoint = "/api/sns/web/v1/search/notes";
+    let debuggerListener:
+      | ((
+          source: { tabId?: number },
+          method: string,
+          params?: Record<string, unknown>
+        ) => void)
+      | null = null;
+    const debuggerOnEvent = {
+      addListener: vi.fn(
+        (
+          listener: (
+            source: { tabId?: number },
+            method: string,
+            params?: Record<string, unknown>
+          ) => void
+        ) => {
+          debuggerListener = listener;
+        }
+      ),
+      removeListener: vi.fn(
+        (
+          listener: (
+            source: { tabId?: number },
+            method: string,
+            params?: Record<string, unknown>
+          ) => void
+        ) => {
+          if (debuggerListener === listener) {
+            debuggerListener = null;
+          }
+        }
+      )
+    };
+    (chromeApi.debugger as unknown as { onEvent: typeof debuggerOnEvent }).onEvent = debuggerOnEvent;
+    debuggerSendCommand.mockImplementation(async (_target: Record<string, unknown>, method: string) => {
+      if (method === "Network.enable") {
+        queueMicrotask(() => {
+          debuggerListener?.({ tabId: 32 }, "Network.requestWillBeSent", {
+            requestId: "edith-search-001",
+            request: {
+              url: `https://edith.xiaohongshu.com${searchEndpoint}`,
+              method: "POST",
+              headers: {
+                "content-type": "application/json;charset=utf-8"
+              },
+              postData: JSON.stringify({ keyword: "露营", page: 1 })
+            }
+          });
+          debuggerListener?.({ tabId: 32 }, "Network.responseReceived", {
+            requestId: "edith-search-001",
+            response: {
+              status: 200,
+              headers: {
+                "content-type": "application/json"
+              }
+            }
+          });
+          debuggerListener?.({ tabId: 32 }, "Network.loadingFinished", {
+            requestId: "edith-search-001"
+          });
+        });
+        return {};
+      }
+      if (method === "Network.getResponseBody") {
+        return {
+          body: JSON.stringify({ code: 0, data: { items: [] } }),
+          base64Encoded: false
+        };
+      }
+      return {};
+    });
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    const response = await new Promise<Record<string, unknown>>((resolve) => {
+      const handled = runtimeMessageListeners[0]?.(
+        {
+          kind: "xhs-search-debugger-action",
+          query: "露营",
+          action_mode: "page_reload",
+          timeout_ms: 1000
+        },
+        {
+          tab: {
+            id: 32,
+            url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5"
+          }
+        },
+        (message) => resolve(message as Record<string, unknown>)
+      );
+      expect(handled).toBe(true);
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        debugger_network_context: {
+          source: "chrome_debugger_network",
+          route_evidence_class: "passive_api_capture",
+          url: `https://edith.xiaohongshu.com${searchEndpoint}`,
+          method: "POST",
+          status: 200,
+          request: {
+            body: {
+              keyword: "露营"
+            }
+          },
+          response: {
+            body: {
+              code: 0
+            }
+          }
+        }
+      }
+    });
+    expect(debuggerOnEvent.removeListener).toHaveBeenCalled();
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 32 });
+  });
+
   it("pins xhs.search to xiaohongshu tab instead of generic active tab", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);

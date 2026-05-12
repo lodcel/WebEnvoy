@@ -6968,7 +6968,7 @@ class ChromeBackgroundBridge {
     const isSearchEndpoint = (url: string): boolean => {
       try {
         const parsed = new URL(url);
-        return parsed.hostname === XHS_READ_DOMAIN && parsed.pathname === SEARCH_ENDPOINT;
+        return parsed.hostname === XHS_READ_API_DOMAIN && parsed.pathname === SEARCH_ENDPOINT;
       } catch {
         return false;
       }
@@ -7127,7 +7127,7 @@ class ChromeBackgroundBridge {
     const isDetailEndpoint = (url: string): boolean => {
       try {
         const parsed = new URL(url);
-        return parsed.hostname === XHS_READ_DOMAIN && parsed.pathname === DETAIL_ENDPOINT;
+        return parsed.hostname === XHS_READ_API_DOMAIN && parsed.pathname === DETAIL_ENDPOINT;
       } catch {
         return false;
       }
