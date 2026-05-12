@@ -47,6 +47,7 @@ const hasOwn = (record, key) => Object.prototype.hasOwnProperty.call(record, key
 const asStringArrayStrict = (value) => Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0)
     ? value.map((item) => item.trim())
     : null;
+const xhsUserHomeCaptureForwardTimeoutMs = 15_000;
 const unwrapMainWorldProbeResult = (value) => {
     const envelope = asObject(value);
     if (!envelope) {
@@ -1651,12 +1652,17 @@ const runtimeXhsCaptureUserHomeContext = async (context) => {
     let bridge = null;
     try {
         bridge = resolveRuntimeBridge();
+        const requestedTimeoutMs = asInteger(context.params.timeout_ms);
+        const forwardParams = {
+            ...context.params,
+            timeout_ms: Math.max(requestedTimeoutMs ?? 0, xhsUserHomeCaptureForwardTimeoutMs)
+        };
         const result = await bridge.runCommand({
             runId: context.run_id,
             profile: context.profile,
             cwd: context.cwd,
             command: "runtime.xhs_capture_user_home_context",
-            params: context.params
+            params: forwardParams
         });
         if (!result.ok) {
             throw new CliError("ERR_RUNTIME_UNAVAILABLE", result.error.message, {

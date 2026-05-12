@@ -22,6 +22,16 @@ const XHS_MAIN_WORLD_REQUEST_PATH_ALLOWLIST = new Set([
     DETAIL_ENDPOINT,
     USER_HOME_ENDPOINT
 ]);
+const passiveCaptureSensitiveHeaderNames = new Set([
+    "authorization",
+    "cookie",
+    "proxy-authorization",
+    "set-cookie",
+    "x-s",
+    "x-s-common",
+    "x-t"
+]);
+const passiveCaptureRedactedHeaderValue = "[redacted]";
 const editorInputDebuggerProbeWaitMs = 150;
 const xhsTargetRestoreNavigationTimeoutMs = 5_000;
 const xhsTargetRestoreNavigationPollMs = 100;
@@ -46,6 +56,12 @@ const xhsSearchInputSelectors = [
 const reserveXhsForwardResponseSafetyMs = (timeoutMs) => timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
     : timeoutMs;
+const redactPassiveCaptureHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([key, value]) => [
+    key,
+    passiveCaptureSensitiveHeaderNames.has(key.toLowerCase())
+        ? passiveCaptureRedactedHeaderValue
+        : value
+]));
 const xhsSearchButtonSelectors = [
     'button[type="submit"]',
     'button[class*="search" i]',
@@ -5844,11 +5860,11 @@ class ChromeBackgroundBridge {
                                 method: entry.method,
                                 status: entry.status,
                                 request: {
-                                    headers: entry.requestHeaders,
+                                    headers: redactPassiveCaptureHeaders(entry.requestHeaders),
                                     body: entry.requestBody
                                 },
                                 response: {
-                                    headers: entry.responseHeaders,
+                                    headers: redactPassiveCaptureHeaders(entry.responseHeaders),
                                     body: responseBody
                                 },
                                 captured_at: entry.capturedAt,
@@ -5984,11 +6000,11 @@ class ChromeBackgroundBridge {
                                 url: entry.url,
                                 referrer: headerValue(entry.requestHeaders, "referer"),
                                 request: {
-                                    headers: entry.requestHeaders,
+                                    headers: redactPassiveCaptureHeaders(entry.requestHeaders),
                                     body: entry.requestBody
                                 },
                                 response: {
-                                    headers: entry.responseHeaders,
+                                    headers: redactPassiveCaptureHeaders(entry.responseHeaders),
                                     body: responseBody
                                 },
                                 status: entry.status,
@@ -6120,11 +6136,11 @@ class ChromeBackgroundBridge {
                                 url: entry.url,
                                 referrer: headerValue(entry.requestHeaders, "referer"),
                                 request: {
-                                    headers: entry.requestHeaders,
+                                    headers: redactPassiveCaptureHeaders(entry.requestHeaders),
                                     body: null
                                 },
                                 response: {
-                                    headers: entry.responseHeaders,
+                                    headers: redactPassiveCaptureHeaders(entry.responseHeaders),
                                     body: responseBody
                                 },
                                 status: entry.status,

@@ -558,7 +558,9 @@ describe("extension service worker / gate and approval", () => {
                 method: "POST",
                 url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
                 headers: {
-                  accept: "application/json"
+                  accept: "application/json",
+                  Cookie: "xhs-session=secret",
+                  "X-s": "signed-secret"
                 },
                 postData: JSON.stringify({
                   source_note_id: noteId
@@ -570,7 +572,8 @@ describe("extension service worker / gate and approval", () => {
               response: {
                 status: 200,
                 headers: {
-                  "content-type": "application/json"
+                  "content-type": "application/json",
+                  "set-cookie": "session=secret"
                 }
               }
             });
@@ -689,6 +692,18 @@ describe("extension service worker / gate and approval", () => {
       action_ref: "read",
       page_url: targetUrl,
       referrer: targetUrl
+    });
+    const capturedArtifact = asRecord(
+      asRecord(response?.payload)?.captured_request_context_artifact
+    );
+    expect(asRecord(asRecord(capturedArtifact?.request)?.headers)).toMatchObject({
+      accept: "application/json",
+      Cookie: "[redacted]",
+      "X-s": "[redacted]"
+    });
+    expect(asRecord(asRecord(capturedArtifact?.response)?.headers)).toMatchObject({
+      "content-type": "application/json",
+      "set-cookie": "[redacted]"
     });
   });
 

@@ -74,7 +74,9 @@ describe("runtime.xhs_capture_user_home_context", () => {
                 url: endpointUrl,
                 headers: {
                   accept: "application/json",
-                  Referer: targetUrl
+                  Referer: targetUrl,
+                  Cookie: "xhs-session=secret",
+                  "X-s": "signed-secret"
                 }
               }
             });
@@ -83,7 +85,8 @@ describe("runtime.xhs_capture_user_home_context", () => {
               response: {
                 status: 200,
                 headers: {
-                  "content-type": "application/json"
+                  "content-type": "application/json",
+                  "set-cookie": "session=secret"
                 }
               }
             });
@@ -178,6 +181,16 @@ describe("runtime.xhs_capture_user_home_context", () => {
           user_id: userId
         }
       }
+    });
+    expect(asRecord(asRecord(artifact?.request)?.headers)).toMatchObject({
+      accept: "application/json",
+      Referer: targetUrl,
+      Cookie: "[redacted]",
+      "X-s": "[redacted]"
+    });
+    expect(asRecord(asRecord(artifact?.response)?.headers)).toMatchObject({
+      "content-type": "application/json",
+      "set-cookie": "[redacted]"
     });
   });
 });

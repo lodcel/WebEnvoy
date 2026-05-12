@@ -575,6 +575,65 @@ describe("native messaging bridge", () => {
     expect(forwardCall).toBe(1);
   });
 
+  it("does not replay XHS passive capture commands after forward disconnect", async () => {
+    for (const command of [
+      "runtime.xhs_open_result_card",
+      "runtime.xhs_capture_user_home_context"
+    ]) {
+      let forwardCall = 0;
+      const transport = {
+        async open(request: BridgeRequestEnvelope): Promise<BridgeResponseEnvelope> {
+          return {
+            id: request.id,
+            status: "success",
+            summary: {
+              protocol: "webenvoy.native-bridge.v1",
+              session_id: "nm-session-001",
+              state: "ready"
+            },
+            error: null
+          };
+        },
+        async forward(): Promise<BridgeResponseEnvelope> {
+          forwardCall += 1;
+          throw new NativeMessagingTransportError(
+            "ERR_TRANSPORT_DISCONNECTED",
+            "forward disconnected"
+          );
+        },
+        async heartbeat(request: BridgeRequestEnvelope): Promise<BridgeResponseEnvelope> {
+          return {
+            id: request.id,
+            status: "success",
+            summary: {
+              session_id: "nm-session-001"
+            },
+            error: null
+          };
+        }
+      };
+
+      const bridge = new NativeMessagingBridge({
+        transport
+      });
+
+      await expect(
+        bridge.runCommand({
+          runId: `run-no-replay-${command}`,
+          profile: "profile-a",
+          cwd: "/tmp",
+          command,
+          params: {
+            timeout_ms: 10
+          }
+        })
+      ).rejects.toMatchObject<Partial<NativeMessagingTransportError>>({
+        code: "ERR_TRANSPORT_DISCONNECTED"
+      });
+      expect(forwardCall).toBe(1);
+    }
+  });
+
   it("does not replay runtime.start after forward disconnect", async () => {
     let forwardCall = 0;
     const transport = {
