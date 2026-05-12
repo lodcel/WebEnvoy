@@ -172,6 +172,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
       action_ref: "read",
       page_url: targetUrl,
       referrer: targetUrl,
+      template_identity: expect.stringContaining(`captured:${runId}:`),
       status: 200
     });
     expect(asRecord(asRecord(artifact?.response)?.body)).toMatchObject({

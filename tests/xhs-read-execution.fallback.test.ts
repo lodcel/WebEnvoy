@@ -641,6 +641,62 @@ describe("xhs read execution fallback", () => {
     );
   });
 
+  it("does not reuse redacted passive capture headers in active api fetch fallback", async () => {
+    const callSignature = vi.fn(async () => ({
+      "X-s": "signature",
+      "X-t": "timestamp"
+    }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          note: {
+            noteId: "note-redacted-001"
+          }
+        }
+      }
+    }));
+    const context = createDetailRequestContext("note-redacted-001");
+    const request = context.request as Record<string, unknown>;
+    request.headers = {
+      Accept: "[redacted]",
+      "Content-Type": "[redacted]",
+      "X-S-Common": "[redacted]"
+    };
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-redacted-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-detail-redacted-headers-001",
+          targetPage: "explore_detail_tab"
+        }),
+        executionContext: createFallbackExecutionContext("run-detail-redacted-headers-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/explore/note-redacted-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(context)
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    const forwardedHeaders = (fetchJson.mock.calls[0]?.[0] as { headers?: Record<string, string> })
+      ?.headers;
+    expect(forwardedHeaders).toMatchObject({
+      Accept: "application/json, text/plain, */*",
+      "Content-Type": "application/json;charset=utf-8"
+    });
+    expect(forwardedHeaders?.["X-S-Common"]).not.toBe("[redacted]");
+  });
+
   it("uses passive captured detail response as formal closeout route evidence", async () => {
     const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
     const fetchJson = vi.fn(async () => ({

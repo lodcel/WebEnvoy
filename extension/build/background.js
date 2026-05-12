@@ -3708,7 +3708,7 @@ class ChromeBackgroundBridge {
                 action_ref: captureConsumerActionRef,
                 page_url: tabUrl,
                 referrer: tabUrl,
-                template_identity: `captured:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
+                template_identity: `captured:${runId}:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
             };
             this.#emit({
                 id: request.id,
@@ -4050,7 +4050,7 @@ class ChromeBackgroundBridge {
                 action_ref: detailConsumerActionRef,
                 page_url: target.targetUrl,
                 referrer: target.targetUrl,
-                template_identity: `captured:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
+                template_identity: `captured:${runId}:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
             };
         }
         this.#emit({

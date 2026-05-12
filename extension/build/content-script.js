@@ -6957,9 +6957,14 @@ const normalizeCapturedHeaders = (value) => {
     }
     return Object.fromEntries(Object.entries(record).filter((entry) => typeof entry[1] === "string"));
 };
+const isRedactedCapturedHeaderValue = (value) => value.trim().toLowerCase() === "[redacted]";
 const getCapturedHeader = (headers, key) => {
     const matchedEntry = Object.entries(headers).find(([candidate]) => candidate.toLowerCase() === key.toLowerCase());
-    return matchedEntry && matchedEntry[1].trim().length > 0 ? matchedEntry[1].trim() : null;
+    if (!matchedEntry) {
+        return null;
+    }
+    const value = matchedEntry[1].trim();
+    return value.length > 0 && !isRedactedCapturedHeaderValue(value) ? value : null;
 };
 const resolveCapturedArtifactHeaders = (value) => {
     const record = asRecord(value);
@@ -7051,7 +7056,8 @@ const resolveCapturedTemplateIdentity = (record, expectedShape) => {
     const observedAt = asInteger(record?.observed_at) ?? asInteger(record?.captured_at) ?? 0;
     const namespace = asString(record?.page_context_namespace) ?? "unknown_namespace";
     const shapeKey = asString(record?.shape_key) ?? serializeReadShape(expectedShape);
-    return `captured:${namespace}:${shapeKey}:${observedAt}`;
+    const runId = asString(record?.run_id) ?? "unknown_run";
+    return `captured:${runId}:${namespace}:${shapeKey}:${observedAt}`;
 };
 const resolveActiveApiFetchFallbackTemplateEvidence = (artifact, expectedShape, now) => {
     const record = asRecord(artifact);

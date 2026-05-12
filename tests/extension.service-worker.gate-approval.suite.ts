@@ -691,7 +691,8 @@ describe("extension service worker / gate and approval", () => {
       run_id: "run-xhs-open-result-card-001",
       action_ref: "read",
       page_url: targetUrl,
-      referrer: targetUrl
+      referrer: targetUrl,
+      template_identity: expect.stringContaining("captured:run-xhs-open-result-card-001:")
     });
     const capturedArtifact = asRecord(
       asRecord(response?.payload)?.captured_request_context_artifact
