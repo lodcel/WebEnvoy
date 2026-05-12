@@ -7837,6 +7837,9 @@ const resolveActiveApiFetchFallbackGate = (input) => {
             gate_decision: "allowed",
             reason_codes: [],
             route_evidence_class: "active_api_fetch_fallback",
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success",
             template_binding: {
                 ...binding,
                 runtime_attestation: runtimeAttestation,
@@ -7849,6 +7852,9 @@ const resolveActiveApiFetchFallbackGate = (input) => {
         gate_decision: "blocked",
         reason_codes: reasonCodes,
         route_evidence_class: "active_api_fetch_fallback",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "blocked",
         template_binding: {
             ...binding,
             runtime_attestation: runtimeAttestation,
@@ -12067,6 +12073,11 @@ class ContentScriptHandler {
                     ...(options.closeout_audit_required === true ? { closeout_audit_required: true } : {}),
                     ...(options.closeout_evidence_evaluation === true
                         ? { closeout_evidence_evaluation: true }
+                        : {}),
+                    ...(asRecord(options.explicit_request_context_artifact)
+                        ? {
+                            explicit_request_context_artifact: asRecord(options.explicit_request_context_artifact) ?? {}
+                        }
                         : {}),
                     ...(options.xhs_recovery_probe === true ? { xhs_recovery_probe: true } : {}),
                     ...(typeof options.validation_action === "string"

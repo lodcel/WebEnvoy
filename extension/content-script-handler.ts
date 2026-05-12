@@ -2170,6 +2170,12 @@ export class ContentScriptHandler {
           ...(options.closeout_evidence_evaluation === true
             ? { closeout_evidence_evaluation: true }
             : {}),
+          ...(asRecord(options.explicit_request_context_artifact)
+            ? {
+                explicit_request_context_artifact:
+                  asRecord(options.explicit_request_context_artifact) ?? {}
+              }
+            : {}),
           ...(options.xhs_recovery_probe === true ? { xhs_recovery_probe: true } : {}),
           ...(typeof options.validation_action === "string"
             ? { validation_action: options.validation_action }
