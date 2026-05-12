@@ -2042,6 +2042,52 @@ const runtimeXhsDebugPageState = async (context: RuntimeContext) => {
   }
 };
 
+const runtimeXhsCaptureUserHomeContext = async (context: RuntimeContext) => {
+  let bridge: NativeMessagingBridge | null = null;
+  try {
+    bridge = resolveRuntimeBridge();
+    const result = await bridge.runCommand({
+      runId: context.run_id,
+      profile: context.profile,
+      cwd: context.cwd,
+      command: "runtime.xhs_capture_user_home_context",
+      params: context.params
+    });
+    if (!result.ok) {
+      throw new CliError("ERR_RUNTIME_UNAVAILABLE", result.error.message, {
+        retryable: result.error.code === "ERR_TRANSPORT_TIMEOUT",
+        details: {
+          ability_id: "runtime.xhs_capture_user_home_context",
+          stage: "execution",
+          reason: result.error.code,
+          ...(asObject(result.payload?.details)
+            ? { target_capture_details: asObject(result.payload?.details) }
+            : {})
+        }
+      });
+    }
+    return {
+      ...(asObject(result.payload) ?? {}),
+      relay_path: result.relay_path
+    };
+  } catch (error) {
+    if (error instanceof NativeMessagingTransportError) {
+      throw new CliError("ERR_RUNTIME_UNAVAILABLE", `通信链路不可用: ${error.code}`, {
+        retryable: error.retryable,
+        cause: error,
+        details: {
+          ability_id: "runtime.xhs_capture_user_home_context",
+          stage: "execution",
+          reason: error.code
+        }
+      });
+    }
+    throw error;
+  } finally {
+    await bridge?.close().catch(() => undefined);
+  }
+};
+
 const isRuntimeRestoreXhsTargetMutation = (params: Record<string, unknown>): boolean =>
   asString(params.target_domain) === "www.xiaohongshu.com" &&
   asString(params.target_page) === "search_result_tab" &&
@@ -2654,6 +2700,7 @@ const runtimeHelp = async () => ({
     "runtime.xhs_open_result_card",
     "runtime.xhs_debug_result_targets",
     "runtime.xhs_debug_page_state",
+    "runtime.xhs_capture_user_home_context",
     "runtime.restore_xhs_target",
     "runtime.xhs_closeout_validation_source",
     "runtime.xhs_closeout_validation",
@@ -2736,6 +2783,12 @@ export const runtimeCommands = (): CommandDefinition[] => [
     status: "implemented",
     requiresProfile: true,
     handler: runtimeXhsDebugPageState
+  },
+  {
+    name: "runtime.xhs_capture_user_home_context",
+    status: "implemented",
+    requiresProfile: true,
+    handler: runtimeXhsCaptureUserHomeContext
   },
   {
     name: "runtime.restore_xhs_target",

@@ -63,6 +63,9 @@ export const createChromeApi = (ports: ReturnType<typeof createMockPort>[]) => {
   const debuggerAttach = vi.fn(async () => {});
   const debuggerSendCommand = vi.fn(async () => ({}));
   const debuggerDetach = vi.fn(async () => {});
+  const debuggerOnEventListeners: Array<
+    (source: { tabId?: number }, method: string, params?: Record<string, unknown>) => void
+  > = [];
   const updatedTabs = new Map<number, { id: number; url?: string; active?: boolean; status?: string }>();
   const tabsQuery = vi.fn(async () => [{ id: 11 }]);
   const tabsGet = vi.fn(async (tabId: number) => {
@@ -133,7 +136,22 @@ export const createChromeApi = (ports: ReturnType<typeof createMockPort>[]) => {
     debugger: {
       attach: debuggerAttach,
       sendCommand: debuggerSendCommand,
-      detach: debuggerDetach
+      detach: debuggerDetach,
+      onEvent: {
+        addListener: (
+          listener: (source: { tabId?: number }, method: string, params?: Record<string, unknown>) => void
+        ) => {
+          debuggerOnEventListeners.push(listener);
+        },
+        removeListener: (
+          listener: (source: { tabId?: number }, method: string, params?: Record<string, unknown>) => void
+        ) => {
+          const index = debuggerOnEventListeners.indexOf(listener);
+          if (index >= 0) {
+            debuggerOnEventListeners.splice(index, 1);
+          }
+        }
+      }
     }
   };
 
@@ -143,7 +161,8 @@ export const createChromeApi = (ports: ReturnType<typeof createMockPort>[]) => {
     executeScript,
     debuggerAttach,
     debuggerSendCommand,
-    debuggerDetach
+    debuggerDetach,
+    debuggerOnEventListeners
   };
 };
 

@@ -499,8 +499,14 @@ describe("extension service worker / gate and approval", () => {
 
   it("opens an XHS search result card into detail page with pc_search continuity", async () => {
     const firstPort = createMockPort();
-    const { chromeApi, executeScript, debuggerAttach, debuggerSendCommand, debuggerDetach } =
-      createChromeApi([firstPort]);
+    const {
+      chromeApi,
+      executeScript,
+      debuggerAttach,
+      debuggerDetach,
+      debuggerOnEventListeners,
+      debuggerSendCommand
+    } = createChromeApi([firstPort]);
     const noteId = "69f74b1d000000002300489f";
     const originalHref =
       "https://www.xiaohongshu.com/explore/69f74b1d000000002300489f?xsec_token=token-001";
@@ -538,6 +544,56 @@ describe("extension service worker / gate and approval", () => {
         };
       }
       throw new Error("tab not found");
+    });
+    debuggerSendCommand.mockImplementation(async (_target, command, params) => {
+      if (
+        command === "Input.dispatchMouseEvent" &&
+        asRecord(params)?.type === "mouseReleased"
+      ) {
+        queueMicrotask(() => {
+          for (const listener of debuggerOnEventListeners) {
+            listener({ tabId: 44 }, "Network.requestWillBeSent", {
+              requestId: "detail-request-001",
+              request: {
+                method: "POST",
+                url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
+                headers: {
+                  accept: "application/json"
+                },
+                postData: JSON.stringify({
+                  source_note_id: noteId
+                })
+              }
+            });
+            listener({ tabId: 44 }, "Network.responseReceived", {
+              requestId: "detail-request-001",
+              response: {
+                status: 200,
+                headers: {
+                  "content-type": "application/json"
+                }
+              }
+            });
+            listener({ tabId: 44 }, "Network.loadingFinished", {
+              requestId: "detail-request-001"
+            });
+          }
+        });
+      }
+      if (command === "Network.getResponseBody") {
+        return {
+          base64Encoded: false,
+          body: JSON.stringify({
+            code: 0,
+            data: {
+              note: {
+                note_id: noteId
+              }
+            }
+          })
+        };
+      }
+      return {};
     });
     executeScript.mockImplementation(async (input: Record<string, unknown>) => {
       const args = Array.isArray(input.args) ? input.args : [];
@@ -606,11 +662,11 @@ describe("extension service worker / gate and approval", () => {
       "Input.dispatchMouseEvent",
       expect.objectContaining({ type: "mousePressed", x: 180, y: 220 })
     );
-    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-xhs-open-result-card-001",
       status: "success"
     });
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
     const response = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; payload?: Record<string, unknown> })
       .find((message) => message.id === "run-xhs-open-result-card-001");

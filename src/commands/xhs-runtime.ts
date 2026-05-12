@@ -2898,6 +2898,13 @@ const xhsReadCommand = async (
       ...(transportIsLoopback && typeof targetSiteLoggedIn === "boolean"
         ? { target_site_logged_in: targetSiteLoggedIn }
         : {}),
+      ...(gate.options.closeout_evidence_evaluation === true
+        ? {
+            __runtime_latest_head_sha: resolveXhsCloseoutRuntimeLatestHeadShaForContract(
+              context.cwd
+            )
+          }
+        : {}),
       ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
     };
     const commandParams = appendFingerprintContext(

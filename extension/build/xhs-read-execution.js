@@ -140,6 +140,15 @@ const resolveCapturedArtifactRequestBody = (value) => {
     const request = asRecord(record?.request);
     return asRecord(request?.body);
 };
+const resolveCapturedArtifactResponseStatus = (value) => {
+    const status = resolveCapturedArtifactStatus(value).httpStatus;
+    return status !== null && Number.isFinite(status) ? status : null;
+};
+const resolveCapturedArtifactResponseBody = (value) => {
+    const record = asRecord(value);
+    const response = asRecord(record?.response);
+    return response?.body ?? null;
+};
 const resolveCapturedArtifactStatus = (value) => {
     const record = asRecord(value);
     const requestStatus = asRecord(record?.request_status);
@@ -778,6 +787,8 @@ const resolveReadRequestContext = (spec, artifact, expectedShape, now, options) 
         referrer: resolveCapturedArtifactReferrer(artifact),
         requestUrl: resolveCapturedArtifactRequestUrl(artifact),
         requestBody: resolveCapturedArtifactRequestBody(artifact),
+        responseStatus: resolveCapturedArtifactResponseStatus(artifact),
+        responseBody: resolveCapturedArtifactResponseBody(artifact),
         observedAt: resolveCapturedArtifactObservedAt(artifact),
         signedContinuity: resolveSignedContinuity(spec, expectedShape, artifact),
         templateEvidence: resolveActiveApiFetchFallbackTemplateEvidence(artifact, expectedShape, now)
@@ -1003,6 +1014,97 @@ const resolveActiveApiFetchFallbackGate = (input) => {
             fingerprint_attestation: fingerprintAttestation
         },
         consumed_template: input.templateEvidence
+    };
+};
+const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, requestContextResult, startedAt) => {
+    if (input.options.closeout_evidence_evaluation !== true) {
+        return null;
+    }
+    const template = requestContextResult.templateEvidence;
+    if (template.route_evidence_class !== "passive_api_capture" ||
+        template.source_kind !== "page_request" ||
+        requestContextResult.responseStatus === null ||
+        requestContextResult.responseStatus >= 400 ||
+        !responseContainsRequestedTarget(spec, input.params, requestContextResult.responseBody)) {
+        return null;
+    }
+    const pageUrl = env.getLocationHref();
+    const headSha = asString(input.options.__runtime_latest_head_sha);
+    const artifactIdentity = template.template_identity;
+    const routeEvidence = {
+        route: `${spec.command}.api`,
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success",
+        evidence_class: "passive_api_capture",
+        route_evidence_class: "passive_api_capture",
+        source_kind: "page_request",
+        method: spec.method,
+        endpoint: spec.endpoint,
+        request_url: requestContextResult.requestUrl ?? spec.buildSignatureUri(input.params),
+        status_code: requestContextResult.responseStatus,
+        head_sha: headSha,
+        run_id: input.executionContext.runId,
+        artifact_identity: artifactIdentity,
+        profile_ref: input.executionContext.profile,
+        session_id: input.executionContext.sessionId,
+        target_tab_id: typeof input.options.actual_target_tab_id === "number"
+            ? input.options.actual_target_tab_id
+            : typeof input.options.target_tab_id === "number"
+                ? input.options.target_tab_id
+                : null,
+        page_url: pageUrl,
+        action_ref: input.abilityAction,
+        observed_at: template.observed_at,
+        captured_at: template.captured_at,
+        reproduced_multi_round: false,
+        consumed_template: template
+    };
+    return {
+        ok: true,
+        payload: {
+            summary: {
+                capability_result: {
+                    ability_id: input.abilityId,
+                    layer: input.abilityLayer,
+                    action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+                    outcome: "success",
+                    data_ref: spec.buildDataRef(input.params, requestContextResult.requestBody ?? {}),
+                    metrics: {
+                        count: 1,
+                        duration_ms: Math.max(0, env.now() - startedAt)
+                    }
+                },
+                scope_context: gate.scope_context,
+                gate_input: {
+                    run_id: auditRecord.run_id,
+                    session_id: auditRecord.session_id,
+                    profile: auditRecord.profile,
+                    ...gate.gate_input
+                },
+                gate_outcome: gate.gate_outcome,
+                read_execution_policy: gate.read_execution_policy,
+                issue_action_matrix: gate.issue_action_matrix,
+                consumer_gate_result: gate.consumer_gate_result,
+                request_admission_result: gate.request_admission_result,
+                execution_audit: gate.execution_audit,
+                approval_record: gate.approval_record,
+                risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+                audit_record: auditRecord,
+                signed_continuity: requestContextResult.signedContinuity,
+                route_evidence: routeEvidence,
+                closeout_route_evidence: routeEvidence
+            },
+            observability: createReadObservability({
+                spec,
+                href: pageUrl,
+                title: env.getDocumentTitle(),
+                readyState: env.getReadyState(),
+                requestId: `req-${env.randomId()}`,
+                outcome: "completed",
+                statusCode: requestContextResult.responseStatus
+            })
+        }
     };
 };
 const failClosedForActiveApiFetchFallbackGate = (input, env) => {
@@ -2074,6 +2176,10 @@ const executeXhsRead = async (input, spec, env) => {
             gate,
             auditRecord
         }, env);
+    }
+    const passiveCaptureSuccess = createPassiveApiCaptureSuccess(input, spec, gate, auditRecord, env, requestContextResult, startedAt);
+    if (passiveCaptureSuccess) {
+        return passiveCaptureSuccess;
     }
     const activeFallbackGate = resolveActiveApiFetchFallbackGate({
         executionInput: input,
