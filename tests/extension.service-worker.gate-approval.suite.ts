@@ -678,6 +678,18 @@ describe("extension service worker / gate and approval", () => {
       note_id: noteId,
       xsec_source: "pc_search"
     });
+    expect(asRecord(asRecord(response?.payload)?.captured_request_context_artifact)).toMatchObject({
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      path: "/api/sns/web/v1/feed",
+      profile_ref: "xhs_001",
+      session_id: "nm-session-001",
+      target_tab_id: 55,
+      run_id: "run-xhs-open-result-card-001",
+      action_ref: "action/xhs.search/open_result_card",
+      page_url: targetUrl,
+      referrer: targetUrl
+    });
   });
 
   it("blocks XHS result-card open when the target tab is not bound to the current run", async () => {

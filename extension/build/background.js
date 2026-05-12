@@ -3693,7 +3693,7 @@ class ChromeBackgroundBridge {
                 run_id: runId,
                 action_ref: actionRef,
                 page_url: tabUrl,
-                referrer: asNonEmptyString(artifact.referrer) ?? tabUrl,
+                referrer: tabUrl,
                 template_identity: `captured:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
             };
             this.#emit({
@@ -4013,6 +4013,31 @@ class ChromeBackgroundBridge {
         const resolvedTargetTabId = typeof resolvedNavigation.tab.id === "number"
             ? resolvedNavigation.tab.id
             : sourceTab.id;
+        if (capturedRequestContextArtifact) {
+            const capturedAt = asInteger(capturedRequestContextArtifact.captured_at) ?? Date.now();
+            const pageContextNamespace = createPageContextNamespace(target.targetUrl);
+            const shape = {
+                command: "xhs.detail",
+                method: "POST",
+                pathname: DETAIL_ENDPOINT,
+                note_id: target.noteId
+            };
+            capturedRequestContextArtifact = {
+                ...capturedRequestContextArtifact,
+                path: DETAIL_ENDPOINT,
+                page_context_namespace: pageContextNamespace,
+                shape_key: JSON.stringify(shape),
+                shape,
+                profile_ref: profile,
+                session_id: sessionId,
+                target_tab_id: resolvedTargetTabId,
+                run_id: runId,
+                action_ref: actionRef,
+                page_url: target.targetUrl,
+                referrer: target.targetUrl,
+                template_identity: `captured:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
+            };
+        }
         this.#emit({
             id: request.id,
             status: "success",

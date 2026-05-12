@@ -346,10 +346,16 @@ const resolveSignedContinuityUrl = (spec, expectedShape, value) => {
 const resolveSignedContinuity = (spec, expectedShape, artifact) => {
     const record = asRecord(artifact);
     const referrer = resolveCapturedArtifactReferrer(record);
+    const pageUrl = asString(record?.page_url);
     const url = asString(record?.url);
-    const signedUrl = resolveSignedContinuityUrl(spec, expectedShape, referrer) ??
-        resolveSignedContinuityUrl(spec, expectedShape, url);
-    const sourceUrl = referrer ?? url;
+    const continuityCandidates = [pageUrl, referrer, url]
+        .map((candidate) => resolveSignedContinuityUrl(spec, expectedShape, candidate))
+        .filter((candidate) => candidate !== null);
+    const signedUrl = continuityCandidates.find((candidate) => candidate.searchParams.has("xsec_token")) ??
+        continuityCandidates.find((candidate) => candidate.searchParams.has("xsec_source")) ??
+        continuityCandidates[0] ??
+        null;
+    const sourceUrl = signedUrl?.toString() ?? pageUrl ?? referrer ?? url;
     const rawToken = signedUrl?.searchParams.get("xsec_token") ?? null;
     const xsecToken = rawToken === null ? null : rawToken.trim();
     const rawSource = signedUrl?.searchParams.get("xsec_source") ?? null;
