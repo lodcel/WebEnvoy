@@ -74,7 +74,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
                 url: endpointUrl,
                 headers: {
                   accept: "application/json",
-                  referer: targetUrl
+                  Referer: targetUrl
                 }
               }
             });
@@ -168,6 +168,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
       run_id: runId,
       action_ref: "action/xhs.user_home/passive_capture",
       page_url: targetUrl,
+      referrer: targetUrl,
       status: 200
     });
     expect(asRecord(asRecord(artifact?.response)?.body)).toMatchObject({

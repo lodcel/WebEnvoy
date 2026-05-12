@@ -4835,6 +4835,7 @@ class ChromeBackgroundBridge {
         run_id: runId,
         action_ref: actionRef,
         page_url: tabUrl,
+        referrer: asNonEmptyString(artifact.referrer) ?? tabUrl,
         template_identity: `captured:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
       };
       this.#emit({
@@ -7314,6 +7315,12 @@ class ChromeBackgroundBridge {
           .map(([key, value]) => [key, String(value)])
       );
     };
+    const headerValue = (headers: Record<string, string>, key: string): string | null => {
+      const matched = Object.entries(headers).find(
+        ([candidate]) => candidate.toLowerCase() === key.toLowerCase()
+      );
+      return matched && matched[1].trim().length > 0 ? matched[1].trim() : null;
+    };
     const isDetailEndpoint = (url: string): boolean => {
       try {
         const parsed = new URL(url);
@@ -7407,7 +7414,7 @@ class ChromeBackgroundBridge {
                 source_kind: "page_request",
                 method: entry.method,
                 url: entry.url,
-                referrer: null,
+                referrer: headerValue(entry.requestHeaders, "referer"),
                 request: {
                   headers: entry.requestHeaders,
                   body: entry.requestBody
@@ -7472,6 +7479,12 @@ class ChromeBackgroundBridge {
           )
           .map(([key, value]) => [key, String(value)])
       );
+    };
+    const headerValue = (headers: Record<string, string>, key: string): string | null => {
+      const matched = Object.entries(headers).find(
+        ([candidate]) => candidate.toLowerCase() === key.toLowerCase()
+      );
+      return matched && matched[1].trim().length > 0 ? matched[1].trim() : null;
     };
     const isUserHomeEndpoint = (url: string): boolean => {
       try {
@@ -7563,7 +7576,7 @@ class ChromeBackgroundBridge {
                 source_kind: "page_request",
                 method: entry.method,
                 url: entry.url,
-                referrer: null,
+                referrer: headerValue(entry.requestHeaders, "referer"),
                 request: {
                   headers: entry.requestHeaders,
                   body: null

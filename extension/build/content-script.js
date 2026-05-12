@@ -7874,6 +7874,60 @@ const resolveActiveApiFetchFallbackGate = (input) => {
         consumed_template: input.templateEvidence
     };
 };
+const resolvePassiveApiCaptureCloseoutGate = (input) => {
+    const binding = buildActiveFallbackTemplateBinding({
+        executionContext: input.executionInput.executionContext,
+        options: input.executionInput.options,
+        abilityAction: input.executionInput.abilityAction,
+        pageUrl: input.env.getLocationHref()
+    });
+    const reasonCodes = [];
+    if (input.templateEvidence.route_evidence_class !== "passive_api_capture") {
+        reasonCodes.push("PASSIVE_CAPTURE_TEMPLATE_REQUIRED");
+    }
+    if (input.templateEvidence.source_kind !== "page_request") {
+        reasonCodes.push("PAGE_REQUEST_TEMPLATE_REQUIRED");
+    }
+    if (input.templateEvidence.observed_at === null ||
+        input.templateEvidence.template_age_ms === null ||
+        input.templateEvidence.template_age_ms > input.templateEvidence.freshness_window_ms) {
+        reasonCodes.push("PASSIVE_CAPTURE_TEMPLATE_NOT_FRESH");
+    }
+    if (input.templateEvidence.profile_ref !== binding.profile_ref) {
+        reasonCodes.push("PASSIVE_CAPTURE_PROFILE_MISMATCH");
+    }
+    if (input.templateEvidence.session_id !== binding.session_id) {
+        reasonCodes.push("PASSIVE_CAPTURE_SESSION_MISMATCH");
+    }
+    if (binding.target_tab_id === null) {
+        reasonCodes.push("TARGET_TAB_BINDING_REQUIRED");
+    }
+    if (input.templateEvidence.target_tab_id !== binding.target_tab_id) {
+        reasonCodes.push("PASSIVE_CAPTURE_TAB_MISMATCH");
+    }
+    if (input.templateEvidence.run_id !== binding.run_id) {
+        reasonCodes.push("PASSIVE_CAPTURE_RUN_MISMATCH");
+    }
+    if (input.templateEvidence.action_ref !== binding.action_ref) {
+        reasonCodes.push("PASSIVE_CAPTURE_ACTION_MISMATCH");
+    }
+    if (input.templateEvidence.page_url !== binding.page_url) {
+        reasonCodes.push("PASSIVE_CAPTURE_PAGE_MISMATCH");
+    }
+    if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
+        reasonCodes.push("SIGNED_CONTINUITY_REQUIRED");
+    }
+    return {
+        gate_decision: reasonCodes.length === 0 ? "allowed" : "blocked",
+        reason_codes: reasonCodes,
+        route_evidence_class: "passive_api_capture",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: reasonCodes.length === 0 ? "success" : "blocked",
+        template_binding: binding,
+        consumed_template: input.templateEvidence
+    };
+};
 const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, requestContextResult, startedAt) => {
     if (input.options.closeout_evidence_evaluation !== true) {
         return null;
@@ -7885,6 +7939,43 @@ const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, req
         requestContextResult.responseStatus >= 400 ||
         !responseContainsRequestedTarget(spec, input.params, requestContextResult.responseBody)) {
         return null;
+    }
+    const passiveCaptureGate = resolvePassiveApiCaptureCloseoutGate({
+        executionInput: input,
+        templateEvidence: template,
+        signedContinuity: requestContextResult.signedContinuity,
+        env
+    });
+    if (passiveCaptureGate.gate_decision !== "allowed") {
+        const expectedShape = deriveReadShapeFromCommand(spec, input.params);
+        const message = `passive_api_capture closeout 门禁阻断了当前 ${spec.command} 请求`;
+        return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", message, {
+            ability_id: input.abilityId,
+            stage: "execution",
+            reason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+            request_context_shape: expectedShape,
+            request_context_shape_key: serializeReadShape(expectedShape),
+            passive_api_capture_closeout_gate: passiveCaptureGate
+        }, createReadObservability({
+            spec,
+            href: env.getLocationHref(),
+            title: env.getDocumentTitle(),
+            readyState: env.getReadyState(),
+            requestId: `req-${env.randomId()}`,
+            outcome: "failed",
+            failureReason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+            includeKeyRequest: false,
+            failureSite: {
+                stage: "execution",
+                component: "gate",
+                target: "xhs.passive_api_capture_closeout_gate",
+                summary: message
+            }
+        }), createReadDiagnosis(spec, {
+            reason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+            summary: message,
+            category: "page_changed"
+        }), gate, auditRecord), gate.execution_audit);
     }
     const pageUrl = env.getLocationHref();
     const headSha = asString(input.options.__runtime_latest_head_sha);
@@ -7916,6 +8007,7 @@ const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, req
         observed_at: template.observed_at,
         captured_at: template.captured_at,
         reproduced_multi_round: false,
+        passive_api_capture_closeout_gate: passiveCaptureGate,
         consumed_template: template
     };
     return {
@@ -12179,6 +12271,9 @@ class ContentScriptHandler {
                     ...(options.closeout_audit_required === true ? { closeout_audit_required: true } : {}),
                     ...(options.closeout_evidence_evaluation === true
                         ? { closeout_evidence_evaluation: true }
+                        : {}),
+                    ...(typeof options.__runtime_latest_head_sha === "string"
+                        ? { __runtime_latest_head_sha: options.__runtime_latest_head_sha }
                         : {}),
                     ...(asRecord(options.explicit_request_context_artifact)
                         ? {

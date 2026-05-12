@@ -769,6 +769,95 @@ describe("content-script handler xhs read commands", () => {
     );
   });
 
+  it("preserves latest-head sha when closeout explicit artifacts are consumed by xhs.detail", async () => {
+    const explicitArtifact = {
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      method: "POST",
+      path: "/api/sns/web/v1/feed",
+      url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
+      status: 200,
+      captured_at: 1_710_000_099_000,
+      observed_at: 1_710_000_099_000,
+      shape: {
+        command: "xhs.detail",
+        method: "POST",
+        pathname: "/api/sns/web/v1/feed",
+        note_id: "abc123"
+      },
+      profile_ref: "xhs_001",
+      session_id: "nm-session-001",
+      target_tab_id: 32,
+      run_id: "run-contract-001",
+      action_ref: "read",
+      page_url: "https://www.xiaohongshu.com/explore/abc123",
+      request: {
+        headers: {},
+        body: {
+          source_note_id: "abc123"
+        }
+      },
+      response: {
+        headers: {},
+        body: {
+          code: 0,
+          data: {
+            note: {
+              note_id: "abc123"
+            }
+          }
+        }
+      },
+      referrer:
+        "https://www.xiaohongshu.com/explore/abc123?xsec_token=token-abc123&xsec_source=pc_search"
+    };
+    const callSignature = vi.fn(async () => ({ "X-s": "signature", "X-t": "timestamp" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0
+      }
+    }));
+    const { handler, message } = createMessage({
+      command: "xhs.detail",
+      abilityId: "xhs.note.detail.v1",
+      targetPage: "explore_detail_tab",
+      href: "https://www.xiaohongshu.com/explore/abc123",
+      options: {
+        simulate_result: null,
+        closeout_evidence_evaluation: true,
+        __runtime_latest_head_sha: "head-content-closeout-001",
+        explicit_request_context_artifact: explicitArtifact
+      },
+      fingerprintContext: createInstalledFingerprintContext(),
+      payload: {
+        note_id: "abc123"
+      },
+      xhsEnvOverrides: {
+        now: () => 1_710_000_100_000,
+        callSignature,
+        fetchJson
+      }
+    });
+
+    const resultPromise = waitForSingleResult(handler);
+    expect(handler.onBackgroundMessage(message)).toBe(true);
+    const result = await resultPromise;
+    const summary = ((result.payload ?? {}) as Record<string, unknown>).summary as Record<
+      string,
+      unknown
+    >;
+
+    expect(result.ok).toBe(true);
+    expect(summary.route_evidence).toMatchObject({
+      evidence_class: "passive_api_capture",
+      route_evidence_class: "passive_api_capture",
+      head_sha: "head-content-closeout-001"
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
 	  it("blocks active fallback when browser surface is only caller self-attested on the extension path", async () => {
 	    const callSignature = vi.fn(async () => ({
 	      "X-s": "signature",

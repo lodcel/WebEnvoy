@@ -847,6 +847,66 @@ describe("xhs read execution fallback", () => {
     );
   });
 
+  it("blocks passive closeout success when captured user_home artifact is not bound to the current run", async () => {
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          user: {
+            userId: "user-closeout-mismatch-001"
+          }
+        }
+      }
+    }));
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-closeout-mismatch-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-closeout-current-001",
+          targetPage: "profile_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-user-closeout-current-001"
+          }
+        }),
+        executionContext: createFallbackExecutionContext("run-user-closeout-current-001")
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/user/profile/user-closeout-mismatch-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-closeout-mismatch-001", {
+            run_id: "run-user-closeout-stale-001",
+            observed_at: 1_710_000_000_000
+          })
+        )
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected stale passive closeout artifact to fail closed");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+      passive_api_capture_closeout_gate: {
+        gate_decision: "blocked",
+        reason_codes: expect.arrayContaining(["PASSIVE_CAPTURE_RUN_MISMATCH"])
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
   it("accepts wrapped detail payloads when the requested note is nested under note_card", async () => {
     const result = await executeXhsDetail(
       {
