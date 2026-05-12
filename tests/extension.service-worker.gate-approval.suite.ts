@@ -686,7 +686,7 @@ describe("extension service worker / gate and approval", () => {
       session_id: "nm-session-001",
       target_tab_id: 55,
       run_id: "run-xhs-open-result-card-001",
-      action_ref: "action/xhs.search/open_result_card",
+      action_ref: "read",
       page_url: targetUrl,
       referrer: targetUrl
     });

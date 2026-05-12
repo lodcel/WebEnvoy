@@ -4690,10 +4690,8 @@ class ChromeBackgroundBridge {
     const targetPage = asNonEmptyString(commandParams.target_page);
     const targetTabId = asInteger(commandParams.target_tab_id);
     const userId = asNonEmptyString(commandParams.user_id);
-    const actionRef =
-      asNonEmptyString(commandParams.action_ref) ??
-      asNonEmptyString(commandParams.gate_invocation_id) ??
-      "read";
+    const captureConsumerActionRef =
+      asNonEmptyString(commandParams.captured_action_ref) ?? "read";
     const runId = String(request.params.run_id ?? request.id);
     const sessionId = String(request.params.session_id ?? this.#sessionId);
     const profile = typeof request.profile === "string" ? request.profile : null;
@@ -4833,7 +4831,7 @@ class ChromeBackgroundBridge {
         session_id: sessionId,
         target_tab_id: tab.id,
         run_id: runId,
-        action_ref: actionRef,
+        action_ref: captureConsumerActionRef,
         page_url: tabUrl,
         referrer: tabUrl,
         template_identity: `captured:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
@@ -4957,6 +4955,8 @@ class ChromeBackgroundBridge {
       asNonEmptyString(commandParams.action_ref) ??
       asNonEmptyString(commandParams.gate_invocation_id) ??
       "action/xhs.search/open_result_card";
+    const detailConsumerActionRef =
+      asNonEmptyString(commandParams.captured_action_ref) ?? "read";
     const runId = String(request.params.run_id ?? request.id);
     const sessionId = String(request.params.session_id ?? this.#sessionId);
     const profile = typeof request.profile === "string" ? request.profile : null;
@@ -5219,7 +5219,7 @@ class ChromeBackgroundBridge {
         session_id: sessionId,
         target_tab_id: resolvedTargetTabId,
         run_id: runId,
-        action_ref: actionRef,
+        action_ref: detailConsumerActionRef,
         page_url: target.targetUrl,
         referrer: target.targetUrl,
         template_identity: `captured:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`

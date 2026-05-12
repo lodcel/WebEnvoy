@@ -166,7 +166,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
       session_id: sessionId,
       target_tab_id: targetTabId,
       run_id: runId,
-      action_ref: "action/xhs.user_home/passive_capture",
+      action_ref: "read",
       page_url: targetUrl,
       referrer: targetUrl,
       status: 200
