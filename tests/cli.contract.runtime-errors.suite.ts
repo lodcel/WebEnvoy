@@ -1334,6 +1334,92 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
     });
   }, 10_000);
 
+  it("waits through a transient pending readiness sample before current-run XHS target restoration", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const profile = "xhs_restore_current_pending_once";
+    const runId = "run-contract-restore-current-pending-001";
+    const persistentExtensionIdentity = await startOfficialReadyRuntime(runtimeCwd, profile, runId);
+    await seedReadyXhsCloseoutValidationViews(runtimeCwd, profile);
+    const profileDir = path.join(runtimeCwd, ".webenvoy", "profiles", profile);
+    const metaPath = path.join(profileDir, "__webenvoy_meta.json");
+    const existingMeta = JSON.parse(await readFile(metaPath, "utf8")) as Record<string, unknown>;
+    await writeFile(
+      metaPath,
+      `${JSON.stringify(
+        {
+          ...existingMeta,
+          schemaVersion: 1,
+          profileName: profile,
+          profileDir,
+          accountSafety: {
+            state: "clear",
+            platform: null,
+            reason: null,
+            observedAt: null,
+            cooldownUntil: null,
+            sourceRunId: null,
+            sourceCommand: null,
+            targetDomain: null,
+            targetTabId: null,
+            pageUrl: null,
+            statusCode: null,
+            platformCode: null
+          },
+          xhsCloseoutRhythm: {
+            state: "single_probe_passed",
+            cooldownUntil: "2000-01-01T00:30:00.000Z",
+            operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+            singleProbeRequired: false,
+            singleProbePassedAt: "2026-04-25T10:35:10.000Z",
+            probeRunId: "run-contract-restore-current-probe-001",
+            fullBundleBlocked: true,
+            reasonCodes: ["XHS_RECOVERY_SINGLE_PROBE_PASSED"]
+          },
+          fingerprintSeeds: {
+            audioNoiseSeed: "seed-restore-current-pending-a",
+            canvasNoiseSeed: "seed-restore-current-pending-c"
+          },
+          updatedAt: "2026-04-25T10:35:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = runCli(
+      [
+        "runtime.restore_xhs_target",
+        "--profile",
+        profile,
+        "--run-id",
+        runId,
+        "--params",
+        JSON.stringify({
+          target_domain: "www.xiaohongshu.com",
+          target_page: "search_result_tab",
+          target_tab_id: 44,
+          query: "城市骑行",
+          persistent_extension_identity: persistentExtensionIdentity
+        })
+      ],
+      runtimeCwd,
+      {
+        WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
+        WEBENVOY_NATIVE_TRANSPORT: "native",
+        WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
+        WEBENVOY_NATIVE_HOST_MODE: "runtime-readiness-ready-pending-once-current"
+      }
+    );
+    expect(result.status, result.stdout).toBe(0);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body).toMatchObject({
+      run_id: runId,
+      command: "runtime.restore_xhs_target",
+      status: "success"
+    });
+  }, 10_000);
+
   it("fails closed when attached XHS target restoration never leaves pending readiness", async () => {
     const runtimeCwd = await createRuntimeCwd();
     const profile = "xhs_restore_attach_pending_blocked";
