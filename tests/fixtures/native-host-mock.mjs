@@ -1,8 +1,27 @@
 #!/usr/bin/env node
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 const mode = process.env.WEBENVOY_NATIVE_HOST_MODE || "success";
 let buffer = Buffer.alloc(0);
 let openCompleted = false;
+
+const nextReadinessCallCount = (request) => {
+  const cwd = String(request.params?.cwd ?? process.cwd());
+  const stateDir = join(cwd, ".webenvoy", "test-state");
+  mkdirSync(stateDir, { recursive: true });
+  const statePath = join(stateDir, "native-host-readiness-count.txt");
+  let previous = 0;
+  try {
+    previous = Number.parseInt(readFileSync(statePath, "utf8"), 10);
+  } catch {
+    previous = 0;
+  }
+  const next = Number.isFinite(previous) ? previous + 1 : 1;
+  writeFileSync(statePath, `${next}\n`, "utf8");
+  return next;
+};
 
 const writeMessage = (message) => {
   const payload = Buffer.from(JSON.stringify(message), "utf8");
@@ -129,7 +148,22 @@ const onRequest = (request) => {
     const commandRuntimeContextId = String(commandParams.runtime_context_id ?? "");
     const commandSessionId = String(request.params?.session_id ?? "nm-session-001");
 
-    if (command === "runtime.readiness" && mode === "runtime-readiness-ready") {
+    if (
+      command === "runtime.readiness" &&
+      (mode === "runtime-readiness-ready" ||
+        mode === "runtime-readiness-ready-pending-once-after-attach" ||
+        mode === "runtime-readiness-ready-pending-after-attach")
+    ) {
+      const readinessCallCount =
+        mode === "runtime-readiness-ready-pending-once-after-attach" ||
+        mode === "runtime-readiness-ready-pending-after-attach"
+          ? nextReadinessCallCount(request)
+          : 0;
+      const transientAttachPending =
+        mode === "runtime-readiness-ready-pending-once-after-attach" &&
+        readinessCallCount === 2;
+      const persistentAttachPending =
+        mode === "runtime-readiness-ready-pending-after-attach" && readinessCallCount >= 2;
       writeMessage({
         id: request.id,
         status: "success",
@@ -141,7 +175,7 @@ const onRequest = (request) => {
         },
         payload: {
           transport_state: "ready",
-          bootstrap_state: "ready",
+          bootstrap_state: transientAttachPending || persistentAttachPending ? "pending" : "ready",
           runtime_context_id: commandRuntimeContextId || null,
           managed_target_tab_id: Number.isInteger(commandParams.target_tab_id)
             ? commandParams.target_tab_id
