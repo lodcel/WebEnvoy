@@ -2150,6 +2150,40 @@ const shouldAttachRuntimeForXhsRestore = (status: Record<string, unknown>): bool
   );
 };
 
+const wait = async (ms: number): Promise<void> =>
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const isTransientAttachedRestorePendingStatus = (status: Record<string, unknown>): boolean =>
+  status.lockHeld === true &&
+  status.identityBindingState === "bound" &&
+  status.transportState === "ready" &&
+  status.bootstrapState === "pending" &&
+  status.runtimeReadiness === "pending" &&
+  status.executionSurface === "real_browser" &&
+  status.headless === false;
+
+const waitForAttachedRestoreRuntimeStatus = async (input: {
+  cwd: string;
+  profile: string;
+  runId: string;
+  params: Record<string, unknown>;
+  initialStatus: Record<string, unknown>;
+}): Promise<Record<string, unknown>> => {
+  let status = input.initialStatus;
+  for (let attempt = 0; attempt < 4 && isTransientAttachedRestorePendingStatus(status); attempt += 1) {
+    await wait(250);
+    status = await profileRuntime.status({
+      cwd: input.cwd,
+      profile: input.profile,
+      runId: input.runId,
+      params: input.params
+    });
+  }
+  return status;
+};
+
 const assertRuntimeRestoreXhsTargetSafetyGate = async (
   context: RuntimeContext
 ): Promise<Record<string, unknown> | null> => {
@@ -2213,6 +2247,13 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
       runId: context.run_id,
       params: context.params
     });
+    status = await waitForAttachedRestoreRuntimeStatus({
+      cwd: context.cwd,
+      profile: context.profile,
+      runId: context.run_id,
+      params: context.params,
+      initialStatus: status
+    });
   }
   const accountSafety = asObject(status.account_safety);
   const xhsCloseoutRhythm = asObject(status.xhs_closeout_rhythm);
@@ -2255,6 +2296,8 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
     status.lockHeld === true &&
     status.identityBindingState === "bound" &&
     status.transportState === "ready" &&
+    status.bootstrapState !== "pending" &&
+    status.runtimeReadiness !== "pending" &&
     status.executionSurface === "real_browser" &&
     status.headless === false;
   const runtimeTakeover = asObject(status.runtimeTakeoverEvidence);
