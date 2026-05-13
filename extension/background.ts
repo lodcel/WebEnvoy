@@ -2985,6 +2985,48 @@ class ChromeBackgroundBridge {
     );
   }
 
+  #rebindRuntimeTrustTargetAfterRestore(input: {
+    profile: string;
+    sessionId: string;
+    runId: string;
+    targetTabId: number;
+    targetDomain: string;
+    targetPage: string;
+  }): void {
+    const now = new Date().toISOString();
+    const bootstrap = this.#runtimeTrustState.getBootstrap(input.profile);
+    if (
+      bootstrap &&
+      bootstrap.sessionId === input.sessionId &&
+      bootstrap.runId === input.runId &&
+      (bootstrap.status === "pending" || bootstrap.status === "ready")
+    ) {
+      this.#runtimeTrustState.setBootstrap(input.profile, {
+        ...bootstrap,
+        sourceTabId: input.targetTabId,
+        sourceDomain: input.targetDomain,
+        sourcePage: input.targetPage,
+        updatedAt: now
+      });
+    }
+
+    const trusted = this.#runtimeTrustState.getTrusted(input.profile, input.sessionId);
+    if (trusted && trusted.runId === input.runId) {
+      this.#upsertTrustedFingerprintContext(
+        input.profile,
+        input.sessionId,
+        trusted.fingerprintRuntime,
+        {
+          sourceTabId: input.targetTabId,
+          sourceDomain: input.targetDomain,
+          sourcePage: input.targetPage,
+          runId: trusted.runId,
+          runtimeContextId: trusted.runtimeContextId
+        }
+      );
+    }
+  }
+
   #promoteRuntimeBootstrapStateFromExecutionSignal(
     profile: string,
     sessionId: string,
@@ -3824,6 +3866,15 @@ class ChromeBackgroundBridge {
       });
       return;
     }
+
+    this.#rebindRuntimeTrustTargetAfterRestore({
+      profile,
+      sessionId,
+      runId,
+      targetTabId: restoredTabId,
+      targetDomain,
+      targetPage
+    });
 
     const restoredAt = new Date().toISOString();
     this.#emit({
@@ -5058,6 +5109,7 @@ class ChromeBackgroundBridge {
     const sourceTabId = sourceTab.id;
     const bootstrap = this.#runtimeTrustState.getBootstrap(profile);
     const trusted = this.#runtimeTrustState.getTrusted(profile, sessionId);
+    const staleRestoreLease = this.#getStaleRestoreBindingLease(profile, sessionId);
     const bootstrapBindsTarget =
       !!bootstrap &&
       (bootstrap.status === "pending" || bootstrap.status === "ready") &&
@@ -5073,7 +5125,13 @@ class ChromeBackgroundBridge {
       trusted.sourceTabId === sourceTabId &&
       trusted.sourceDomain === targetDomain &&
       trusted.sourcePage === targetPage;
-    if (!bootstrapBindsTarget && !trustedBindsTarget) {
+    const staleRestoreLeaseBindsTarget =
+      !!staleRestoreLease &&
+      staleRestoreLease.runId === runId &&
+      staleRestoreLease.targetTabId === sourceTabId &&
+      staleRestoreLease.targetDomain === targetDomain &&
+      staleRestoreLease.targetPage === targetPage;
+    if (!bootstrapBindsTarget && !trustedBindsTarget && !staleRestoreLeaseBindsTarget) {
       fail(
         "RESULT_CARD_MANAGED_TAB_NOT_BOUND",
         "runtime.xhs_open_result_card requires a current managed tab binding",
@@ -5086,7 +5144,11 @@ class ChromeBackgroundBridge {
           trusted_source_tab_id: trusted?.sourceTabId ?? null,
           trusted_source_domain: trusted?.sourceDomain ?? null,
           trusted_source_page: trusted?.sourcePage ?? null,
-          trusted_run_id: trusted?.runId ?? null
+          trusted_run_id: trusted?.runId ?? null,
+          stale_restore_lease_target_tab_id: staleRestoreLease?.targetTabId ?? null,
+          stale_restore_lease_target_domain: staleRestoreLease?.targetDomain ?? null,
+          stale_restore_lease_target_page: staleRestoreLease?.targetPage ?? null,
+          stale_restore_lease_run_id: staleRestoreLease?.runId ?? null
         }
       );
       return;
