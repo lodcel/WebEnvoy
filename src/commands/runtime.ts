@@ -2095,16 +2095,58 @@ const runtimeXhsCaptureUserHomeContext = async (context: RuntimeContext) => {
 };
 
 const isRuntimeRestoreXhsTargetMutation = (params: Record<string, unknown>): boolean =>
-  asString(params.target_domain) === "www.xiaohongshu.com" &&
-  asString(params.target_page) === "search_result_tab" &&
-  typeof params.target_tab_id === "number" &&
-  Number.isInteger(params.target_tab_id) &&
-  asString(params.query) !== null;
+  isRuntimeRestoreXhsSearchTargetMutation(params) ||
+  isRuntimeRestoreXhsProfileTargetMutation(params);
 
 const isRuntimeRestoreXhsSearchTarget = (params: Record<string, unknown>): boolean =>
   asString(params.target_domain) === "www.xiaohongshu.com" &&
   asString(params.target_page) === "search_result_tab" &&
   asString(params.query) !== null;
+
+const isRuntimeRestoreXhsSearchTargetMutation = (params: Record<string, unknown>): boolean =>
+  isRuntimeRestoreXhsSearchTarget(params) &&
+  typeof params.target_tab_id === "number" &&
+  Number.isInteger(params.target_tab_id);
+
+const resolveXhsProfileTargetUrlForRestore = (
+  params: Record<string, unknown>
+): string | null => {
+  const userId = asString(params.user_id);
+  const targetUrl = asString(params.target_url);
+  let parsedTarget: URL | null = null;
+  if (targetUrl !== null) {
+    try {
+      parsedTarget = new URL(targetUrl);
+    } catch {
+      return null;
+    }
+    const match = /^\/user\/profile\/([^/?#]+)$/u.exec(parsedTarget.pathname);
+    const urlUserId = match?.[1] ? decodeURIComponent(match[1]) : null;
+    if (
+      parsedTarget.protocol !== "https:" ||
+      parsedTarget.hostname !== "www.xiaohongshu.com" ||
+      urlUserId === null ||
+      (userId !== null && userId !== urlUserId)
+    ) {
+      return null;
+    }
+    return parsedTarget.toString();
+  }
+  if (userId === null) {
+    return null;
+  }
+  return `https://www.xiaohongshu.com/user/profile/${encodeURIComponent(userId)}`;
+};
+
+const isRuntimeRestoreXhsProfileTarget = (params: Record<string, unknown>): boolean =>
+  asString(params.target_domain) === "www.xiaohongshu.com" &&
+  asString(params.target_page) === "profile_tab" &&
+  resolveXhsProfileTargetUrlForRestore(params) !== null;
+
+const isRuntimeRestoreXhsProfileTargetMutation = (params: Record<string, unknown>): boolean =>
+  isRuntimeRestoreXhsProfileTarget(params) &&
+  typeof params.target_tab_id === "number" &&
+  Number.isInteger(params.target_tab_id);
 
 const buildXhsRestoreSearchResultUrl = (query: string): string => {
   const url = new URL("/search_result", "https://www.xiaohongshu.com");
@@ -2256,7 +2298,8 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
   }
 
   if (
-    isRuntimeRestoreXhsSearchTarget(context.params) &&
+    (isRuntimeRestoreXhsSearchTarget(context.params) ||
+      isRuntimeRestoreXhsProfileTarget(context.params)) &&
     !(
       typeof context.params.target_tab_id === "number" &&
       Number.isInteger(context.params.target_tab_id)
@@ -2321,7 +2364,12 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
     asString(context.params.gate_invocation_id) ??
     context.run_id;
   const query = asString(context.params.query);
-  const targetUrl = query ? buildXhsRestoreSearchResultUrl(query) : null;
+  const targetUrl =
+    asString(context.params.target_page) === "profile_tab"
+      ? resolveXhsProfileTargetUrlForRestore(context.params)
+      : query
+        ? buildXhsRestoreSearchResultUrl(query)
+        : null;
   const runtimeContextId = buildRuntimeBootstrapContextId(context.profile, context.run_id);
 
   let antiDetectionValidationView: Record<string, unknown> | null = null;

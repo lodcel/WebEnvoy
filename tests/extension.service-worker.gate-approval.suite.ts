@@ -81,6 +81,7 @@ const primeManagedXhsBootstrap = async (
     runId: string;
     targetTabId: number;
     targetDomain?: string;
+    targetPage?: string;
     sessionId?: string;
   }
 ) => {
@@ -98,7 +99,7 @@ const primeManagedXhsBootstrap = async (
         runtime_context_id: `${input.runId}-ctx`,
         profile: "xhs_001",
         target_domain: input.targetDomain ?? "www.xiaohongshu.com",
-        target_page: "search_result_tab",
+        target_page: input.targetPage ?? "search_result_tab",
         target_tab_id: input.targetTabId,
         fingerprint_runtime: createFingerprintRuntimeContext(),
         fingerprint_patch_manifest: {
@@ -428,6 +429,152 @@ describe("extension service worker / gate and approval", () => {
           target_tab_id: 44,
           target_page: "search_result_tab",
           restore_action: "navigate_existing_tab",
+          active_fetch_performed: false,
+          closeout_bundle_entered: false
+        }
+      }
+    });
+  });
+
+  it("restores an explicit managed XHS tab to the requested user profile target", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    const userId = "6593ce8b000000002001d754";
+    const targetUrl =
+      `https://www.xiaohongshu.com/user/profile/${userId}?xsec_token=token-001&xsec_source=pc_search`;
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: "https://www.xiaohongshu.com/explore/69dddd1f000000001f0043fb",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-restore-xhs-profile-tab-001",
+      targetTabId: 44,
+      targetPage: "profile_tab"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-xhs-profile-tab-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-xhs-profile-tab-001",
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          user_id: userId,
+          target_url: targetUrl,
+          action_ref: "issue677-restore-profile-tab",
+          restore_safety_gate: createRestoreSafetyGate("run-restore-xhs-profile-tab-001", {
+            targetPage: "profile_tab",
+            targetUrl,
+            actionRef: "issue677-restore-profile-tab"
+          })
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    expect(chromeApi.tabs.get).toHaveBeenCalledWith(44);
+    expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
+      url: targetUrl,
+      active: true
+    });
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-restore-xhs-profile-tab-001");
+    expect(response).toMatchObject({
+      id: "run-restore-xhs-profile-tab-001",
+      status: "success",
+      payload: {
+        target_tab_id: 44,
+        target_url: targetUrl,
+        restore_evidence: {
+          evidence_class: "target_tab_restoration",
+          profile_ref: "xhs_001",
+          session_id: "nm-session-001",
+          target_tab_id: 44,
+          target_page: "profile_tab",
+          restore_action: "navigate_existing_tab",
+          active_fetch_performed: false,
+          closeout_bundle_entered: false
+        }
+      }
+    });
+  });
+
+  it("fails closed when profile tab restore points outside the canonical XHS profile URL", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: "https://www.xiaohongshu.com/explore/69dddd1f000000001f0043fb",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-restore-xhs-profile-tab-invalid-001",
+      targetTabId: 44,
+      targetPage: "profile_tab"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-xhs-profile-tab-invalid-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-xhs-profile-tab-invalid-001",
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          user_id: "6593ce8b000000002001d754",
+          target_url: "https://example.com/user/profile/6593ce8b000000002001d754",
+          restore_safety_gate: createRestoreSafetyGate("run-restore-xhs-profile-tab-invalid-001", {
+            targetPage: "profile_tab",
+            targetUrl: "https://example.com/user/profile/6593ce8b000000002001d754"
+          })
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    expect(chromeApi.tabs.update).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-restore-xhs-profile-tab-invalid-001");
+    expect(response).toMatchObject({
+      id: "run-restore-xhs-profile-tab-invalid-001",
+      status: "error",
+      payload: {
+        details: {
+          reason: "TARGET_RESTORE_INPUT_INVALID",
+          target_page: "profile_tab",
+          target_tab_id: 44,
           active_fetch_performed: false,
           closeout_bundle_entered: false
         }

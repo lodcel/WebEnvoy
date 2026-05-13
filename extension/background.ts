@@ -1017,6 +1017,37 @@ const buildXhsSearchResultUrl = (query: string): string => {
   return url.toString();
 };
 
+const resolveXhsProfileTarget = (input: {
+  userId: string | null;
+  targetUrl: string | null;
+}): { userId: string; targetUrl: string } | null => {
+  const parsedTarget = input.targetUrl ? parseUrl(input.targetUrl) : null;
+  const profileMatch = parsedTarget?.pathname.match(/^\/user\/profile\/([^/?#]+)$/u) ?? null;
+  const urlUserId = profileMatch?.[1] ? decodeURIComponent(profileMatch[1]) : null;
+  const userId = input.userId ?? urlUserId;
+  if (!userId) {
+    return null;
+  }
+  if (parsedTarget) {
+    if (
+      parsedTarget.protocol !== "https:" ||
+      parsedTarget.hostname !== XHS_READ_DOMAIN ||
+      urlUserId !== userId
+    ) {
+      return null;
+    }
+    return {
+      userId,
+      targetUrl: parsedTarget.toString()
+    };
+  }
+  const url = new URL(`/user/profile/${encodeURIComponent(userId)}`, `https://${XHS_READ_DOMAIN}`);
+  return {
+    userId,
+    targetUrl: url.toString()
+  };
+};
+
 const normalizeXhsRestoreSearchUrl = (value: string | null): string | null => {
   if (!value) {
     return null;
@@ -1044,6 +1075,43 @@ const xhsRestoreSearchUrlsMatch = (observedUrl: string | null, targetUrl: string
   const target = normalizeXhsRestoreSearchUrl(targetUrl);
   return observed !== null && target !== null && observed === target;
 };
+
+const normalizeXhsRestoreProfileUrl = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  const target = resolveXhsProfileTarget({ userId: null, targetUrl: value });
+  if (!target) {
+    return null;
+  }
+  const parsed = parseUrl(target.targetUrl);
+  if (!parsed) {
+    return null;
+  }
+  const normalized = new URL(`/user/profile/${encodeURIComponent(target.userId)}`, `https://${XHS_READ_DOMAIN}`);
+  const entries = Array.from(parsed.searchParams.entries()).sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+    leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey)
+  );
+  for (const [key, entryValue] of entries) {
+    normalized.searchParams.append(key, entryValue);
+  }
+  return normalized.toString();
+};
+
+const xhsRestoreProfileUrlsMatch = (observedUrl: string | null, targetUrl: string): boolean => {
+  const observed = normalizeXhsRestoreProfileUrl(observedUrl);
+  const target = normalizeXhsRestoreProfileUrl(targetUrl);
+  return observed !== null && target !== null && observed === target;
+};
+
+const xhsRestoreTargetUrlsMatch = (
+  targetPage: string | null,
+  observedUrl: string | null,
+  targetUrl: string
+): boolean =>
+  targetPage === "profile_tab"
+    ? xhsRestoreProfileUrlsMatch(observedUrl, targetUrl)
+    : xhsRestoreSearchUrlsMatch(observedUrl, targetUrl);
 
 const buildObservedRuntimeInstanceId = (input: {
   sessionId: string;
@@ -3570,6 +3638,7 @@ class ChromeBackgroundBridge {
 
   async #waitForRestoredTargetNavigation(input: {
     tabId: number;
+    targetPage: string | null;
     targetUrl: string;
     timeoutMs: number;
   }): Promise<
@@ -3620,7 +3689,10 @@ class ChromeBackgroundBridge {
 
       lastObservedUrl = typeof tab.url === "string" ? tab.url : null;
       lastObservedStatus = typeof tab.status === "string" ? tab.status : null;
-      if (xhsRestoreSearchUrlsMatch(lastObservedUrl, input.targetUrl) && lastObservedStatus === "complete") {
+      if (
+        xhsRestoreTargetUrlsMatch(input.targetPage, lastObservedUrl, input.targetUrl) &&
+        lastObservedStatus === "complete"
+      ) {
         return { ok: true, tab };
       }
 
@@ -3649,6 +3721,8 @@ class ChromeBackgroundBridge {
     const targetPage = asNonEmptyString(commandParams.target_page);
     const targetTabId = asInteger(commandParams.target_tab_id);
     const query = asNonEmptyString(commandParams.query);
+    const userId = asNonEmptyString(commandParams.user_id);
+    const requestedTargetUrl = asNonEmptyString(commandParams.target_url);
     const forceReload = commandParams.force_reload === true;
     const actionRef =
       asNonEmptyString(commandParams.action_ref) ??
@@ -3693,8 +3767,19 @@ class ChromeBackgroundBridge {
       return;
     }
 
-    if (targetDomain !== XHS_READ_DOMAIN || targetPage !== "search_result_tab" || !query) {
-      fail("TARGET_RESTORE_INPUT_INVALID", "runtime.restore_xhs_target requires XHS search_result target and query");
+    const profileTarget = targetPage === "profile_tab"
+      ? resolveXhsProfileTarget({ userId, targetUrl: requestedTargetUrl })
+      : null;
+    if (
+      targetDomain !== XHS_READ_DOMAIN ||
+      (targetPage !== "search_result_tab" && targetPage !== "profile_tab") ||
+      (targetPage === "search_result_tab" && !query) ||
+      (targetPage === "profile_tab" && !profileTarget)
+    ) {
+      fail(
+        "TARGET_RESTORE_INPUT_INVALID",
+        "runtime.restore_xhs_target requires an XHS search_result query or profile_tab user target"
+      );
       return;
     }
 
@@ -3702,7 +3787,10 @@ class ChromeBackgroundBridge {
       fail("TARGET_RESTORE_TARGET_TAB_REQUIRED", "runtime.restore_xhs_target requires target_tab_id");
       return;
     }
-    const targetUrl = buildXhsSearchResultUrl(query);
+    const targetUrl =
+      targetPage === "profile_tab" && profileTarget
+        ? profileTarget.targetUrl
+        : buildXhsSearchResultUrl(query as string);
     const restoreSafetyGate = asRecord(commandParams.restore_safety_gate);
 
     if (
@@ -3814,7 +3902,7 @@ class ChromeBackgroundBridge {
     let restoredTab = sourceTab;
     let restoreAction: "already_matching" | "reload_matching_tab" | "navigate_existing_tab";
 
-    if (xhsRestoreSearchUrlsMatch(previousUrl, targetUrl) && !forceReload) {
+    if (xhsRestoreTargetUrlsMatch(targetPage, previousUrl, targetUrl) && !forceReload) {
       restoreAction = "already_matching";
     } else {
       if (!this.chromeApi.tabs.update) {
@@ -3826,12 +3914,12 @@ class ChromeBackgroundBridge {
           url: targetUrl,
           active: true
         });
-        restoreAction = xhsRestoreSearchUrlsMatch(previousUrl, targetUrl)
+        restoreAction = xhsRestoreTargetUrlsMatch(targetPage, previousUrl, targetUrl)
           ? "reload_matching_tab"
           : "navigate_existing_tab";
       } catch (error) {
         fail(
-          forceReload && xhsRestoreSearchUrlsMatch(previousUrl, targetUrl)
+          forceReload && xhsRestoreTargetUrlsMatch(targetPage, previousUrl, targetUrl)
             ? "TARGET_RESTORE_RELOAD_FAILED"
             : "TARGET_RESTORE_NAVIGATION_FAILED",
           error instanceof Error ? error.message : String(error),
@@ -3843,6 +3931,7 @@ class ChromeBackgroundBridge {
 
     const navigationResult = await this.#waitForRestoredTargetNavigation({
       tabId: sourceTab.id,
+      targetPage,
       targetUrl,
       timeoutMs: xhsTargetRestoreNavigationTimeoutMs
     });
