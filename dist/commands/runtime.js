@@ -1708,6 +1708,14 @@ const isRuntimeRestoreXhsSearchTarget = (params) => asString(params.target_domai
 const isRuntimeRestoreXhsSearchTargetMutation = (params) => isRuntimeRestoreXhsSearchTarget(params) &&
     typeof params.target_tab_id === "number" &&
     Number.isInteger(params.target_tab_id);
+const safeDecodeURIComponent = (value) => {
+    try {
+        return decodeURIComponent(value);
+    }
+    catch {
+        return null;
+    }
+};
 const resolveXhsProfileTargetUrlForRestore = (params) => {
     const userId = asString(params.user_id);
     const targetUrl = asString(params.target_url);
@@ -1720,7 +1728,7 @@ const resolveXhsProfileTargetUrlForRestore = (params) => {
             return null;
         }
         const match = /^\/user\/profile\/([^/?#]+)$/u.exec(parsedTarget.pathname);
-        const urlUserId = match?.[1] ? decodeURIComponent(match[1]) : null;
+        const urlUserId = match?.[1] ? safeDecodeURIComponent(match[1]) : null;
         if (parsedTarget.protocol !== "https:" ||
             parsedTarget.hostname !== "www.xiaohongshu.com" ||
             urlUserId === null ||
@@ -1850,6 +1858,17 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
                 ability_id: "runtime.restore_xhs_target",
                 stage: "input_validation",
                 reason: "TARGET_RESTORE_PROFILE_REQUIRED"
+            }
+        });
+    }
+    if (asString(context.params.target_domain) === "www.xiaohongshu.com" &&
+        asString(context.params.target_page) === "profile_tab" &&
+        resolveXhsProfileTargetUrlForRestore(context.params) === null) {
+        throw new CliError("ERR_CLI_INVALID_ARGS", "runtime.restore_xhs_target requires an XHS profile_tab user target", {
+            details: {
+                ability_id: "runtime.restore_xhs_target",
+                stage: "input_validation",
+                reason: "TARGET_RESTORE_INPUT_INVALID"
             }
         });
     }

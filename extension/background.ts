@@ -1010,6 +1010,14 @@ const parseUrl = (value: string, base?: string | URL): URL | null => {
   }
 };
 
+const safeDecodeURIComponent = (value: string): string | null => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+};
+
 const buildXhsSearchResultUrl = (query: string): string => {
   const url = new URL("/search_result", `https://${XHS_READ_DOMAIN}`);
   url.searchParams.set("keyword", query);
@@ -1023,7 +1031,7 @@ const resolveXhsProfileTarget = (input: {
 }): { userId: string; targetUrl: string } | null => {
   const parsedTarget = input.targetUrl ? parseUrl(input.targetUrl) : null;
   const profileMatch = parsedTarget?.pathname.match(/^\/user\/profile\/([^/?#]+)$/u) ?? null;
-  const urlUserId = profileMatch?.[1] ? decodeURIComponent(profileMatch[1]) : null;
+  const urlUserId = profileMatch?.[1] ? safeDecodeURIComponent(profileMatch[1]) : null;
   const userId = input.userId ?? urlUserId;
   if (!userId) {
     return null;
@@ -3057,20 +3065,33 @@ class ChromeBackgroundBridge {
     profile: string;
     sessionId: string;
     runId: string;
+    runtimeContextId?: string | null;
     targetTabId: number;
     targetDomain: string;
     targetPage: string;
+    allowStaleBootstrapRecovery?: boolean;
   }): void {
     const now = new Date().toISOString();
     const bootstrap = this.#runtimeTrustState.getBootstrap(input.profile);
-    if (
-      bootstrap &&
+    const canRebindReadyBootstrap =
+      !!bootstrap &&
       bootstrap.sessionId === input.sessionId &&
       bootstrap.runId === input.runId &&
-      (bootstrap.status === "pending" || bootstrap.status === "ready")
+      (bootstrap.status === "pending" || bootstrap.status === "ready");
+    const canRecoverStaleBootstrap =
+      !!bootstrap &&
+      input.allowStaleBootstrapRecovery === true &&
+      bootstrap.sessionId === input.sessionId &&
+      bootstrap.runId === input.runId &&
+      bootstrap.runtimeContextId === input.runtimeContextId &&
+      bootstrap.status === "stale";
+    if (
+      canRebindReadyBootstrap ||
+      canRecoverStaleBootstrap
     ) {
       this.#runtimeTrustState.setBootstrap(input.profile, {
         ...bootstrap,
+        status: canRecoverStaleBootstrap ? "ready" : bootstrap.status,
         sourceTabId: input.targetTabId,
         sourceDomain: input.targetDomain,
         sourcePage: input.targetPage,
@@ -3960,9 +3981,11 @@ class ChromeBackgroundBridge {
       profile,
       sessionId,
       runId,
+      runtimeContextId: asNonEmptyString(restoreSafetyGate?.runtime_context_id),
       targetTabId: restoredTabId,
       targetDomain,
-      targetPage
+      targetPage,
+      allowStaleBootstrapRecovery: staleBootstrapRecoveryBindsTarget
     });
 
     const restoredAt = new Date().toISOString();
