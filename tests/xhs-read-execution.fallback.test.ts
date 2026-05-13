@@ -764,6 +764,79 @@ describe("xhs read execution fallback", () => {
     });
   });
 
+  it("keeps passive detail closeout valid when the signed search_result URL canonicalizes to explore", async () => {
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          note: {
+            note_id: "note-canonical-closeout-001"
+          }
+        }
+      }
+    }));
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-canonical-closeout-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-detail-canonical-closeout-001",
+          targetPage: "explore_detail_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-detail-canonical-closeout-001"
+          }
+        }),
+        executionContext: createFallbackExecutionContext("run-detail-canonical-closeout-001")
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/explore/note-canonical-closeout-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createDetailRequestContext("note-canonical-closeout-001", {
+            observed_at: 1_710_000_000_000,
+            page_url:
+              "https://www.xiaohongshu.com/search_result/note-canonical-closeout-001?xsec_token=token-note-canonical-closeout-001&xsec_source=pc_search",
+            referrer:
+              "https://www.xiaohongshu.com/search_result/note-canonical-closeout-001?xsec_token=token-note-canonical-closeout-001&xsec_source=pc_search"
+          })
+        )
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected canonicalized detail passive closeout success");
+    }
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      route: "xhs.detail.api",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      route_evidence_class: "passive_api_capture",
+      head_sha: "head-detail-canonical-closeout-001",
+      run_id: "run-detail-canonical-closeout-001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore/note-canonical-closeout-001",
+      action_ref: "read",
+      passive_api_capture_closeout_gate: {
+        gate_decision: "allowed",
+        reason_codes: []
+      }
+    });
+  });
+
   it("returns user_home success only when the api payload contains the requested user object", async () => {
     const callSignature = vi.fn(async () => ({
       "X-s": "sig",
