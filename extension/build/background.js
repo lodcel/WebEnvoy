@@ -56,6 +56,14 @@ const xhsSearchInputSelectors = [
 const reserveXhsForwardResponseSafetyMs = (timeoutMs) => timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
     : timeoutMs;
+const reserveXhsPassiveCaptureResponseSafetyMs = (timeoutMs) => {
+    if (timeoutMs <= 1) {
+        return 1;
+    }
+    return timeoutMs > xhsForwardResponseSafetyMs
+        ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
+        : Math.max(1, timeoutMs - 1);
+};
 const redactPassiveCaptureHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([key, value]) => [
     key,
     passiveCaptureSensitiveHeaderNames.has(key.toLowerCase())
@@ -3675,7 +3683,7 @@ class ChromeBackgroundBridge {
             fail("USER_HOME_CAPTURE_DEBUGGER_UNAVAILABLE", "chrome.debugger is unavailable");
             return;
         }
-        const captureTimeoutMs = readTimeoutMs(request.timeout_ms) ?? 10_000;
+        const captureTimeoutMs = reserveXhsPassiveCaptureResponseSafetyMs(readTimeoutMs(request.timeout_ms) ?? 10_000);
         let debuggerAttached = false;
         try {
             await debuggerApi.attach({ tabId: tab.id }, debuggerProtocolVersion);

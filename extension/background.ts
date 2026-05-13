@@ -158,6 +158,14 @@ const reserveXhsForwardResponseSafetyMs = (timeoutMs: number): number =>
   timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
     : timeoutMs;
+const reserveXhsPassiveCaptureResponseSafetyMs = (timeoutMs: number): number => {
+  if (timeoutMs <= 1) {
+    return 1;
+  }
+  return timeoutMs > xhsForwardResponseSafetyMs
+    ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
+    : Math.max(1, timeoutMs - 1);
+};
 const redactPassiveCaptureHeaders = (
   headers: Record<string, string>
 ): Record<string, string> =>
@@ -4818,7 +4826,9 @@ class ChromeBackgroundBridge {
       fail("USER_HOME_CAPTURE_DEBUGGER_UNAVAILABLE", "chrome.debugger is unavailable");
       return;
     }
-    const captureTimeoutMs = readTimeoutMs(request.timeout_ms) ?? 10_000;
+    const captureTimeoutMs = reserveXhsPassiveCaptureResponseSafetyMs(
+      readTimeoutMs(request.timeout_ms) ?? 10_000
+    );
     let debuggerAttached = false;
     try {
       await debuggerApi.attach({ tabId: tab.id }, debuggerProtocolVersion);

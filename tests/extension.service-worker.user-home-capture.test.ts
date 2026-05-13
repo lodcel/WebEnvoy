@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   asRecord,
   createChromeApi,
@@ -195,7 +195,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
     });
   });
 
-  it("uses the forwarded timeout budget for user_home passive capture waits", async () => {
+  it("reserves response budget before user_home passive capture waits time out", async () => {
     const port = createMockPort();
     const { chromeApi, debuggerDetach, debuggerSendCommand } = createChromeApi([port]);
     const runId = "run-user-home-capture-timeout-001";
@@ -208,30 +208,36 @@ describe("runtime.xhs_capture_user_home_context", () => {
     await waitForBridgeTurn();
     await primeProfileBootstrap(port, runId);
     port.postMessage.mockClear();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    port.onMessageListeners[0]?.({
-      id: runId,
-      method: "bridge.forward",
-      profile,
-      params: {
-        session_id: sessionId,
-        run_id: runId,
-        command: "runtime.xhs_capture_user_home_context",
-        command_params: {
-          target_domain: "www.xiaohongshu.com",
-          target_page: "profile_tab",
-          target_tab_id: targetTabId,
-          user_id: userId
+    try {
+      port.onMessageListeners[0]?.({
+        id: runId,
+        method: "bridge.forward",
+        profile,
+        params: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_capture_user_home_context",
+          command_params: {
+            target_domain: "www.xiaohongshu.com",
+            target_page: "profile_tab",
+            target_tab_id: targetTabId,
+            user_id: userId
+          },
+          cwd: "/workspace/WebEnvoy"
         },
-        cwd: "/workspace/WebEnvoy"
-      },
-      timeout_ms: 5
-    });
+        timeout_ms: 10
+      });
 
-    await waitForPostedMessage(port.postMessage, {
-      id: runId,
-      status: "error"
-    });
+      await waitForPostedMessage(port.postMessage, {
+        id: runId,
+        status: "error"
+      });
+      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 9)).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
 
     expect(debuggerSendCommand).toHaveBeenCalledWith(
       { tabId: targetTabId },
