@@ -1767,6 +1767,9 @@ export class ContentScriptHandler {
                     ...(options.closeout_evidence_evaluation === true
                         ? { closeout_evidence_evaluation: true }
                         : {}),
+                    ...(typeof options.__runtime_latest_head_sha === "string"
+                        ? { __runtime_latest_head_sha: options.__runtime_latest_head_sha }
+                        : {}),
                     ...(asRecord(options.explicit_request_context_artifact)
                         ? {
                             explicit_request_context_artifact: asRecord(options.explicit_request_context_artifact) ?? {}

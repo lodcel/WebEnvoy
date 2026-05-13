@@ -499,23 +499,26 @@ describe("extension service worker / gate and approval", () => {
 
   it("opens an XHS search result card into detail page with pc_search continuity", async () => {
     const firstPort = createMockPort();
-    const { chromeApi, executeScript, debuggerAttach, debuggerSendCommand, debuggerDetach } =
-      createChromeApi([firstPort]);
+    const {
+      chromeApi,
+      executeScript,
+      debuggerAttach,
+      debuggerDetach,
+      debuggerOnEventListeners,
+      debuggerSendCommand
+    } = createChromeApi([firstPort]);
     const noteId = "69f74b1d000000002300489f";
     const originalHref =
       "https://www.xiaohongshu.com/explore/69f74b1d000000002300489f?xsec_token=token-001";
     const targetUrl = `${originalHref}&xsec_source=pc_search`;
+    let sourceNavigatedToDetail = false;
 
     chromeApi.tabs.query.mockImplementation(async () => [
       {
         id: 44,
-        url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
-        active: true,
-        status: "complete"
-      },
-      {
-        id: 55,
-        url: targetUrl,
+        url: sourceNavigatedToDetail
+          ? targetUrl
+          : "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
         active: true,
         status: "complete"
       }
@@ -524,20 +527,68 @@ describe("extension service worker / gate and approval", () => {
       if (tabId === 44) {
         return {
           id: 44,
-          url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
-          active: true,
-          status: "complete"
-        };
-      }
-      if (tabId === 55) {
-        return {
-          id: 55,
-          url: targetUrl,
+          url: sourceNavigatedToDetail
+            ? targetUrl
+            : "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
           active: true,
           status: "complete"
         };
       }
       throw new Error("tab not found");
+    });
+    debuggerSendCommand.mockImplementation(async (_target, command, params) => {
+      if (
+        command === "Input.dispatchMouseEvent" &&
+        asRecord(params)?.type === "mouseReleased"
+      ) {
+        queueMicrotask(() => {
+          sourceNavigatedToDetail = true;
+          for (const listener of debuggerOnEventListeners) {
+            listener({ tabId: 44 }, "Network.requestWillBeSent", {
+              requestId: "detail-request-001",
+              request: {
+                method: "POST",
+                url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
+                headers: {
+                  accept: "application/json",
+                  Cookie: "xhs-session=secret",
+                  "X-s": "signed-secret"
+                },
+                postData: JSON.stringify({
+                  source_note_id: noteId
+                })
+              }
+            });
+            listener({ tabId: 44 }, "Network.responseReceived", {
+              requestId: "detail-request-001",
+              response: {
+                status: 200,
+                headers: {
+                  "content-type": "application/json",
+                  "set-cookie": "session=secret"
+                }
+              }
+            });
+            listener({ tabId: 44 }, "Network.loadingFinished", {
+              requestId: "detail-request-001"
+            });
+          }
+        });
+      }
+      if (command === "Network.getResponseBody") {
+        return {
+          base64Encoded: false,
+          body: JSON.stringify({
+            code: 0,
+            data: {
+              note: {
+                note_id: noteId
+              }
+            }
+          })
+        };
+      }
+      return {};
     });
     executeScript.mockImplementation(async (input: Record<string, unknown>) => {
       const args = Array.isArray(input.args) ? input.args : [];
@@ -606,21 +657,263 @@ describe("extension service worker / gate and approval", () => {
       "Input.dispatchMouseEvent",
       expect.objectContaining({ type: "mousePressed", x: 180, y: 220 })
     );
-    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
     await waitForPostedMessage(firstPort.postMessage, {
       id: "run-xhs-open-result-card-001",
       status: "success"
     });
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
     const response = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; payload?: Record<string, unknown> })
       .find((message) => message.id === "run-xhs-open-result-card-001");
     expect(asRecord(response?.payload)?.result_card_open_evidence).toMatchObject({
       action_ref: "action/xhs.search/open_result_card",
       source_tab_id: 44,
-      target_tab_id: 55,
+      target_tab_id: 44,
       target_page_url: targetUrl,
       note_id: noteId,
       xsec_source: "pc_search"
+    });
+    expect(asRecord(asRecord(response?.payload)?.captured_request_context_artifact)).toMatchObject({
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      path: "/api/sns/web/v1/feed",
+      profile_ref: "xhs_001",
+      session_id: "nm-session-001",
+      target_tab_id: 44,
+      run_id: "run-xhs-open-result-card-001",
+      action_ref: "read",
+      page_url: targetUrl,
+      referrer: targetUrl,
+      template_identity: expect.stringContaining("captured:run-xhs-open-result-card-001:")
+    });
+    const capturedArtifact = asRecord(
+      asRecord(response?.payload)?.captured_request_context_artifact
+    );
+    expect(asRecord(asRecord(capturedArtifact?.request)?.headers)).toMatchObject({
+      accept: "application/json",
+      Cookie: "[redacted]",
+      "X-s": "[redacted]"
+    });
+    expect(asRecord(asRecord(capturedArtifact?.response)?.headers)).toMatchObject({
+      "content-type": "application/json",
+      "set-cookie": "[redacted]"
+    });
+  });
+
+  it("captures XHS detail passive API traffic when a result card resolves to a new tab", async () => {
+    const firstPort = createMockPort();
+    const {
+      chromeApi,
+      executeScript,
+      debuggerAttach,
+      debuggerDetach,
+      debuggerOnEventListeners,
+      debuggerSendCommand
+    } = createChromeApi([firstPort]);
+    const noteId = "69f74b1d000000002300489f";
+    const originalHref =
+      "https://www.xiaohongshu.com/explore/69f74b1d000000002300489f?xsec_token=token-001";
+    const targetUrl = `${originalHref}&xsec_source=pc_search`;
+    let newTabOpened = false;
+
+    chromeApi.tabs.query.mockImplementation(async () => {
+      const tabs = [
+        {
+          id: 44,
+          url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
+          active: !newTabOpened,
+          status: "complete"
+        }
+      ];
+      if (newTabOpened) {
+        tabs.push({
+          id: 55,
+          url: targetUrl,
+          active: true,
+          status: "complete"
+        });
+      }
+      return tabs;
+    });
+    chromeApi.tabs.get.mockImplementation(async (tabId: number) => {
+      if (tabId === 44) {
+        return {
+          id: 44,
+          url: "https://www.xiaohongshu.com/search_result?keyword=%E5%86%B7%E7%99%BD%E7%9A%AE&type=51",
+          active: !newTabOpened,
+          status: "complete"
+        };
+      }
+      if (tabId === 55 && newTabOpened) {
+        return {
+          id: 55,
+          url: targetUrl,
+          active: true,
+          status: "complete"
+        };
+      }
+      throw new Error("tab not found");
+    });
+    chromeApi.tabs.update.mockImplementation(async (tabId: number, properties: { url?: string; active?: boolean }) => {
+      if (tabId === 55) {
+        queueMicrotask(() => {
+          for (const listener of debuggerOnEventListeners) {
+            listener({ tabId: 55 }, "Network.requestWillBeSent", {
+              requestId: "detail-request-new-tab-001",
+              request: {
+                method: "POST",
+                url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
+                headers: {
+                  accept: "application/json",
+                  Cookie: "xhs-session=secret",
+                  "X-s": "signed-secret"
+                },
+                postData: JSON.stringify({
+                  source_note_id: noteId
+                })
+              }
+            });
+            listener({ tabId: 55 }, "Network.responseReceived", {
+              requestId: "detail-request-new-tab-001",
+              response: {
+                status: 200,
+                headers: {
+                  "content-type": "application/json",
+                  "set-cookie": "session=secret"
+                }
+              }
+            });
+            listener({ tabId: 55 }, "Network.loadingFinished", {
+              requestId: "detail-request-new-tab-001"
+            });
+          }
+        });
+      }
+      return {
+        id: tabId,
+        url: properties.url,
+        active: properties.active === true,
+        status: "complete"
+      };
+    });
+    debuggerSendCommand.mockImplementation(async (_target, command, params) => {
+      if (
+        command === "Input.dispatchMouseEvent" &&
+        asRecord(params)?.type === "mouseReleased"
+      ) {
+        queueMicrotask(() => {
+          newTabOpened = true;
+        });
+      }
+      if (command === "Network.getResponseBody") {
+        return {
+          base64Encoded: false,
+          body: JSON.stringify({
+            code: 0,
+            data: {
+              note: {
+                note_id: noteId
+              }
+            }
+          })
+        };
+      }
+      return {};
+    });
+    executeScript.mockImplementation(async (input: Record<string, unknown>) => {
+      const args = Array.isArray(input.args) ? input.args : [];
+      if (
+        args.length === 4 &&
+        (typeof args[0] === "string" || args[0] === null) &&
+        (typeof args[1] === "string" || args[1] === null) &&
+        typeof args[2] === "string" &&
+        args[3] === "pc_search"
+      ) {
+        return [
+          {
+            result: {
+              locator: "a.search-result-card",
+              targetKey: "body > a:nth-of-type(1)",
+              centerX: 180,
+              centerY: 220,
+              originalHref,
+              targetUrl,
+              noteId
+            }
+          }
+        ];
+      }
+      if (Array.isArray(args[0]) && Array.isArray(args[1])) {
+        return [{ result: createEditorInputProbeResult() }];
+      }
+      return [{ result: { "X-s": "signed", "X-t": "1700000000" } }];
+    });
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-xhs-open-result-card-new-tab-001",
+      targetTabId: 44
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-xhs-open-result-card-new-tab-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-open-result-card-new-tab-001",
+        command: "runtime.xhs_open_result_card",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "search_result_tab",
+          target_tab_id: 44,
+          note_id: noteId,
+          detail_url: originalHref,
+          title: "无敌无敌爱的冷白皮！",
+          xsec_source: "pc_search",
+          action_ref: "action/xhs.search/open_result_card"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-xhs-open-result-card-new-tab-001",
+      status: "success"
+    });
+    expect(debuggerAttach).toHaveBeenCalledWith({ tabId: 44 }, "1.3");
+    expect(debuggerAttach).toHaveBeenCalledWith({ tabId: 55 }, "1.3");
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 55 });
+    expect(chromeApi.tabs.update).toHaveBeenCalledWith(55, {
+      url: targetUrl,
+      active: true
+    });
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-xhs-open-result-card-new-tab-001");
+    expect(asRecord(response?.payload)?.result_card_open_evidence).toMatchObject({
+      source_tab_id: 44,
+      target_tab_id: 55,
+      target_page_url: targetUrl,
+      note_id: noteId
+    });
+    expect(asRecord(asRecord(response?.payload)?.captured_request_context_artifact)).toMatchObject({
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      path: "/api/sns/web/v1/feed",
+      profile_ref: "xhs_001",
+      session_id: "nm-session-001",
+      target_tab_id: 55,
+      run_id: "run-xhs-open-result-card-new-tab-001",
+      action_ref: "read",
+      page_url: targetUrl,
+      referrer: targetUrl,
+      template_identity: expect.stringContaining("captured:run-xhs-open-result-card-new-tab-001:")
     });
   });
 

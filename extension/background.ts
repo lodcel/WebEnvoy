@@ -50,7 +50,7 @@ import {
   type ExtensionAbilityAction
 } from "./xhs-command-contract.js";
 import type { EditorInputFocusAttestation } from "./xhs-editor-input.js";
-import { SEARCH_ENDPOINT } from "./xhs-search-types.js";
+import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
@@ -122,6 +122,16 @@ const XHS_MAIN_WORLD_REQUEST_PATH_ALLOWLIST = new Set([
   DETAIL_ENDPOINT,
   USER_HOME_ENDPOINT
 ]);
+const passiveCaptureSensitiveHeaderNames = new Set([
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+  "set-cookie",
+  "x-s",
+  "x-s-common",
+  "x-t"
+]);
+const passiveCaptureRedactedHeaderValue = "[redacted]";
 const editorInputDebuggerProbeWaitMs = 150;
 const xhsTargetRestoreNavigationTimeoutMs = 5_000;
 const xhsTargetRestoreNavigationPollMs = 100;
@@ -148,6 +158,25 @@ const reserveXhsForwardResponseSafetyMs = (timeoutMs: number): number =>
   timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
     : timeoutMs;
+const reserveXhsPassiveCaptureResponseSafetyMs = (timeoutMs: number): number => {
+  if (timeoutMs <= 1) {
+    return 1;
+  }
+  return timeoutMs > xhsForwardResponseSafetyMs
+    ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
+    : Math.max(1, timeoutMs - 1);
+};
+const redactPassiveCaptureHeaders = (
+  headers: Record<string, string>
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      passiveCaptureSensitiveHeaderNames.has(key.toLowerCase())
+        ? passiveCaptureRedactedHeaderValue
+        : value
+    ])
+  );
 const xhsSearchButtonSelectors = [
   'button[type="submit"]',
   'button[class*="search" i]',
@@ -1317,6 +1346,7 @@ const XHS_FORWARD_OPTION_KEYS = [
   "upstream_authorization_request",
   "__legacy_requested_execution_mode",
   "__runtime_profile_ref",
+  "__runtime_latest_head_sha",
   "__anonymous_isolation_verified",
   "target_site_logged_in",
   "approval",
@@ -3159,6 +3189,10 @@ class ChromeBackgroundBridge {
       await this.#handleRuntimeXhsDebugPageState(request);
       return;
     }
+    if (command === "runtime.xhs_capture_user_home_context") {
+      await this.#handleRuntimeXhsCaptureUserHomeContext(request);
+      return;
+    }
     if (command === "runtime.xhs_debug_main_world_roundtrip") {
       await this.#handleRuntimeXhsDebugMainWorldRoundtrip(request);
       return;
@@ -4679,6 +4713,197 @@ class ChromeBackgroundBridge {
     }
   }
 
+  async #handleRuntimeXhsCaptureUserHomeContext(request: BridgeRequest): Promise<void> {
+    const commandParams = asRecord(request.params.command_params) ?? {};
+    const targetDomain = asNonEmptyString(commandParams.target_domain);
+    const targetPage = asNonEmptyString(commandParams.target_page);
+    const targetTabId = asInteger(commandParams.target_tab_id);
+    const userId = asNonEmptyString(commandParams.user_id);
+    const captureConsumerActionRef =
+      asNonEmptyString(commandParams.captured_action_ref) ?? "read";
+    const runId = String(request.params.run_id ?? request.id);
+    const sessionId = String(request.params.session_id ?? this.#sessionId);
+    const profile = typeof request.profile === "string" ? request.profile : null;
+    const fail = (reason: string, message: string, extra?: Record<string, unknown>) => {
+      this.#emit({
+        id: request.id,
+        status: "error",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_capture_user_home_context",
+          profile,
+          relay_path: "host>background"
+        },
+        payload: {
+          details: {
+            stage: "execution",
+            reason,
+            target_domain: targetDomain,
+            target_page: targetPage,
+            target_tab_id: targetTabId,
+            user_id: userId,
+            ...(extra ?? {})
+          }
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message
+        }
+      });
+    };
+
+    if (!profile) {
+      fail(
+        "USER_HOME_CAPTURE_PROFILE_REQUIRED",
+        "runtime.xhs_capture_user_home_context requires a managed profile"
+      );
+      return;
+    }
+    if (
+      targetDomain !== XHS_READ_DOMAIN ||
+      targetPage !== "profile_tab" ||
+      targetTabId === null ||
+      !userId
+    ) {
+      fail(
+        "USER_HOME_CAPTURE_INPUT_INVALID",
+        "runtime.xhs_capture_user_home_context requires XHS profile_tab target, target_tab_id, and user_id"
+      );
+      return;
+    }
+    const tab = await this.#resolveTabById(targetTabId).catch(() => null);
+    const tabUrl = typeof tab?.url === "string" ? tab.url : null;
+    const parsedTabUrl = tabUrl ? parseUrl(tabUrl) : null;
+    if (
+      !tab ||
+      typeof tab.id !== "number" ||
+      !parsedTabUrl ||
+      parsedTabUrl.hostname !== XHS_READ_DOMAIN ||
+      !parsedTabUrl.pathname.startsWith(`/user/profile/${userId}`)
+    ) {
+      fail("USER_HOME_CAPTURE_TARGET_MISMATCH", "target tab is not the requested XHS profile page", {
+        page_url: tabUrl
+      });
+      return;
+    }
+    const bootstrap = this.#runtimeTrustState.getBootstrap(profile);
+    const trusted = this.#runtimeTrustState.getTrusted(profile, sessionId);
+    const bootstrapBindsTarget =
+      !!bootstrap &&
+      (bootstrap.status === "pending" || bootstrap.status === "ready") &&
+      bootstrap.sessionId === sessionId &&
+      bootstrap.runId === runId &&
+      bootstrap.sourceTabId === tab.id &&
+      bootstrap.sourceDomain === targetDomain &&
+      bootstrap.sourcePage === targetPage;
+    const trustedBindsTarget =
+      !!trusted &&
+      trusted.sessionId === sessionId &&
+      trusted.runId === runId &&
+      trusted.sourceTabId === tab.id &&
+      trusted.sourceDomain === targetDomain &&
+      trusted.sourcePage === targetPage;
+    if (!bootstrapBindsTarget && !trustedBindsTarget) {
+      fail(
+        "USER_HOME_CAPTURE_MANAGED_TAB_NOT_BOUND",
+        "runtime.xhs_capture_user_home_context requires a current managed profile tab binding",
+        {
+          bootstrap_source_tab_id: bootstrap?.sourceTabId ?? null,
+          bootstrap_source_domain: bootstrap?.sourceDomain ?? null,
+          bootstrap_source_page: bootstrap?.sourcePage ?? null,
+          bootstrap_run_id: bootstrap?.runId ?? null,
+          trusted_source_tab_id: trusted?.sourceTabId ?? null,
+          trusted_source_domain: trusted?.sourceDomain ?? null,
+          trusted_source_page: trusted?.sourcePage ?? null,
+          trusted_run_id: trusted?.runId ?? null
+        }
+      );
+      return;
+    }
+    const debuggerApi = this.chromeApi.debugger;
+    if (!debuggerApi) {
+      fail("USER_HOME_CAPTURE_DEBUGGER_UNAVAILABLE", "chrome.debugger is unavailable");
+      return;
+    }
+    const captureTimeoutMs = reserveXhsPassiveCaptureResponseSafetyMs(
+      readTimeoutMs(request.timeout_ms) ?? 10_000
+    );
+    let debuggerAttached = false;
+    try {
+      await debuggerApi.attach({ tabId: tab.id }, debuggerProtocolVersion);
+      debuggerAttached = true;
+      await debuggerApi.sendCommand({ tabId: tab.id }, "Network.enable");
+      const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(
+        tab.id,
+        userId,
+        captureTimeoutMs
+      );
+      await debuggerApi.sendCommand({ tabId: tab.id }, "Page.reload", { ignoreCache: true });
+      const artifact = await capture;
+      if (!artifact) {
+        fail(
+          "USER_HOME_CAPTURE_CONTEXT_MISSING",
+          "runtime.xhs_capture_user_home_context did not observe user_home API request",
+          { page_url: tabUrl }
+        );
+        return;
+      }
+      const shape = {
+        command: "xhs.user_home",
+        method: "GET",
+        pathname: USER_HOME_ENDPOINT,
+        user_id: userId
+      };
+      const capturedAt = asInteger(artifact.captured_at) ?? Date.now();
+      const pageContextNamespace = createPageContextNamespace(tabUrl ?? "");
+      const boundArtifact = {
+        ...artifact,
+        path: USER_HOME_ENDPOINT,
+        page_context_namespace: pageContextNamespace,
+        shape_key: JSON.stringify(shape),
+        shape,
+        profile_ref: profile,
+        session_id: sessionId,
+        target_tab_id: tab.id,
+        run_id: runId,
+        action_ref: captureConsumerActionRef,
+        page_url: tabUrl,
+        referrer: tabUrl,
+        template_identity: `captured:${runId}:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
+      };
+      this.#emit({
+        id: request.id,
+        status: "success",
+        summary: {
+          session_id: sessionId,
+          run_id: runId,
+          command: "runtime.xhs_capture_user_home_context",
+          profile,
+          tab_id: tab.id,
+          relay_path: "host>background"
+        },
+        payload: {
+          target_tab_id: tab.id,
+          target_page: "profile_tab",
+          target_url: tabUrl,
+          captured_request_context_artifact: boundArtifact
+        },
+        error: null
+      });
+    } catch (error) {
+      fail(
+        "USER_HOME_CAPTURE_FAILED",
+        error instanceof Error ? error.message : String(error),
+        { page_url: tabUrl }
+      );
+    } finally {
+      if (debuggerAttached) {
+        await debuggerApi.detach({ tabId: tab.id }).catch(() => undefined);
+      }
+    }
+  }
+
   async #waitForXhsOpenResultCardNavigation(input: {
     sourceTabId: number;
     noteId: string | null;
@@ -4766,6 +4991,8 @@ class ChromeBackgroundBridge {
       asNonEmptyString(commandParams.action_ref) ??
       asNonEmptyString(commandParams.gate_invocation_id) ??
       "action/xhs.search/open_result_card";
+    const detailConsumerActionRef =
+      asNonEmptyString(commandParams.captured_action_ref) ?? "read";
     const runId = String(request.params.run_id ?? request.id);
     const sessionId = String(request.params.session_id ?? this.#sessionId);
     const profile = typeof request.profile === "string" ? request.profile : null;
@@ -4884,34 +5111,58 @@ class ChromeBackgroundBridge {
     }
     const debuggerApi = this.chromeApi.debugger;
     let debuggerAttached = false;
+    let debuggerAttachedTabId: number | null = null;
+    let detailNetworkCaptureAbortController: AbortController | null = null;
     const detachDebugger = async () => {
       if (!debuggerApi || !debuggerAttached) {
         return;
       }
       try {
-        await debuggerApi.detach({ tabId: sourceTabId });
+        await debuggerApi.detach({ tabId: debuggerAttachedTabId ?? sourceTabId });
       } catch {
         // Best-effort detach; keep primary failure semantics.
       } finally {
         debuggerAttached = false;
+        debuggerAttachedTabId = null;
       }
+    };
+    const abortDetailNetworkCapture = () => {
+      detailNetworkCaptureAbortController?.abort();
+      detailNetworkCaptureAbortController = null;
+    };
+    const startDebuggerForDetailCapture = async (
+      tabId: number,
+      captureNoteId: string
+    ): Promise<{ capture: Promise<Record<string, unknown> | null> | null }> => {
+      if (!debuggerApi || !captureNoteId) {
+        return { capture: null };
+      }
+      if (debuggerAttached && debuggerAttachedTabId !== tabId) {
+        await detachDebugger();
+      }
+      if (!debuggerAttached) {
+        await debuggerApi.attach({ tabId }, debuggerProtocolVersion);
+        debuggerAttached = true;
+        debuggerAttachedTabId = tabId;
+      }
+      await debuggerApi.sendCommand({ tabId }, "Network.enable");
+      abortDetailNetworkCapture();
+      const controller = new AbortController();
+      detailNetworkCaptureAbortController = controller;
+      return {
+        capture: this.#waitForXhsDetailDebuggerNetworkCapture(
+          tabId,
+          captureNoteId,
+          xhsOpenResultCardNavigationTimeoutMs,
+          controller.signal
+        )
+      };
     };
     let capturedRequestContextArtifact: Record<string, unknown> | null = null;
     let detailNetworkCapture: Promise<Record<string, unknown> | null> | null = null;
     if (debuggerApi && noteId) {
       try {
-        await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
-        debuggerAttached = true;
-        try {
-          await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
-          detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(
-            sourceTab.id,
-            noteId,
-            xhsOpenResultCardNavigationTimeoutMs
-          );
-        } catch {
-          detailNetworkCapture = null;
-        }
+        detailNetworkCapture = (await startDebuggerForDetailCapture(sourceTab.id, noteId)).capture;
       } catch {
         detailNetworkCapture = null;
       }
@@ -4925,15 +5176,8 @@ class ChromeBackgroundBridge {
       }
       try {
         if (!detailNetworkCapture && !debuggerAttached) {
-          await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
-          debuggerAttached = true;
           try {
-            await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
-            detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(
-              sourceTab.id,
-              noteId ?? "",
-              xhsOpenResultCardNavigationTimeoutMs
-            );
+            detailNetworkCapture = (await startDebuggerForDetailCapture(sourceTab.id, noteId ?? "")).capture;
           } catch {
             detailNetworkCapture = null;
           }
@@ -5002,13 +5246,59 @@ class ChromeBackgroundBridge {
       fail(resolvedNavigation.reason, resolvedNavigation.message, resolvedNavigation.details);
       return;
     }
-    if (detailNetworkCapture) {
-      capturedRequestContextArtifact = await detailNetworkCapture.catch(() => null);
-    }
-    await detachDebugger();
     const resolvedTargetTabId = typeof resolvedNavigation.tab.id === "number"
       ? resolvedNavigation.tab.id
       : sourceTab.id;
+    if (detailNetworkCapture && resolvedTargetTabId === sourceTab.id) {
+      capturedRequestContextArtifact = await detailNetworkCapture.catch(() => null);
+    }
+    if (resolvedTargetTabId !== sourceTab.id) {
+      abortDetailNetworkCapture();
+      await detachDebugger();
+      if (debuggerApi && target.noteId) {
+        try {
+          detailNetworkCapture = (await startDebuggerForDetailCapture(resolvedTargetTabId, target.noteId)).capture;
+          if (this.chromeApi.tabs.update) {
+            await this.chromeApi.tabs.update(resolvedTargetTabId, {
+              url: target.targetUrl,
+              active: true
+            });
+          }
+          capturedRequestContextArtifact = detailNetworkCapture
+            ? await detailNetworkCapture.catch(() => null)
+            : null;
+        } catch {
+          capturedRequestContextArtifact = null;
+        }
+      }
+    }
+    abortDetailNetworkCapture();
+    await detachDebugger();
+    if (capturedRequestContextArtifact) {
+      const capturedAt = asInteger(capturedRequestContextArtifact.captured_at) ?? Date.now();
+      const pageContextNamespace = createPageContextNamespace(target.targetUrl);
+      const shape = {
+        command: "xhs.detail",
+        method: "POST",
+        pathname: DETAIL_ENDPOINT,
+        note_id: target.noteId
+      };
+      capturedRequestContextArtifact = {
+        ...capturedRequestContextArtifact,
+        path: DETAIL_ENDPOINT,
+        page_context_namespace: pageContextNamespace,
+        shape_key: JSON.stringify(shape),
+        shape,
+        profile_ref: profile,
+        session_id: sessionId,
+        target_tab_id: resolvedTargetTabId,
+        run_id: runId,
+        action_ref: detailConsumerActionRef,
+        page_url: target.targetUrl,
+        referrer: target.targetUrl,
+        template_identity: `captured:${runId}:${pageContextNamespace}:${JSON.stringify(shape)}:${capturedAt}`
+      };
+    }
     this.#emit({
       id: request.id,
       status: "success",
@@ -7060,11 +7350,11 @@ class ChromeBackgroundBridge {
                 method: entry.method,
                 status: entry.status,
                 request: {
-                  headers: entry.requestHeaders,
+                  headers: redactPassiveCaptureHeaders(entry.requestHeaders),
                   body: entry.requestBody
                 },
                 response: {
-                  headers: entry.responseHeaders,
+                  headers: redactPassiveCaptureHeaders(entry.responseHeaders),
                   body: responseBody
                 },
                 captured_at: entry.capturedAt,
@@ -7083,11 +7373,15 @@ class ChromeBackgroundBridge {
   #waitForXhsDetailDebuggerNetworkCapture(
     tabId: number,
     noteId: string,
-    timeoutMs: number
+    timeoutMs: number,
+    signal?: AbortSignal
   ): Promise<Record<string, unknown> | null> {
     const debuggerApi = this.chromeApi.debugger;
     const onEvent = debuggerApi?.onEvent;
     if (!debuggerApi || !onEvent) {
+      return Promise.resolve(null);
+    }
+    if (signal?.aborted) {
       return Promise.resolve(null);
     }
 
@@ -7124,6 +7418,12 @@ class ChromeBackgroundBridge {
           .map(([key, value]) => [key, String(value)])
       );
     };
+    const headerValue = (headers: Record<string, string>, key: string): string | null => {
+      const matched = Object.entries(headers).find(
+        ([candidate]) => candidate.toLowerCase() === key.toLowerCase()
+      );
+      return matched && matched[1].trim().length > 0 ? matched[1].trim() : null;
+    };
     const isDetailEndpoint = (url: string): boolean => {
       try {
         const parsed = new URL(url);
@@ -7150,9 +7450,12 @@ class ChromeBackgroundBridge {
         } catch {
           // Best-effort listener removal.
         }
+        signal?.removeEventListener("abort", abortHandler);
         resolve(value);
       };
       const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+      const abortHandler = () => finish(null);
+      signal?.addEventListener("abort", abortHandler, { once: true });
       const listener = (
         source: { tabId?: number },
         method: string,
@@ -7217,13 +7520,175 @@ class ChromeBackgroundBridge {
                 source_kind: "page_request",
                 method: entry.method,
                 url: entry.url,
-                referrer: null,
+                referrer: headerValue(entry.requestHeaders, "referer"),
                 request: {
-                  headers: entry.requestHeaders,
+                  headers: redactPassiveCaptureHeaders(entry.requestHeaders),
                   body: entry.requestBody
                 },
                 response: {
-                  headers: entry.responseHeaders,
+                  headers: redactPassiveCaptureHeaders(entry.responseHeaders),
+                  body: responseBody
+                },
+                status: entry.status,
+                captured_at: entry.capturedAt,
+                observed_at: Date.now()
+              });
+            } catch {
+              finish(null);
+            }
+          })();
+        }
+      };
+      onEvent.addListener(listener);
+    });
+  }
+
+  #waitForXhsUserHomeDebuggerNetworkCapture(
+    tabId: number,
+    userId: string,
+    timeoutMs: number
+  ): Promise<Record<string, unknown> | null> {
+    const debuggerApi = this.chromeApi.debugger;
+    const onEvent = debuggerApi?.onEvent;
+    if (!debuggerApi || !onEvent) {
+      return Promise.resolve(null);
+    }
+
+    type PendingRequest = {
+      url: string;
+      method: string;
+      requestHeaders: Record<string, string>;
+      status: number | null;
+      responseHeaders: Record<string, string>;
+      capturedAt: number;
+    };
+    const pending = new Map<string, PendingRequest>();
+    const parseBody = (value: unknown): unknown => {
+      if (typeof value !== "string" || value.length === 0) {
+        return null;
+      }
+      try {
+        return JSON.parse(value) as unknown;
+      } catch {
+        return value;
+      }
+    };
+    const parseHeaderRecord = (value: unknown): Record<string, string> => {
+      const record = asRecord(value);
+      if (!record) {
+        return {};
+      }
+      return Object.fromEntries(
+        Object.entries(record)
+          .filter((entry): entry is [string, string | number] =>
+            typeof entry[1] === "string" || typeof entry[1] === "number"
+          )
+          .map(([key, value]) => [key, String(value)])
+      );
+    };
+    const headerValue = (headers: Record<string, string>, key: string): string | null => {
+      const matched = Object.entries(headers).find(
+        ([candidate]) => candidate.toLowerCase() === key.toLowerCase()
+      );
+      return matched && matched[1].trim().length > 0 ? matched[1].trim() : null;
+    };
+    const isUserHomeEndpoint = (url: string): boolean => {
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname !== XHS_READ_API_DOMAIN || parsed.pathname !== USER_HOME_ENDPOINT) {
+          return false;
+        }
+        return (
+          parsed.searchParams.get("user_id") === userId ||
+          parsed.searchParams.get("target_user_id") === userId
+        );
+      } catch {
+        return false;
+      }
+    };
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: Record<string, unknown> | null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          onEvent.removeListener(listener);
+        } catch {
+          // Best-effort listener removal.
+        }
+        resolve(value);
+      };
+      const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+      const listener = (
+        source: { tabId?: number },
+        method: string,
+        params?: Record<string, unknown>
+      ) => {
+        if (settled || source.tabId !== tabId || !params) {
+          return;
+        }
+        const requestId = asNonEmptyString(params.requestId);
+        if (!requestId) {
+          return;
+        }
+        if (method === "Network.requestWillBeSent") {
+          const request = asRecord(params.request);
+          const url = asNonEmptyString(request?.url);
+          const requestMethod = asNonEmptyString(request?.method);
+          if (!url || requestMethod !== "GET" || !isUserHomeEndpoint(url)) {
+            return;
+          }
+          pending.set(requestId, {
+            url,
+            method: requestMethod,
+            requestHeaders: parseHeaderRecord(request?.headers),
+            status: null,
+            responseHeaders: {},
+            capturedAt: Date.now()
+          });
+          return;
+        }
+        if (method === "Network.responseReceived") {
+          const entry = pending.get(requestId);
+          if (!entry) {
+            return;
+          }
+          const response = asRecord(params.response);
+          entry.status = typeof response?.status === "number" ? response.status : null;
+          entry.responseHeaders = parseHeaderRecord(response?.headers);
+          return;
+        }
+        if (method === "Network.loadingFinished") {
+          const entry = pending.get(requestId);
+          if (!entry || entry.status === null) {
+            return;
+          }
+          void (async () => {
+            try {
+              const bodyResult = asRecord(
+                await debuggerApi.sendCommand({ tabId }, "Network.getResponseBody", { requestId })
+              );
+              const rawBody = asNonEmptyString(bodyResult?.body);
+              const responseBody =
+                bodyResult?.base64Encoded === true && rawBody
+                  ? parseBody(atob(rawBody))
+                  : parseBody(rawBody);
+              finish({
+                route_evidence_class: "passive_api_capture",
+                source_kind: "page_request",
+                method: entry.method,
+                url: entry.url,
+                referrer: headerValue(entry.requestHeaders, "referer"),
+                request: {
+                  headers: redactPassiveCaptureHeaders(entry.requestHeaders),
+                  body: null
+                },
+                response: {
+                  headers: redactPassiveCaptureHeaders(entry.responseHeaders),
                   body: responseBody
                 },
                 status: entry.status,

@@ -99,9 +99,14 @@ const normalizeCapturedHeaders = (value) => {
     }
     return Object.fromEntries(Object.entries(record).filter((entry) => typeof entry[1] === "string"));
 };
+const isRedactedCapturedHeaderValue = (value) => value.trim().toLowerCase() === "[redacted]";
 const getCapturedHeader = (headers, key) => {
     const matchedEntry = Object.entries(headers).find(([candidate]) => candidate.toLowerCase() === key.toLowerCase());
-    return matchedEntry && matchedEntry[1].trim().length > 0 ? matchedEntry[1].trim() : null;
+    if (!matchedEntry) {
+        return null;
+    }
+    const value = matchedEntry[1].trim();
+    return value.length > 0 && !isRedactedCapturedHeaderValue(value) ? value : null;
 };
 const resolveCapturedArtifactHeaders = (value) => {
     const record = asRecord(value);
@@ -139,6 +144,15 @@ const resolveCapturedArtifactRequestBody = (value) => {
     const record = asRecord(value);
     const request = asRecord(record?.request);
     return asRecord(request?.body);
+};
+const resolveCapturedArtifactResponseStatus = (value) => {
+    const status = resolveCapturedArtifactStatus(value).httpStatus;
+    return status !== null && Number.isFinite(status) ? status : null;
+};
+const resolveCapturedArtifactResponseBody = (value) => {
+    const record = asRecord(value);
+    const response = asRecord(record?.response);
+    return response?.body ?? null;
 };
 const resolveCapturedArtifactStatus = (value) => {
     const record = asRecord(value);
@@ -184,7 +198,8 @@ const resolveCapturedTemplateIdentity = (record, expectedShape) => {
     const observedAt = asInteger(record?.observed_at) ?? asInteger(record?.captured_at) ?? 0;
     const namespace = asString(record?.page_context_namespace) ?? "unknown_namespace";
     const shapeKey = asString(record?.shape_key) ?? serializeReadShape(expectedShape);
-    return `captured:${namespace}:${shapeKey}:${observedAt}`;
+    const runId = asString(record?.run_id) ?? "unknown_run";
+    return `captured:${runId}:${namespace}:${shapeKey}:${observedAt}`;
 };
 const resolveActiveApiFetchFallbackTemplateEvidence = (artifact, expectedShape, now) => {
     const record = asRecord(artifact);
@@ -337,10 +352,16 @@ const resolveSignedContinuityUrl = (spec, expectedShape, value) => {
 const resolveSignedContinuity = (spec, expectedShape, artifact) => {
     const record = asRecord(artifact);
     const referrer = resolveCapturedArtifactReferrer(record);
+    const pageUrl = asString(record?.page_url);
     const url = asString(record?.url);
-    const signedUrl = resolveSignedContinuityUrl(spec, expectedShape, referrer) ??
-        resolveSignedContinuityUrl(spec, expectedShape, url);
-    const sourceUrl = referrer ?? url;
+    const continuityCandidates = [pageUrl, referrer, url]
+        .map((candidate) => resolveSignedContinuityUrl(spec, expectedShape, candidate))
+        .filter((candidate) => candidate !== null);
+    const signedUrl = continuityCandidates.find((candidate) => candidate.searchParams.has("xsec_token")) ??
+        continuityCandidates.find((candidate) => candidate.searchParams.has("xsec_source")) ??
+        continuityCandidates[0] ??
+        null;
+    const sourceUrl = signedUrl?.toString() ?? pageUrl ?? referrer ?? url;
     const rawToken = signedUrl?.searchParams.get("xsec_token") ?? null;
     const xsecToken = rawToken === null ? null : rawToken.trim();
     const rawSource = signedUrl?.searchParams.get("xsec_source") ?? null;
@@ -778,6 +799,8 @@ const resolveReadRequestContext = (spec, artifact, expectedShape, now, options) 
         referrer: resolveCapturedArtifactReferrer(artifact),
         requestUrl: resolveCapturedArtifactRequestUrl(artifact),
         requestBody: resolveCapturedArtifactRequestBody(artifact),
+        responseStatus: resolveCapturedArtifactResponseStatus(artifact),
+        responseBody: resolveCapturedArtifactResponseBody(artifact),
         observedAt: resolveCapturedArtifactObservedAt(artifact),
         signedContinuity: resolveSignedContinuity(spec, expectedShape, artifact),
         templateEvidence: resolveActiveApiFetchFallbackTemplateEvidence(artifact, expectedShape, now)
@@ -1003,6 +1026,189 @@ const resolveActiveApiFetchFallbackGate = (input) => {
             fingerprint_attestation: fingerprintAttestation
         },
         consumed_template: input.templateEvidence
+    };
+};
+const resolvePassiveApiCaptureCloseoutGate = (input) => {
+    const binding = buildActiveFallbackTemplateBinding({
+        executionContext: input.executionInput.executionContext,
+        options: input.executionInput.options,
+        abilityAction: input.executionInput.abilityAction,
+        pageUrl: input.env.getLocationHref()
+    });
+    const reasonCodes = [];
+    if (input.templateEvidence.route_evidence_class !== "passive_api_capture") {
+        reasonCodes.push("PASSIVE_CAPTURE_TEMPLATE_REQUIRED");
+    }
+    if (input.templateEvidence.source_kind !== "page_request") {
+        reasonCodes.push("PAGE_REQUEST_TEMPLATE_REQUIRED");
+    }
+    if (input.templateEvidence.observed_at === null ||
+        input.templateEvidence.template_age_ms === null ||
+        input.templateEvidence.template_age_ms > input.templateEvidence.freshness_window_ms) {
+        reasonCodes.push("PASSIVE_CAPTURE_TEMPLATE_NOT_FRESH");
+    }
+    if (input.templateEvidence.profile_ref !== binding.profile_ref) {
+        reasonCodes.push("PASSIVE_CAPTURE_PROFILE_MISMATCH");
+    }
+    if (input.templateEvidence.session_id !== binding.session_id) {
+        reasonCodes.push("PASSIVE_CAPTURE_SESSION_MISMATCH");
+    }
+    if (binding.target_tab_id === null) {
+        reasonCodes.push("TARGET_TAB_BINDING_REQUIRED");
+    }
+    if (input.templateEvidence.target_tab_id !== binding.target_tab_id) {
+        reasonCodes.push("PASSIVE_CAPTURE_TAB_MISMATCH");
+    }
+    if (input.templateEvidence.run_id !== binding.run_id) {
+        reasonCodes.push("PASSIVE_CAPTURE_RUN_MISMATCH");
+    }
+    if (input.templateEvidence.action_ref !== binding.action_ref) {
+        reasonCodes.push("PASSIVE_CAPTURE_ACTION_MISMATCH");
+    }
+    if (input.templateEvidence.page_url !== binding.page_url) {
+        reasonCodes.push("PASSIVE_CAPTURE_PAGE_MISMATCH");
+    }
+    if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
+        reasonCodes.push("SIGNED_CONTINUITY_REQUIRED");
+    }
+    return {
+        gate_decision: reasonCodes.length === 0 ? "allowed" : "blocked",
+        reason_codes: reasonCodes,
+        route_evidence_class: "passive_api_capture",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: reasonCodes.length === 0 ? "success" : "blocked",
+        template_binding: binding,
+        consumed_template: input.templateEvidence
+    };
+};
+const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, requestContextResult, startedAt) => {
+    if (input.options.closeout_evidence_evaluation !== true) {
+        return null;
+    }
+    const template = requestContextResult.templateEvidence;
+    if (template.route_evidence_class !== "passive_api_capture" ||
+        template.source_kind !== "page_request" ||
+        requestContextResult.responseStatus === null ||
+        requestContextResult.responseStatus >= 400 ||
+        !responseContainsRequestedTarget(spec, input.params, requestContextResult.responseBody)) {
+        return null;
+    }
+    const passiveCaptureGate = resolvePassiveApiCaptureCloseoutGate({
+        executionInput: input,
+        templateEvidence: template,
+        signedContinuity: requestContextResult.signedContinuity,
+        env
+    });
+    if (passiveCaptureGate.gate_decision !== "allowed") {
+        const expectedShape = deriveReadShapeFromCommand(spec, input.params);
+        const message = `passive_api_capture closeout 门禁阻断了当前 ${spec.command} 请求`;
+        return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", message, {
+            ability_id: input.abilityId,
+            stage: "execution",
+            reason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+            request_context_shape: expectedShape,
+            request_context_shape_key: serializeReadShape(expectedShape),
+            passive_api_capture_closeout_gate: passiveCaptureGate
+        }, createReadObservability({
+            spec,
+            href: env.getLocationHref(),
+            title: env.getDocumentTitle(),
+            readyState: env.getReadyState(),
+            requestId: `req-${env.randomId()}`,
+            outcome: "failed",
+            failureReason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+            includeKeyRequest: false,
+            failureSite: {
+                stage: "execution",
+                component: "gate",
+                target: "xhs.passive_api_capture_closeout_gate",
+                summary: message
+            }
+        }), createReadDiagnosis(spec, {
+            reason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+            summary: message,
+            category: "page_changed"
+        }), gate, auditRecord), gate.execution_audit);
+    }
+    const pageUrl = env.getLocationHref();
+    const headSha = asString(input.options.__runtime_latest_head_sha);
+    const artifactIdentity = template.template_identity;
+    const routeEvidence = {
+        route: `${spec.command}.api`,
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success",
+        evidence_class: "passive_api_capture",
+        route_evidence_class: "passive_api_capture",
+        source_kind: "page_request",
+        method: spec.method,
+        endpoint: spec.endpoint,
+        request_url: requestContextResult.requestUrl ?? spec.buildSignatureUri(input.params),
+        status_code: requestContextResult.responseStatus,
+        head_sha: headSha,
+        run_id: input.executionContext.runId,
+        artifact_identity: artifactIdentity,
+        profile_ref: input.executionContext.profile,
+        session_id: input.executionContext.sessionId,
+        target_tab_id: typeof input.options.actual_target_tab_id === "number"
+            ? input.options.actual_target_tab_id
+            : typeof input.options.target_tab_id === "number"
+                ? input.options.target_tab_id
+                : null,
+        page_url: pageUrl,
+        action_ref: input.abilityAction,
+        observed_at: template.observed_at,
+        captured_at: template.captured_at,
+        reproduced_multi_round: false,
+        passive_api_capture_closeout_gate: passiveCaptureGate,
+        consumed_template: template
+    };
+    return {
+        ok: true,
+        payload: {
+            summary: {
+                capability_result: {
+                    ability_id: input.abilityId,
+                    layer: input.abilityLayer,
+                    action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+                    outcome: "success",
+                    data_ref: spec.buildDataRef(input.params, requestContextResult.requestBody ?? {}),
+                    metrics: {
+                        count: 1,
+                        duration_ms: Math.max(0, env.now() - startedAt)
+                    }
+                },
+                scope_context: gate.scope_context,
+                gate_input: {
+                    run_id: auditRecord.run_id,
+                    session_id: auditRecord.session_id,
+                    profile: auditRecord.profile,
+                    ...gate.gate_input
+                },
+                gate_outcome: gate.gate_outcome,
+                read_execution_policy: gate.read_execution_policy,
+                issue_action_matrix: gate.issue_action_matrix,
+                consumer_gate_result: gate.consumer_gate_result,
+                request_admission_result: gate.request_admission_result,
+                execution_audit: gate.execution_audit,
+                approval_record: gate.approval_record,
+                risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+                audit_record: auditRecord,
+                signed_continuity: requestContextResult.signedContinuity,
+                route_evidence: routeEvidence,
+                closeout_route_evidence: routeEvidence
+            },
+            observability: createReadObservability({
+                spec,
+                href: pageUrl,
+                title: env.getDocumentTitle(),
+                readyState: env.getReadyState(),
+                requestId: `req-${env.randomId()}`,
+                outcome: "completed",
+                statusCode: requestContextResult.responseStatus
+            })
+        }
     };
 };
 const failClosedForActiveApiFetchFallbackGate = (input, env) => {
@@ -2074,6 +2280,10 @@ const executeXhsRead = async (input, spec, env) => {
             gate,
             auditRecord
         }, env);
+    }
+    const passiveCaptureSuccess = createPassiveApiCaptureSuccess(input, spec, gate, auditRecord, env, requestContextResult, startedAt);
+    if (passiveCaptureSuccess) {
+        return passiveCaptureSuccess;
     }
     const activeFallbackGate = resolveActiveApiFetchFallbackGate({
         executionInput: input,

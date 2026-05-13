@@ -113,6 +113,8 @@ const isNonIdempotentForward = (input) => {
     if (input.command === "runtime.bootstrap" ||
         input.command === "runtime.start" ||
         input.command === "runtime.login" ||
+        input.command === "runtime.xhs_open_result_card" ||
+        input.command === "runtime.xhs_capture_user_home_context" ||
         input.command === "runtime.restore_xhs_target") {
         return true;
     }

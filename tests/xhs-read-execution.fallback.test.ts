@@ -566,7 +566,7 @@ describe("xhs read execution fallback", () => {
 	    expect(fetchJson).not.toHaveBeenCalled();
 	  });
 
-	  it("returns detail success only when the api payload contains the requested note object", async () => {
+  it("returns detail success only when the api payload contains the requested note object", async () => {
     const callSignature = vi.fn(async () => ({
       "X-s": "sig",
       "X-t": "1710000000"
@@ -641,6 +641,129 @@ describe("xhs read execution fallback", () => {
     );
   });
 
+  it("does not reuse redacted passive capture headers in active api fetch fallback", async () => {
+    const callSignature = vi.fn(async () => ({
+      "X-s": "signature",
+      "X-t": "timestamp"
+    }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          note: {
+            noteId: "note-redacted-001"
+          }
+        }
+      }
+    }));
+    const context = createDetailRequestContext("note-redacted-001");
+    const request = context.request as Record<string, unknown>;
+    request.headers = {
+      Accept: "[redacted]",
+      "Content-Type": "[redacted]",
+      "X-S-Common": "[redacted]"
+    };
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-redacted-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-detail-redacted-headers-001",
+          targetPage: "explore_detail_tab"
+        }),
+        executionContext: createFallbackExecutionContext("run-detail-redacted-headers-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/explore/note-redacted-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(context)
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    const forwardedHeaders = (fetchJson.mock.calls[0]?.[0] as { headers?: Record<string, string> })
+      ?.headers;
+    expect(forwardedHeaders).toMatchObject({
+      Accept: "application/json, text/plain, */*",
+      "Content-Type": "application/json;charset=utf-8"
+    });
+    expect(forwardedHeaders?.["X-S-Common"]).not.toBe("[redacted]");
+  });
+
+  it("uses passive captured detail response as formal closeout route evidence", async () => {
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          note: {
+            note_id: "note-closeout-001"
+          }
+        }
+      }
+    }));
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-closeout-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-detail-closeout-001",
+          targetPage: "explore_detail_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-detail-closeout-001"
+          }
+        }),
+        executionContext: createFallbackExecutionContext("run-detail-closeout-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/explore/note-closeout-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createDetailRequestContext("note-closeout-001", {
+            observed_at: 1_710_000_000_000
+          })
+        )
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected detail passive closeout success");
+    }
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      route: "xhs.detail.api",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      head_sha: "head-detail-closeout-001",
+      run_id: "run-detail-closeout-001",
+      artifact_identity: expect.stringContaining("xhs.detail"),
+      profile_ref: "xhs_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore/note-closeout-001",
+      action_ref: "read"
+    });
+  });
+
   it("returns user_home success only when the api payload contains the requested user object", async () => {
     const callSignature = vi.fn(async () => ({
       "X-s": "sig",
@@ -708,6 +831,136 @@ describe("xhs read execution fallback", () => {
         url: "/api/sns/web/v1/user/otherinfo?user_id=user-success-001"
       })
     );
+  });
+
+  it("uses passive captured user_home response as formal closeout route evidence", async () => {
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          user: {
+            userId: "user-closeout-001"
+          }
+        }
+      }
+    }));
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-closeout-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-closeout-001",
+          targetPage: "profile_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-user-closeout-001"
+          }
+        }),
+        executionContext: createFallbackExecutionContext("run-user-closeout-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-closeout-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-closeout-001", {
+            observed_at: 1_710_000_000_000
+          })
+        )
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_home passive closeout success");
+    }
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      route: "xhs.user_home.api",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      head_sha: "head-user-closeout-001",
+      run_id: "run-user-closeout-001",
+      artifact_identity: expect.stringContaining("xhs.user_home"),
+      profile_ref: "xhs_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/user/profile/user-closeout-001",
+      action_ref: "read"
+    });
+    expect(result.payload.summary.closeout_route_evidence).toMatchObject(
+      result.payload.summary.route_evidence as Record<string, unknown>
+    );
+  });
+
+  it("blocks passive closeout success when captured user_home artifact is not bound to the current run", async () => {
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          user: {
+            userId: "user-closeout-mismatch-001"
+          }
+        }
+      }
+    }));
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-closeout-mismatch-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-closeout-current-001",
+          targetPage: "profile_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-user-closeout-current-001"
+          }
+        }),
+        executionContext: createFallbackExecutionContext("run-user-closeout-current-001")
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/user/profile/user-closeout-mismatch-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-closeout-mismatch-001", {
+            run_id: "run-user-closeout-stale-001",
+            observed_at: 1_710_000_000_000
+          })
+        )
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected stale passive closeout artifact to fail closed");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+      passive_api_capture_closeout_gate: {
+        gate_decision: "blocked",
+        reason_codes: expect.arrayContaining(["PASSIVE_CAPTURE_RUN_MISMATCH"])
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
   });
 
   it("accepts wrapped detail payloads when the requested note is nested under note_card", async () => {
