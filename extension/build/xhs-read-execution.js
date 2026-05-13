@@ -379,6 +379,38 @@ const resolveSignedContinuity = (spec, expectedShape, artifact) => {
         source_route: classifySignedContinuitySourceRoute(xsecSource)
     };
 };
+const extractXhsDetailPageNoteId = (value) => {
+    if (!value || isSecurityRedirectUrl(value)) {
+        return null;
+    }
+    try {
+        const url = new URL(value, "https://www.xiaohongshu.com");
+        if (url.protocol !== "https:" || url.hostname !== "www.xiaohongshu.com") {
+            return null;
+        }
+        const match = url.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([^/?#]+)$/);
+        return match?.[1] ? decodeURIComponent(match[1]) : null;
+    }
+    catch {
+        return null;
+    }
+};
+const isSameXhsDetailPageBinding = (input) => {
+    if (input.templatePageUrl === input.currentPageUrl) {
+        return true;
+    }
+    if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
+        return false;
+    }
+    const templateNoteId = extractXhsDetailPageNoteId(input.templatePageUrl);
+    const currentNoteId = extractXhsDetailPageNoteId(input.currentPageUrl);
+    const continuityNoteId = extractXhsDetailPageNoteId(input.signedContinuity.target_url);
+    return (templateNoteId !== null &&
+        currentNoteId !== null &&
+        continuityNoteId !== null &&
+        templateNoteId === currentNoteId &&
+        templateNoteId === continuityNoteId);
+};
 const resolveSignedContinuityFailure = (continuity, observedAt, now, pageUrl) => {
     if (isSecurityRedirectUrl(pageUrl) || isSecurityRedirectUrl(continuity.source_url)) {
         return "SECURITY_REDIRECT";
@@ -1065,7 +1097,11 @@ const resolvePassiveApiCaptureCloseoutGate = (input) => {
     if (input.templateEvidence.action_ref !== binding.action_ref) {
         reasonCodes.push("PASSIVE_CAPTURE_ACTION_MISMATCH");
     }
-    if (input.templateEvidence.page_url !== binding.page_url) {
+    if (!isSameXhsDetailPageBinding({
+        templatePageUrl: input.templateEvidence.page_url,
+        currentPageUrl: asString(binding.page_url),
+        signedContinuity: input.signedContinuity
+    })) {
         reasonCodes.push("PASSIVE_CAPTURE_PAGE_MISMATCH");
     }
     if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
