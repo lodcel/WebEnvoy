@@ -435,6 +435,228 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
+  it("keeps restored XHS search tabs bound for opening result cards in the same run", async () => {
+    const firstPort = createMockPort();
+    const {
+      chromeApi,
+      runtimeMessageListeners,
+      executeScript,
+      debuggerAttach,
+      debuggerSendCommand,
+      debuggerDetach,
+      debuggerOnEventListeners
+    } = createChromeApi([firstPort]);
+    const noteId = "69f17b050000000022025734";
+    const originalHref = "https://www.xiaohongshu.com/explore/69f17b050000000022025734?xsec_token=token";
+    const targetUrl = "https://www.xiaohongshu.com/search_result/69f17b050000000022025734?xsec_token=token&xsec_source=pc_search";
+    const restoredSearchUrl =
+      "https://www.xiaohongshu.com/search_result?keyword=%E5%BE%92%E6%AD%A5%E8%B7%AF%E7%BA%BF&type=51";
+    let restoredToSearch = false;
+    let sourceNavigatedToDetail = false;
+    const resolveCurrentTabUrl = () => {
+      if (sourceNavigatedToDetail) {
+        return targetUrl;
+      }
+      if (restoredToSearch) {
+        return restoredSearchUrl;
+      }
+      return originalHref;
+    };
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: resolveCurrentTabUrl(),
+        active: true,
+        status: "complete"
+      }
+    ]);
+    chromeApi.tabs.get.mockImplementation(async (tabId: number) => {
+      if (tabId === 44) {
+        return {
+          id: 44,
+          url: resolveCurrentTabUrl(),
+          active: true,
+          status: "complete"
+        };
+      }
+      throw new Error("tab not found");
+    });
+    chromeApi.tabs.update.mockImplementation(async (tabId: number, properties: { url?: string; active?: boolean }) => {
+      if (tabId === 44 && properties.url === restoredSearchUrl) {
+        restoredToSearch = true;
+      }
+      return {
+        id: tabId,
+        url: properties.url,
+        active: properties.active === true,
+        status: "complete"
+      };
+    });
+    debuggerSendCommand.mockImplementation(async (_target, command) => {
+      if (command === "Network.enable" || command === "Page.enable") {
+        return {};
+      }
+      if (command === "Input.dispatchMouseEvent") {
+        queueMicrotask(() => {
+          sourceNavigatedToDetail = true;
+          for (const listener of debuggerOnEventListeners) {
+            listener({ tabId: 44 }, "Network.requestWillBeSent", {
+              requestId: "detail-request-after-restore",
+              request: {
+                method: "POST",
+                url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
+                headers: {
+                  accept: "application/json",
+                  "X-s": "secret"
+                },
+                postData: JSON.stringify({ source_note_id: noteId })
+              },
+              documentURL: targetUrl
+            });
+            listener({ tabId: 44 }, "Network.responseReceived", {
+              requestId: "detail-request-after-restore",
+              response: {
+                status: 200,
+                headers: { "content-type": "application/json" }
+              }
+            });
+            listener({ tabId: 44 }, "Network.loadingFinished", {
+              requestId: "detail-request-after-restore"
+            });
+          }
+        });
+      }
+      if (command === "Network.getResponseBody") {
+        return {
+          base64Encoded: false,
+          body: JSON.stringify({ code: 0, data: { note: { note_id: noteId } } })
+        };
+      }
+      return {};
+    });
+    executeScript.mockImplementation(async (input: Record<string, unknown>) => {
+      const args = Array.isArray(input.args) ? input.args : [];
+      if (args.length === 4 && args[3] === "pc_search") {
+        return [
+          {
+            result: {
+              locator: "a.search-result-card",
+              targetKey: "body > a:nth-of-type(1)",
+              centerX: 180,
+              centerY: 220,
+              originalHref,
+              targetUrl,
+              noteId
+            }
+          }
+        ];
+      }
+      return [{ result: { "X-s": "signed", "X-t": "1700000000" } }];
+    });
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-restore-open-result-card-binding-001",
+      targetTabId: 44
+    });
+    runtimeMessageListeners[0]?.(
+      {
+        kind: "result",
+        id: "run-restore-open-result-card-binding-001-bootstrap",
+        ok: true,
+        payload: {
+          result: {
+            version: "v1",
+            run_id: "run-restore-open-result-card-binding-001",
+            runtime_context_id: "run-restore-open-result-card-binding-001-ctx",
+            profile: "xhs_001",
+            status: "ready"
+          },
+          runtime_bootstrap_attested: true,
+          fingerprint_runtime: {
+            ...createFingerprintRuntimeContext(),
+            injection: {
+              installed: true,
+              required_patches: ["audio_context", "battery", "navigator_plugins", "navigator_mime_types"],
+              missing_required_patches: [],
+              source: "main_world"
+            }
+          },
+          summary: {
+            capability_result: {
+              outcome: "success"
+            }
+          }
+        }
+      },
+      {
+        tab: {
+          id: 44,
+          url: "https://www.xiaohongshu.com/search_result?keyword=%E5%BE%92%E6%AD%A5%E8%B7%AF%E7%BA%BF&type=51"
+        }
+      }
+    );
+    await waitForBridgeTurn();
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-open-result-card-binding-restore",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-open-result-card-binding-001",
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "search_result_tab",
+          target_tab_id: 44,
+          query: "徒步路线",
+          restore_safety_gate: createRestoreSafetyGate("run-restore-open-result-card-binding-001", {
+            targetUrl: restoredSearchUrl
+          })
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-restore-open-result-card-binding-restore",
+      status: "success"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-open-result-card-binding-open",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-open-result-card-binding-001",
+        command: "runtime.xhs_open_result_card",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "search_result_tab",
+          target_tab_id: 44,
+          note_id: noteId,
+          detail_url: originalHref,
+          title: "江浙沪巨美徒步路线",
+          xsec_source: "pc_search",
+          action_ref: "action/xhs.search/open_result_card_after_restore"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-restore-open-result-card-binding-open",
+      status: "success"
+    });
+    expect(debuggerAttach).toHaveBeenCalledWith({ tabId: 44 }, "1.3");
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
+  });
+
   it("reloads an already matching XHS search tab when forced for fresh closeout capture", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);
