@@ -151,14 +151,19 @@ const onRequest = (request) => {
     if (
       command === "runtime.readiness" &&
       (mode === "runtime-readiness-ready" ||
+        mode === "runtime-readiness-ready-pending-once-current" ||
         mode === "runtime-readiness-ready-pending-once-after-attach" ||
         mode === "runtime-readiness-ready-pending-after-attach")
     ) {
       const readinessCallCount =
+        mode === "runtime-readiness-ready-pending-once-current" ||
         mode === "runtime-readiness-ready-pending-once-after-attach" ||
         mode === "runtime-readiness-ready-pending-after-attach"
           ? nextReadinessCallCount(request)
           : 0;
+      const transientCurrentPending =
+        mode === "runtime-readiness-ready-pending-once-current" &&
+        readinessCallCount === 1;
       const transientAttachPending =
         mode === "runtime-readiness-ready-pending-once-after-attach" &&
         readinessCallCount === 2;
@@ -175,7 +180,10 @@ const onRequest = (request) => {
         },
         payload: {
           transport_state: "ready",
-          bootstrap_state: transientAttachPending || persistentAttachPending ? "pending" : "ready",
+          bootstrap_state:
+            transientCurrentPending || transientAttachPending || persistentAttachPending
+              ? "pending"
+              : "ready",
           runtime_context_id: commandRuntimeContextId || null,
           managed_target_tab_id: Number.isInteger(commandParams.target_tab_id)
             ? commandParams.target_tab_id

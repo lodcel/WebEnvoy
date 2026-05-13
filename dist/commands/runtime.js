@@ -1799,6 +1799,13 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
         runId: context.run_id,
         params: context.params
     });
+    status = await waitForAttachedRestoreRuntimeStatus({
+        cwd: context.cwd,
+        profile: context.profile,
+        runId: context.run_id,
+        params: context.params,
+        initialStatus: status
+    });
     let attachedRuntimeForRestore = false;
     const preAttachTakeover = asObject(status.runtimeTakeoverEvidence);
     const preAttachRuntimeReady = (preAttachTakeover?.attachableReadyRuntime === true ||
