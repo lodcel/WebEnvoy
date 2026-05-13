@@ -2184,6 +2184,64 @@ const waitForAttachedRestoreRuntimeStatus = async (input: {
   return status;
 };
 
+const isReadySameRunOfficialRestoreRuntime = (
+  status: Record<string, unknown>,
+  runId: string
+): boolean =>
+  status.lockHeld === true &&
+  status.identityBindingState === "bound" &&
+  status.transportState === "ready" &&
+  status.bootstrapState === "ready" &&
+  status.runtimeReadiness === "ready" &&
+  status.executionSurface === "real_browser" &&
+  status.headless === false &&
+  asObject(status.runtimeTakeoverEvidence)?.observedRunId === runId;
+
+const buildCurrentRuntimeStatusParamsForXhsRestore = (
+  params: Record<string, unknown>
+): Record<string, unknown> => {
+  const currentParams = { ...params };
+  delete currentParams.target_domain;
+  delete currentParams.target_page;
+  delete currentParams.target_tab_id;
+  return currentParams;
+};
+
+const resolveRuntimeStatusForXhsRestore = async (input: {
+  cwd: string;
+  profile: string;
+  runId: string;
+  params: Record<string, unknown>;
+}): Promise<Record<string, unknown>> => {
+  let status = await profileRuntime.status({
+    cwd: input.cwd,
+    profile: input.profile,
+    runId: input.runId,
+    params: input.params
+  });
+  status = await waitForAttachedRestoreRuntimeStatus({
+    cwd: input.cwd,
+    profile: input.profile,
+    runId: input.runId,
+    params: input.params,
+    initialStatus: status
+  });
+  if (isReadySameRunOfficialRestoreRuntime(status, input.runId)) {
+    return status;
+  }
+
+  const currentStatus = await profileRuntime.status({
+    cwd: input.cwd,
+    profile: input.profile,
+    runId: input.runId,
+    params: buildCurrentRuntimeStatusParamsForXhsRestore(input.params)
+  });
+  if (isReadySameRunOfficialRestoreRuntime(currentStatus, input.runId)) {
+    return currentStatus;
+  }
+  return status;
+};
+
 const assertRuntimeRestoreXhsTargetSafetyGate = async (
   context: RuntimeContext
 ): Promise<Record<string, unknown> | null> => {
@@ -2218,18 +2276,11 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
   }
 
   const restoreRequestedAt = asString(context.params.requested_at);
-  let status = await profileRuntime.status({
+  let status = await resolveRuntimeStatusForXhsRestore({
     cwd: context.cwd,
     profile: context.profile,
     runId: context.run_id,
     params: context.params
-  });
-  status = await waitForAttachedRestoreRuntimeStatus({
-    cwd: context.cwd,
-    profile: context.profile,
-    runId: context.run_id,
-    params: context.params,
-    initialStatus: status
   });
   let attachedRuntimeForRestore = false;
   const preAttachTakeover = asObject(status.runtimeTakeoverEvidence);
