@@ -3916,33 +3916,52 @@ class ChromeBackgroundBridge {
         }
         const debuggerApi = this.chromeApi.debugger;
         let debuggerAttached = false;
+        let debuggerAttachedTabId = null;
+        let detailNetworkCaptureAbortController = null;
         const detachDebugger = async () => {
             if (!debuggerApi || !debuggerAttached) {
                 return;
             }
             try {
-                await debuggerApi.detach({ tabId: sourceTabId });
+                await debuggerApi.detach({ tabId: debuggerAttachedTabId ?? sourceTabId });
             }
             catch {
                 // Best-effort detach; keep primary failure semantics.
             }
             finally {
                 debuggerAttached = false;
+                debuggerAttachedTabId = null;
             }
+        };
+        const abortDetailNetworkCapture = () => {
+            detailNetworkCaptureAbortController?.abort();
+            detailNetworkCaptureAbortController = null;
+        };
+        const startDebuggerForDetailCapture = async (tabId, captureNoteId) => {
+            if (!debuggerApi || !captureNoteId) {
+                return { capture: null };
+            }
+            if (debuggerAttached && debuggerAttachedTabId !== tabId) {
+                await detachDebugger();
+            }
+            if (!debuggerAttached) {
+                await debuggerApi.attach({ tabId }, debuggerProtocolVersion);
+                debuggerAttached = true;
+                debuggerAttachedTabId = tabId;
+            }
+            await debuggerApi.sendCommand({ tabId }, "Network.enable");
+            abortDetailNetworkCapture();
+            const controller = new AbortController();
+            detailNetworkCaptureAbortController = controller;
+            return {
+                capture: this.#waitForXhsDetailDebuggerNetworkCapture(tabId, captureNoteId, xhsOpenResultCardNavigationTimeoutMs, controller.signal)
+            };
         };
         let capturedRequestContextArtifact = null;
         let detailNetworkCapture = null;
         if (debuggerApi && noteId) {
             try {
-                await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
-                debuggerAttached = true;
-                try {
-                    await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
-                    detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(sourceTab.id, noteId, xhsOpenResultCardNavigationTimeoutMs);
-                }
-                catch {
-                    detailNetworkCapture = null;
-                }
+                detailNetworkCapture = (await startDebuggerForDetailCapture(sourceTab.id, noteId)).capture;
             }
             catch {
                 detailNetworkCapture = null;
@@ -3956,11 +3975,8 @@ class ChromeBackgroundBridge {
             }
             try {
                 if (!detailNetworkCapture && !debuggerAttached) {
-                    await debuggerApi.attach({ tabId: sourceTab.id }, debuggerProtocolVersion);
-                    debuggerAttached = true;
                     try {
-                        await debuggerApi.sendCommand({ tabId: sourceTab.id }, "Network.enable");
-                        detailNetworkCapture = this.#waitForXhsDetailDebuggerNetworkCapture(sourceTab.id, noteId ?? "", xhsOpenResultCardNavigationTimeoutMs);
+                        detailNetworkCapture = (await startDebuggerForDetailCapture(sourceTab.id, noteId ?? "")).capture;
                     }
                     catch {
                         detailNetworkCapture = null;
@@ -4022,16 +4038,35 @@ class ChromeBackgroundBridge {
             fail(resolvedNavigation.reason, resolvedNavigation.message, resolvedNavigation.details);
             return;
         }
-        if (detailNetworkCapture) {
-            capturedRequestContextArtifact = await detailNetworkCapture.catch(() => null);
-        }
-        await detachDebugger();
         const resolvedTargetTabId = typeof resolvedNavigation.tab.id === "number"
             ? resolvedNavigation.tab.id
             : sourceTab.id;
-        if (capturedRequestContextArtifact && resolvedTargetTabId !== sourceTab.id) {
-            capturedRequestContextArtifact = null;
+        if (detailNetworkCapture && resolvedTargetTabId === sourceTab.id) {
+            capturedRequestContextArtifact = await detailNetworkCapture.catch(() => null);
         }
+        if (resolvedTargetTabId !== sourceTab.id) {
+            abortDetailNetworkCapture();
+            await detachDebugger();
+            if (debuggerApi && target.noteId) {
+                try {
+                    detailNetworkCapture = (await startDebuggerForDetailCapture(resolvedTargetTabId, target.noteId)).capture;
+                    if (this.chromeApi.tabs.update) {
+                        await this.chromeApi.tabs.update(resolvedTargetTabId, {
+                            url: target.targetUrl,
+                            active: true
+                        });
+                    }
+                    capturedRequestContextArtifact = detailNetworkCapture
+                        ? await detailNetworkCapture.catch(() => null)
+                        : null;
+                }
+                catch {
+                    capturedRequestContextArtifact = null;
+                }
+            }
+        }
+        abortDetailNetworkCapture();
+        await detachDebugger();
         if (capturedRequestContextArtifact) {
             const capturedAt = asInteger(capturedRequestContextArtifact.captured_at) ?? Date.now();
             const pageContextNamespace = createPageContextNamespace(target.targetUrl);
@@ -5884,10 +5919,13 @@ class ChromeBackgroundBridge {
             onEvent.addListener(listener);
         });
     }
-    #waitForXhsDetailDebuggerNetworkCapture(tabId, noteId, timeoutMs) {
+    #waitForXhsDetailDebuggerNetworkCapture(tabId, noteId, timeoutMs, signal) {
         const debuggerApi = this.chromeApi.debugger;
         const onEvent = debuggerApi?.onEvent;
         if (!debuggerApi || !onEvent) {
+            return Promise.resolve(null);
+        }
+        if (signal?.aborted) {
             return Promise.resolve(null);
         }
         const pending = new Map();
@@ -5942,9 +5980,12 @@ class ChromeBackgroundBridge {
                 catch {
                     // Best-effort listener removal.
                 }
+                signal?.removeEventListener("abort", abortHandler);
                 resolve(value);
             };
             const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+            const abortHandler = () => finish(null);
+            signal?.addEventListener("abort", abortHandler, { once: true });
             const listener = (source, method, params) => {
                 if (settled || source.tabId !== tabId || !params) {
                     return;
