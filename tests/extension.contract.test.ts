@@ -1806,6 +1806,42 @@ describe("extension build contract", () => {
             action_ref: "read",
             reproduced_multi_round: false
           },
+          closeout_evidence_expected: {
+            latest_head_sha: "head-source-search-live-001",
+            run_id: "run-source-search-live-001",
+            artifact_identity: expect.stringContaining(
+              "xhs.search.passive_api_capture:run-source-search-live-001:"
+            ),
+            artifact_identities: [
+              expect.stringContaining("xhs.search.passive_api_capture:run-source-search-live-001:")
+            ],
+            profile_ref: "profile-a",
+            target_tab_id: 11,
+            page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5",
+            action_ref: "read"
+          },
+          closeout_evidence_rounds: [
+            {
+              route: "xhs.search.api",
+              route_role: "primary",
+              path_kind: "api",
+              evidence_status: "success",
+              evidence_class: "passive_api_capture",
+              route_evidence_class: "passive_api_capture",
+              head_sha: "head-source-search-live-001",
+              latest_head_sha: "head-source-search-live-001",
+              run_id: "run-source-search-live-001",
+              artifact_identity: expect.stringContaining(
+                "xhs.search.passive_api_capture:run-source-search-live-001:"
+              ),
+              profile_ref: "profile-a",
+              session_id: "nm-session-source-search-live-001",
+              target_tab_id: 11,
+              page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5",
+              action_ref: "read",
+              reproduced_multi_round: false
+            }
+          ],
           request_context: {
             status: "exact_hit"
           },

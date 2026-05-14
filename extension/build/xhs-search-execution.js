@@ -1522,6 +1522,41 @@ export const executeXhsSearch = async (input, env) => {
             }
             : {})
     };
+    const closeoutEvidenceExpected = {
+        latest_head_sha: routeEvidence.head_sha,
+        run_id: routeEvidence.run_id,
+        artifact_identity: routeEvidence.artifact_identity,
+        artifact_identities: typeof routeEvidence.artifact_identity === "string" ? [routeEvidence.artifact_identity] : [],
+        profile_ref: routeEvidence.profile_ref,
+        target_tab_id: routeEvidence.target_tab_id,
+        page_url: routeEvidence.page_url,
+        action_ref: routeEvidence.action_ref
+    };
+    const closeoutEvidenceRound = {
+        route: routeEvidence.route,
+        route_role: routeEvidence.route_role,
+        path_kind: routeEvidence.path_kind,
+        evidence_status: routeEvidence.evidence_status,
+        evidence_class: routeEvidence.evidence_class,
+        route_evidence_class: routeEvidence.route_evidence_class,
+        source_kind: routeEvidence.source_kind,
+        method: routeEvidence.method,
+        endpoint: routeEvidence.endpoint,
+        request_url: routeEvidence.request_url,
+        status_code: routeEvidence.status_code,
+        latest_head_sha: routeEvidence.head_sha,
+        head_sha: routeEvidence.head_sha,
+        run_id: routeEvidence.run_id,
+        artifact_identity: routeEvidence.artifact_identity,
+        profile_ref: routeEvidence.profile_ref,
+        session_id: routeEvidence.session_id,
+        target_tab_id: routeEvidence.target_tab_id,
+        page_url: routeEvidence.page_url,
+        action_ref: routeEvidence.action_ref,
+        observed_at: routeEvidence.observed_at,
+        captured_at: routeEvidence.captured_at,
+        reproduced_multi_round: routeEvidence.reproduced_multi_round
+    };
     return {
         ok: true,
         payload: {
@@ -1561,6 +1596,8 @@ export const executeXhsSearch = async (input, env) => {
                 ...layer2InteractionSummary(layer2Interaction),
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence,
+                closeout_evidence_expected: closeoutEvidenceExpected,
+                closeout_evidence_rounds: [closeoutEvidenceRound],
                 request_context: {
                     status: "exact_hit",
                     page_context_namespace: requestContextState.pageContextNamespace,
