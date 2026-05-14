@@ -1418,16 +1418,25 @@ export class ProfileRuntimeService {
             const browserPidAlive = browserState &&
                 browserState.runId === stopOwnerRunId &&
                 this.#isProcessAlive(browserState.browserPid);
+            const browserOwnedByWebEnvoy = browserState?.processOwnership !== "external_persistent_app";
             if (stalePinnedController &&
                 browserState &&
-                browserPidAlive) {
+                browserPidAlive &&
+                browserOwnedByWebEnvoy) {
                 await this.#terminateProcess(browserState.browserPid);
                 await this.#deleteBrowserStateFiles(profileDir);
             }
             else if (!controllerAlive &&
                 browserState &&
-                browserPidAlive) {
+                browserPidAlive &&
+                browserOwnedByWebEnvoy) {
                 await this.#terminateProcess(browserState.browserPid);
+                await this.#deleteBrowserStateFiles(profileDir);
+            }
+            else if (browserState &&
+                browserPidAlive &&
+                !browserOwnedByWebEnvoy &&
+                (stalePinnedController || !controllerAlive)) {
                 await this.#deleteBrowserStateFiles(profileDir);
             }
             else if (stalePinnedController && controllerAlive) {
@@ -1708,6 +1717,14 @@ export class ProfileRuntimeService {
                 executionSurface: parsed.executionSurface === "headless_browser" ||
                     parsed.executionSurface === "real_browser"
                     ? parsed.executionSurface
+                    : undefined,
+                launchSurface: parsed.launchSurface === "direct_spawn" ||
+                    parsed.launchSurface === "macos_launchservices"
+                    ? parsed.launchSurface
+                    : undefined,
+                processOwnership: parsed.processOwnership === "owned_child" ||
+                    parsed.processOwnership === "external_persistent_app"
+                    ? parsed.processOwnership
                     : undefined
             };
         }
@@ -1753,6 +1770,14 @@ export class ProfileRuntimeService {
                 executionSurface: parsed.executionSurface === "headless_browser" ||
                     parsed.executionSurface === "real_browser"
                     ? parsed.executionSurface
+                    : undefined,
+                launchSurface: parsed.launchSurface === "direct_spawn" ||
+                    parsed.launchSurface === "macos_launchservices"
+                    ? parsed.launchSurface
+                    : undefined,
+                processOwnership: parsed.processOwnership === "owned_child" ||
+                    parsed.processOwnership === "external_persistent_app"
+                    ? parsed.processOwnership
                     : undefined
             };
         }

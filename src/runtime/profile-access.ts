@@ -9,6 +9,8 @@ export interface BrowserInstanceStateSnapshot {
   browserPid: number;
   headless?: boolean;
   executionSurface?: "headless_browser" | "real_browser";
+  launchSurface?: "direct_spawn" | "macos_launchservices";
+  processOwnership?: "owned_child" | "external_persistent_app";
 }
 
 export interface ProfileLockInspection {
@@ -67,18 +69,26 @@ export const inspectProfileLock = (input: {
     stateMatchesPinnedController &&
     input.isProcessAlive(browserInstanceState.controllerPid);
   const browserAlive =
-    browserInstanceState !== null && input.isProcessAlive(browserInstanceState.browserPid);
+    browserInstanceState !== null &&
+    input.isProcessAlive(browserInstanceState.browserPid);
+  const externalPersistentApp =
+    browserInstanceState?.processOwnership === "external_persistent_app";
+  const browserOwnedByWebEnvoy = !externalPersistentApp;
+  const ownedBrowserAlive = browserAlive && browserOwnedByWebEnvoy;
+  const externalStateContinuity =
+    externalPersistentApp && stateMatchesPinnedController;
   const orphanRecoverable =
     !lockOwnerAlive &&
     !controllerAlive &&
     stateMatchesPinnedController &&
     browserInstanceState !== null &&
-    browserAlive;
+    (ownedBrowserAlive || externalStateContinuity);
 
   return {
-    blocksReuse: lockOwnerAlive || controllerAlive || browserAlive,
+    blocksReuse: lockOwnerAlive || controllerAlive || ownedBrowserAlive || externalStateContinuity,
     controlConnected: lockOwnerAlive || controllerAlive,
-    browserPid: browserAlive ? browserInstanceState?.browserPid ?? null : null,
+    browserPid:
+      browserAlive || externalStateContinuity ? browserInstanceState?.browserPid ?? null : null,
     stateRunId: browserInstanceState?.runId ?? null,
     orphanRecoverable
   };

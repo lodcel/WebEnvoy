@@ -19,16 +19,21 @@ export const inspectProfileLock = (input) => {
         !stalePinnedController &&
         stateMatchesPinnedController &&
         input.isProcessAlive(browserInstanceState.controllerPid);
-    const browserAlive = browserInstanceState !== null && input.isProcessAlive(browserInstanceState.browserPid);
+    const browserAlive = browserInstanceState !== null &&
+        input.isProcessAlive(browserInstanceState.browserPid);
+    const externalPersistentApp = browserInstanceState?.processOwnership === "external_persistent_app";
+    const browserOwnedByWebEnvoy = !externalPersistentApp;
+    const ownedBrowserAlive = browserAlive && browserOwnedByWebEnvoy;
+    const externalStateContinuity = externalPersistentApp && stateMatchesPinnedController;
     const orphanRecoverable = !lockOwnerAlive &&
         !controllerAlive &&
         stateMatchesPinnedController &&
         browserInstanceState !== null &&
-        browserAlive;
+        (ownedBrowserAlive || externalStateContinuity);
     return {
-        blocksReuse: lockOwnerAlive || controllerAlive || browserAlive,
+        blocksReuse: lockOwnerAlive || controllerAlive || ownedBrowserAlive || externalStateContinuity,
         controlConnected: lockOwnerAlive || controllerAlive,
-        browserPid: browserAlive ? browserInstanceState?.browserPid ?? null : null,
+        browserPid: browserAlive || externalStateContinuity ? browserInstanceState?.browserPid ?? null : null,
         stateRunId: browserInstanceState?.runId ?? null,
         orphanRecoverable
     };
