@@ -62,6 +62,8 @@ export interface BrowserLaunchResult {
   launchedAt: string;
   headless?: boolean;
   executionSurface?: "headless_browser" | "real_browser";
+  launchSurface?: "direct_spawn" | "macos_launchservices";
+  processOwnership?: "owned_child" | "external_persistent_app";
 }
 
 export interface BrowserShutdownInput {
@@ -82,6 +84,8 @@ interface BrowserInstanceState {
   launchedAt: string;
   headless?: boolean;
   executionSurface?: "headless_browser" | "real_browser";
+  launchSurface?: "direct_spawn" | "macos_launchservices";
+  processOwnership?: "owned_child" | "external_persistent_app";
 }
 
 interface BrowserInstanceArtifactPaths {
@@ -299,12 +303,15 @@ const assertProcessAlive = (pid: number): void => {
 const waitForBrowserReady = async (
   profileDir: string,
   pid: number,
-  launchedAtMs: number
+  launchedAtMs: number,
+  processOwnership: "owned_child" | "external_persistent_app" = "owned_child"
 ): Promise<void> => {
   const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
 
   for (let attempt = 0; attempt < READY_WAIT_MAX_ATTEMPTS; attempt += 1) {
-    assertProcessAlive(pid);
+    if (processOwnership !== "external_persistent_app") {
+      assertProcessAlive(pid);
+    }
 
     let markerReady = false;
     for (const marker of readyMarkers) {
@@ -316,7 +323,9 @@ const waitForBrowserReady = async (
 
     if (markerReady && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
       await sleep(READY_CONFIRM_DELAY_MS);
-      assertProcessAlive(pid);
+      if (processOwnership !== "external_persistent_app") {
+        assertProcessAlive(pid);
+      }
       return;
     }
 
@@ -427,7 +436,30 @@ const waitForBrowserInstanceState = async (input: {
     }
     await sleep(SUPERVISOR_STATE_WAIT_INTERVAL_MS);
   }
-  throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程未写入可用状态");
+  throw new BrowserLaunchError(
+    "BROWSER_LAUNCH_FAILED",
+    `浏览器控制进程未写入可用状态: ${input.stateFilePath}`
+  );
+};
+
+const cleanupFailedBrowserLaunch = async (input: {
+  profileDir: string;
+  controllerPid: number | null;
+}): Promise<void> => {
+  const artifactPaths = getBrowserInstanceArtifactPaths(input.profileDir);
+  const state = await readBrowserInstanceState(artifactPaths.stateFilePath);
+  if (input.controllerPid !== null && isProcessAlive(input.controllerPid)) {
+    try {
+      process.kill(input.controllerPid, "SIGTERM");
+    } catch {
+      // ignore cleanup failure
+    }
+  }
+  if (state?.processOwnership === "external_persistent_app") {
+    await terminateBrowserPid(state.browserPid, 500).catch(() => false);
+    await cleanupSupervisorArtifacts(input.profileDir).catch(() => undefined);
+    await cleanupStagedExtensions(input.profileDir);
+  }
 };
 
 export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserLaunchResult> => {
@@ -486,7 +518,12 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
       expectedToken: launchToken,
       expectedControllerPid: launched.pid
     });
-    await waitForBrowserReady(input.profileDir, state.browserPid, launched.launchedAtMs);
+    await waitForBrowserReady(
+      input.profileDir,
+      state.browserPid,
+      launched.launchedAtMs,
+      state.processOwnership
+    );
     launchSucceeded = true;
     return {
       browserPath: executablePath,
@@ -495,16 +532,15 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
       launchArgs: [...launchArgs],
       launchedAt: launched.launchedAt,
       headless: shouldHeadless,
-      executionSurface
+      executionSurface,
+      launchSurface: state.launchSurface,
+      processOwnership: state.processOwnership
     };
   } catch (error) {
-    if (controllerPid !== null && isProcessAlive(controllerPid)) {
-      try {
-        process.kill(controllerPid, "SIGTERM");
-      } catch {
-        // ignore cleanup failure
-      }
-    }
+    await cleanupFailedBrowserLaunch({
+      profileDir: input.profileDir,
+      controllerPid
+    });
     if (error instanceof BrowserLaunchError) {
       throw error;
     }
@@ -532,6 +568,11 @@ export const shutdownBrowserSession = async (input: BrowserShutdownInput): Promi
     throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器实例 run_id 与 stop 请求不一致");
   }
   if (!isProcessAlive(input.controllerPid)) {
+    if (state.processOwnership === "external_persistent_app") {
+      await cleanupSupervisorArtifacts(input.profileDir);
+      await cleanupStagedExtensions(input.profileDir);
+      return;
+    }
     if (await terminateBrowserPid(state.browserPid, timeoutMs)) {
       await cleanupSupervisorArtifacts(input.profileDir);
       await cleanupStagedExtensions(input.profileDir);
@@ -575,6 +616,12 @@ export const shutdownBrowserSession = async (input: BrowserShutdownInput): Promi
       return;
     }
     await sleep(100);
+  }
+
+  if (state.processOwnership === "external_persistent_app") {
+    await cleanupSupervisorArtifacts(input.profileDir);
+    await cleanupStagedExtensions(input.profileDir);
+    return;
   }
 
   if (await terminateBrowserPid(state.browserPid, 1_000)) {

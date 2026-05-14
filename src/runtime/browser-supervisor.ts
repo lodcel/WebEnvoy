@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -23,6 +23,8 @@ interface BrowserInstanceState {
   launchedAt: string;
   headless: boolean;
   executionSurface: "headless_browser" | "real_browser";
+  launchSurface: "direct_spawn" | "macos_launchservices";
+  processOwnership: "owned_child" | "external_persistent_app";
 }
 
 interface ShutdownCommand {
@@ -45,6 +47,59 @@ const isProcessAlive = (pid: number): boolean => {
   } catch {
     return false;
   }
+};
+
+const resolveMacosAppBundlePath = (browserPath: string): string | null => {
+  const marker = ".app/Contents/MacOS/";
+  const index = browserPath.indexOf(marker);
+  if (index < 0) {
+    return null;
+  }
+  return browserPath.slice(0, index + ".app".length);
+};
+
+const shouldUseMacosLaunchServices = (args: SupervisorArgs): boolean => {
+  if (process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES === "1") {
+    return true;
+  }
+  return (
+    process.platform === "darwin" &&
+    !args.launchArgs.includes("--headless=new") &&
+    resolveMacosAppBundlePath(args.browserPath) !== null
+  );
+};
+
+interface BrowserSpawnSpec {
+  file: string;
+  args: string[];
+  kind: "direct" | "macos_launchservices";
+}
+
+const buildBrowserSpawn = (args: SupervisorArgs): BrowserSpawnSpec => {
+  if (!shouldUseMacosLaunchServices(args)) {
+    return {
+      file: args.browserPath,
+      args: args.launchArgs,
+      kind: "direct"
+    };
+  }
+  const openPath = process.env.WEBENVOY_OPEN_PATH?.trim() || "/usr/bin/open";
+  const appBundlePath = resolveMacosAppBundlePath(args.browserPath) ?? args.browserPath;
+  return {
+    file: openPath,
+    args: ["-a", appBundlePath, "--args", ...args.launchArgs],
+    kind: "macos_launchservices"
+  };
+};
+
+const resolveBrowserPid = async (
+  browser: ChildProcess
+): Promise<number> => {
+  const rawBrowserPid = browser.pid;
+  if (typeof rawBrowserPid !== "number" || !Number.isInteger(rawBrowserPid) || rawBrowserPid <= 0) {
+    throw new Error("failed to spawn browser child");
+  }
+  return rawBrowserPid;
 };
 
 const deleteFileQuietly = async (path: string): Promise<void> => {
@@ -114,17 +169,18 @@ const run = async (): Promise<void> => {
   await deleteFileQuietly(args.stateFilePath);
   await deleteFileQuietly(args.controlFilePath);
 
-  const browser = spawn(args.browserPath, args.launchArgs, {
+  const browserSpawn = buildBrowserSpawn(args);
+  const browser = spawn(browserSpawn.file, browserSpawn.args, {
     detached: false,
     stdio: "ignore"
   });
   browser.unref();
 
-  const rawBrowserPid = browser.pid;
-  if (typeof rawBrowserPid !== "number" || !Number.isInteger(rawBrowserPid) || rawBrowserPid <= 0) {
-    throw new Error("failed to spawn browser child");
-  }
-  const browserPid = rawBrowserPid;
+  const browserPid = await resolveBrowserPid(browser);
+  const launchSurface =
+    browserSpawn.kind === "macos_launchservices" ? "macos_launchservices" : "direct_spawn";
+  const processOwnership =
+    browserSpawn.kind === "macos_launchservices" ? "external_persistent_app" : "owned_child";
 
   const state: BrowserInstanceState = {
     schemaVersion: 1,
@@ -138,7 +194,9 @@ const run = async (): Promise<void> => {
     headless: args.launchArgs.includes("--headless=new"),
     executionSurface: args.launchArgs.includes("--headless=new")
       ? "headless_browser"
-      : "real_browser"
+      : "real_browser",
+    launchSurface,
+    processOwnership
   };
   await writeFile(args.stateFilePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 
@@ -149,6 +207,9 @@ const run = async (): Promise<void> => {
   };
 
   const terminateBrowser = async (): Promise<void> => {
+    if (processOwnership === "external_persistent_app") {
+      return;
+    }
     if (!isProcessAlive(browserPid)) {
       return;
     }
@@ -198,9 +259,11 @@ const run = async (): Promise<void> => {
     await shutdown(1);
   });
 
-  browser.once("exit", async () => {
-    await shutdown(0);
-  });
+  if (browserSpawn.kind === "direct") {
+    browser.once("exit", async () => {
+      await shutdown(0);
+    });
+  }
 
   process.on("SIGTERM", () => {
     void shutdown(0);

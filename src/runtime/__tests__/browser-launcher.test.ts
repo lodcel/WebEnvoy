@@ -1,6 +1,6 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -30,6 +30,8 @@ let browserMockVersionBeforeTest: string | undefined;
 let realChromeBinBeforeTest: string | undefined;
 let realBrowserPathBeforeTest: string | undefined;
 let browserVersionBeforeTest: string | undefined;
+let browserForceLaunchServicesBeforeTest: string | undefined;
+let openPathBeforeTest: string | undefined;
 let pathBeforeTest: string | undefined;
 let platformBeforeTest: NodeJS.Platform;
 const restoreEnv = (
@@ -39,7 +41,9 @@ const restoreEnv = (
     | "WEBENVOY_BROWSER_MOCK_VERSION"
     | "WEBENVOY_REAL_CHROME_BIN"
     | "WEBENVOY_REAL_BROWSER_PATH"
-    | "WEBENVOY_BROWSER_VERSION",
+    | "WEBENVOY_BROWSER_VERSION"
+    | "WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES"
+    | "WEBENVOY_OPEN_PATH",
   value: string | undefined
 ): void => {
   if (value === undefined) {
@@ -100,6 +104,75 @@ setTimeout(() => process.exit(0), 50);
   );
   await chmod(scriptPath, 0o755);
   return scriptPath;
+};
+
+const createMockOpenExecutable = async (): Promise<{ scriptPath: string; logPath: string }> => {
+  const dir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-"));
+  tempDirs.push(dir);
+  const scriptPath = join(dir, "mock-open.mjs");
+  const logPath = join(dir, "open.log");
+  await writeFile(
+    scriptPath,
+    `#!/usr/bin/env node
+import { appendFileSync, existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+const logPath = process.env.WEBENVOY_BROWSER_MOCK_LOG;
+const argv = process.argv.slice(2);
+if (logPath) {
+  appendFileSync(logPath, JSON.stringify({ args: argv }) + "\\n");
+}
+const argsIndex = argv.indexOf("--args");
+const browserArgs = argsIndex >= 0 ? argv.slice(argsIndex + 1) : [];
+let profileDir = "";
+for (const arg of browserArgs) {
+  if (arg.startsWith("--user-data-dir=")) {
+    profileDir = arg.slice("--user-data-dir=".length);
+  }
+}
+if (profileDir) {
+  mkdirSync(profileDir + "/Default", { recursive: true });
+  writeFileSync(profileDir + "/Local State", "{}");
+  writeFileSync(profileDir + "/Default/Preferences", "{}");
+  const singletonLock = profileDir + "/SingletonLock";
+  if (!existsSync(singletonLock)) {
+    symlinkSync("mockhost-" + process.pid, singletonLock);
+  }
+}
+setInterval(() => {}, 1000);
+`,
+    "utf8"
+  );
+  await chmod(scriptPath, 0o755);
+  return { scriptPath, logPath };
+};
+
+const createHangingMockOpenExecutable = async (): Promise<{ scriptPath: string; logPath: string }> => {
+  const dir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-hanging-"));
+  tempDirs.push(dir);
+  const scriptPath = join(dir, "mock-open-hanging.mjs");
+  const logPath = join(dir, "open.log");
+  await writeFile(
+    scriptPath,
+    `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const logPath = process.env.WEBENVOY_BROWSER_MOCK_LOG;
+const argv = process.argv.slice(2);
+if (logPath) {
+  appendFileSync(logPath, JSON.stringify({ args: argv, pid: process.pid }) + "\\n");
+}
+setInterval(() => {}, 1000);
+`,
+    "utf8"
+  );
+  await chmod(scriptPath, 0o755);
+  return { scriptPath, logPath };
+};
+
+const parseLaunchRecord = (launchLog: string): Record<string, unknown> => {
+  const firstLine = launchLog
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return firstLine ? JSON.parse(firstLine) as Record<string, unknown> : {};
 };
 
 const createFixedVersionBrowserExecutable = async (versionOutput: string): Promise<string> => {
@@ -204,14 +277,7 @@ const waitForLaunchLog = async (logPath: string): Promise<string> => {
 };
 
 const parseLaunchArgs = (launchLog: string): string[] => {
-  const firstLine = launchLog
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  if (!firstLine) {
-    return [];
-  }
-  const parsed = JSON.parse(firstLine) as { args?: unknown };
+  const parsed = parseLaunchRecord(launchLog) as { args?: unknown };
   return Array.isArray(parsed.args) ? (parsed.args as string[]) : [];
 };
 
@@ -338,6 +404,8 @@ beforeEach(() => {
   realChromeBinBeforeTest = process.env.WEBENVOY_REAL_CHROME_BIN;
   realBrowserPathBeforeTest = process.env.WEBENVOY_REAL_BROWSER_PATH;
   browserVersionBeforeTest = process.env.WEBENVOY_BROWSER_VERSION;
+  browserForceLaunchServicesBeforeTest = process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES;
+  openPathBeforeTest = process.env.WEBENVOY_OPEN_PATH;
   pathBeforeTest = process.env.PATH;
   platformBeforeTest = process.platform;
 });
@@ -349,6 +417,8 @@ afterEach(async () => {
   restoreEnv("WEBENVOY_REAL_CHROME_BIN", realChromeBinBeforeTest);
   restoreEnv("WEBENVOY_REAL_BROWSER_PATH", realBrowserPathBeforeTest);
   restoreEnv("WEBENVOY_BROWSER_VERSION", browserVersionBeforeTest);
+  restoreEnv("WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES", browserForceLaunchServicesBeforeTest);
+  restoreEnv("WEBENVOY_OPEN_PATH", openPathBeforeTest);
   if (pathBeforeTest === undefined) {
     delete process.env.PATH;
   } else {
@@ -494,6 +564,8 @@ describe("browser-launcher", () => {
     process.env.WEBENVOY_BROWSER_PATH = scriptPath;
     process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 146.0.7680.154";
+    delete process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES;
+    delete process.env.WEBENVOY_OPEN_PATH;
 
     const launched = await launchBrowser({
       command: "runtime.start",
@@ -512,6 +584,202 @@ describe("browser-launcher", () => {
       profileDir,
       controllerPid: launched.controllerPid,
       runId: "run-launcher-test-official-persistent-001"
+    });
+  });
+
+  it("launches visible official Chrome through macOS LaunchServices when requested", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath, logPath } = await createMockOpenExecutable();
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-official-"));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: null,
+      runId: "run-launcher-test-official-open-001",
+      params: {
+        headless: false,
+        startUrl: "about:blank"
+      },
+      launchMode: "official_chrome_persistent_extension"
+    });
+
+    const openArgs = parseLaunchArgs(await waitForLaunchLog(logPath));
+    expect(openArgs.slice(0, 3)).toEqual(["-a", browserPath, "--args"]);
+    expect(openArgs).toContain(`--user-data-dir=${profileDir}`);
+    expect(openArgs).toContain("--profile-directory=Default");
+    expect(openArgs).toContain("about:blank");
+    expect(openArgs).not.toContain("--headless=new");
+    expect(findArgValue(openArgs, "--disable-extensions-except=")).toBeNull();
+    expect(findArgValue(openArgs, "--load-extension=")).toBeNull();
+    expect(launched.executionSurface).toBe("real_browser");
+    expect(launched.launchSurface).toBe("macos_launchservices");
+    expect(launched.processOwnership).toBe("external_persistent_app");
+
+    const browserStateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
+    expect(JSON.parse(browserStateRaw)).toMatchObject({
+      launchSurface: "macos_launchservices",
+      processOwnership: "external_persistent_app"
+    });
+
+    await shutdownBrowserSession({
+      profileDir,
+      controllerPid: launched.controllerPid,
+      runId: "run-launcher-test-official-open-001"
+    });
+  });
+
+  it("cleans LaunchServices supervisor state without killing the external app wrapper", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath, logPath } = await createMockOpenExecutable();
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-external-stop-"));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: null,
+      runId: "run-launcher-test-official-open-external-stop-001",
+      params: {
+        headless: false,
+        startUrl: "about:blank"
+      },
+      launchMode: "official_chrome_persistent_extension"
+    });
+    expect(launched.processOwnership).toBe("external_persistent_app");
+
+    try {
+      await shutdownBrowserSession({
+        profileDir,
+        controllerPid: launched.controllerPid,
+        runId: "run-launcher-test-official-open-external-stop-001"
+      });
+
+      expect(() => process.kill(launched.browserPid, 0)).not.toThrow();
+      await expect(readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8")).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+      await expect(readFile(join(profileDir, BROWSER_CONTROL_FILENAME), "utf8")).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+    } finally {
+      try {
+        process.kill(launched.browserPid, "SIGTERM");
+      } catch {
+        // The external wrapper may have already exited in a real LaunchServices environment.
+      }
+    }
+  });
+
+  it("cleans a failed LaunchServices startup and terminates the temporary wrapper", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath, logPath } = await createHangingMockOpenExecutable();
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-failed-"));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+
+    await expect(
+      launchBrowser({
+        command: "runtime.start",
+        profileDir,
+        proxyUrl: null,
+        runId: "run-launcher-test-official-open-failed-001",
+        params: {
+          headless: false,
+          startUrl: "about:blank"
+        },
+        launchMode: "official_chrome_persistent_extension"
+      })
+    ).rejects.toMatchObject({
+      name: "BrowserLaunchError",
+      code: "BROWSER_LAUNCH_FAILED"
+    } satisfies Partial<BrowserLaunchError>);
+
+    const launchRecord = parseLaunchRecord(await waitForLaunchLog(logPath));
+    const wrapperPid = launchRecord.pid;
+    expect(typeof wrapperPid).toBe("number");
+    await waitForExit(wrapperPid as number);
+    await expect(readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await expect(readFile(join(profileDir, BROWSER_CONTROL_FILENAME), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  }, 20_000);
+
+  it("launches visible macOS official Chrome app path through LaunchServices by default", async () => {
+    if (platformBeforeTest !== "darwin") {
+      return;
+    }
+    const { scriptPath: browserExecutablePath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const browserPath = browserExecutablePath.replace(
+      /mock-browser\.mjs$/,
+      "Google Chrome.app/Contents/MacOS/Google Chrome"
+    );
+    await mkdir(dirname(browserPath), { recursive: true });
+    await symlink(browserExecutablePath, browserPath);
+    const { scriptPath: openPath, logPath } = await createMockOpenExecutable();
+    const profileDir = await mkdtemp(
+      join(tmpdir(), "webenvoy-browser-launcher-open-official-default-")
+    );
+    tempDirs.push(profileDir);
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: null,
+      runId: "run-launcher-test-official-open-default-001",
+      params: {
+        headless: false,
+        startUrl: "about:blank"
+      },
+      launchMode: "official_chrome_persistent_extension"
+    });
+
+    const openArgs = parseLaunchArgs(await waitForLaunchLog(logPath));
+    expect(openArgs.slice(0, 3)).toEqual([
+      "-a",
+      dirname(dirname(dirname(browserPath))),
+      "--args"
+    ]);
+    expect(openArgs).toContain(`--user-data-dir=${profileDir}`);
+    expect(openArgs).not.toContain("--headless=new");
+    expect(launched.executionSurface).toBe("real_browser");
+    expect(launched.launchSurface).toBe("macos_launchservices");
+    expect(launched.processOwnership).toBe("external_persistent_app");
+
+    await shutdownBrowserSession({
+      profileDir,
+      controllerPid: launched.controllerPid,
+      runId: "run-launcher-test-official-open-default-001"
     });
   });
 

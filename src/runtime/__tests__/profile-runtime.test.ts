@@ -3999,6 +3999,134 @@ describe("profile-runtime identity preflight", () => {
     });
   });
 
+  it("keeps external persistent app state recoverable after the LaunchServices wrapper exits", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-attach-external-recoverable-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "attach_external_recoverable_profile"
+    });
+    const alivePids = new Set<number>([999998, 999999, process.pid]);
+    const profileDir = join(baseDir, ".webenvoy", "profiles", "attach_external_recoverable_profile");
+    const browserStatePath = join(profileDir, BROWSER_STATE_FILENAME);
+    const service = createTestService({
+      isProcessAlive: (pid: number) => alivePids.has(pid),
+      bridgeFactory: () => createTargetAwareTakeoverBridge()
+    });
+
+    await service.start({
+      cwd: baseDir,
+      profile: "attach_external_recoverable_profile",
+      runId: "run-runtime-attach-external-owner-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    const lockPath = join(profileDir, "__webenvoy_lock.json");
+    const metaPath = join(profileDir, "__webenvoy_meta.json");
+    const lockRaw = await readFile(lockPath, "utf8");
+    const lock = JSON.parse(lockRaw) as ProfileLock;
+    lock.ownerPid = 12345;
+    lock.controllerPid = 12345;
+    lock.ownerRunId = "run-runtime-attach-external-legacy-001";
+    await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+
+    const wrapperPid = 223399;
+    await writeFile(
+      browserStatePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          launchToken: "attach-external-token-001",
+          profileDir,
+          runId: "run-runtime-attach-external-legacy-001",
+          browserPath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          controllerPid: 12345,
+          browserPid: wrapperPid,
+          launchedAt: new Date().toISOString(),
+          launchSurface: "macos_launchservices",
+          processOwnership: "external_persistent_app"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const metaRaw = await readFile(metaPath, "utf8");
+    const meta = JSON.parse(metaRaw) as { profileState?: unknown; lastDisconnectedAt?: unknown };
+    await writeFile(
+      metaPath,
+      `${JSON.stringify(
+        {
+          ...meta,
+          profileState: "disconnected",
+          lastDisconnectedAt: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    alivePids.delete(999998);
+    alivePids.delete(999999);
+
+    await expect(
+      service.status({
+        cwd: baseDir,
+        profile: "attach_external_recoverable_profile",
+        runId: "run-runtime-attach-external-next-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).resolves.toMatchObject({
+      profileState: "disconnected",
+      lockHeld: false,
+      runtimeReadiness: "recoverable",
+      runtimeTakeoverEvidence: expect.objectContaining({
+        mode: "recoverable_rebind",
+        orphanRecoverable: true,
+        observedRunId: "run-runtime-attach-external-legacy-001"
+      })
+    });
+
+    await expect(
+      service.attach({
+        cwd: baseDir,
+        profile: "attach_external_recoverable_profile",
+        runId: "run-runtime-attach-external-next-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).resolves.toMatchObject({
+      profileState: "ready",
+      lockHeld: true,
+      transportState: "ready",
+      runtimeReadiness: "ready"
+    });
+
+    const nextLock = JSON.parse(await readFile(lockPath, "utf8")) as ProfileLock;
+    expect(nextLock.ownerRunId).toBe("run-runtime-attach-external-next-001");
+    expect(nextLock.ownerPid).toBe(process.pid);
+    expect(nextLock.controllerPid).toBe(12345);
+    expect(nextLock.controllerPidState).toBe("stale");
+  });
+
   it("allows runtime.stop after recoverable attach when the stale controller pid has been reused", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-stop-stale-controller-reused-"));
     tempDirs.push(baseDir);
@@ -5367,6 +5495,86 @@ describe("profile-runtime stale lock reclaim", () => {
         orphanRecovered: true
       });
       expect(alivePids.has(999999)).toBe(false);
+      await expect(readFile(lockPath, "utf8")).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it("stops external persistent app runtime state without terminating the external browser pid", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-stop-external-"));
+    tempDirs.push(baseDir);
+    const alivePids = new Set<number>([999999]);
+    const killedPids: number[] = [];
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        return alivePids.has(pid);
+      }
+      killedPids.push(pid);
+      alivePids.delete(pid);
+      return true;
+    }) as typeof process.kill);
+    const service = createTestService({
+      isProcessAlive: (pid: number) => alivePids.has(pid)
+    });
+
+    try {
+      await service.start({
+        cwd: baseDir,
+        profile: "external_stop_profile",
+        runId: "run-runtime-test-external-stop-001",
+        params: {}
+      });
+
+      const profileDir = join(baseDir, ".webenvoy", "profiles", "external_stop_profile");
+      const lockPath = join(profileDir, "__webenvoy_lock.json");
+      const lockRaw = await readFile(lockPath, "utf8");
+      const lock = JSON.parse(lockRaw) as ProfileLock;
+      lock.ownerPid = 12345;
+      lock.controllerPid = 12345;
+      await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+
+      const browserStatePath = join(profileDir, BROWSER_STATE_FILENAME);
+      await writeFile(
+        browserStatePath,
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            launchToken: "state-token-external-stop-001",
+            profileDir,
+            runId: "run-runtime-test-external-stop-001",
+            browserPath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            controllerPid: 12345,
+            browserPid: 999999,
+            launchedAt: new Date().toISOString(),
+            launchSurface: "macos_launchservices",
+            processOwnership: "external_persistent_app"
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+
+      const stopped = await service.stop({
+        cwd: baseDir,
+        profile: "external_stop_profile",
+        runId: "run-runtime-test-external-stop-001",
+        params: {}
+      });
+      expect(stopped).toMatchObject({
+        profile: "external_stop_profile",
+        profileState: "stopped",
+        lockHeld: false,
+        orphanRecovered: false
+      });
+      expect(alivePids.has(999999)).toBe(true);
+      expect(killedPids).not.toContain(999999);
+      await expect(readFile(browserStatePath, "utf8")).rejects.toMatchObject({
+        code: "ENOENT"
+      });
       await expect(readFile(lockPath, "utf8")).rejects.toMatchObject({
         code: "ENOENT"
       });

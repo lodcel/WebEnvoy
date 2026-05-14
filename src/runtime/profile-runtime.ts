@@ -353,6 +353,8 @@ interface BrowserInstanceStateRecord extends Record<string, unknown> {
   browserPid: number;
   headless?: boolean;
   executionSurface?: "headless_browser" | "real_browser";
+  launchSurface?: "direct_spawn" | "macos_launchservices";
+  processOwnership?: "owned_child" | "external_persistent_app";
 }
 
 interface RuntimeBridgeLike {
@@ -1900,19 +1902,30 @@ export class ProfileRuntimeService {
         browserState &&
         browserState.runId === stopOwnerRunId &&
         this.#isProcessAlive(browserState.browserPid);
+      const browserOwnedByWebEnvoy =
+        browserState?.processOwnership !== "external_persistent_app";
       if (
         stalePinnedController &&
         browserState &&
-        browserPidAlive
+        browserPidAlive &&
+        browserOwnedByWebEnvoy
       ) {
         await this.#terminateProcess(browserState.browserPid);
         await this.#deleteBrowserStateFiles(profileDir);
       } else if (
         !controllerAlive &&
         browserState &&
-        browserPidAlive
+        browserPidAlive &&
+        browserOwnedByWebEnvoy
       ) {
         await this.#terminateProcess(browserState.browserPid);
+        await this.#deleteBrowserStateFiles(profileDir);
+      } else if (
+        browserState &&
+        browserPidAlive &&
+        !browserOwnedByWebEnvoy &&
+        (stalePinnedController || !controllerAlive)
+      ) {
         await this.#deleteBrowserStateFiles(profileDir);
       } else if (stalePinnedController && controllerAlive) {
         throw new CliError("ERR_RUNTIME_UNAVAILABLE", "缺少锁定的浏览器控制者，无法安全停止 live runtime", {
@@ -2236,6 +2249,16 @@ export class ProfileRuntimeService {
           parsed.executionSurface === "headless_browser" ||
           parsed.executionSurface === "real_browser"
             ? parsed.executionSurface
+            : undefined,
+        launchSurface:
+          parsed.launchSurface === "direct_spawn" ||
+          parsed.launchSurface === "macos_launchservices"
+            ? parsed.launchSurface
+            : undefined,
+        processOwnership:
+          parsed.processOwnership === "owned_child" ||
+          parsed.processOwnership === "external_persistent_app"
+            ? parsed.processOwnership
             : undefined
       };
     } catch (error) {
@@ -2292,6 +2315,16 @@ export class ProfileRuntimeService {
           parsed.executionSurface === "headless_browser" ||
           parsed.executionSurface === "real_browser"
             ? parsed.executionSurface
+            : undefined,
+        launchSurface:
+          parsed.launchSurface === "direct_spawn" ||
+          parsed.launchSurface === "macos_launchservices"
+            ? parsed.launchSurface
+            : undefined,
+        processOwnership:
+          parsed.processOwnership === "owned_child" ||
+          parsed.processOwnership === "external_persistent_app"
+            ? parsed.processOwnership
             : undefined
       };
     } catch {
