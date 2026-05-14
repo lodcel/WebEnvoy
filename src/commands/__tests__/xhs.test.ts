@@ -1246,6 +1246,14 @@ describe("normalizeGateOptionsForContract", () => {
 
     expect(
       shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
+        abilityId: "xhs.search.notes.v1",
+        requestedExecutionMode: "live_read_high_risk",
+        summary: routeEvidenceSummary
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract({
         abilityId: "xhs.note.detail.v1",
         requestedExecutionMode: "live_read_limited",
         summary: routeEvidenceSummary
@@ -8043,26 +8051,88 @@ describe("normalizeGateOptionsForContract", () => {
     const summary = result.ok ? result.payload.summary : null;
 
     expect(summary).toMatchObject({
-        route_evidence: {
-          route: "xhs.search.api",
-          route_role: "primary",
-          path_kind: "api",
-          evidence_status: "success",
-          evidence_class: "passive_api_capture",
-          profile_ref: "profile/profile-search-passive-readiness-001",
-          target_tab_id: 32,
-          run_id: runId,
-          action_ref: "action/xhs.search/submit_query"
-        },
-        request_context: {
-          status: "exact_hit",
-          query: "露营装备",
-          profile_ref: "profile/profile-search-passive-readiness-001",
-          target_tab_id: 32,
-          run_id: runId,
-          action_ref: "action/xhs.search/submit_query"
-        }
-      });
+      route_evidence: {
+        route: "xhs.search.api",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success",
+        evidence_class: "passive_api_capture",
+        profile_ref: "profile/profile-search-passive-readiness-001",
+        target_tab_id: 32,
+        run_id: runId,
+        action_ref: "action/xhs.search/submit_query"
+      },
+      request_context: {
+        status: "exact_hit",
+        query: "露营装备",
+        profile_ref: "profile/profile-search-passive-readiness-001",
+        target_tab_id: 32,
+        run_id: runId,
+        action_ref: "action/xhs.search/submit_query"
+      }
+    });
+
+    const summaryObject = summary as Record<string, unknown>;
+    const formalCloseoutRouteEvidence =
+      summaryObject.closeout_route_evidence ?? summaryObject.route_evidence;
+    expect(formalCloseoutRouteEvidence).toMatchObject({
+      route: "xhs.search.api",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      profile_ref: "profile/profile-search-passive-readiness-001",
+      target_tab_id: 32,
+      page_url: expect.any(String),
+      run_id: runId,
+      action_ref: "action/xhs.search/submit_query"
+    });
+    const passiveCloseoutExpected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/submit_query"
+    };
+    const firstPassiveCloseoutRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: passiveCloseoutExpected.latest_head_sha,
+      run_id: passiveCloseoutExpected.run_id,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      profile_ref: passiveCloseoutExpected.profile_ref,
+      target_tab_id: passiveCloseoutExpected.target_tab_id,
+      page_url: passiveCloseoutExpected.page_url,
+      action_ref: passiveCloseoutExpected.action_ref
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_audit_required: true,
+        closeout_evidence_expected: passiveCloseoutExpected,
+        closeout_route_evidence: firstPassiveCloseoutRound,
+        closeout_evidence_rounds: [
+          firstPassiveCloseoutRound,
+          {
+            ...firstPassiveCloseoutRound,
+            artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
+    });
 
     expect(
       evaluateXhsSearchPrimaryPassiveApiReadinessForContract({

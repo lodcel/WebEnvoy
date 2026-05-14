@@ -494,6 +494,7 @@ const isLiveXhsReadExecutionMode = (mode: XhsExecutionMode): boolean =>
 
 const XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS = new Set<string>([
   "xhs.note.search.v1",
+  "xhs.search.notes.v1",
   "xhs.note.detail.v1",
   "xhs.user.home.v1"
 ]);

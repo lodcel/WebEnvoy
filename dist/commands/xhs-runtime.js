@@ -387,6 +387,7 @@ const isLiveXhsExecutionMode = (mode) => LIVE_XHS_EXECUTION_MODES.has(mode);
 const isLiveXhsReadExecutionMode = (mode) => mode === "live_read_limited" || mode === "live_read_high_risk";
 const XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS = new Set([
     "xhs.note.search.v1",
+    "xhs.search.notes.v1",
     "xhs.note.detail.v1",
     "xhs.user.home.v1"
 ]);

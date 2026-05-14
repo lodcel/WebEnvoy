@@ -5314,6 +5314,13 @@ const REQUEST_CONTEXT_FORWARD_DEADLINE_SAFETY_MS = 6_000;
 const CLOSEOUT_PROVENANCE_BIND_FRESH_WINDOW_MS = 30_000;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const toIsoString = (value) => new Date(value).toISOString();
+const buildSearchPassiveApiCaptureArtifactIdentity = (input) => [
+    "xhs.search.passive_api_capture",
+    input.runId,
+    input.pageContextNamespace,
+    input.shapeKey,
+    String(input.capturedAt)
+].join(":");
 const normalizeSearchQueryText = (value) => {
     if (typeof value !== "string") {
         return null;
@@ -6762,6 +6769,86 @@ const executeXhsSearch = async (input, env) => {
             }
         ];
     const count = parseCount(requestContextState.template.response.body);
+    const pageUrl = env.getLocationHref();
+    const capturedAt = requestContextState.template.capturedAt;
+    const routeEvidence = {
+        route: "xhs.search.api",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success",
+        evidence_class: "passive_api_capture",
+        route_evidence_class: "passive_api_capture",
+        source_kind: "page_request",
+        method: "POST",
+        endpoint: SEARCH_ENDPOINT,
+        request_url: requestContextState.template.request.url,
+        status_code: 200,
+        head_sha: asString(input.options.__runtime_latest_head_sha),
+        run_id: input.executionContext.runId,
+        artifact_identity: buildSearchPassiveApiCaptureArtifactIdentity({
+            runId: input.executionContext.runId,
+            pageContextNamespace: requestContextState.pageContextNamespace,
+            shapeKey: requestContextState.shapeKey,
+            capturedAt
+        }),
+        profile_ref: input.executionContext.profile,
+        session_id: input.executionContext.sessionId,
+        target_tab_id: typeof input.options.actual_target_tab_id === "number"
+            ? input.options.actual_target_tab_id
+            : typeof input.options.target_tab_id === "number"
+                ? input.options.target_tab_id
+                : gate.consumer_gate_result.target_tab_id,
+        page_url: pageUrl,
+        action_ref: input.abilityAction,
+        observed_at: capturedAt,
+        captured_at: capturedAt,
+        reproduced_multi_round: false,
+        page_context_namespace: requestContextState.pageContextNamespace,
+        shape_key: requestContextState.shapeKey,
+        ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
+        target_continuity: passiveTargetContinuity,
+        ...(passiveCards.length > 0
+            ? {
+                item_kind: "search_card",
+                cards: passiveCards
+            }
+            : {})
+    };
+    const closeoutEvidenceExpected = {
+        latest_head_sha: routeEvidence.head_sha,
+        run_id: routeEvidence.run_id,
+        artifact_identity: routeEvidence.artifact_identity,
+        artifact_identities: typeof routeEvidence.artifact_identity === "string" ? [routeEvidence.artifact_identity] : [],
+        profile_ref: routeEvidence.profile_ref,
+        target_tab_id: routeEvidence.target_tab_id,
+        page_url: routeEvidence.page_url,
+        action_ref: routeEvidence.action_ref
+    };
+    const closeoutEvidenceRound = {
+        route: routeEvidence.route,
+        route_role: routeEvidence.route_role,
+        path_kind: routeEvidence.path_kind,
+        evidence_status: routeEvidence.evidence_status,
+        evidence_class: routeEvidence.evidence_class,
+        route_evidence_class: routeEvidence.route_evidence_class,
+        source_kind: routeEvidence.source_kind,
+        method: routeEvidence.method,
+        endpoint: routeEvidence.endpoint,
+        request_url: routeEvidence.request_url,
+        status_code: routeEvidence.status_code,
+        latest_head_sha: routeEvidence.head_sha,
+        head_sha: routeEvidence.head_sha,
+        run_id: routeEvidence.run_id,
+        artifact_identity: routeEvidence.artifact_identity,
+        profile_ref: routeEvidence.profile_ref,
+        session_id: routeEvidence.session_id,
+        target_tab_id: routeEvidence.target_tab_id,
+        page_url: routeEvidence.page_url,
+        action_ref: routeEvidence.action_ref,
+        observed_at: routeEvidence.observed_at,
+        captured_at: routeEvidence.captured_at,
+        reproduced_multi_round: routeEvidence.reproduced_multi_round
+    };
     return {
         ok: true,
         payload: {
@@ -6799,34 +6886,19 @@ const executeXhsSearch = async (input, env) => {
                 risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                 audit_record: auditRecord,
                 ...layer2InteractionSummary(layer2Interaction),
-                route_evidence: {
-                    evidence_class: "passive_api_capture",
-                    profile_ref: input.executionContext.profile,
-                    target_tab_id: gate.consumer_gate_result.target_tab_id,
-                    page_url: env.getLocationHref(),
-                    run_id: input.executionContext.runId,
-                    action_ref: input.executionContext.gateInvocationId ?? input.executionContext.runId,
-                    captured_at: requestContextState.template.capturedAt,
-                    page_context_namespace: requestContextState.pageContextNamespace,
-                    shape_key: requestContextState.shapeKey,
-                    ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
-                    target_continuity: passiveTargetContinuity,
-                    ...(passiveCards.length > 0
-                        ? {
-                            item_kind: "search_card",
-                            cards: passiveCards
-                        }
-                        : {})
-                },
+                route_evidence: routeEvidence,
+                closeout_route_evidence: routeEvidence,
+                closeout_evidence_expected: closeoutEvidenceExpected,
+                closeout_evidence_rounds: [closeoutEvidenceRound],
                 request_context: {
                     status: "exact_hit",
                     page_context_namespace: requestContextState.pageContextNamespace,
                     shape_key: requestContextState.shapeKey,
-                    captured_at: requestContextState.template.capturedAt
+                    captured_at: capturedAt
                 }
             },
             observability: createObservability({
-                href: env.getLocationHref(),
+                href: pageUrl,
                 title: env.getDocumentTitle(),
                 readyState: env.getReadyState(),
                 requestId: `req-${env.randomId()}`,
