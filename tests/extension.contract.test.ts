@@ -1671,6 +1671,7 @@ describe("extension build contract", () => {
             action_type: "read",
             risk_state: "allowed",
             requested_execution_mode: "live_read_high_risk",
+            __runtime_latest_head_sha: "head-source-search-live-001",
             upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
               requestRef: "upstream_source_search_live_001",
               actionName: "xhs.read_search_results",
@@ -1739,7 +1740,29 @@ describe("extension build contract", () => {
             admission_decision: "allowed"
           },
           route_evidence: {
+            route: "xhs.search.api",
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success",
             evidence_class: "passive_api_capture",
+            route_evidence_class: "passive_api_capture",
+            source_kind: "page_request",
+            method: "POST",
+            endpoint: SEARCH_ENDPOINT,
+            status_code: 200,
+            head_sha: "head-source-search-live-001",
+            run_id: "run-source-search-live-001",
+            artifact_identity: expect.stringContaining(
+              "xhs.search.passive_api_capture:run-source-search-live-001:"
+            ),
+            profile_ref: "profile-a",
+            session_id: "nm-session-source-search-live-001",
+            target_tab_id: 11,
+            page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5",
+            action_ref: "read",
+            observed_at: 1_710_000_000_000,
+            captured_at: 1_710_000_000_000,
+            reproduced_multi_round: false,
             item_kind: "search_card",
             cards: [
               {
@@ -1762,6 +1785,26 @@ describe("extension build contract", () => {
                 source_route: "xhs.search"
               }
             ]
+          },
+          closeout_route_evidence: {
+            route: "xhs.search.api",
+            route_role: "primary",
+            path_kind: "api",
+            evidence_status: "success",
+            evidence_class: "passive_api_capture",
+            route_evidence_class: "passive_api_capture",
+            source_kind: "page_request",
+            method: "POST",
+            endpoint: SEARCH_ENDPOINT,
+            status_code: 200,
+            head_sha: "head-source-search-live-001",
+            run_id: "run-source-search-live-001",
+            profile_ref: "profile-a",
+            session_id: "nm-session-source-search-live-001",
+            target_tab_id: 11,
+            page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5",
+            action_ref: "read",
+            reproduced_multi_round: false
           },
           request_context: {
             status: "exact_hit"

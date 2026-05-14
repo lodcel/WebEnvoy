@@ -126,6 +126,20 @@ const asString = (value: unknown): string | null =>
 
 const toIsoString = (value: number): string => new Date(value).toISOString();
 
+const buildSearchPassiveApiCaptureArtifactIdentity = (input: {
+  runId: string;
+  pageContextNamespace: string;
+  shapeKey: string;
+  capturedAt: number;
+}): string =>
+  [
+    "xhs.search.passive_api_capture",
+    input.runId,
+    input.pageContextNamespace,
+    input.shapeKey,
+    String(input.capturedAt)
+  ].join(":");
+
 const normalizeSearchQueryText = (value: unknown): string | null => {
   if (typeof value !== "string") {
     return null;
@@ -1894,6 +1908,52 @@ export const executeXhsSearch = async (
           }
         ];
   const count = parseCount(requestContextState.template.response.body);
+  const pageUrl = env.getLocationHref();
+  const capturedAt = requestContextState.template.capturedAt;
+  const routeEvidence: JsonRecord = {
+    route: "xhs.search.api",
+    route_role: "primary",
+    path_kind: "api",
+    evidence_status: "success",
+    evidence_class: "passive_api_capture",
+    route_evidence_class: "passive_api_capture",
+    source_kind: "page_request",
+    method: "POST",
+    endpoint: SEARCH_ENDPOINT,
+    request_url: requestContextState.template.request.url,
+    status_code: 200,
+    head_sha: asString(input.options.__runtime_latest_head_sha),
+    run_id: input.executionContext.runId,
+    artifact_identity: buildSearchPassiveApiCaptureArtifactIdentity({
+      runId: input.executionContext.runId,
+      pageContextNamespace: requestContextState.pageContextNamespace,
+      shapeKey: requestContextState.shapeKey,
+      capturedAt
+    }),
+    profile_ref: input.executionContext.profile,
+    session_id: input.executionContext.sessionId,
+    target_tab_id:
+      typeof input.options.actual_target_tab_id === "number"
+        ? input.options.actual_target_tab_id
+        : typeof input.options.target_tab_id === "number"
+          ? input.options.target_tab_id
+          : gate.consumer_gate_result.target_tab_id,
+    page_url: pageUrl,
+    action_ref: input.abilityAction,
+    observed_at: capturedAt,
+    captured_at: capturedAt,
+    reproduced_multi_round: false,
+    page_context_namespace: requestContextState.pageContextNamespace,
+    shape_key: requestContextState.shapeKey,
+    ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
+    target_continuity: passiveTargetContinuity,
+    ...(passiveCards.length > 0
+      ? {
+          item_kind: "search_card",
+          cards: passiveCards
+        }
+      : {})
+  };
   return {
     ok: true,
     payload: {
@@ -1932,34 +1992,17 @@ export const executeXhsSearch = async (
         risk_state_output: resolveRiskStateOutput(gate, auditRecord),
         audit_record: auditRecord,
         ...layer2InteractionSummary(layer2Interaction),
-        route_evidence: {
-          evidence_class: "passive_api_capture",
-          profile_ref: input.executionContext.profile,
-          target_tab_id: gate.consumer_gate_result.target_tab_id,
-          page_url: env.getLocationHref(),
-          run_id: input.executionContext.runId,
-          action_ref: input.executionContext.gateInvocationId ?? input.executionContext.runId,
-          captured_at: requestContextState.template.capturedAt,
-          page_context_namespace: requestContextState.pageContextNamespace,
-          shape_key: requestContextState.shapeKey,
-          ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
-          target_continuity: passiveTargetContinuity,
-          ...(passiveCards.length > 0
-            ? {
-                item_kind: "search_card",
-                cards: passiveCards
-              }
-            : {})
-        },
+        route_evidence: routeEvidence,
+        closeout_route_evidence: routeEvidence,
         request_context: {
           status: "exact_hit",
           page_context_namespace: requestContextState.pageContextNamespace,
           shape_key: requestContextState.shapeKey,
-          captured_at: requestContextState.template.capturedAt
+          captured_at: capturedAt
         }
       },
       observability: createObservability({
-        href: env.getLocationHref(),
+        href: pageUrl,
         title: env.getDocumentTitle(),
         readyState: env.getReadyState(),
         requestId: `req-${env.randomId()}`,
