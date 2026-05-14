@@ -191,10 +191,15 @@ const assertProcessAlive = (pid) => {
         throw error;
     }
 };
-const waitForBrowserReady = async (profileDir, pid, launchedAtMs, processOwnership = "owned_child") => {
+const waitForBrowserReady = async (profileDir, pid, launchedAtMs, processOwnership = "owned_child", controllerPid = null) => {
     const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
     for (let attempt = 0; attempt < READY_WAIT_MAX_ATTEMPTS; attempt += 1) {
-        if (processOwnership !== "external_persistent_app") {
+        if (processOwnership === "external_persistent_app") {
+            if (controllerPid === null || !isProcessAlive(controllerPid)) {
+                throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
+            }
+        }
+        else {
             assertProcessAlive(pid);
         }
         let markerReady = false;
@@ -206,7 +211,12 @@ const waitForBrowserReady = async (profileDir, pid, launchedAtMs, processOwnersh
         }
         if (markerReady && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
             await sleep(READY_CONFIRM_DELAY_MS);
-            if (processOwnership !== "external_persistent_app") {
+            if (processOwnership === "external_persistent_app") {
+                if (controllerPid === null || !isProcessAlive(controllerPid)) {
+                    throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
+                }
+            }
+            else {
                 assertProcessAlive(pid);
             }
             return;
@@ -304,6 +314,8 @@ const cleanupFailedBrowserLaunch = async (input) => {
         }
     }
     if (state?.processOwnership === "external_persistent_app") {
+        // LaunchServices gives us the wrapper pid, not a reliable Chrome app pid.
+        // Failed startup cleanup may terminate that wrapper; successful stop paths must not.
         await terminateBrowserPid(state.browserPid, 500).catch(() => false);
         await cleanupSupervisorArtifacts(input.profileDir).catch(() => undefined);
         await cleanupStagedExtensions(input.profileDir);
@@ -360,7 +372,7 @@ export const launchBrowser = async (input) => {
             expectedToken: launchToken,
             expectedControllerPid: launched.pid
         });
-        await waitForBrowserReady(input.profileDir, state.browserPid, launched.launchedAtMs, state.processOwnership);
+        await waitForBrowserReady(input.profileDir, state.browserPid, launched.launchedAtMs, state.processOwnership, state.controllerPid);
         launchSucceeded = true;
         return {
             browserPath: executablePath,

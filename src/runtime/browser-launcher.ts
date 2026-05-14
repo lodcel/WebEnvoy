@@ -304,12 +304,17 @@ const waitForBrowserReady = async (
   profileDir: string,
   pid: number,
   launchedAtMs: number,
-  processOwnership: "owned_child" | "external_persistent_app" = "owned_child"
+  processOwnership: "owned_child" | "external_persistent_app" = "owned_child",
+  controllerPid: number | null = null
 ): Promise<void> => {
   const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
 
   for (let attempt = 0; attempt < READY_WAIT_MAX_ATTEMPTS; attempt += 1) {
-    if (processOwnership !== "external_persistent_app") {
+    if (processOwnership === "external_persistent_app") {
+      if (controllerPid === null || !isProcessAlive(controllerPid)) {
+        throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
+      }
+    } else {
       assertProcessAlive(pid);
     }
 
@@ -323,7 +328,11 @@ const waitForBrowserReady = async (
 
     if (markerReady && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
       await sleep(READY_CONFIRM_DELAY_MS);
-      if (processOwnership !== "external_persistent_app") {
+      if (processOwnership === "external_persistent_app") {
+        if (controllerPid === null || !isProcessAlive(controllerPid)) {
+          throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
+        }
+      } else {
         assertProcessAlive(pid);
       }
       return;
@@ -456,6 +465,8 @@ const cleanupFailedBrowserLaunch = async (input: {
     }
   }
   if (state?.processOwnership === "external_persistent_app") {
+    // LaunchServices gives us the wrapper pid, not a reliable Chrome app pid.
+    // Failed startup cleanup may terminate that wrapper; successful stop paths must not.
     await terminateBrowserPid(state.browserPid, 500).catch(() => false);
     await cleanupSupervisorArtifacts(input.profileDir).catch(() => undefined);
     await cleanupStagedExtensions(input.profileDir);
@@ -522,7 +533,8 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
       input.profileDir,
       state.browserPid,
       launched.launchedAtMs,
-      state.processOwnership
+      state.processOwnership,
+      state.controllerPid
     );
     launchSucceeded = true;
     return {
