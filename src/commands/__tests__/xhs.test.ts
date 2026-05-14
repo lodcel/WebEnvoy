@@ -11,6 +11,7 @@ import {
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
   evaluateXhsSearchPrimaryPassiveApiReadinessForContract,
+  mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract,
   normalizeGateOptionsForContract,
   pickXhsCloseoutEvidenceSummaryFieldsForContract,
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
@@ -2286,6 +2287,65 @@ describe("normalizeGateOptionsForContract", () => {
       passed: true,
       reproduced_multi_round: true,
       blockers: []
+    });
+  });
+
+  it("merges caller closeout rounds without self-authorizing expected artifacts", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/current",
+      artifact_identities: ["artifact/xhs-closeout/run-closeout-001/current"],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/search_result?keyword=closeout",
+      action_ref: "action/xhs.search/query"
+    };
+    const previousRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/previous",
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const currentRound = {
+      ...previousRound,
+      artifact_identity: expected.artifact_identity
+    };
+
+    const merged = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+      {
+        summary: {
+          closeout_evidence_expected: expected,
+          closeout_evidence_rounds: [currentRound]
+        }
+      },
+      {
+        closeout_evidence_rounds: [previousRound]
+      }
+    );
+
+    expect(merged).toMatchObject({
+      closeout_evidence_expected: {
+        artifact_identities: ["artifact/xhs-closeout/run-closeout-001/current"]
+      },
+      closeout_evidence_rounds: [previousRound, currentRound]
+    });
+    expect(evaluateXhsCloseoutEvidenceForContract(merged)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      reproduced_multi_round: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
     });
   });
 

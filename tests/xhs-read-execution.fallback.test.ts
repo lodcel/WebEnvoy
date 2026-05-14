@@ -5,7 +5,7 @@ import { executeXhsUserHome } from "../extension/xhs-user-home.js";
 import type { XhsSearchEnvironment, XhsSearchOptions } from "../extension/xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 
 const createApprovalRecord = () => ({
   approved: true,
@@ -636,7 +636,7 @@ describe("xhs read execution fallback", () => {
     });
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/feed"
+        url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed"
       })
     );
   });
@@ -896,12 +896,12 @@ describe("xhs read execution fallback", () => {
     });
     expect(result.payload).not.toHaveProperty("diagnosis");
     expect(callSignature).toHaveBeenCalledWith(
-      "/api/sns/web/v1/user/otherinfo?user_id=user-success-001",
+      `${USER_HOME_ENDPOINT}?user_id=user-success-001`,
       {}
     );
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/user/otherinfo?user_id=user-success-001"
+        url: `https://edith.xiaohongshu.com${USER_HOME_ENDPOINT}?user_id=user-success-001`
       })
     );
   });
@@ -943,7 +943,24 @@ describe("xhs read execution fallback", () => {
         fetchJson,
         readCapturedRequestContext: createRequestContextReader(
           createUserHomeRequestContext("user-closeout-001", {
-            observed_at: 1_710_000_000_000
+            observed_at: 1_710_000_000_000,
+            response: {
+              headers: {},
+              body: {
+                code: 0,
+                data: {
+                  notes: [
+                    {
+                      note_id: "note-user-closeout-001",
+                      user: {
+                        user_id: "user-closeout-001",
+                        nickname: "closeout user"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           })
         )
       })
@@ -1140,6 +1157,60 @@ describe("xhs read execution fallback", () => {
     });
   });
 
+  it("accepts user_posted payloads when the requested user id is inside notes[].user", async () => {
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-posted-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-posted-001",
+          targetPage: "profile_tab"
+        }),
+        executionContext: createFallbackExecutionContext("run-user-posted-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-posted-001",
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-posted-001")
+        ),
+        fetchJson: async () => ({
+          status: 200,
+          body: {
+            code: 0,
+            data: {
+              notes: [
+                {
+                  note_id: "note-user-posted-001",
+                  user: {
+                    user_id: "user-posted-001",
+                    nickname: "posted user"
+                  }
+                }
+              ]
+            }
+          }
+        })
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_posted user_home success");
+    }
+    expect(result.payload.summary).toMatchObject({
+      capability_result: {
+        outcome: "success",
+        data_ref: {
+          user_id: "user-posted-001"
+        }
+      }
+    });
+  });
+
   it("keeps detail execution failed when api success payload does not contain requested note", async () => {
     const result = await executeXhsDetail(
       {
@@ -1235,7 +1306,7 @@ describe("xhs read execution fallback", () => {
     });
     expect(result.payload.diagnosis).toMatchObject({
       failure_site: {
-        target: "/api/sns/web/v1/user/otherinfo"
+        target: USER_HOME_ENDPOINT
       }
     });
   });
@@ -1285,7 +1356,7 @@ describe("xhs read execution fallback", () => {
     });
     expect(result.payload.diagnosis).toMatchObject({
       failure_site: {
-        target: "/api/sns/web/v1/user/otherinfo"
+        target: USER_HOME_ENDPOINT
       }
     });
   });
@@ -1921,7 +1992,7 @@ describe("xhs read execution fallback", () => {
       category: "request_failed",
       failure_site: {
         component: "network",
-        target: "/api/sns/web/v1/user/otherinfo"
+        target: USER_HOME_ENDPOINT
       }
     });
     expect(fetchJson).not.toHaveBeenCalled();

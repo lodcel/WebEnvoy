@@ -259,11 +259,11 @@ const run = async (): Promise<void> => {
     await shutdown(1);
   });
 
-  if (browserSpawn.kind === "direct") {
-    browser.once("exit", async () => {
-      await shutdown(0);
-    });
-  }
+  browser.once("exit", async (code) => {
+    if (browserSpawn.kind === "direct" || code !== 0) {
+      await shutdown(code === 0 || code === null ? 0 : 1);
+    }
+  });
 
   process.on("SIGTERM", () => {
     void shutdown(0);

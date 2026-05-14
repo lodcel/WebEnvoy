@@ -741,6 +741,16 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
     }
     return picked;
 };
+const includeCallerCloseoutEvidenceFieldsForRuntime = (payload, options) => {
+    const nextPayload = { ...payload };
+    for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+        if (hasOwn(options, key) && options[key] !== null && options[key] !== undefined) {
+            nextPayload[key] = options[key];
+        }
+    }
+    return nextPayload;
+};
+export const mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract = (payload, options) => pickXhsCloseoutEvidenceSummaryFieldsForContract(includeCallerCloseoutEvidenceFieldsForRuntime(payload, options));
 const isCloseoutPrimaryApiSuccessRoute = (record) => {
     const routeRole = asString(record?.route_role);
     const pathKind = asString(record?.path_kind);
@@ -2295,7 +2305,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         const consumerGateResult = asObject(bridgeResult.payload.consumer_gate_result);
         const requestAdmissionResult = pickCanonicalSummaryField(bridgeResult.payload, "request_admission_result");
         const executionAudit = pickCanonicalSummaryField(bridgeResult.payload, "execution_audit");
-        const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(bridgeResult.payload);
+        const closeoutEvidenceSummaryFields = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(bridgeResult.payload, gate.options);
         const mergedBridgeSummary = {
             ...(asObject(bridgeResult.payload.summary) ?? {}),
             ...closeoutEvidenceSummaryFields

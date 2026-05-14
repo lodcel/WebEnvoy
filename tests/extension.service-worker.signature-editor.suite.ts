@@ -370,8 +370,8 @@ describe("extension service worker / signature and editor input", () => {
           },
           "{\"keyword\":\"露营\"}",
           7_000,
-          undefined,
-          undefined
+          null,
+          null
         ]
       })
     );
@@ -547,8 +547,8 @@ describe("extension service worker / signature and editor input", () => {
           },
           "{\"keyword\":\"露营\"}",
           7_000,
-          undefined,
-          undefined
+          null,
+          null
         ]
       })
     );

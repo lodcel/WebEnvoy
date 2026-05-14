@@ -1725,7 +1725,8 @@ describe("extension service worker / gate and approval", () => {
     const runId = "run-restore-xhs-profile-tab-stale-bootstrap-001";
     const userId = "6593ce8b000000002001d754";
     const targetUrl = "https://www.xiaohongshu.com/user/profile/" + userId + "?xsec_token=token-001&xsec_source=pc_search";
-    const endpointUrl = "https://edith.xiaohongshu.com/api/sns/web/v1/user/otherinfo?target_user_id=" + userId + "&user_id=" + userId;
+    const endpointPath = "/api/sns/web/v1/user_posted";
+    const endpointUrl = "https://edith.xiaohongshu.com" + endpointPath + "?num=30&cursor=&user_id=" + userId;
     chromeApi.tabs.query.mockImplementation(async () => [
       {
         id: 44,
@@ -1774,10 +1775,15 @@ describe("extension service worker / gate and approval", () => {
           body: JSON.stringify({
             success: true,
             data: {
-              user: {
-                user_id: userId,
-                nickname: "closeout-user"
-              }
+              notes: [
+                {
+                  note_id: "note-user-home-stale-restore-001",
+                  user: {
+                    user_id: userId,
+                    nickname: "closeout-user"
+                  }
+                }
+              ]
             }
           })
         };
@@ -1904,10 +1910,17 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await waitForPostedMessage(firstPort.postMessage, {
-      id: runId + "-capture",
-      status: "success"
-    });
+    await vi.waitFor(
+      () => {
+        expect(firstPort.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: runId + "-capture",
+            status: "success"
+          })
+        );
+      },
+      { timeout: 6_000 }
+    );
 
     expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
       url: targetUrl,
@@ -1926,7 +1939,7 @@ describe("extension service worker / gate and approval", () => {
     expect(artifact).toMatchObject({
       route_evidence_class: "passive_api_capture",
       source_kind: "page_request",
-      path: "/api/sns/web/v1/user/otherinfo",
+      path: endpointPath,
       profile_ref: "xhs_001",
       session_id: "nm-session-001",
       target_tab_id: 44,

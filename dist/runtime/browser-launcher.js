@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanupStagedExtensions, EXTENSION_BOOTSTRAP_FILENAME, EXTENSION_BOOTSTRAP_SCRIPT_FILENAME, EXTENSION_STAGING_DIRNAME, resolveExtensionBootstrapPayload, stageExtensionForRun } from "./browser-extension-staging.js";
@@ -49,6 +49,15 @@ const parseStartUrl = (params) => {
 const pathExists = async (path) => {
     try {
         await access(path);
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
+const pathEntryExists = async (path) => {
+    try {
+        await lstat(path);
         return true;
     }
     catch {
@@ -194,20 +203,28 @@ const assertProcessAlive = (pid) => {
 const waitForBrowserReady = async (profileDir, pid, launchedAtMs, processOwnership = "owned_child", controllerPid = null) => {
     const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
     for (let attempt = 0; attempt < READY_WAIT_MAX_ATTEMPTS; attempt += 1) {
-        if (processOwnership === "external_persistent_app") {
-            if (controllerPid === null || !isProcessAlive(controllerPid)) {
-                throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
-            }
-        }
-        else {
-            assertProcessAlive(pid);
-        }
         let markerReady = false;
         for (const marker of readyMarkers) {
             if (await isFreshReadyMarker(marker, launchedAtMs)) {
                 markerReady = true;
                 break;
             }
+        }
+        if (processOwnership === "external_persistent_app") {
+            if (controllerPid === null || !isProcessAlive(controllerPid)) {
+                throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
+            }
+            const profileLockReady = await pathEntryExists(join(profileDir, "SingletonLock"));
+            if ((markerReady || profileLockReady) && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
+                await sleep(READY_CONFIRM_DELAY_MS);
+                if (controllerPid === null || !isProcessAlive(controllerPid)) {
+                    throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
+                }
+                return;
+            }
+        }
+        else {
+            assertProcessAlive(pid);
         }
         if (markerReady && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
             await sleep(READY_CONFIRM_DELAY_MS);

@@ -9,7 +9,7 @@ import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsComm
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 const defaultForwardTimeoutMs = 3_000;
 const defaultHandshakeTimeoutMs = 30_000;
 const defaultNativeHostName = "com.webenvoy.host";
@@ -3769,6 +3769,7 @@ class ChromeBackgroundBridge {
         }
         const bootstrap = this.#runtimeTrustState.getBootstrap(profile);
         const trusted = this.#runtimeTrustState.getTrusted(profile, sessionId);
+        const staleRestoreLease = this.#getStaleRestoreBindingLease(profile, sessionId);
         const bootstrapBindsTarget = !!bootstrap &&
             (bootstrap.status === "pending" || bootstrap.status === "ready") &&
             bootstrap.sessionId === sessionId &&
@@ -3782,7 +3783,12 @@ class ChromeBackgroundBridge {
             trusted.sourceTabId === tab.id &&
             trusted.sourceDomain === targetDomain &&
             trusted.sourcePage === targetPage;
-        if (!bootstrapBindsTarget && !trustedBindsTarget) {
+        const staleRestoreLeaseBindsTarget = !!staleRestoreLease &&
+            staleRestoreLease.runId === runId &&
+            staleRestoreLease.targetTabId === tab.id &&
+            staleRestoreLease.targetDomain === targetDomain &&
+            staleRestoreLease.targetPage === targetPage;
+        if (!bootstrapBindsTarget && !trustedBindsTarget && !staleRestoreLeaseBindsTarget) {
             fail("USER_HOME_CAPTURE_MANAGED_TAB_NOT_BOUND", "runtime.xhs_capture_user_home_context requires a current managed profile tab binding", {
                 bootstrap_source_tab_id: bootstrap?.sourceTabId ?? null,
                 bootstrap_source_domain: bootstrap?.sourceDomain ?? null,
@@ -3791,7 +3797,11 @@ class ChromeBackgroundBridge {
                 trusted_source_tab_id: trusted?.sourceTabId ?? null,
                 trusted_source_domain: trusted?.sourceDomain ?? null,
                 trusted_source_page: trusted?.sourcePage ?? null,
-                trusted_run_id: trusted?.runId ?? null
+                trusted_run_id: trusted?.runId ?? null,
+                stale_restore_lease_target_tab_id: staleRestoreLease?.targetTabId ?? null,
+                stale_restore_lease_target_domain: staleRestoreLease?.targetDomain ?? null,
+                stale_restore_lease_target_page: staleRestoreLease?.targetPage ?? null,
+                stale_restore_lease_run_id: staleRestoreLease?.runId ?? null
             });
             return;
         }
@@ -3808,9 +3818,25 @@ class ChromeBackgroundBridge {
             await debuggerApi.sendCommand({ tabId: tab.id }, "Network.enable");
             const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(tab.id, userId, captureTimeoutMs);
             await debuggerApi.sendCommand({ tabId: tab.id }, "Page.reload", { ignoreCache: true });
+            await this.#sleep(1_500);
+            for (let index = 0; index < 4; index += 1) {
+                await debuggerApi.sendCommand({ tabId: tab.id }, "Input.dispatchMouseEvent", {
+                    type: "mouseWheel",
+                    x: 900,
+                    y: 800,
+                    deltaX: 0,
+                    deltaY: 900
+                }).catch(() => undefined);
+                await this.#sleep(450);
+            }
             const artifact = await capture;
-            if (!artifact) {
-                fail("USER_HOME_CAPTURE_CONTEXT_MISSING", "runtime.xhs_capture_user_home_context did not observe user_home API request", { page_url: tabUrl });
+            if (!artifact || artifact.diagnostic_only === true) {
+                fail("USER_HOME_CAPTURE_CONTEXT_MISSING", "runtime.xhs_capture_user_home_context did not observe user_home API request", {
+                    page_url: tabUrl,
+                    observed_api_requests: Array.isArray(artifact?.observed_api_requests)
+                        ? artifact.observed_api_requests
+                        : []
+                });
                 return;
             }
             const shape = {
@@ -6208,6 +6234,7 @@ class ChromeBackgroundBridge {
             return Promise.resolve(null);
         }
         const pending = new Map();
+        const observedApiRequests = [];
         const parseBody = (value) => {
             if (typeof value !== "string" || value.length === 0) {
                 return null;
@@ -6261,7 +6288,10 @@ class ChromeBackgroundBridge {
                 }
                 resolve(value);
             };
-            const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+            const timeout = setTimeout(() => finish({
+                diagnostic_only: true,
+                observed_api_requests: observedApiRequests.slice(-50)
+            }), Math.max(1, timeoutMs));
             const listener = (source, method, params) => {
                 if (settled || source.tabId !== tabId || !params) {
                     return;
@@ -6274,6 +6304,23 @@ class ChromeBackgroundBridge {
                     const request = asRecord(params.request);
                     const url = asNonEmptyString(request?.url);
                     const requestMethod = asNonEmptyString(request?.method);
+                    if (url) {
+                        try {
+                            const parsed = new URL(url);
+                            if (parsed.hostname.endsWith("xiaohongshu.com") &&
+                                parsed.pathname.includes("/api/")) {
+                                observedApiRequests.push({
+                                    method: requestMethod ?? null,
+                                    url,
+                                    pathname: parsed.pathname,
+                                    search: parsed.search
+                                });
+                            }
+                        }
+                        catch {
+                            // Ignore malformed diagnostic URLs.
+                        }
+                    }
                     if (!url || requestMethod !== "GET" || !isUserHomeEndpoint(url)) {
                         return;
                     }
@@ -7130,10 +7177,10 @@ class ChromeBackgroundBridge {
                 input.url,
                 input.method,
                 sanitizedHeaders,
-                input.body,
+                input.body ?? null,
                 input.timeoutMs,
-                input.referrer,
-                input.referrerPolicy
+                input.referrer ?? null,
+                input.referrerPolicy ?? null
             ]
         });
         const first = Array.isArray(results) ? results[0] : null;

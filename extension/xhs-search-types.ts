@@ -423,7 +423,7 @@ export interface XhsExecutionContext {
 
 export const SEARCH_ENDPOINT = "/api/sns/web/v1/search/notes";
 export const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-export const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+export const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 export const WEBENVOY_SYNTHETIC_REQUEST_HEADER = "x-webenvoy-synthetic-request";
 const MAIN_WORLD_EVENT_NAMESPACE = "webenvoy.main_world.bridge.v1";
 const MAIN_WORLD_PAGE_CONTEXT_NAMESPACE_EVENT_PREFIX = "__mw_ns__";

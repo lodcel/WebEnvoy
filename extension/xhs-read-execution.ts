@@ -19,7 +19,7 @@ import {
 
 type XhsReadCommandName = "xhs.detail" | "xhs.user_home";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 const XHS_READ_API_ORIGIN = "https://edith.xiaohongshu.com";
 
 type CapturedReadRequestContextArtifact = {
@@ -320,9 +320,9 @@ const XHS_USER_HOME_SPEC: XhsReadCommandSpec = {
   requestClass: "xhs.user_home",
   buildPayload: () => ({}),
   buildUrl: (params) =>
-    `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}&target_user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
+    `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
   buildSignatureUri: (params) =>
-    `/api/sns/web/v1/user/otherinfo?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}&target_user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
+    `${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
   buildDataRef: (params) => ({
     user_id: (params as XhsUserHomeParams).user_id
   })
@@ -421,6 +421,16 @@ const resolveCapturedArtifactRequestUrl = (value: unknown): string | null => {
     }
   }
   return asString(record.path);
+};
+
+const resolveReadApiFetchUrl = (value: string): string => {
+  if (/^https?:\/\//iu.test(value)) {
+    return value;
+  }
+  if (value.startsWith("/")) {
+    return `${XHS_READ_API_ORIGIN}${value}`;
+  }
+  return value;
 };
 
 const resolveCapturedArtifactRequestBody = (value: unknown): JsonRecord | null => {
@@ -851,6 +861,17 @@ const parseUserIdFromUrl = (value: string | null): string | null => {
   }
 };
 
+const parsePathnameFromUrl = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  try {
+    return new URL(value, "https://www.xiaohongshu.com").pathname;
+  } catch {
+    return null;
+  }
+};
+
 const resolveDetailResponseNoteId = (
   value: unknown,
   preferredNoteId?: string | null,
@@ -930,6 +951,11 @@ const iterateUserHomeResponseCandidates = (value: unknown): JsonRecord[] => {
     ...collectCandidates(dataRecord.basic_info),
     ...collectCandidates(dataRecord.basicInfo),
     ...collectCandidates(dataRecord.profile),
+    ...collectCandidates(dataRecord.notes),
+    ...collectCandidates(dataRecord.items),
+    ...collectCandidates(dataRecord.list),
+    ...collectCandidates(dataRecord.note_list),
+    ...collectCandidates(dataRecord.noteList),
     ...(hasUserHomeResponseDataShape(dataRecord) ? [dataRecord] : [])
   ];
 };
@@ -1003,6 +1029,11 @@ const deriveDetailRejectedShapeFromRequestSource = (value: unknown): DetailReque
 const deriveUserHomeShapeFromSource = (value: unknown): UserHomeRequestShape | null => {
   const record = asRecord(value);
   if (!record) {
+    return null;
+  }
+  const declaredPathname =
+    asString(record.pathname) ?? asString(record.path) ?? parsePathnameFromUrl(asString(record.url));
+  if (declaredPathname !== null && declaredPathname !== USER_HOME_ENDPOINT) {
     return null;
   }
   const userId = asString(record.user_id) ?? asString(record.userId) ?? parseUserIdFromUrl(asString(record.url));
@@ -2256,6 +2287,21 @@ const getUserHomeResponseCandidates = (body: unknown): JsonRecord[] => {
       "user"
     ]),
     ...collectNestedRecordCandidates(dataRecord.profile, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.notes, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.items, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.list, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.note_list, [
+      "basic_info",
+      "basicInfo",
+      "profile",
+      "user"
+    ]),
+    ...collectNestedRecordCandidates(dataRecord.noteList, [
+      "basic_info",
+      "basicInfo",
+      "profile",
+      "user"
+    ]),
     ...(hasUserDataShape(dataRecord) ? [dataRecord] : [])
   ];
 };
@@ -2588,6 +2634,7 @@ const createPageStateFallbackSuccess = (
   fallback: {
     reason: string;
     message: string;
+    detail?: string;
     statusCode?: number;
     platformCode?: number;
     requestAttempted?: boolean;
@@ -2660,6 +2707,9 @@ const createPageStateFallbackSuccess = (
                     ? { status_code: fallback.statusCode }
                     : {}),
                   failure_reason: fallback.reason,
+                  ...(typeof fallback.detail === "string" && fallback.detail.length > 0
+                    ? { failure_detail: fallback.detail }
+                    : {}),
                   request_class: spec.requestClass
                 }
               ]
@@ -3310,7 +3360,7 @@ const executeXhsRead = async (
   let response: { status: number; body: unknown };
   try {
     response = await env.fetchJson({
-      url: requestUrl,
+      url: resolveReadApiFetchUrl(requestUrl),
       method: spec.method,
       headers: buildHeaders(env, input.options, signature, requestContextResult.headers),
       ...(spec.method === "POST" ? { body: JSON.stringify(requestPayload) } : {}),
@@ -3328,7 +3378,8 @@ const executeXhsRead = async (
     if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failure.reason)) {
       return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
         reason: failure.reason,
-        message: failure.message
+        message: failure.message,
+        detail: failure.detail
       });
     }
     return withExecutionAuditInFailurePayload(

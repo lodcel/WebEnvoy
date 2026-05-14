@@ -4,6 +4,7 @@ export {
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
   buildXhsCloseoutEvidenceTrustedBindingForContract,
+  mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract,
   normalizeGateOptionsForContract,
   pickXhsCloseoutEvidenceSummaryFieldsForContract,
   requiresCloseoutAuditForXhsBridgeSummaryForContract,

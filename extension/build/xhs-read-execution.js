@@ -2,7 +2,7 @@ import { createUserHomeRequestShape, createPageContextNamespace } from "./xhs-se
 import { createAuditRecord, resolveGate } from "./xhs-search-gate.js";
 import { classifyXhsAccountSafetySurface, containsCookie, createDiagnosis, createFailure, resolveRiskStateOutput, resolveXsCommon } from "./xhs-search-telemetry.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 const XHS_READ_API_ORIGIN = "https://edith.xiaohongshu.com";
 const requiresSignedContinuity = (spec) => spec.command === "xhs.detail" || spec.command === "xhs.user_home";
 const REQUEST_CONTEXT_FRESHNESS_WINDOW_MS = 5 * 60_000;
@@ -56,8 +56,8 @@ const XHS_USER_HOME_SPEC = {
     pageKind: "user_home",
     requestClass: "xhs.user_home",
     buildPayload: () => ({}),
-    buildUrl: (params) => `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?user_id=${encodeURIComponent(params.user_id)}&target_user_id=${encodeURIComponent(params.user_id)}`,
-    buildSignatureUri: (params) => `/api/sns/web/v1/user/otherinfo?user_id=${encodeURIComponent(params.user_id)}&target_user_id=${encodeURIComponent(params.user_id)}`,
+    buildUrl: (params) => `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent(params.user_id)}`,
+    buildSignatureUri: (params) => `${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent(params.user_id)}`,
     buildDataRef: (params) => ({
         user_id: params.user_id
     })
@@ -139,6 +139,15 @@ const resolveCapturedArtifactRequestUrl = (value) => {
         }
     }
     return asString(record.path);
+};
+const resolveReadApiFetchUrl = (value) => {
+    if (/^https?:\/\//iu.test(value)) {
+        return value;
+    }
+    if (value.startsWith("/")) {
+        return `${XHS_READ_API_ORIGIN}${value}`;
+    }
+    return value;
 };
 const resolveCapturedArtifactRequestBody = (value) => {
     const record = asRecord(value);
@@ -482,6 +491,17 @@ const parseUserIdFromUrl = (value) => {
         return null;
     }
 };
+const parsePathnameFromUrl = (value) => {
+    if (!value) {
+        return null;
+    }
+    try {
+        return new URL(value, "https://www.xiaohongshu.com").pathname;
+    }
+    catch {
+        return null;
+    }
+};
 const resolveDetailResponseNoteId = (value, preferredNoteId, options) => {
     const record = asRecord(value);
     if (!record) {
@@ -550,6 +570,11 @@ const iterateUserHomeResponseCandidates = (value) => {
         ...collectCandidates(dataRecord.basic_info),
         ...collectCandidates(dataRecord.basicInfo),
         ...collectCandidates(dataRecord.profile),
+        ...collectCandidates(dataRecord.notes),
+        ...collectCandidates(dataRecord.items),
+        ...collectCandidates(dataRecord.list),
+        ...collectCandidates(dataRecord.note_list),
+        ...collectCandidates(dataRecord.noteList),
         ...(hasUserHomeResponseDataShape(dataRecord) ? [dataRecord] : [])
     ];
 };
@@ -610,6 +635,10 @@ const deriveDetailRejectedShapeFromRequestSource = (value) => {
 const deriveUserHomeShapeFromSource = (value) => {
     const record = asRecord(value);
     if (!record) {
+        return null;
+    }
+    const declaredPathname = asString(record.pathname) ?? asString(record.path) ?? parsePathnameFromUrl(asString(record.url));
+    if (declaredPathname !== null && declaredPathname !== USER_HOME_ENDPOINT) {
         return null;
     }
     const userId = asString(record.user_id) ?? asString(record.userId) ?? parseUserIdFromUrl(asString(record.url));
@@ -1576,6 +1605,21 @@ const getUserHomeResponseCandidates = (body) => {
             "user"
         ]),
         ...collectNestedRecordCandidates(dataRecord.profile, ["basic_info", "basicInfo", "profile", "user"]),
+        ...collectNestedRecordCandidates(dataRecord.notes, ["basic_info", "basicInfo", "profile", "user"]),
+        ...collectNestedRecordCandidates(dataRecord.items, ["basic_info", "basicInfo", "profile", "user"]),
+        ...collectNestedRecordCandidates(dataRecord.list, ["basic_info", "basicInfo", "profile", "user"]),
+        ...collectNestedRecordCandidates(dataRecord.note_list, [
+            "basic_info",
+            "basicInfo",
+            "profile",
+            "user"
+        ]),
+        ...collectNestedRecordCandidates(dataRecord.noteList, [
+            "basic_info",
+            "basicInfo",
+            "profile",
+            "user"
+        ]),
         ...(hasUserDataShape(dataRecord) ? [dataRecord] : [])
     ];
 };
@@ -1879,6 +1923,9 @@ const createPageStateFallbackSuccess = (input, spec, gate, auditRecord, env, pay
                                     ? { status_code: fallback.statusCode }
                                     : {}),
                                 failure_reason: fallback.reason,
+                                ...(typeof fallback.detail === "string" && fallback.detail.length > 0
+                                    ? { failure_detail: fallback.detail }
+                                    : {}),
                                 request_class: spec.requestClass
                             }
                         ]
@@ -2378,7 +2425,7 @@ const executeXhsRead = async (input, spec, env) => {
     let response;
     try {
         response = await env.fetchJson({
-            url: requestUrl,
+            url: resolveReadApiFetchUrl(requestUrl),
             method: spec.method,
             headers: buildHeaders(env, input.options, signature, requestContextResult.headers),
             ...(spec.method === "POST" ? { body: JSON.stringify(requestPayload) } : {}),
@@ -2396,7 +2443,8 @@ const executeXhsRead = async (input, spec, env) => {
         if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failure.reason)) {
             return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
                 reason: failure.reason,
-                message: failure.message
+                message: failure.message,
+                detail: failure.detail
             });
         }
         return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", failure.message, {
