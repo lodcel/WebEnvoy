@@ -478,6 +478,47 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
     });
   });
 
+  it("keeps malformed encoded profile restore targets on the structured denial path", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const result = runCli(
+      [
+        "runtime.restore_xhs_target",
+        "--profile",
+        "xhs_001",
+        "--run-id",
+        "run-contract-restore-profile-target-malformed-001",
+        "--params",
+        JSON.stringify({
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          target_url: "https://www.xiaohongshu.com/user/profile/%E0%A4%A"
+        })
+      ],
+      runtimeCwd,
+      {
+        WEBENVOY_NATIVE_TRANSPORT: "native",
+        WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
+        WEBENVOY_NATIVE_HOST_MODE: "restore-target-input-invalid"
+      }
+    );
+    expect(result.status).toBe(2);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body).toMatchObject({
+      run_id: "run-contract-restore-profile-target-malformed-001",
+      command: "runtime.restore_xhs_target",
+      status: "error",
+      error: {
+        code: "ERR_CLI_INVALID_ARGS",
+        details: {
+          ability_id: "runtime.restore_xhs_target",
+          stage: "input_validation",
+          reason: "TARGET_RESTORE_INPUT_INVALID"
+        }
+      }
+    });
+  });
+
   it("maps forwarded target restoration denials to execution failed instead of runtime unavailable", async () => {
     const runtimeCwd = await createRuntimeCwd();
     const result = runCli(

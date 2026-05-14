@@ -1700,14 +1700,54 @@ const runtimeXhsCaptureUserHomeContext = async (context) => {
         await bridge?.close().catch(() => undefined);
     }
 };
-const isRuntimeRestoreXhsTargetMutation = (params) => asString(params.target_domain) === "www.xiaohongshu.com" &&
-    asString(params.target_page) === "search_result_tab" &&
-    typeof params.target_tab_id === "number" &&
-    Number.isInteger(params.target_tab_id) &&
-    asString(params.query) !== null;
+const isRuntimeRestoreXhsTargetMutation = (params) => isRuntimeRestoreXhsSearchTargetMutation(params) ||
+    isRuntimeRestoreXhsProfileTargetMutation(params);
 const isRuntimeRestoreXhsSearchTarget = (params) => asString(params.target_domain) === "www.xiaohongshu.com" &&
     asString(params.target_page) === "search_result_tab" &&
     asString(params.query) !== null;
+const isRuntimeRestoreXhsSearchTargetMutation = (params) => isRuntimeRestoreXhsSearchTarget(params) &&
+    typeof params.target_tab_id === "number" &&
+    Number.isInteger(params.target_tab_id);
+const safeDecodeURIComponent = (value) => {
+    try {
+        return decodeURIComponent(value);
+    }
+    catch {
+        return null;
+    }
+};
+const resolveXhsProfileTargetUrlForRestore = (params) => {
+    const userId = asString(params.user_id);
+    const targetUrl = asString(params.target_url);
+    let parsedTarget = null;
+    if (targetUrl !== null) {
+        try {
+            parsedTarget = new URL(targetUrl);
+        }
+        catch {
+            return null;
+        }
+        const match = /^\/user\/profile\/([^/?#]+)$/u.exec(parsedTarget.pathname);
+        const urlUserId = match?.[1] ? safeDecodeURIComponent(match[1]) : null;
+        if (parsedTarget.protocol !== "https:" ||
+            parsedTarget.hostname !== "www.xiaohongshu.com" ||
+            urlUserId === null ||
+            (userId !== null && userId !== urlUserId)) {
+            return null;
+        }
+        return parsedTarget.toString();
+    }
+    if (userId === null) {
+        return null;
+    }
+    return `https://www.xiaohongshu.com/user/profile/${encodeURIComponent(userId)}`;
+};
+const isRuntimeRestoreXhsProfileTarget = (params) => asString(params.target_domain) === "www.xiaohongshu.com" &&
+    asString(params.target_page) === "profile_tab" &&
+    resolveXhsProfileTargetUrlForRestore(params) !== null;
+const isRuntimeRestoreXhsProfileTargetMutation = (params) => isRuntimeRestoreXhsProfileTarget(params) &&
+    typeof params.target_tab_id === "number" &&
+    Number.isInteger(params.target_tab_id);
 const buildXhsRestoreSearchResultUrl = (query) => {
     const url = new URL("/search_result", "https://www.xiaohongshu.com");
     url.searchParams.set("keyword", query);
@@ -1821,7 +1861,19 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
             }
         });
     }
-    if (isRuntimeRestoreXhsSearchTarget(context.params) &&
+    if (asString(context.params.target_domain) === "www.xiaohongshu.com" &&
+        asString(context.params.target_page) === "profile_tab" &&
+        resolveXhsProfileTargetUrlForRestore(context.params) === null) {
+        throw new CliError("ERR_CLI_INVALID_ARGS", "runtime.restore_xhs_target requires an XHS profile_tab user target", {
+            details: {
+                ability_id: "runtime.restore_xhs_target",
+                stage: "input_validation",
+                reason: "TARGET_RESTORE_INPUT_INVALID"
+            }
+        });
+    }
+    if ((isRuntimeRestoreXhsSearchTarget(context.params) ||
+        isRuntimeRestoreXhsProfileTarget(context.params)) &&
         !(typeof context.params.target_tab_id === "number" &&
             Number.isInteger(context.params.target_tab_id))) {
         throw new CliError("ERR_CLI_INVALID_ARGS", "runtime.restore_xhs_target requires target_tab_id", {
@@ -1879,7 +1931,11 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
         asString(context.params.gate_invocation_id) ??
         context.run_id;
     const query = asString(context.params.query);
-    const targetUrl = query ? buildXhsRestoreSearchResultUrl(query) : null;
+    const targetUrl = asString(context.params.target_page) === "profile_tab"
+        ? resolveXhsProfileTargetUrlForRestore(context.params)
+        : query
+            ? buildXhsRestoreSearchResultUrl(query)
+            : null;
     const runtimeContextId = buildRuntimeBootstrapContextId(context.profile, context.run_id);
     let antiDetectionValidationView = null;
     let store = null;

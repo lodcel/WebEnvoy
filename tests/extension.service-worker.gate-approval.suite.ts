@@ -81,6 +81,7 @@ const primeManagedXhsBootstrap = async (
     runId: string;
     targetTabId: number;
     targetDomain?: string;
+    targetPage?: string;
     sessionId?: string;
   }
 ) => {
@@ -98,7 +99,7 @@ const primeManagedXhsBootstrap = async (
         runtime_context_id: `${input.runId}-ctx`,
         profile: "xhs_001",
         target_domain: input.targetDomain ?? "www.xiaohongshu.com",
-        target_page: "search_result_tab",
+        target_page: input.targetPage ?? "search_result_tab",
         target_tab_id: input.targetTabId,
         fingerprint_runtime: createFingerprintRuntimeContext(),
         fingerprint_patch_manifest: {
@@ -124,6 +125,7 @@ const primeStaleRestoreBindingLease = async (
     runId: string;
     targetTabId: number;
     targetDomain?: string;
+    targetPage?: string;
     sessionId?: string;
   }
 ) => {
@@ -140,7 +142,7 @@ const primeStaleRestoreBindingLease = async (
         run_id: input.runId,
         runtime_context_id: `${input.runId}-ctx`,
         target_domain: input.targetDomain ?? "www.xiaohongshu.com",
-        target_page: "search_result_tab",
+        target_page: input.targetPage ?? "search_result_tab",
         target_tab_id: input.targetTabId
       },
       cwd: "/workspace/WebEnvoy"
@@ -428,6 +430,218 @@ describe("extension service worker / gate and approval", () => {
           target_tab_id: 44,
           target_page: "search_result_tab",
           restore_action: "navigate_existing_tab",
+          active_fetch_performed: false,
+          closeout_bundle_entered: false
+        }
+      }
+    });
+  });
+
+  it("restores an explicit managed XHS tab to the requested user profile target", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    const userId = "6593ce8b000000002001d754";
+    const targetUrl =
+      `https://www.xiaohongshu.com/user/profile/${userId}?xsec_token=token-001&xsec_source=pc_search`;
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: "https://www.xiaohongshu.com/explore/69dddd1f000000001f0043fb",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-restore-xhs-profile-tab-001",
+      targetTabId: 44,
+      targetPage: "profile_tab"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-xhs-profile-tab-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-xhs-profile-tab-001",
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          user_id: userId,
+          target_url: targetUrl,
+          action_ref: "issue677-restore-profile-tab",
+          restore_safety_gate: createRestoreSafetyGate("run-restore-xhs-profile-tab-001", {
+            targetPage: "profile_tab",
+            targetUrl,
+            actionRef: "issue677-restore-profile-tab"
+          })
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    expect(chromeApi.tabs.get).toHaveBeenCalledWith(44);
+    expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
+      url: targetUrl,
+      active: true
+    });
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-restore-xhs-profile-tab-001");
+    expect(response).toMatchObject({
+      id: "run-restore-xhs-profile-tab-001",
+      status: "success",
+      payload: {
+        target_tab_id: 44,
+        target_url: targetUrl,
+        restore_evidence: {
+          evidence_class: "target_tab_restoration",
+          profile_ref: "xhs_001",
+          session_id: "nm-session-001",
+          target_tab_id: 44,
+          target_page: "profile_tab",
+          restore_action: "navigate_existing_tab",
+          active_fetch_performed: false,
+          closeout_bundle_entered: false
+        }
+      }
+    });
+  });
+
+  it("fails closed when profile tab restore points outside the canonical XHS profile URL", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: "https://www.xiaohongshu.com/explore/69dddd1f000000001f0043fb",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-restore-xhs-profile-tab-invalid-001",
+      targetTabId: 44,
+      targetPage: "profile_tab"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-xhs-profile-tab-invalid-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-xhs-profile-tab-invalid-001",
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          user_id: "6593ce8b000000002001d754",
+          target_url: "https://example.com/user/profile/6593ce8b000000002001d754",
+          restore_safety_gate: createRestoreSafetyGate("run-restore-xhs-profile-tab-invalid-001", {
+            targetPage: "profile_tab",
+            targetUrl: "https://example.com/user/profile/6593ce8b000000002001d754"
+          })
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    expect(chromeApi.tabs.update).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-restore-xhs-profile-tab-invalid-001");
+    expect(response).toMatchObject({
+      id: "run-restore-xhs-profile-tab-invalid-001",
+      status: "error",
+      payload: {
+        details: {
+          reason: "TARGET_RESTORE_INPUT_INVALID",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          active_fetch_performed: false,
+          closeout_bundle_entered: false
+        }
+      }
+    });
+  });
+
+  it("fails closed when profile tab restore receives a malformed encoded profile id", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    const malformedTargetUrl = "https://www.xiaohongshu.com/user/profile/%E0%A4%A";
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: "https://www.xiaohongshu.com/explore/69dddd1f000000001f0043fb",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-restore-xhs-profile-tab-malformed-001",
+      targetTabId: 44,
+      targetPage: "profile_tab"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-xhs-profile-tab-malformed-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-xhs-profile-tab-malformed-001",
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          target_url: malformedTargetUrl,
+          restore_safety_gate: createRestoreSafetyGate("run-restore-xhs-profile-tab-malformed-001", {
+            targetPage: "profile_tab",
+            targetUrl: malformedTargetUrl
+          })
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    expect(chromeApi.tabs.update).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-restore-xhs-profile-tab-malformed-001");
+    expect(response).toMatchObject({
+      id: "run-restore-xhs-profile-tab-malformed-001",
+      status: "error",
+      payload: {
+        details: {
+          reason: "TARGET_RESTORE_INPUT_INVALID",
+          target_page: "profile_tab",
+          target_tab_id: 44,
           active_fetch_performed: false,
           closeout_bundle_entered: false
         }
@@ -1496,6 +1710,229 @@ describe("extension service worker / gate and approval", () => {
           closeout_bundle_entered: false
         }
       }
+    });
+  });
+
+  it("keeps restored XHS profile tabs bound for user_home capture after stale bootstrap recovery", async () => {
+    const firstPort = createMockPort();
+    const {
+      chromeApi,
+      runtimeMessageListeners,
+      debuggerDetach,
+      debuggerOnEventListeners,
+      debuggerSendCommand
+    } = createChromeApi([firstPort]);
+    const runId = "run-restore-xhs-profile-tab-stale-bootstrap-001";
+    const userId = "6593ce8b000000002001d754";
+    const targetUrl = "https://www.xiaohongshu.com/user/profile/" + userId + "?xsec_token=token-001&xsec_source=pc_search";
+    const endpointUrl = "https://edith.xiaohongshu.com/api/sns/web/v1/user/otherinfo?target_user_id=" + userId + "&user_id=" + userId;
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: "https://www.xiaohongshu.com/explore/69dddd1f000000001f0043fb",
+        active: true
+      }
+    ]);
+    debuggerSendCommand.mockImplementation(async (_target, command, params) => {
+      if (command === "Page.reload") {
+        queueMicrotask(() => {
+          for (const listener of debuggerOnEventListeners) {
+            listener({ tabId: 44 }, "Network.requestWillBeSent", {
+              requestId: "user-home-stale-restore-request-001",
+              request: {
+                method: "GET",
+                url: endpointUrl,
+                headers: {
+                  accept: "application/json",
+                  Referer: targetUrl,
+                  Cookie: "xhs-session=secret",
+                  "X-s": "signed-secret"
+                }
+              }
+            });
+            listener({ tabId: 44 }, "Network.responseReceived", {
+              requestId: "user-home-stale-restore-request-001",
+              response: {
+                status: 200,
+                headers: {
+                  "content-type": "application/json",
+                  "set-cookie": "session=secret"
+                }
+              }
+            });
+            listener({ tabId: 44 }, "Network.loadingFinished", {
+              requestId: "user-home-stale-restore-request-001"
+            });
+          }
+        });
+        return {};
+      }
+      if (command === "Network.getResponseBody") {
+        expect(params).toMatchObject({ requestId: "user-home-stale-restore-request-001" });
+        return {
+          base64Encoded: false,
+          body: JSON.stringify({
+            success: true,
+            data: {
+              user: {
+                user_id: userId,
+                nickname: "closeout-user"
+              }
+            }
+          })
+        };
+      }
+      return {};
+    });
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId,
+      targetTabId: 44,
+      targetPage: "profile_tab"
+    });
+    runtimeMessageListeners[0]?.(
+      {
+        kind: "result",
+        id: runId + "-bootstrap",
+        ok: true,
+        payload: {
+          result: {
+            version: "v1",
+            run_id: runId,
+            runtime_context_id: runId + "-ctx",
+            profile: "xhs_001",
+            status: "stale"
+          },
+          fingerprint_runtime: {
+            ...createFingerprintRuntimeContext(),
+            injection: {
+              installed: true,
+              required_patches: ["audio_context", "battery", "navigator_plugins", "navigator_mime_types"],
+              missing_required_patches: [],
+              source: "main_world"
+            }
+          }
+        }
+      },
+      {
+        tab: {
+          id: 44,
+          url: targetUrl
+        }
+      }
+    );
+    await waitForBridgeTurn();
+    firstPort.onMessageListeners[0]?.({
+      id: runId + "-readiness",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: runId,
+        command: "runtime.readiness",
+        command_params: {
+          run_id: runId,
+          runtime_context_id: runId + "-ctx",
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+    chromeApi.tabs.update.mockClear();
+    chromeApi.tabs.sendMessage.mockClear();
+    chromeApi.scripting.executeScript.mockClear();
+    firstPort.postMessage.mockClear();
+
+    firstPort.onMessageListeners[0]?.({
+      id: runId + "-restore",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: runId,
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          user_id: userId,
+          target_url: targetUrl,
+          action_ref: "issue677-stale-profile-tab-rebind",
+          restore_safety_gate: createRestoreSafetyGate(runId, {
+            targetPage: "profile_tab",
+            targetUrl,
+            actionRef: "issue677-stale-profile-tab-rebind",
+            restoreRuntimeAttachState: "stale_bootstrap_same_runtime",
+            bootstrapState: "stale",
+            runtimeReadiness: "blocked",
+            staleBootstrapRecovery: true,
+            targetTabContinuity: "stale_bootstrap_current_managed_tab"
+          })
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: runId + "-restore",
+      status: "success"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: runId + "-capture",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: runId,
+        command: "runtime.xhs_capture_user_home_context",
+        command_params: {
+          target_domain: "www.xiaohongshu.com",
+          target_page: "profile_tab",
+          target_tab_id: 44,
+          user_id: userId,
+          action_ref: "action/xhs.user_home/passive_capture"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: runId + "-capture",
+      status: "success"
+    });
+
+    expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
+      url: targetUrl,
+      active: true
+    });
+    expect(debuggerSendCommand).toHaveBeenCalledWith({ tabId: 44 }, "Page.reload", {
+      ignoreCache: true
+    });
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 44 });
+    const capture = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === runId + "-capture");
+    const artifact = asRecord(
+      asRecord(capture?.payload)?.captured_request_context_artifact
+    );
+    expect(artifact).toMatchObject({
+      route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
+      path: "/api/sns/web/v1/user/otherinfo",
+      profile_ref: "xhs_001",
+      session_id: "nm-session-001",
+      target_tab_id: 44,
+      run_id: runId,
+      page_url: targetUrl,
+      status: 200
     });
   });
 

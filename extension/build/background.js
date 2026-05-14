@@ -542,11 +542,44 @@ const parseUrl = (value, base) => {
         return null;
     }
 };
+const safeDecodeURIComponent = (value) => {
+    try {
+        return decodeURIComponent(value);
+    }
+    catch {
+        return null;
+    }
+};
 const buildXhsSearchResultUrl = (query) => {
     const url = new URL("/search_result", `https://${XHS_READ_DOMAIN}`);
     url.searchParams.set("keyword", query);
     url.searchParams.set("type", "51");
     return url.toString();
+};
+const resolveXhsProfileTarget = (input) => {
+    const parsedTarget = input.targetUrl ? parseUrl(input.targetUrl) : null;
+    const profileMatch = parsedTarget?.pathname.match(/^\/user\/profile\/([^/?#]+)$/u) ?? null;
+    const urlUserId = profileMatch?.[1] ? safeDecodeURIComponent(profileMatch[1]) : null;
+    const userId = input.userId ?? urlUserId;
+    if (!userId) {
+        return null;
+    }
+    if (parsedTarget) {
+        if (parsedTarget.protocol !== "https:" ||
+            parsedTarget.hostname !== XHS_READ_DOMAIN ||
+            urlUserId !== userId) {
+            return null;
+        }
+        return {
+            userId,
+            targetUrl: parsedTarget.toString()
+        };
+    }
+    const url = new URL(`/user/profile/${encodeURIComponent(userId)}`, `https://${XHS_READ_DOMAIN}`);
+    return {
+        userId,
+        targetUrl: url.toString()
+    };
 };
 const normalizeXhsRestoreSearchUrl = (value) => {
     if (!value) {
@@ -572,6 +605,33 @@ const xhsRestoreSearchUrlsMatch = (observedUrl, targetUrl) => {
     const target = normalizeXhsRestoreSearchUrl(targetUrl);
     return observed !== null && target !== null && observed === target;
 };
+const normalizeXhsRestoreProfileUrl = (value) => {
+    if (!value) {
+        return null;
+    }
+    const target = resolveXhsProfileTarget({ userId: null, targetUrl: value });
+    if (!target) {
+        return null;
+    }
+    const parsed = parseUrl(target.targetUrl);
+    if (!parsed) {
+        return null;
+    }
+    const normalized = new URL(`/user/profile/${encodeURIComponent(target.userId)}`, `https://${XHS_READ_DOMAIN}`);
+    const entries = Array.from(parsed.searchParams.entries()).sort(([leftKey, leftValue], [rightKey, rightValue]) => leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey));
+    for (const [key, entryValue] of entries) {
+        normalized.searchParams.append(key, entryValue);
+    }
+    return normalized.toString();
+};
+const xhsRestoreProfileUrlsMatch = (observedUrl, targetUrl) => {
+    const observed = normalizeXhsRestoreProfileUrl(observedUrl);
+    const target = normalizeXhsRestoreProfileUrl(targetUrl);
+    return observed !== null && target !== null && observed === target;
+};
+const xhsRestoreTargetUrlsMatch = (targetPage, observedUrl, targetUrl) => targetPage === "profile_tab"
+    ? xhsRestoreProfileUrlsMatch(observedUrl, targetUrl)
+    : xhsRestoreSearchUrlsMatch(observedUrl, targetUrl);
 const buildObservedRuntimeInstanceId = (input) => `${input.sessionId}:${input.runId}:${input.runtimeContextId}`;
 const isRestoreTargetTabNotFoundError = (error) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -2043,12 +2103,21 @@ class ChromeBackgroundBridge {
     #rebindRuntimeTrustTargetAfterRestore(input) {
         const now = new Date().toISOString();
         const bootstrap = this.#runtimeTrustState.getBootstrap(input.profile);
-        if (bootstrap &&
+        const canRebindReadyBootstrap = !!bootstrap &&
             bootstrap.sessionId === input.sessionId &&
             bootstrap.runId === input.runId &&
-            (bootstrap.status === "pending" || bootstrap.status === "ready")) {
+            (bootstrap.status === "pending" || bootstrap.status === "ready");
+        const canRecoverStaleBootstrap = !!bootstrap &&
+            input.allowStaleBootstrapRecovery === true &&
+            bootstrap.sessionId === input.sessionId &&
+            bootstrap.runId === input.runId &&
+            bootstrap.runtimeContextId === input.runtimeContextId &&
+            bootstrap.status === "stale";
+        if (canRebindReadyBootstrap ||
+            canRecoverStaleBootstrap) {
             this.#runtimeTrustState.setBootstrap(input.profile, {
                 ...bootstrap,
+                status: canRecoverStaleBootstrap ? "ready" : bootstrap.status,
                 sourceTabId: input.targetTabId,
                 sourceDomain: input.targetDomain,
                 sourcePage: input.targetPage,
@@ -2587,7 +2656,8 @@ class ChromeBackgroundBridge {
             }
             lastObservedUrl = typeof tab.url === "string" ? tab.url : null;
             lastObservedStatus = typeof tab.status === "string" ? tab.status : null;
-            if (xhsRestoreSearchUrlsMatch(lastObservedUrl, input.targetUrl) && lastObservedStatus === "complete") {
+            if (xhsRestoreTargetUrlsMatch(input.targetPage, lastObservedUrl, input.targetUrl) &&
+                lastObservedStatus === "complete") {
                 return { ok: true, tab };
             }
             const remainingMs = deadline - Date.now();
@@ -2613,6 +2683,8 @@ class ChromeBackgroundBridge {
         const targetPage = asNonEmptyString(commandParams.target_page);
         const targetTabId = asInteger(commandParams.target_tab_id);
         const query = asNonEmptyString(commandParams.query);
+        const userId = asNonEmptyString(commandParams.user_id);
+        const requestedTargetUrl = asNonEmptyString(commandParams.target_url);
         const forceReload = commandParams.force_reload === true;
         const actionRef = asNonEmptyString(commandParams.action_ref) ??
             asNonEmptyString(commandParams.gate_invocation_id) ??
@@ -2654,15 +2726,23 @@ class ChromeBackgroundBridge {
             fail("TARGET_RESTORE_PROFILE_REQUIRED", "runtime.restore_xhs_target requires a managed profile");
             return;
         }
-        if (targetDomain !== XHS_READ_DOMAIN || targetPage !== "search_result_tab" || !query) {
-            fail("TARGET_RESTORE_INPUT_INVALID", "runtime.restore_xhs_target requires XHS search_result target and query");
+        const profileTarget = targetPage === "profile_tab"
+            ? resolveXhsProfileTarget({ userId, targetUrl: requestedTargetUrl })
+            : null;
+        if (targetDomain !== XHS_READ_DOMAIN ||
+            (targetPage !== "search_result_tab" && targetPage !== "profile_tab") ||
+            (targetPage === "search_result_tab" && !query) ||
+            (targetPage === "profile_tab" && !profileTarget)) {
+            fail("TARGET_RESTORE_INPUT_INVALID", "runtime.restore_xhs_target requires an XHS search_result query or profile_tab user target");
             return;
         }
         if (targetTabId === null) {
             fail("TARGET_RESTORE_TARGET_TAB_REQUIRED", "runtime.restore_xhs_target requires target_tab_id");
             return;
         }
-        const targetUrl = buildXhsSearchResultUrl(query);
+        const targetUrl = targetPage === "profile_tab" && profileTarget
+            ? profileTarget.targetUrl
+            : buildXhsSearchResultUrl(query);
         const restoreSafetyGate = asRecord(commandParams.restore_safety_gate);
         if (!isRestoreSafetyGateAllowed(restoreSafetyGate, profile, runId, sessionId, targetDomain, targetPage, targetTabId, targetUrl, actionRef)) {
             fail("TARGET_RESTORE_SAFETY_GATE_BLOCKED", "runtime.restore_xhs_target requires a current restore safety gate");
@@ -2746,7 +2826,7 @@ class ChromeBackgroundBridge {
         }
         let restoredTab = sourceTab;
         let restoreAction;
-        if (xhsRestoreSearchUrlsMatch(previousUrl, targetUrl) && !forceReload) {
+        if (xhsRestoreTargetUrlsMatch(targetPage, previousUrl, targetUrl) && !forceReload) {
             restoreAction = "already_matching";
         }
         else {
@@ -2759,12 +2839,12 @@ class ChromeBackgroundBridge {
                     url: targetUrl,
                     active: true
                 });
-                restoreAction = xhsRestoreSearchUrlsMatch(previousUrl, targetUrl)
+                restoreAction = xhsRestoreTargetUrlsMatch(targetPage, previousUrl, targetUrl)
                     ? "reload_matching_tab"
                     : "navigate_existing_tab";
             }
             catch (error) {
-                fail(forceReload && xhsRestoreSearchUrlsMatch(previousUrl, targetUrl)
+                fail(forceReload && xhsRestoreTargetUrlsMatch(targetPage, previousUrl, targetUrl)
                     ? "TARGET_RESTORE_RELOAD_FAILED"
                     : "TARGET_RESTORE_NAVIGATION_FAILED", error instanceof Error ? error.message : String(error), { previous_url: previousUrl, target_url: targetUrl });
                 return;
@@ -2772,6 +2852,7 @@ class ChromeBackgroundBridge {
         }
         const navigationResult = await this.#waitForRestoredTargetNavigation({
             tabId: sourceTab.id,
+            targetPage,
             targetUrl,
             timeoutMs: xhsTargetRestoreNavigationTimeoutMs
         });
@@ -2798,9 +2879,11 @@ class ChromeBackgroundBridge {
             profile,
             sessionId,
             runId,
+            runtimeContextId: asNonEmptyString(restoreSafetyGate?.runtime_context_id),
             targetTabId: restoredTabId,
             targetDomain,
-            targetPage
+            targetPage,
+            allowStaleBootstrapRecovery: staleBootstrapRecoveryBindsTarget
         });
         const restoredAt = new Date().toISOString();
         this.#emit({
