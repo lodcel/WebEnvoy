@@ -313,6 +313,7 @@ const waitForBrowserReady = async (
   profileDir: string,
   pid: number,
   launchedAtMs: number,
+  stateFilePath: string,
   processOwnership: "owned_child" | "external_persistent_app" = "owned_child",
   controllerPid: number | null = null
 ): Promise<void> => {
@@ -326,13 +327,17 @@ const waitForBrowserReady = async (
         break;
       }
     }
+    const startupFlagReady = await isFreshReadyMarker(stateFilePath, launchedAtMs);
 
     if (processOwnership === "external_persistent_app") {
       if (controllerPid === null || !isProcessAlive(controllerPid)) {
         throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
       }
       const profileLockReady = await pathEntryExists(join(profileDir, "SingletonLock"));
-      if ((markerReady || profileLockReady) && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
+      if (
+        (markerReady || (startupFlagReady && profileLockReady)) &&
+        Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS
+      ) {
         await sleep(READY_CONFIRM_DELAY_MS);
         if (controllerPid === null || !isProcessAlive(controllerPid)) {
           throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
@@ -550,6 +555,7 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
       input.profileDir,
       state.browserPid,
       launched.launchedAtMs,
+      artifactPaths.stateFilePath,
       state.processOwnership,
       state.controllerPid
     );

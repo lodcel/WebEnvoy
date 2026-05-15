@@ -1594,6 +1594,116 @@ describe("extension build contract", () => {
     });
   });
 
+  it("rejects legacy user_home request-context artifacts on the old user/otherinfo path", async () => {
+    const href = "https://www.xiaohongshu.com/user/profile/user-legacy-001";
+    const runId = "run-bundled-user-home-legacy-route-001";
+    const sessionId = "nm-session-bundled-user-home-legacy-route-001";
+    const gateInvocationId = "issue209-gate-run-bundled-user-home-legacy-route-001";
+    const admissionContext = buildLiveReadAdmissionContext({
+      runId,
+      sessionId,
+      gateInvocationId,
+      targetTabId: 8,
+      targetPage: "profile_tab"
+    });
+    await expect(
+      executeBundledXhsCommand(contentScriptBuildPath, {
+        moduleVar: "__webenvoy_module_xhs_user_home",
+        exportName: "executeXhsUserHome",
+        commandInput: {
+          abilityId: "xhs.user.home.v1",
+          abilityLayer: "L3",
+          abilityAction: "read",
+          params: {
+            user_id: "user-legacy-001"
+          },
+          options: {
+            issue_scope: "issue_209",
+            target_domain: "www.xiaohongshu.com",
+            target_tab_id: 8,
+            target_page: "profile_tab",
+            actual_target_domain: "www.xiaohongshu.com",
+            actual_target_tab_id: 8,
+            actual_target_page: "profile_tab",
+            action_type: "read",
+            risk_state: "allowed",
+            requested_execution_mode: "live_read_high_risk",
+            upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
+              requestRef: "upstream_bundled_user_home_legacy_route_001",
+              actionName: "xhs.read_user_home",
+              targetPage: "profile_tab",
+              targetTabId: 8,
+              profileRef: "profile-a",
+              approvalRefs: [
+                String(admissionContext.approval_admission_evidence.approval_admission_ref)
+              ],
+              auditRefs: [String(admissionContext.audit_admission_evidence.audit_admission_ref)]
+            }),
+            admission_context: admissionContext,
+            explicit_request_context_artifact: {
+              rejected_observation: {
+                source_kind: "page_request",
+                transport: "fetch",
+                method: "GET",
+                path: "/api/sns/web/v1/user/otherinfo",
+                url: "https://www.xiaohongshu.com/api/sns/web/v1/user/otherinfo?user_id=user-legacy-001",
+                status: 200,
+                captured_at: 1_710_000_000_000,
+                observed_at: 1_710_000_000_000,
+                page_context_namespace: createPageContextNamespace(href),
+                shape_key: JSON.stringify({
+                  command: "xhs.user_home",
+                  method: "GET",
+                  pathname: "/api/sns/web/v1/user/otherinfo",
+                  user_id: "user-legacy-001"
+                }),
+                request_status: {
+                  completion: "failed",
+                  http_status: 200
+                },
+                request: {
+                  body: {
+                    user_id: "user-legacy-001"
+                  }
+                },
+                response: {
+                  body: {
+                    code: 0,
+                    data: { items: [] }
+                  }
+                },
+                template_ready: false,
+                rejection_reason: "failed_request_rejected"
+              }
+            }
+          },
+          executionContext: {
+            runId,
+            sessionId,
+            profile: "profile-a",
+            gateInvocationId
+          }
+        },
+        envOverrides: {
+          getLocationHref: () => href,
+          getDocumentTitle: () => "User Home",
+          getReadyState: () => "complete",
+          getCookie: () => "a1=session-cookie"
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "ERR_EXECUTION_FAILED"
+      },
+      payload: {
+        details: {
+          reason: "REQUEST_CONTEXT_MISSING"
+        }
+      }
+    });
+  });
+
   it("executes source xhs.search live-read path with canonical execution_audit in summary", async () => {
     const admissionContext = buildLiveReadAdmissionContext({
       runId: "run-source-search-live-001",

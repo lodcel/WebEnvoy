@@ -2191,6 +2191,55 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("requires explicit artifact allowlists for caller-provided closeout rounds", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const firstRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_evidence_expected: expected,
+        closeout_evidence_rounds: [
+          firstRound,
+          {
+            ...firstRound,
+            artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      freshness: {
+        expected_artifact_identities: ["artifact/xhs-closeout/run-closeout-001/round-1"]
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it("counts top-level route evidence as a legacy round for singular artifact closeout", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
@@ -2335,7 +2384,7 @@ describe("normalizeGateOptionsForContract", () => {
       closeout_evidence_expected: {
         artifact_identities: ["artifact/xhs-closeout/run-closeout-001/current"]
       },
-      closeout_evidence_rounds: [previousRound, currentRound]
+      closeout_evidence_rounds: [currentRound]
     });
     expect(evaluateXhsCloseoutEvidenceForContract(merged)).toMatchObject({
       decision: "FAIL",
@@ -3997,6 +4046,76 @@ describe("normalizeGateOptionsForContract", () => {
       decision: "PASS",
       passed: true,
       reproduced_multi_round: true,
+      blockers: []
+    });
+  });
+
+  it("keeps canonical closeout evidence ahead of closeout fields injected through gate options", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const canonicalRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const secondCanonicalRound = {
+      ...canonicalRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+    };
+    const injectedRouteEvidence = {
+      ...canonicalRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/stale-route"
+    };
+
+    const merged = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+      {
+        summary: {
+          closeout_evidence_expected: expected,
+          closeout_evidence_rounds: [canonicalRound, secondCanonicalRound],
+          route_evidence: canonicalRound
+        }
+      },
+      {
+        closeout_evidence_expected: {
+          latest_head_sha: "head-closeout-stale",
+          run_id: "run-closeout-stale",
+          artifact_identity: "artifact/xhs-closeout/run-closeout-stale/round-9",
+          artifact_identities: ["artifact/xhs-closeout/run-closeout-stale/round-9"],
+          profile_ref: "profile/xhs_closeout_stale",
+          target_tab_id: 99,
+          page_url: "https://www.xiaohongshu.com/explore?keyword=stale",
+          action_ref: "action/xhs.search/stale"
+        },
+        closeout_evidence_rounds: [injectedRouteEvidence],
+        route_evidence: injectedRouteEvidence
+      }
+    );
+
+    expect(merged.closeout_evidence_expected).toMatchObject(expected);
+    expect(merged.closeout_evidence_rounds).toMatchObject([canonicalRound, secondCanonicalRound]);
+    expect(merged.route_evidence).toMatchObject(canonicalRound);
+    expect(evaluateXhsCloseoutEvidenceForContract(merged)).toMatchObject({
+      decision: "PASS",
+      passed: true,
       blockers: []
     });
   });

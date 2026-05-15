@@ -744,6 +744,13 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload) => {
 const includeCallerCloseoutEvidenceFieldsForRuntime = (payload, options) => {
     const nextPayload = { ...payload };
     for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+        if (key === "closeout_evidence_input" ||
+            key === "closeout_evidence_expected" ||
+            key === "closeout_evidence_rounds" ||
+            key === "closeout_route_evidence" ||
+            key === "route_evidence") {
+            continue;
+        }
         if (hasOwn(options, key) && options[key] !== null && options[key] !== undefined) {
             nextPayload[key] = options[key];
         }
@@ -970,23 +977,32 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
         : null;
     const expected = explicitExpected ?? summaryExpected;
     const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
+    const effectiveExpected = expected !== null &&
+        hasDeterministicRoundSource &&
+        (!Array.isArray(expected.artifact_identities) || expected.artifact_identities.length === 0) &&
+        expected.artifact_identity !== null
+        ? {
+            ...expected,
+            artifact_identities: [expected.artifact_identity]
+        }
+        : expected;
     const routeEvidenceCanProvideRound = routeEvidenceRequiresCloseout &&
         roundRecords !== null &&
-        isCompleteCloseoutEvidenceExpected(expected) &&
-        closeoutEvidenceMatchesExpected(expected, routeEvidenceRound);
-    const selectedEvidenceRound = selectCloseoutEvidenceRound(expected, roundRecords);
+        isCompleteCloseoutEvidenceExpected(effectiveExpected) &&
+        closeoutEvidenceMatchesExpected(effectiveExpected, routeEvidenceRound);
+    const selectedEvidenceRound = selectCloseoutEvidenceRound(effectiveExpected, roundRecords);
     const firstParsedEvidenceRound = roundRecords
         ? toCloseoutEvidenceRound(asObject(roundRecords[0]) ?? {})
         : null;
     const firstEvidenceRoundCanProvideRound = roundRecords !== null &&
-        isCompleteCloseoutEvidenceExpected(expected) &&
+        isCompleteCloseoutEvidenceExpected(effectiveExpected) &&
         isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
     const deterministicRoundsCanProvideEvidence = firstEvidenceRoundCanProvideRound && (roundRecords?.length ?? 0) >= 2;
     const canonicalEvidenceRoundCanProvideRound = firstEvidenceRoundCanProvideRound &&
-        expected !== null &&
+        effectiveExpected !== null &&
         selectedEvidenceRound !== null &&
-        expected.artifact_identity !== null &&
-        selectedEvidenceRound.artifact_identity === expected.artifact_identity;
+        effectiveExpected.artifact_identity !== null &&
+        selectedEvidenceRound.artifact_identity === effectiveExpected.artifact_identity;
     const explicitEvidenceCandidate = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
     const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
         ? explicitEvidenceCandidate
@@ -1003,7 +1019,7 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
         (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
         explicitEvidence ??
         (roundRecords !== null ? firstParsedEvidenceRound : null);
-    if (!expected || !evidence) {
+    if (!effectiveExpected || !evidence) {
         return null;
     }
     const evidenceRounds = roundRecords
@@ -1019,7 +1035,7 @@ const buildCloseoutEvidenceInputForRuntime = (summary, trustedExpectedBinding) =
         }
     }
     return {
-        expected,
+        expected: effectiveExpected,
         evidence,
         ...(evidenceRounds ? { evidence_rounds: evidenceRounds } : {})
     };

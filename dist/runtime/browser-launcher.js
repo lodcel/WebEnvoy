@@ -200,7 +200,7 @@ const assertProcessAlive = (pid) => {
         throw error;
     }
 };
-const waitForBrowserReady = async (profileDir, pid, launchedAtMs, processOwnership = "owned_child", controllerPid = null) => {
+const waitForBrowserReady = async (profileDir, pid, launchedAtMs, stateFilePath, processOwnership = "owned_child", controllerPid = null) => {
     const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
     for (let attempt = 0; attempt < READY_WAIT_MAX_ATTEMPTS; attempt += 1) {
         let markerReady = false;
@@ -210,12 +210,14 @@ const waitForBrowserReady = async (profileDir, pid, launchedAtMs, processOwnersh
                 break;
             }
         }
+        const startupFlagReady = await isFreshReadyMarker(stateFilePath, launchedAtMs);
         if (processOwnership === "external_persistent_app") {
             if (controllerPid === null || !isProcessAlive(controllerPid)) {
                 throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
             }
             const profileLockReady = await pathEntryExists(join(profileDir, "SingletonLock"));
-            if ((markerReady || profileLockReady) && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
+            if ((markerReady || (startupFlagReady && profileLockReady)) &&
+                Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
                 await sleep(READY_CONFIRM_DELAY_MS);
                 if (controllerPid === null || !isProcessAlive(controllerPid)) {
                     throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
@@ -389,7 +391,7 @@ export const launchBrowser = async (input) => {
             expectedToken: launchToken,
             expectedControllerPid: launched.pid
         });
-        await waitForBrowserReady(input.profileDir, state.browserPid, launched.launchedAtMs, state.processOwnership, state.controllerPid);
+        await waitForBrowserReady(input.profileDir, state.browserPid, launched.launchedAtMs, artifactPaths.stateFilePath, state.processOwnership, state.controllerPid);
         launchSucceeded = true;
         return {
             browserPath: executablePath,

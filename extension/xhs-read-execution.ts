@@ -1123,8 +1123,13 @@ const deriveReadShapeFromArtifact = (
   if (spec.command === "xhs.detail" && options?.allowDetailRequestFallback !== false) {
     return deriveDetailShapeFromSource(request?.body);
   }
+  const capturedPathname =
+    asString(record.pathname) ?? asString(record.path) ?? parsePathnameFromUrl(asString(record.url));
   const urlShape = deriveUserHomeShapeFromSource({ url: asString(record.url) });
-  const requestShape = deriveUserHomeShapeFromSource(request?.body);
+  const requestShape = deriveUserHomeShapeFromSource({
+    ...(request ?? {}),
+    pathname: capturedPathname ?? undefined
+  });
   const expectedUserId = urlShape?.user_id ?? requestShape?.user_id ?? null;
   if (artifactStatus.rejectionReason && expectedUserId) {
     return (
