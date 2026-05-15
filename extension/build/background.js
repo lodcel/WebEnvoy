@@ -2113,11 +2113,20 @@ class ChromeBackgroundBridge {
             bootstrap.runId === input.runId &&
             bootstrap.runtimeContextId === input.runtimeContextId &&
             bootstrap.status === "stale";
+        const bootstrapBindsRestoredTarget = !!bootstrap &&
+            (bootstrap.status === "pending" || bootstrap.status === "ready") &&
+            bootstrap.sessionId === input.sessionId &&
+            bootstrap.sourceTabId === input.targetTabId &&
+            bootstrap.sourceDomain === input.targetDomain &&
+            bootstrap.sourcePage === input.targetPage;
         if (canRebindReadyBootstrap ||
-            canRecoverStaleBootstrap) {
+            canRecoverStaleBootstrap ||
+            bootstrapBindsRestoredTarget) {
             this.#runtimeTrustState.setBootstrap(input.profile, {
                 ...bootstrap,
                 status: canRecoverStaleBootstrap ? "ready" : bootstrap.status,
+                runId: input.runId,
+                runtimeContextId: input.runtimeContextId ?? bootstrap.runtimeContextId,
                 sourceTabId: input.targetTabId,
                 sourceDomain: input.targetDomain,
                 sourcePage: input.targetPage,
@@ -2125,13 +2134,17 @@ class ChromeBackgroundBridge {
             });
         }
         const trusted = this.#runtimeTrustState.getTrusted(input.profile, input.sessionId);
-        if (trusted && trusted.runId === input.runId) {
+        const trustedBindsRestoredTarget = !!trusted &&
+            trusted.sourceTabId === input.targetTabId &&
+            trusted.sourceDomain === input.targetDomain &&
+            trusted.sourcePage === input.targetPage;
+        if (trusted && (trusted.runId === input.runId || trustedBindsRestoredTarget)) {
             this.#upsertTrustedFingerprintContext(input.profile, input.sessionId, trusted.fingerprintRuntime, {
                 sourceTabId: input.targetTabId,
                 sourceDomain: input.targetDomain,
                 sourcePage: input.targetPage,
-                runId: trusted.runId,
-                runtimeContextId: trusted.runtimeContextId
+                runId: input.runId,
+                runtimeContextId: input.runtimeContextId ?? trusted.runtimeContextId
             });
         }
     }

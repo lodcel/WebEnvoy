@@ -649,7 +649,7 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
-  it("keeps restored XHS search tabs bound for opening result cards in the same run", async () => {
+  it("rebinds restored XHS search tabs to the restore run before opening result cards", async () => {
     const firstPort = createMockPort();
     const {
       chromeApi,
@@ -772,19 +772,19 @@ describe("extension service worker / gate and approval", () => {
     respondHandshake(firstPort);
     await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
-      runId: "run-restore-open-result-card-binding-001",
+      runId: "run-restore-open-result-card-binding-previous",
       targetTabId: 44
     });
     runtimeMessageListeners[0]?.(
       {
         kind: "result",
-        id: "run-restore-open-result-card-binding-001-bootstrap",
+        id: "run-restore-open-result-card-binding-previous-bootstrap",
         ok: true,
         payload: {
           result: {
             version: "v1",
-            run_id: "run-restore-open-result-card-binding-001",
-            runtime_context_id: "run-restore-open-result-card-binding-001-ctx",
+            run_id: "run-restore-open-result-card-binding-previous",
+            runtime_context_id: "run-restore-open-result-card-binding-previous-ctx",
             profile: "xhs_001",
             status: "ready"
           },
