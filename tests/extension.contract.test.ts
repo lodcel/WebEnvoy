@@ -1965,6 +1965,115 @@ describe("extension build contract", () => {
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
+  it("returns two closeout rounds when an exact hit is followed by a fresh passive search", async () => {
+    const admissionContext = buildLiveReadAdmissionContext({
+      runId: "run-source-search-closeout-rounds-001",
+      sessionId: "nm-session-source-search-closeout-rounds-001",
+      gateInvocationId: "issue445-gate-run-source-search-closeout-rounds-001",
+      targetTabId: 11,
+      targetPage: "search_result_tab"
+    });
+    const href = "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5";
+    let nowMs = 1_710_000_000_000;
+    const performSearchPassiveAction = vi.fn(async () => {
+      nowMs = 1_710_000_001_000;
+      return {
+        evidence_class: "humanized_action",
+        action_kind: "submit_search",
+        run_id: "run-source-search-closeout-rounds-001",
+        page_url: href,
+        query: "露营装备"
+      };
+    });
+    const readCapturedRequestContext = vi.fn(async (lookup: { min_observed_at?: number }) =>
+      createCapturedSearchContextArtifact({
+        href,
+        keyword: "露营装备",
+        captured_at: lookup.min_observed_at ? 1_710_000_001_000 : 1_710_000_000_000,
+        responseBody: {
+          code: 0,
+          data: {
+            items: []
+          }
+        }
+      })
+    );
+
+    const result = await executeXhsSearch(
+      {
+        abilityId: "xhs.note.search.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          query: "露营装备"
+        },
+        options: {
+          issue_scope: "issue_209",
+          target_domain: "www.xiaohongshu.com",
+          target_tab_id: 11,
+          target_page: "search_result_tab",
+          actual_target_domain: "www.xiaohongshu.com",
+          actual_target_tab_id: 11,
+          actual_target_page: "search_result_tab",
+          action_type: "read",
+          risk_state: "allowed",
+          requested_execution_mode: "live_read_high_risk",
+          closeout_evidence_evaluation: true,
+          __runtime_latest_head_sha: "head-source-search-closeout-rounds-001",
+          upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
+            requestRef: "upstream_source_search_closeout_rounds_001",
+            actionName: "xhs.read_search_results",
+            targetPage: "search_result_tab",
+            targetTabId: 11,
+            profileRef: "profile-a",
+            approvalRefs: [
+              String(admissionContext.approval_admission_evidence.approval_admission_ref)
+            ],
+            auditRefs: [String(admissionContext.audit_admission_evidence.audit_admission_ref)]
+          }),
+          admission_context: admissionContext
+        },
+        executionContext: {
+          runId: "run-source-search-closeout-rounds-001",
+          sessionId: "nm-session-source-search-closeout-rounds-001",
+          profile: "profile-a",
+          gateInvocationId: "issue445-gate-run-source-search-closeout-rounds-001"
+        }
+      },
+      {
+        now: () => nowMs,
+        randomId: () => "source-req-closeout-rounds-001",
+        getLocationHref: () => href,
+        getDocumentTitle: () => "Search Result",
+        getReadyState: () => "complete",
+        getCookie: () => "a1=session-cookie",
+        performSearchPassiveAction,
+        readCapturedRequestContext,
+        callSignature: async () => {
+          throw new Error("signature should not be used for passive closeout");
+        },
+        fetchJson: async () => {
+          throw new Error("active fetch should not be used for passive closeout");
+        }
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const summary = result.payload.summary as Record<string, unknown>;
+    const routeEvidence = summary.route_evidence as Record<string, unknown>;
+    const expected = summary.closeout_evidence_expected as Record<string, unknown>;
+    const rounds = summary.closeout_evidence_rounds as Array<Record<string, unknown>>;
+    expect(performSearchPassiveAction).toHaveBeenCalledTimes(1);
+    expect(readCapturedRequestContext).toHaveBeenCalledTimes(2);
+    expect(routeEvidence.reproduced_multi_round).toBe(true);
+    expect(rounds).toHaveLength(2);
+    expect(new Set(rounds.map((round) => round.artifact_identity))).toHaveProperty("size", 2);
+    expect(expected.artifact_identities).toEqual(rounds.map((round) => round.artifact_identity));
+  });
+
   it("accepts trusted captured search URLs as passive evidence without active fetch", async () => {
     const admissionContext = buildLiveReadAdmissionContext({
       runId: "run-source-search-live-url-normalize-001",

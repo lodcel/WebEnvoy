@@ -6469,6 +6469,62 @@ const executeXhsSearch = async (input, env) => {
     let passiveActionStartedAt = null;
     let passiveActionEvidence = null;
     let requestContextState;
+    const closeoutRequestContextHits = [];
+    const rememberCloseoutRequestContextHit = (state) => {
+        if (state.status !== "hit") {
+            return;
+        }
+        const key = [
+            state.pageContextNamespace,
+            state.shapeKey,
+            String(state.template.capturedAt)
+        ].join("\n");
+        if (closeoutRequestContextHits.some((candidate) => [
+            candidate.pageContextNamespace,
+            candidate.shapeKey,
+            String(candidate.template.capturedAt)
+        ].join("\n") === key)) {
+            return;
+        }
+        closeoutRequestContextHits.push(state);
+    };
+    const runCloseoutPassiveRound = async () => {
+        passiveActionStartedAt = env.now();
+        passiveActionEvidence = await performSearchPassiveAction(input, env);
+        if (!(await confirmCurrentRequestContextProvenance())) {
+            return {
+                status: "miss",
+                failureReason: "template_missing",
+                pageContextNamespace: createPageContextNamespace(env.getLocationHref()),
+                shapeKey: "",
+                availableShapeKeys: [],
+                diagnostics: {
+                    provenance_reconfirm_failed: true
+                }
+            };
+        }
+        const state = await resolveRequestContextState({
+            params: input.params,
+            options: input.options,
+            minObservedAt: passiveActionStartedAt,
+            elapsedBeforeWaitMs: env.now() - executionStartedAt,
+            expectedProvenance: buildExpectedRequestContextProvenance()
+        }, env);
+        const resolvedState = state.status !== "hit"
+            ? resolveDebuggerNetworkRequestContextState({
+                passiveActionEvidence: passiveActionEvidence
+                    ? passiveActionEvidence
+                    : null,
+                query: input.params.query,
+                pageContextNamespace: state.pageContextNamespace,
+                shapeKey: state.shapeKey,
+                now: env.now(),
+                pageUrl: env.getLocationHref()
+            }) ?? state
+            : state;
+        rememberCloseoutRequestContextHit(resolvedState);
+        return resolvedState;
+    };
     if (closeoutPassiveExactHitOnly) {
         requestContextState = await resolveRequestContextState({
             params: input.params,
@@ -6479,6 +6535,7 @@ const executeXhsSearch = async (input, env) => {
             failFastOnMiss: true
         }, env);
         if (requestContextState.status === "hit") {
+            rememberCloseoutRequestContextHit(requestContextState);
             passiveActionEvidence = {
                 evidence_class: "humanized_action",
                 action_kind: "existing_passive_exact_hit",
@@ -6490,19 +6547,15 @@ const executeXhsSearch = async (input, env) => {
                 trigger_surface: "xhs.search_result"
             };
         }
-        else {
-            passiveActionStartedAt = env.now();
-            passiveActionEvidence = await performSearchPassiveAction(input, env);
-            if (!(await confirmCurrentRequestContextProvenance())) {
-                return createProvenanceUnconfirmedFailure();
+        const nextContextState = await runCloseoutPassiveRound();
+        if (nextContextState.status === "hit" || requestContextState.status !== "hit") {
+            requestContextState = nextContextState;
+        }
+        if (closeoutRequestContextHits.length === 1 && requestContextState.status === "hit") {
+            const retryContextState = await runCloseoutPassiveRound();
+            if (retryContextState.status === "hit" || requestContextState.status !== "hit") {
+                requestContextState = retryContextState;
             }
-            requestContextState = await resolveRequestContextState({
-                params: input.params,
-                options: input.options,
-                minObservedAt: passiveActionStartedAt,
-                elapsedBeforeWaitMs: env.now() - executionStartedAt,
-                expectedProvenance: buildExpectedRequestContextProvenance()
-            }, env);
         }
     }
     else {
@@ -6771,6 +6824,15 @@ const executeXhsSearch = async (input, env) => {
     const count = parseCount(requestContextState.template.response.body);
     const pageUrl = env.getLocationHref();
     const capturedAt = requestContextState.template.capturedAt;
+    const targetTabId = typeof input.options.actual_target_tab_id === "number"
+        ? input.options.actual_target_tab_id
+        : typeof input.options.target_tab_id === "number"
+            ? input.options.target_tab_id
+            : gate.consumer_gate_result.target_tab_id;
+    const closeoutRoundHits = closeoutPassiveExactHitOnly && closeoutRequestContextHits.length > 0
+        ? closeoutRequestContextHits
+        : [requestContextState];
+    const reproducedMultiRound = closeoutRoundHits.length >= 2;
     const routeEvidence = {
         route: "xhs.search.api",
         route_role: "primary",
@@ -6793,16 +6855,12 @@ const executeXhsSearch = async (input, env) => {
         }),
         profile_ref: input.executionContext.profile,
         session_id: input.executionContext.sessionId,
-        target_tab_id: typeof input.options.actual_target_tab_id === "number"
-            ? input.options.actual_target_tab_id
-            : typeof input.options.target_tab_id === "number"
-                ? input.options.target_tab_id
-                : gate.consumer_gate_result.target_tab_id,
+        target_tab_id: targetTabId,
         page_url: pageUrl,
         action_ref: input.abilityAction,
         observed_at: capturedAt,
         captured_at: capturedAt,
-        reproduced_multi_round: false,
+        reproduced_multi_round: reproducedMultiRound,
         page_context_namespace: requestContextState.pageContextNamespace,
         shape_key: requestContextState.shapeKey,
         ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
@@ -6814,40 +6872,52 @@ const executeXhsSearch = async (input, env) => {
             }
             : {})
     };
+    const buildCloseoutEvidenceRound = (state) => {
+        const roundCapturedAt = state.template.capturedAt;
+        return {
+            route: routeEvidence.route,
+            route_role: routeEvidence.route_role,
+            path_kind: routeEvidence.path_kind,
+            evidence_status: routeEvidence.evidence_status,
+            evidence_class: routeEvidence.evidence_class,
+            route_evidence_class: routeEvidence.route_evidence_class,
+            source_kind: routeEvidence.source_kind,
+            method: routeEvidence.method,
+            endpoint: routeEvidence.endpoint,
+            request_url: state.template.request.url,
+            status_code: routeEvidence.status_code,
+            latest_head_sha: routeEvidence.head_sha,
+            head_sha: routeEvidence.head_sha,
+            run_id: routeEvidence.run_id,
+            artifact_identity: buildSearchPassiveApiCaptureArtifactIdentity({
+                runId: input.executionContext.runId,
+                pageContextNamespace: state.pageContextNamespace,
+                shapeKey: state.shapeKey,
+                capturedAt: roundCapturedAt
+            }),
+            profile_ref: routeEvidence.profile_ref,
+            session_id: routeEvidence.session_id,
+            target_tab_id: routeEvidence.target_tab_id,
+            page_url: routeEvidence.page_url,
+            action_ref: routeEvidence.action_ref,
+            observed_at: roundCapturedAt,
+            captured_at: roundCapturedAt,
+            reproduced_multi_round: reproducedMultiRound
+        };
+    };
+    const closeoutEvidenceRounds = closeoutRoundHits.map(buildCloseoutEvidenceRound);
+    const closeoutArtifactIdentities = closeoutEvidenceRounds
+        .map((round) => asString(round.artifact_identity))
+        .filter((value) => value !== null);
     const closeoutEvidenceExpected = {
         latest_head_sha: routeEvidence.head_sha,
         run_id: routeEvidence.run_id,
         artifact_identity: routeEvidence.artifact_identity,
-        artifact_identities: typeof routeEvidence.artifact_identity === "string" ? [routeEvidence.artifact_identity] : [],
+        artifact_identities: closeoutArtifactIdentities,
         profile_ref: routeEvidence.profile_ref,
         target_tab_id: routeEvidence.target_tab_id,
         page_url: routeEvidence.page_url,
         action_ref: routeEvidence.action_ref
-    };
-    const closeoutEvidenceRound = {
-        route: routeEvidence.route,
-        route_role: routeEvidence.route_role,
-        path_kind: routeEvidence.path_kind,
-        evidence_status: routeEvidence.evidence_status,
-        evidence_class: routeEvidence.evidence_class,
-        route_evidence_class: routeEvidence.route_evidence_class,
-        source_kind: routeEvidence.source_kind,
-        method: routeEvidence.method,
-        endpoint: routeEvidence.endpoint,
-        request_url: routeEvidence.request_url,
-        status_code: routeEvidence.status_code,
-        latest_head_sha: routeEvidence.head_sha,
-        head_sha: routeEvidence.head_sha,
-        run_id: routeEvidence.run_id,
-        artifact_identity: routeEvidence.artifact_identity,
-        profile_ref: routeEvidence.profile_ref,
-        session_id: routeEvidence.session_id,
-        target_tab_id: routeEvidence.target_tab_id,
-        page_url: routeEvidence.page_url,
-        action_ref: routeEvidence.action_ref,
-        observed_at: routeEvidence.observed_at,
-        captured_at: routeEvidence.captured_at,
-        reproduced_multi_round: routeEvidence.reproduced_multi_round
     };
     return {
         ok: true,
@@ -6889,7 +6959,7 @@ const executeXhsSearch = async (input, env) => {
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence,
                 closeout_evidence_expected: closeoutEvidenceExpected,
-                closeout_evidence_rounds: [closeoutEvidenceRound],
+                closeout_evidence_rounds: closeoutEvidenceRounds,
                 request_context: {
                     status: "exact_hit",
                     page_context_namespace: requestContextState.pageContextNamespace,
