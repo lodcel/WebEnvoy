@@ -751,6 +751,22 @@ const extractXhsDetailPageNoteId = (value: string | null): string | null => {
   }
 };
 
+const extractXhsUserHomePageUserId = (value: string | null): string | null => {
+  if (!value || isSecurityRedirectUrl(value)) {
+    return null;
+  }
+  try {
+    const url = new URL(value, "https://www.xiaohongshu.com");
+    if (url.protocol !== "https:" || url.hostname !== "www.xiaohongshu.com") {
+      return null;
+    }
+    const match = url.pathname.match(/^\/user\/profile\/([^/?#]+)$/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+
 const isSameXhsDetailPageBinding = (input: {
   templatePageUrl: string | null;
   currentPageUrl: string | null;
@@ -773,6 +789,39 @@ const isSameXhsDetailPageBinding = (input: {
     templateNoteId === continuityNoteId
   );
 };
+
+const isSameXhsUserHomePageBinding = (input: {
+  templatePageUrl: string | null;
+  currentPageUrl: string | null;
+  signedContinuity: XhsSignedContinuity;
+}): boolean => {
+  if (input.templatePageUrl === input.currentPageUrl) {
+    return true;
+  }
+  if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
+    return false;
+  }
+  const templateUserId = extractXhsUserHomePageUserId(input.templatePageUrl);
+  const currentUserId = extractXhsUserHomePageUserId(input.currentPageUrl);
+  const continuityUserId = extractXhsUserHomePageUserId(input.signedContinuity.target_url);
+  return (
+    templateUserId !== null &&
+    currentUserId !== null &&
+    continuityUserId !== null &&
+    templateUserId === currentUserId &&
+    templateUserId === continuityUserId
+  );
+};
+
+const isSameXhsReadPageBinding = (input: {
+  spec: XhsReadCommandSpec;
+  templatePageUrl: string | null;
+  currentPageUrl: string | null;
+  signedContinuity: XhsSignedContinuity;
+}): boolean =>
+  input.spec.pageKind === "user_home"
+    ? isSameXhsUserHomePageBinding(input)
+    : isSameXhsDetailPageBinding(input);
 
 const resolveSignedContinuityFailure = (
   continuity: XhsSignedContinuity,
@@ -975,6 +1024,39 @@ const resolveUserHomeResponseUserId = (
     }
   }
   return preferredUserId ? null : fallbackUserId;
+};
+
+const isSignedContinuityBoundToUserHome = (
+  params: XhsUserHomeParams,
+  continuity?: XhsSignedContinuity | null
+): boolean =>
+  continuity?.token_presence === "present" &&
+  continuity.xsec_source === "pc_search" &&
+  continuity.source_route === "xhs.search" &&
+  continuity.target_url !== null &&
+  parseUserProfileIdFromHref(continuity.target_url) === params.user_id;
+
+const isEmptyUserPostedSuccessForSignedUserHome = (
+  body: unknown,
+  params: XhsUserHomeParams,
+  continuity?: XhsSignedContinuity | null
+): boolean => {
+  if (!isSignedContinuityBoundToUserHome(params, continuity)) {
+    return false;
+  }
+  const responseRecord = asRecord(body);
+  const dataRecord = asRecord(responseRecord?.data ?? body);
+  if (!dataRecord) {
+    return false;
+  }
+  const businessCode = asInteger(responseRecord?.code);
+  const businessSuccess = businessCode === 0 || responseRecord?.success === true;
+  return (
+    businessSuccess &&
+    Array.isArray(dataRecord.notes) &&
+    dataRecord.notes.length === 0 &&
+    (dataRecord.has_more === false || dataRecord.hasMore === false)
+  );
 };
 
 const createDetailShape = (noteId: string): DetailRequestShape => ({
@@ -1630,6 +1712,7 @@ const resolvePassiveApiCaptureCloseoutGate = (input: {
   signedContinuity: XhsSignedContinuity;
   env: XhsSearchEnvironment;
 }): JsonRecord => {
+  const spec = READ_COMMAND_SPECS[input.executionInput.command];
   const binding = buildActiveFallbackTemplateBinding({
     executionContext: input.executionInput.executionContext,
     options: input.executionInput.options,
@@ -1670,7 +1753,8 @@ const resolvePassiveApiCaptureCloseoutGate = (input: {
     reasonCodes.push("PASSIVE_CAPTURE_ACTION_MISMATCH");
   }
   if (
-    !isSameXhsDetailPageBinding({
+    !isSameXhsReadPageBinding({
+      spec,
       templatePageUrl: input.templateEvidence.page_url,
       currentPageUrl: asString(binding.page_url),
       signedContinuity: input.signedContinuity
@@ -1712,7 +1796,12 @@ const createPassiveApiCaptureSuccess = (
     template.source_kind !== "page_request" ||
     requestContextResult.responseStatus === null ||
     requestContextResult.responseStatus >= 400 ||
-    !responseContainsRequestedTarget(spec, input.params, requestContextResult.responseBody)
+    !responseContainsRequestedTarget(
+      spec,
+      input.params,
+      requestContextResult.responseBody,
+      requestContextResult.signedContinuity
+    )
   ) {
     return null;
   }
@@ -2314,7 +2403,8 @@ const getUserHomeResponseCandidates = (body: unknown): JsonRecord[] => {
 const responseContainsRequestedTarget = (
   spec: XhsReadCommandSpec,
   params: XhsDetailParams | XhsUserHomeParams,
-  body: unknown
+  body: unknown,
+  continuity?: XhsSignedContinuity | null
 ): boolean => {
   if (spec.command === "xhs.detail") {
     return getDetailResponseCandidates(body).some((candidate) =>
@@ -2329,7 +2419,7 @@ const responseContainsRequestedTarget = (
       "user_id",
       "userId"
     ])
-  );
+  ) || isEmptyUserPostedSuccessForSignedUserHome(body, params as XhsUserHomeParams, continuity);
 };
 
 const createReadDiagnosis = (
@@ -3461,7 +3551,12 @@ const executeXhsRead = async (
     );
   }
 
-  if (!responseContainsRequestedTarget(spec, input.params, response.body)) {
+  if (!responseContainsRequestedTarget(
+    spec,
+    input.params,
+    response.body,
+    requestContextResult.signedContinuity
+  )) {
     const pageStateRoot = await resolvePageStateRoot();
     if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, "TARGET_DATA_NOT_FOUND")) {
       return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {

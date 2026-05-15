@@ -1144,12 +1144,19 @@ export class ProfileRuntimeService {
             });
             await store.writeMeta(input.profile, nextMeta);
         }
-        const readiness = await this.#readRuntimeReadiness({
-            runtimeInput: input,
-            lockHeld: true,
-            identityPreflight,
-            profileState: attachedProfileState
-        });
+        const readiness = takeoverMode === "stale_bootstrap_rebind" &&
+            identityPreflight.identityBindingState === "bound"
+            ? await this.#deliverRuntimeBootstrap({
+                runtimeInput: input,
+                profile: input.profile,
+                fingerprintRuntime
+            })
+            : await this.#readRuntimeReadiness({
+                runtimeInput: input,
+                lockHeld: true,
+                identityPreflight,
+                profileState: attachedProfileState
+            });
         if (attachableRecoverableRuntime &&
             readiness.runtimeReadiness === "ready" &&
             readiness.transportState === "ready" &&
@@ -1437,6 +1444,7 @@ export class ProfileRuntimeService {
                 browserPidAlive &&
                 !browserOwnedByWebEnvoy &&
                 (stalePinnedController || !controllerAlive)) {
+                await this.#terminateProcess(browserState.browserPid);
                 await this.#deleteBrowserStateFiles(profileDir);
             }
             else if (stalePinnedController && controllerAlive) {
@@ -1450,6 +1458,9 @@ export class ProfileRuntimeService {
                     controllerPid: shutdownControllerPid,
                     runId: stopOwnerRunId
                 });
+                if (browserState && this.#isProcessAlive(browserState.browserPid)) {
+                    await this.#terminateProcess(browserState.browserPid);
+                }
             }
             else {
                 throw new CliError("ERR_RUNTIME_UNAVAILABLE", "缺少可验证的浏览器控制者，无法安全停止 live runtime", {

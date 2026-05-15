@@ -921,13 +921,22 @@ const includeCallerCloseoutEvidenceFieldsForRuntime = (
   options: JsonObject
 ): JsonObject => {
   const nextPayload = { ...payload };
+  const summary = asObject(payload.summary);
   for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+    if (key === "closeout_route_evidence" || key === "route_evidence") {
+      continue;
+    }
+    const bridgeAlreadyProvidedField =
+      hasOwn(payload, key) ||
+      (hasOwn(summary ?? undefined, key) &&
+        summary?.[key] !== null &&
+        summary?.[key] !== undefined &&
+        !isSparseCloseoutSummaryField(summary?.[key]));
     if (
-      key === "closeout_evidence_input" ||
-      key === "closeout_evidence_expected" ||
-      key === "closeout_evidence_rounds" ||
-      key === "closeout_route_evidence" ||
-      key === "route_evidence"
+      bridgeAlreadyProvidedField &&
+      (key === "closeout_evidence_input" ||
+        key === "closeout_evidence_expected" ||
+        key === "closeout_evidence_rounds")
     ) {
       continue;
     }
@@ -2476,6 +2485,110 @@ const buildInProcessGateOnlyResult = (input: {
   return {
     summary,
     observability: asObservabilityInput(payload.observability)
+  };
+};
+
+const shouldReturnExplicitCloseoutEvidenceResult = (input: {
+  command: string;
+  requestedExecutionMode: XhsExecutionMode;
+  options: JsonObject;
+}): boolean =>
+  (input.command === "xhs.detail" || input.command === "xhs.user_home") &&
+  isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
+  input.options.closeout_audit_required === true &&
+  asObject(input.options.closeout_evidence_expected) !== null &&
+  hasCloseoutEvidenceRoundRecords(
+    toCloseoutEvidenceRoundRecords(input.options.closeout_evidence_rounds)
+  );
+
+const buildExplicitCloseoutEvidenceResult = (input: {
+  context: RuntimeContext;
+  envelope: AbilityEnvelope;
+  gate: ReturnType<typeof normalizeGateOptionsForContract>;
+  parsedInput: JsonObject;
+  preparedIssue209LiveRead: ReturnType<typeof prepareIssue209LiveReadEnvelopeForContract>;
+  runtimeGateOptions: JsonObject;
+  sessionId: string;
+  dataRefKey: "query" | "note_id" | "user_id";
+}): CommandExecutionResult => {
+  const profile = input.context.profile ?? "unknown";
+  const gateBundle = buildLoopbackGate(
+    input.runtimeGateOptions,
+    input.envelope.ability.action,
+    {
+      runId: input.context.run_id,
+      requestId: input.envelope.requestId ?? undefined,
+      commandRequestId: input.preparedIssue209LiveRead.commandRequestId ?? undefined,
+      sessionId: input.sessionId,
+      profile,
+      gateInvocationId: input.preparedIssue209LiveRead.gateInvocationId ?? undefined
+    }
+  );
+  const auditRecord = buildLoopbackAuditRecord({
+    runId: input.context.run_id,
+    sessionId: input.sessionId,
+    profile,
+    gate: gateBundle
+  });
+  auditRecord.recorded_at = new Date().toISOString();
+  const gatePayload = buildLoopbackGatePayload({
+    runId: input.context.run_id,
+    sessionId: input.sessionId,
+    profile,
+    gate: gateBundle,
+    auditRecord
+  });
+  const dataRefValue =
+    typeof input.parsedInput[input.dataRefKey] === "string"
+      ? String(input.parsedInput[input.dataRefKey])
+      : "";
+  const closeoutEvidenceSummaryFields = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+    gatePayload,
+    input.runtimeGateOptions
+  );
+  const summary = mapCapabilitySummaryForContract(input.envelope.ability.id, {
+    ...buildCapabilityResult(input.envelope.ability, {
+      data_ref: dataRefValue ? { [input.dataRefKey]: dataRefValue } : {},
+      metrics: {
+        count: 0
+      }
+    }),
+    ...gatePayload,
+    ...closeoutEvidenceSummaryFields,
+    session_id: input.sessionId,
+    requested_execution_mode: input.gate.requestedExecutionMode,
+    closeout_audit_required: true,
+    explicit_closeout_evidence_only: true
+  });
+
+  assertCloseoutEvidenceForRuntime(
+    input.envelope.ability,
+    buildXhsCloseoutEvidenceTrustedBindingForContract({
+      cwd: input.context.cwd,
+      runId: input.context.run_id,
+      profileRef: input.context.profile,
+      targetTabId: input.gate.targetTabId,
+      summary
+    }),
+    summary
+  );
+
+  if (requiresCanonicalExecutionAuditForContract({ payload: gatePayload, summary })) {
+    assertCloseoutCanonicalExecutionAuditForRuntime(
+      input.envelope.ability,
+      input.context.run_id,
+      {
+        success: {
+          summary,
+          observability: gatePayload.observability
+        }
+      }
+    );
+  }
+
+  return {
+    summary,
+    observability: asObservabilityInput(gatePayload.observability)
   };
 };
 

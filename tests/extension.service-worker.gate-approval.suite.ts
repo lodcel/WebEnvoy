@@ -772,7 +772,7 @@ describe("extension service worker / gate and approval", () => {
     respondHandshake(firstPort);
     await waitForBridgeTurn();
     await primeManagedXhsBootstrap(firstPort, chromeApi, {
-      runId: "run-restore-open-result-card-binding-previous",
+      runId: "run-restore-open-result-card-binding-001",
       targetTabId: 44
     });
     runtimeMessageListeners[0]?.(
@@ -783,8 +783,8 @@ describe("extension service worker / gate and approval", () => {
         payload: {
           result: {
             version: "v1",
-            run_id: "run-restore-open-result-card-binding-previous",
-            runtime_context_id: "run-restore-open-result-card-binding-previous-ctx",
+            run_id: "run-restore-open-result-card-binding-001",
+            runtime_context_id: "run-restore-open-result-card-binding-001-ctx",
             profile: "xhs_001",
             status: "ready"
           },
@@ -1568,7 +1568,7 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
-  it("restores a managed XHS tab that was bound by a previous run in the same native session", async () => {
+  it("blocks restoring a managed XHS tab that was only bound by a previous run in the same native session", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);
     chromeApi.tabs.query.mockImplementation(async () => [
@@ -1613,19 +1613,16 @@ describe("extension service worker / gate and approval", () => {
     await waitForBridgeTurn();
 
     expect(chromeApi.tabs.get).toHaveBeenCalledWith(44);
-    expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
-      url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5&type=51",
-      active: true
-    });
+    expect(chromeApi.tabs.update).not.toHaveBeenCalled();
     const response = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
       .find((message) => message.id === "run-restore-xhs-search-tab-attached-001");
     expect(response).toMatchObject({
       id: "run-restore-xhs-search-tab-attached-001",
-      status: "success",
+      status: "error",
       payload: {
-        restore_evidence: {
-          restore_action: "navigate_existing_tab",
+        details: {
+          reason: "TARGET_RESTORE_MANAGED_TAB_NOT_BOUND",
           active_fetch_performed: false,
           closeout_bundle_entered: false
         }

@@ -20,6 +20,7 @@ const XHS_READ_COMMAND_SPECS = {
         pageKind: "search",
         pageUrl: "https://www.xiaohongshu.com/search_result",
         pageTitle: "Search Result",
+        requestMethod: "POST",
         requestUrl: "/api/sns/web/v1/search/notes",
         dataRefKey: "query",
         successDataRef: (input) => ({
@@ -33,6 +34,7 @@ const XHS_READ_COMMAND_SPECS = {
         pageKind: "detail",
         pageUrl: "https://www.xiaohongshu.com/explore/loopback-note",
         pageTitle: "Note Detail",
+        requestMethod: "POST",
         requestUrl: "/api/sns/web/v1/feed",
         dataRefKey: "note_id",
         successDataRef: (input) => ({
@@ -46,7 +48,8 @@ const XHS_READ_COMMAND_SPECS = {
         pageKind: "profile",
         pageUrl: "https://www.xiaohongshu.com/user/profile/loopback-user",
         pageTitle: "User Home",
-        requestUrl: "/api/sns/web/v1/user/otherinfo",
+        requestMethod: "GET",
+        requestUrl: "/api/sns/web/v1/user_posted",
         dataRefKey: "user_id",
         successDataRef: (input) => ({
             user_id: String(input.user_id ?? ""),
@@ -549,7 +552,7 @@ class InMemoryContentScriptRuntime {
                     {
                         request_id: "req-loopback-001",
                         stage: "request",
-                        method: "POST",
+                        method: spec.requestMethod,
                         url: spec.requestUrl,
                         outcome: "completed",
                         status_code: 200
@@ -654,7 +657,7 @@ class InMemoryContentScriptRuntime {
                                 {
                                     request_id: "req-loopback-generic-001",
                                     stage: "request",
-                                    method: "POST",
+                                    method: spec.requestMethod,
                                     url: spec.requestUrl,
                                     outcome: "failed",
                                     status_code: 500,
@@ -663,7 +666,7 @@ class InMemoryContentScriptRuntime {
                                 {
                                     request_id: "req-loopback-captcha-002",
                                     stage: "request",
-                                    method: "POST",
+                                    method: spec.requestMethod,
                                     url: spec.requestUrl,
                                     outcome: "failed",
                                     status_code: 429,
@@ -674,7 +677,7 @@ class InMemoryContentScriptRuntime {
                                 {
                                     request_id: "req-loopback-001",
                                     stage: "request",
-                                    method: "POST",
+                                    method: spec.requestMethod,
                                     url: spec.requestUrl,
                                     outcome: "failed",
                                     status_code: simulated === "account_abnormal"

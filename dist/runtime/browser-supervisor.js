@@ -44,7 +44,7 @@ const buildBrowserSpawn = (args) => {
     const appBundlePath = resolveMacosAppBundlePath(args.browserPath) ?? args.browserPath;
     return {
         file: openPath,
-        args: ["-a", appBundlePath, "--args", ...args.launchArgs],
+        args: ["-n", "-a", appBundlePath, "--args", ...args.launchArgs],
         kind: "macos_launchservices"
     };
 };
@@ -135,6 +135,7 @@ const run = async () => {
         browserPath: args.browserPath,
         controllerPid: process.pid,
         browserPid,
+        launchArgs: [...args.launchArgs],
         launchedAt: new Date().toISOString(),
         headless: args.launchArgs.includes("--headless=new"),
         executionSurface: args.launchArgs.includes("--headless=new")

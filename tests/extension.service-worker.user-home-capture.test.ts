@@ -287,7 +287,9 @@ describe("runtime.xhs_capture_user_home_context", () => {
         },
         { timeout: 6_000 }
       );
-      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 9)).toBe(true);
+      const scheduledDelays = setTimeoutSpy.mock.calls.map((call) => call[1]);
+      expect(scheduledDelays).not.toContain(1_500);
+      expect(scheduledDelays).not.toContain(450);
     } finally {
       setTimeoutSpy.mockRestore();
     }

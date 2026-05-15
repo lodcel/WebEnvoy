@@ -2106,6 +2106,7 @@ class ChromeBackgroundBridge {
         const canRebindReadyBootstrap = !!bootstrap &&
             bootstrap.sessionId === input.sessionId &&
             bootstrap.runId === input.runId &&
+            bootstrap.runtimeContextId === input.runtimeContextId &&
             (bootstrap.status === "pending" || bootstrap.status === "ready");
         const canRecoverStaleBootstrap = !!bootstrap &&
             input.allowStaleBootstrapRecovery === true &&
@@ -2116,6 +2117,8 @@ class ChromeBackgroundBridge {
         const bootstrapBindsRestoredTarget = !!bootstrap &&
             (bootstrap.status === "pending" || bootstrap.status === "ready") &&
             bootstrap.sessionId === input.sessionId &&
+            bootstrap.runId === input.runId &&
+            bootstrap.runtimeContextId === input.runtimeContextId &&
             bootstrap.sourceTabId === input.targetTabId &&
             bootstrap.sourceDomain === input.targetDomain &&
             bootstrap.sourcePage === input.targetPage;
@@ -2135,6 +2138,8 @@ class ChromeBackgroundBridge {
         }
         const trusted = this.#runtimeTrustState.getTrusted(input.profile, input.sessionId);
         const trustedBindsRestoredTarget = !!trusted &&
+            trusted.runId === input.runId &&
+            trusted.runtimeContextId === input.runtimeContextId &&
             trusted.sourceTabId === input.targetTabId &&
             trusted.sourceDomain === input.targetDomain &&
             trusted.sourcePage === input.targetPage;
@@ -2808,12 +2813,18 @@ class ChromeBackgroundBridge {
         const bootstrapBindsTarget = !!bootstrap &&
             (bootstrap.status === "pending" || bootstrap.status === "ready") &&
             bootstrap.sessionId === sessionId &&
+            bootstrap.runId === runId &&
+            bootstrap.runtimeContextId === restoreSafetyGate?.runtime_context_id &&
             bootstrap.sourceTabId === sourceTab.id &&
-            bootstrap.sourceDomain === targetDomain;
+            bootstrap.sourceDomain === targetDomain &&
+            bootstrap.sourcePage === targetPage;
         const trustedBindsTarget = !!trusted &&
             trusted.sessionId === sessionId &&
+            trusted.runId === runId &&
+            trusted.runtimeContextId === restoreSafetyGate?.runtime_context_id &&
             trusted.sourceTabId === sourceTab.id &&
-            trusted.sourceDomain === targetDomain;
+            trusted.sourceDomain === targetDomain &&
+            trusted.sourcePage === targetPage;
         const staleRestoreLease = this.#getStaleRestoreBindingLease(profile, sessionId);
         const staleRestoreLeaseBindsTarget = !!staleRestoreLease &&
             staleRestoreLease.runId === runId &&
@@ -3824,15 +3835,36 @@ class ChromeBackgroundBridge {
             return;
         }
         const captureTimeoutMs = reserveXhsPassiveCaptureResponseSafetyMs(readTimeoutMs(request.timeout_ms) ?? 10_000);
+        const captureDeadlineMs = Date.now() + captureTimeoutMs;
         let debuggerAttached = false;
         try {
             await debuggerApi.attach({ tabId: tab.id }, debuggerProtocolVersion);
             debuggerAttached = true;
             await debuggerApi.sendCommand({ tabId: tab.id }, "Network.enable");
-            const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(tab.id, userId, captureTimeoutMs);
+            const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(tab.id, userId, Math.max(1, captureDeadlineMs - Date.now()));
+            let artifact;
+            const waitForCaptureOrDelay = async (delayMs) => {
+                const remainingMs = captureDeadlineMs - Date.now();
+                if (remainingMs <= 0) {
+                    return false;
+                }
+                const waitMs = Math.min(delayMs, remainingMs);
+                const result = await Promise.race([
+                    capture.then((value) => ({ type: "capture", value })),
+                    this.#sleep(waitMs).then(() => ({ type: "delay" }))
+                ]);
+                if (result.type === "capture") {
+                    artifact = result.value;
+                    return true;
+                }
+                return false;
+            };
             await debuggerApi.sendCommand({ tabId: tab.id }, "Page.reload", { ignoreCache: true });
-            await this.#sleep(1_500);
+            await waitForCaptureOrDelay(1_500);
             for (let index = 0; index < 4; index += 1) {
+                if (artifact !== undefined || captureDeadlineMs - Date.now() <= 0) {
+                    break;
+                }
                 await debuggerApi.sendCommand({ tabId: tab.id }, "Input.dispatchMouseEvent", {
                     type: "mouseWheel",
                     x: 900,
@@ -3840,9 +3872,9 @@ class ChromeBackgroundBridge {
                     deltaX: 0,
                     deltaY: 900
                 }).catch(() => undefined);
-                await this.#sleep(450);
+                await waitForCaptureOrDelay(450);
             }
-            const artifact = await capture;
+            artifact ??= await capture;
             if (!artifact || artifact.diagnostic_only === true) {
                 fail("USER_HOME_CAPTURE_CONTEXT_MISSING", "runtime.xhs_capture_user_home_context did not observe user_home API request", {
                     page_url: tabUrl,
