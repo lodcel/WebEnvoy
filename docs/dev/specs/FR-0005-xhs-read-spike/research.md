@@ -832,7 +832,7 @@ required headers 与请求上下文口径：
 当前正式结论：
 
 - 5.1-5.5 的 `No-Go/paused` 是历史阶段事实，继续保留。
-- PR `#682` 合入后，issue `#445` 对应的 `primary api multi-round` 子条件已完成，但 full closeout 未完成。
+- PR `#682` 合入后，FR-0005 的 `primary api multi-round` 子条件已完成，但 `#445` full closeout 未完成。
 - `#445` 必须继续保持 open，直到 `required headers` 最小必要集矩阵对 `search/detail/user_home` 三条命令都收口。
 - 后续是否进入小红书 L3 读适配实现 FR、字段生命周期细化、签名分流策略、未登录/会话过期映射等，不由本次部分 closeout 记录自动完成。
 
