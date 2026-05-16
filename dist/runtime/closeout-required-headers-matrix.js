@@ -57,6 +57,36 @@ const buildMatrixRouteIds = (routes) => uniqueSorted((routes ?? [])
 const buildObservedRouteIds = (routes) => uniqueSorted((routes ?? [])
     .map((route) => normalizeString(route.route_id))
     .filter((routeId) => routeId !== null));
+const buildMinimalityEvidenceMap = (evidence) => {
+    if (!Array.isArray(evidence) || evidence.length === 0) {
+        return { admitted: null, invalidEntries: 0 };
+    }
+    const map = new Map();
+    let invalidEntries = 0;
+    for (const entry of evidence) {
+        const headerName = normalizeHeaderName(entry?.header_name);
+        const proofKind = normalizeString(entry?.proof_kind);
+        const result = normalizeString(entry?.result);
+        const artifactRef = normalizeString(entry?.artifact_ref);
+        if (headerName === null ||
+            proofKind === null ||
+            result === null ||
+            artifactRef === null ||
+            !((proofKind === "negative_omission_probe" && result === "blocked_or_failed") ||
+                (proofKind === "contracted_platform_requirement" && result === "contracted_required"))) {
+            invalidEntries += 1;
+            continue;
+        }
+        const admitted = {
+            header_name: headerName,
+            proof_kind: proofKind,
+            result,
+            artifact_ref: artifactRef
+        };
+        map.set(headerName, [...(map.get(headerName) ?? []), admitted]);
+    }
+    return { admitted: map.size > 0 ? map : null, invalidEntries };
+};
 export const evaluateCloseoutRequiredHeadersMatrix = (input) => {
     const matrixRoutes = input.matrix?.routes ?? null;
     const matrixPresent = Array.isArray(matrixRoutes);
@@ -85,6 +115,7 @@ export const evaluateCloseoutRequiredHeadersMatrix = (input) => {
         const routeBlockers = [];
         const missingHeaders = [];
         const emptyHeaders = [];
+        const missingMinimalityEvidence = [];
         const normalizedRequiredHeaders = [];
         if (requiredHeaders === null || requiredHeaders.length === 0) {
             routeBlockers.push(blocker("missing_required_header_definition", "matrix", routeId, null, "closeout matrix route must define at least one required header"));
@@ -100,6 +131,19 @@ export const evaluateCloseoutRequiredHeadersMatrix = (input) => {
         const requiredHeaderNames = uniqueSorted(normalizedRequiredHeaders);
         const observedHeaders = observedRouteMap.get(routeId);
         const observedHeaderNames = uniqueSorted(Array.from(observedHeaders?.keys() ?? []));
+        const minimalityEvidence = buildMinimalityEvidenceMap(matrixRoute.minimality_evidence);
+        const minimalityEvidenceMap = minimalityEvidence.admitted;
+        const minimalityEvidenceHeaders = uniqueSorted(Array.from(minimalityEvidenceMap?.keys() ?? []));
+        const minimalityEvidenceArtifactRefs = uniqueSorted(Array.from(minimalityEvidenceMap?.values() ?? [])
+            .flat()
+            .map((entry) => entry.artifact_ref));
+        const minimalRequiredHeaders = uniqueSorted(requiredHeaderNames.filter((headerName) => minimalityEvidenceMap?.has(headerName)));
+        if ((matrixRoute.minimality_evidence ?? null) === null) {
+            routeBlockers.push(blocker("missing_minimality_evidence", "minimality_evidence", routeId, null, "closeout matrix route must include minimality evidence"));
+        }
+        else if (minimalityEvidenceMap === null || minimalityEvidence.invalidEntries > 0) {
+            routeBlockers.push(blocker("invalid_minimality_evidence", "minimality_evidence", routeId, null, "closeout matrix minimality evidence must contain admitted proof entries"));
+        }
         if (!observedRouteMap.has(routeId)) {
             routeBlockers.push(blocker("missing_observed_route", "observed_headers", routeId, null, "observed headers are missing for the matrix route"));
         }
@@ -116,6 +160,10 @@ export const evaluateCloseoutRequiredHeadersMatrix = (input) => {
                 emptyHeaders.push(headerName);
                 routeBlockers.push(blocker("empty_required_header", "observed_headers", routeId, headerName, "observed route contains an empty required header"));
             }
+            if (!minimalityEvidenceMap?.has(headerName)) {
+                missingMinimalityEvidence.push(headerName);
+                routeBlockers.push(blocker("missing_minimality_evidence", "minimality_evidence", routeId, headerName, "required header is missing admitted minimality evidence"));
+            }
         }
         const passed = routeBlockers.length === 0;
         routeResults.push({
@@ -124,8 +172,13 @@ export const evaluateCloseoutRequiredHeadersMatrix = (input) => {
             passed,
             required_headers: requiredHeaderNames,
             observed_header_names: observedHeaderNames,
+            observed_browser_headers: observedHeaderNames,
+            minimal_required_headers: minimalRequiredHeaders,
+            minimality_evidence_headers: minimalityEvidenceHeaders,
+            minimality_evidence_artifact_refs: minimalityEvidenceArtifactRefs,
             missing_headers: uniqueSorted(missingHeaders),
             empty_headers: uniqueSorted(emptyHeaders),
+            missing_minimality_evidence: uniqueSorted(missingMinimalityEvidence),
             blockers: routeBlockers
         });
         blockers.push(...routeBlockers);
