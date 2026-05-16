@@ -741,13 +741,65 @@
 
 因此，2026-04-16 这轮 blocker refresh 不在本文件逐项展开；formal 结论也未因此发生变化，FR-0005 继续保持 `No-Go/paused`，直到正式 closeout bar 被满足为止。
 
+### 5.6 2026-05-16 issue #445 managed-profile live closeout 完成
+
+2026-05-16 消费已合入 `main` 的 PR `#682` closeout 事实。本节不删除 5.1-5.5 的历史 `No-Go/paused` 记录；这些记录继续作为当时执行现场的 dated fact 保留。当前更新只表达：issue `#445` 要求的 managed-profile live closeout 已在 PR `#682` 合入前完成门禁，并已随 `main` 收口。
+
+合入与执行身份事实：
+
+- PR `#682` 状态：`MERGED`
+- PR head：`31b0d7875095f51cbce7fe9c62d7ba39c794c055`
+- merge commit：`545cb0a193dbbb74a42c12ad8f820b3fce886d9b`
+- closeout run：`run_id=issue445-pr-head-31b0d78-20260516T0735Z`
+- 执行目录：`cwd=/Users/mc/dev/WebEnvoy`
+- official profile：`xhs_001`
+- official profile root：`/Users/mc/dev/WebEnvoy/.webenvoy/profiles/xhs_001`
+
+三场景 live primary API closeout 结果：
+
+| 场景 | route_role | path_kind | evidence_status | method | path | closeout 结果 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `search` | `primary` | `api` | `success` | `POST` | `/api/sns/web/v1/search/notes` | `PASS` |
+| `detail` | `primary` | `api` | `success` | `POST` | `/api/sns/web/v1/feed` | `PASS` |
+| `user_home` | `primary` | `api` | `success` | `GET` | `/api/sns/web/v1/user_posted` | `PASS` |
+
+closeout evaluator 结果：
+
+- 总结论：`PASS`
+- `route_role=primary`
+- `path_kind=api`
+- `evidence_status=success`
+- `reproduced_multi_round=true`
+- `latest_head_matches=true`
+- `run_matches=true`
+- `artifact_matches=true`
+- `accepted_round_count=2`
+- `unique_artifact_count=2`
+
+required headers 与请求上下文口径：
+
+- 本次 `#445` closeout 以 `real_browser` passive API capture 的 browser-owned request context 完成 gate 收口。
+- 该证据证明 `search/detail/user_home` 三场景在 official Chrome / managed profile / browser-owned request context 下达到 `primary + api + success + reproduced_multi_round`。
+- 对 `#445` closeout 而言，最小必要请求上下文矩阵的收口标准是：同一 run 下由真实浏览器页面自然发起并被 WebEnvoy passive capture 接受的 API 请求，能够通过 route / head / run / artifact / multi-round evaluator 校验；这覆盖 closeout gate 所需的 required request context。
+- 本节不把手工 header reconstruction、字段生命周期细化或签名分流策略升级为 `admission_ready`；这些仍属于后续 L3 实现 FR 或字段治理工作。
+
+运行时停止与合并门禁：
+
+- `runtime.stop` 执行成功。
+- stop 后 official profile 相关进程已清理，exact main Chrome count 为 `0`。
+- controlled merge 前 latest guardian verdict 为 `APPROVE`。
+- controlled merge 前 GitHub checks 为 green。
+
+当前正式结论：
+
+- 5.1-5.5 的 `No-Go/paused` 是历史阶段事实，继续保留。
+- PR `#682` 合入后，issue `#445` 对应的 FR-0005 managed-profile live closeout 已完成。
+- 后续是否进入小红书 L3 读适配实现 FR、字段生命周期细化、签名分流策略、未登录/会话过期映射等，不由本次 #445 closeout 自动完成。
+
 ## 未决项（进入下一轮复核前保留）
 
 - 保持 `xhs_001` 的 main 目录绑定不再回写到 worktree 路径
-- 在风险状态满足准入、且具备合法 approval / gate 前提后，再重新执行 `search` 的 managed-profile `real_browser` fresh live rerun
-- 在满足上述前提后，再重新执行 `search/detail/user_home` 的 managed-profile `real_browser` fresh live rerun
-- 在新会话样本中复核 `detail` 的成功路径与最小必要请求上下文
-- 在新会话样本中复核 `user_home` 主端点（含 `otherinfo` 与候选聚合端点）的成功路径
-- 对 `search/detail/user_home` 分别完成“required_headers 最小必要集”实验矩阵
+- 继续保持 #445 closeout 已验证的 official profile root 与 browser-owned request context 口径，避免回退到 worktree 路径污染或手工 header reconstruction 口径
+- 若后续 L3 实现 FR 需要脱离 browser-owned passive capture 手工构造请求，再分别补齐 `search/detail/user_home` 的 header reconstruction、字段生命周期与签名分流实验矩阵
 - 复核 `a1 / webId / gid` 的跨刷新与跨会话生命周期
 - 复核 `window._webmsxyw` 的页面/版本分流条件，并补统一降级策略
