@@ -706,6 +706,150 @@ describe("xhs-search gate helpers", () => {
     expect(gate.request_admission_result.reason_codes).toContain("TARGET_URL_CONTEXT_MISMATCH");
   });
 
+  it("allows profile runtime_target.url when actual profile tab preserves the same query", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "profile_tab",
+      actualTargetDomain: "www.xiaohongshu.com",
+      actualTargetTabId: 12,
+      actualTargetPage: "profile_tab",
+      actualTargetUrl:
+        "https://www.xiaohongshu.com/user/profile/user-001?xsec_token=token-001&xsec_source=pc_search",
+      actionType: "read",
+      abilityAction: "read",
+      requestedExecutionMode: "dry_run",
+      upstreamAuthorizationRequest: createUpstreamAuthorizationRequest({
+        resourceKind: "profile_session",
+        allowedActions: ["xhs.user_home"],
+        allowedPages: ["profile_tab"],
+        actionName: "xhs.user_home",
+        page: "profile_tab",
+        url:
+          "https://www.xiaohongshu.com/user/profile/user-001?xsec_token=token-001&xsec_source=pc_search"
+      } as never)
+    });
+
+    expect(gate.request_admission_result).toMatchObject({
+      admission_decision: "allowed",
+      runtime_target_match: true
+    });
+    expect(gate.request_admission_result.reason_codes).not.toContain("TARGET_URL_CONTEXT_MISMATCH");
+  });
+
+  it("allows profile runtime_target.url when XHS strips signed query from the actual tab URL", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "profile_tab",
+      actualTargetDomain: "www.xiaohongshu.com",
+      actualTargetTabId: 12,
+      actualTargetPage: "profile_tab",
+      actualTargetUrl: "https://www.xiaohongshu.com/user/profile/user-001",
+      actionType: "read",
+      abilityAction: "read",
+      requestedExecutionMode: "dry_run",
+      upstreamAuthorizationRequest: createUpstreamAuthorizationRequest({
+        resourceKind: "profile_session",
+        allowedActions: ["xhs.user_home"],
+        allowedPages: ["profile_tab"],
+        actionName: "xhs.user_home",
+        page: "profile_tab",
+        url:
+          "https://www.xiaohongshu.com/user/profile/user-001?xsec_token=token-001&xsec_source=pc_search"
+      } as never)
+    });
+
+    expect(gate.request_admission_result).toMatchObject({
+      admission_decision: "allowed",
+      runtime_target_match: true
+    });
+    expect(gate.request_admission_result.reason_codes).not.toContain("TARGET_URL_CONTEXT_MISMATCH");
+  });
+
+  it("blocks profile runtime_target.url when the actual user id differs", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "profile_tab",
+      actualTargetDomain: "www.xiaohongshu.com",
+      actualTargetTabId: 12,
+      actualTargetPage: "profile_tab",
+      actualTargetUrl: "https://www.xiaohongshu.com/user/profile/user-999",
+      actionType: "read",
+      abilityAction: "read",
+      requestedExecutionMode: "dry_run",
+      upstreamAuthorizationRequest: createUpstreamAuthorizationRequest({
+        resourceKind: "profile_session",
+        allowedActions: ["xhs.user_home"],
+        allowedPages: ["profile_tab"],
+        actionName: "xhs.user_home",
+        page: "profile_tab",
+        url:
+          "https://www.xiaohongshu.com/user/profile/user-001?xsec_token=token-001&xsec_source=pc_search"
+      } as never)
+    });
+
+    expect(gate.request_admission_result).toMatchObject({
+      admission_decision: "blocked",
+      runtime_target_match: false
+    });
+    expect(gate.request_admission_result.reason_codes).toContain("TARGET_URL_CONTEXT_MISMATCH");
+  });
+
+  it("blocks profile runtime_target.url when host or path identity differs", () => {
+    const cases = [
+      {
+        name: "different host",
+        actualTargetUrl: "https://example.com/user/profile/user-001"
+      },
+      {
+        name: "different path",
+        actualTargetUrl: "https://www.xiaohongshu.com/explore/user-001"
+      }
+    ];
+
+    for (const testCase of cases) {
+      const gate = evaluateXhsGate({
+        issueScope: "issue_209",
+        riskState: "allowed",
+        targetDomain: "www.xiaohongshu.com",
+        targetTabId: 12,
+        targetPage: "profile_tab",
+        actualTargetDomain: "www.xiaohongshu.com",
+        actualTargetTabId: 12,
+        actualTargetPage: "profile_tab",
+        actualTargetUrl: testCase.actualTargetUrl,
+        actionType: "read",
+        abilityAction: "read",
+        requestedExecutionMode: "dry_run",
+        upstreamAuthorizationRequest: createUpstreamAuthorizationRequest({
+          resourceKind: "profile_session",
+          allowedActions: ["xhs.user_home"],
+          allowedPages: ["profile_tab"],
+          actionName: "xhs.user_home",
+          page: "profile_tab",
+          url:
+            "https://www.xiaohongshu.com/user/profile/user-001?xsec_token=token-001&xsec_source=pc_search"
+        } as never)
+      });
+
+      expect(gate.request_admission_result, testCase.name).toMatchObject({
+        admission_decision: "blocked",
+        runtime_target_match: false
+      });
+      expect(gate.request_admission_result.reason_codes, testCase.name).toContain(
+        "TARGET_URL_CONTEXT_MISMATCH"
+      );
+    }
+  });
+
   it("blocks stale legacy requested_execution_mode instead of letting it own canonical mode", () => {
     const gate = evaluateXhsGate({
       issueScope: "issue_209",

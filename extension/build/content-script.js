@@ -2578,6 +2578,16 @@ const parseXhsDetailLikeNoteId = (url) => {
 
 const isXhsDetailLikeUrl = (url) => parseXhsDetailLikeNoteId(url) !== null;
 
+const parseXhsProfileUserId = (url) => {
+  if (!(url instanceof URL)) {
+    return null;
+  }
+  const match = url.pathname.match(/^\/user\/profile\/([^/?#]+)/u);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+};
+
+const isXhsProfileUrl = (url) => parseXhsProfileUserId(url) !== null;
+
 const detailLikeRuntimeTargetUrlsMatch = (expectedUrl, actualUrl) => {
   const expectedNoteId = parseXhsDetailLikeNoteId(expectedUrl);
   const actualNoteId = parseXhsDetailLikeNoteId(actualUrl);
@@ -2588,6 +2598,12 @@ const detailLikeRuntimeTargetUrlsMatch = (expectedUrl, actualUrl) => {
     return actualUrlSatisfiesExpectedQuery(expectedUrl, actualUrl);
   }
   return true;
+};
+
+const profileRuntimeTargetUrlsMatch = (expectedUrl, actualUrl) => {
+  const expectedUserId = parseXhsProfileUserId(expectedUrl);
+  const actualUserId = parseXhsProfileUserId(actualUrl);
+  return Boolean(expectedUserId && actualUserId && expectedUserId === actualUserId);
 };
 
 const matchesRuntimeTargetUrl = (input, actualTargetUrl) => {
@@ -2612,7 +2628,7 @@ const matchesRuntimeTargetUrl = (input, actualTargetUrl) => {
       }
     }
     if (runtimeTarget.page === "profile_tab") {
-      if (!parsed.pathname.startsWith("/user/profile/")) {
+      if (!isXhsProfileUrl(parsed)) {
         return false;
       }
     }
@@ -2634,6 +2650,13 @@ const matchesRuntimeTargetUrl = (input, actualTargetUrl) => {
       actual.hostname === parsed.hostname
     ) {
       return detailLikeRuntimeTargetUrlsMatch(parsed, actual);
+    }
+    if (
+      runtimeTarget.page === "profile_tab" &&
+      actual.protocol === parsed.protocol &&
+      actual.hostname === parsed.hostname
+    ) {
+      return profileRuntimeTargetUrlsMatch(parsed, actual);
     }
     return (
       actual.protocol === parsed.protocol &&
