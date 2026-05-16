@@ -575,6 +575,45 @@ describe("profile-runtime start rollback", () => {
       code: "ENOENT"
     });
   });
+
+  it("pins LaunchServices lock owner to real Chrome pid while preserving supervisor controller pid", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-external-owner-"));
+    tempDirs.push(baseDir);
+    const service = createTestService({
+      browserLauncher: {
+        launch: async () => ({
+          browserPath: "/mock/chrome",
+          browserPid: 999999,
+          controllerPid: 999998,
+          launchArgs: ["about:blank"],
+          launchedAt: new Date().toISOString(),
+          processOwnership: "external_persistent_app"
+        }),
+        shutdown: async () => undefined
+      }
+    });
+
+    await expect(
+      service.start({
+        cwd: baseDir,
+        profile: "external_owner_profile",
+        runId: "run-runtime-external-owner-001",
+        params: {}
+      })
+    ).resolves.toMatchObject({
+      profileState: "ready",
+      lockHeld: true
+    });
+
+    const lockRaw = await readFile(
+      join(baseDir, ".webenvoy", "profiles", "external_owner_profile", "__webenvoy_lock.json"),
+      "utf8"
+    );
+    const lock = JSON.parse(lockRaw) as ProfileLock;
+    expect(lock.ownerPid).toBe(999999);
+    expect(lock.controllerPid).toBe(999998);
+    expect(lock.controllerPidState).toBe("live");
+  });
 });
 
 describe("profile-runtime identity preflight", () => {
@@ -2844,7 +2883,8 @@ describe("profile-runtime identity preflight", () => {
           browserPid: 999999,
           launchedAt: new Date().toISOString(),
           headless: false,
-          executionSurface: "real_browser"
+          executionSurface: "real_browser",
+          processOwnership: "external_persistent_app"
         },
         null,
         2
@@ -2983,7 +3023,8 @@ describe("profile-runtime identity preflight", () => {
           browserPid: 999999,
           launchedAt: new Date().toISOString(),
           headless: false,
-          executionSurface: "real_browser"
+          executionSurface: "real_browser",
+          processOwnership: "external_persistent_app"
         },
         null,
         2
@@ -3020,15 +3061,15 @@ describe("profile-runtime identity preflight", () => {
       target_page: "search_result_tab"
     };
 
-    await expect(
-      staleService.status({
-        cwd: baseDir,
-        profile: "attach_stale_bootstrap_lockless_profile",
-        runId: "run-runtime-attach-stale-bootstrap-lockless-next-001",
-        params
-      })
-    ).resolves.toMatchObject({
+    const status = await staleService.status({
+      cwd: baseDir,
+      profile: "attach_stale_bootstrap_lockless_profile",
+      runId: "run-runtime-attach-stale-bootstrap-lockless-next-001",
+      params
+    });
+    expect(status).toMatchObject({
       lockHeld: false,
+      lockOwnerPid: 999999,
       runtimeTakeoverEvidence: expect.objectContaining({
         mode: "stale_bootstrap_rebind",
         staleBootstrapRecoverable: true,

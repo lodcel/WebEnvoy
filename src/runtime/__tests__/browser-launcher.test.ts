@@ -768,8 +768,13 @@ describe("browser-launcher", () => {
     });
 
     const browserStateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
-    const browserState = JSON.parse(browserStateRaw) as { browserPid: number };
+    const browserState = JSON.parse(browserStateRaw) as {
+      browserPid: number;
+      controllerPid: number;
+    };
     expect(browserState.browserPid).toBe(launched.browserPid);
+    expect(browserState.controllerPid).toBe(launched.controllerPid);
+    expect(launched.controllerPid).not.toBe(launched.browserPid);
     expect(() => process.kill(launched.browserPid, 0)).not.toThrow();
 
     try {
