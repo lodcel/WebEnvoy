@@ -10,15 +10,75 @@ const baseInput = (): EvaluateCloseoutRequiredHeadersMatrixInput => ({
     routes: [
       {
         route_id: "xhs.search",
-        required_headers: ["X-S", "X-T", "Cookie"]
+        required_headers: ["X-S", "X-T", "Cookie"],
+        minimality_evidence: [
+          {
+            header_name: "X-S",
+            proof_kind: "negative_omission_probe",
+            result: "blocked_or_failed",
+            artifact_ref: "artifact://search/missing-x-s"
+          },
+          {
+            header_name: "X-T",
+            proof_kind: "negative_omission_probe",
+            result: "blocked_or_failed",
+            artifact_ref: "artifact://search/missing-x-t"
+          },
+          {
+            header_name: "Cookie",
+            proof_kind: "contracted_platform_requirement",
+            result: "contracted_required",
+            artifact_ref: "artifact://search/cookie-contract"
+          }
+        ]
       },
       {
         route_id: "xhs.detail",
-        required_headers: ["X-S", "X-T", "Referer"]
+        required_headers: ["X-S", "X-T", "Referer"],
+        minimality_evidence: [
+          {
+            header_name: "X-S",
+            proof_kind: "negative_omission_probe",
+            result: "blocked_or_failed",
+            artifact_ref: "artifact://detail/missing-x-s"
+          },
+          {
+            header_name: "X-T",
+            proof_kind: "negative_omission_probe",
+            result: "blocked_or_failed",
+            artifact_ref: "artifact://detail/missing-x-t"
+          },
+          {
+            header_name: "Referer",
+            proof_kind: "contracted_platform_requirement",
+            result: "contracted_required",
+            artifact_ref: "artifact://detail/referer-contract"
+          }
+        ]
       },
       {
         route_id: "xhs.user_home",
-        required_headers: ["X-S", "X-T", "User-Agent"]
+        required_headers: ["X-S", "X-T", "User-Agent"],
+        minimality_evidence: [
+          {
+            header_name: "X-S",
+            proof_kind: "negative_omission_probe",
+            result: "blocked_or_failed",
+            artifact_ref: "artifact://user-home/missing-x-s"
+          },
+          {
+            header_name: "X-T",
+            proof_kind: "negative_omission_probe",
+            result: "blocked_or_failed",
+            artifact_ref: "artifact://user-home/missing-x-t"
+          },
+          {
+            header_name: "User-Agent",
+            proof_kind: "contracted_platform_requirement",
+            result: "contracted_required",
+            artifact_ref: "artifact://user-home/user-agent-contract"
+          }
+        ]
       }
     ]
   },
@@ -71,8 +131,17 @@ describe("closeout required headers matrix verifier", () => {
           passed: true,
           required_headers: ["cookie", "x-s", "x-t"],
           observed_header_names: ["cookie", "x-s", "x-t"],
+          observed_browser_headers: ["cookie", "x-s", "x-t"],
+          minimal_required_headers: ["cookie", "x-s", "x-t"],
+          minimality_evidence_headers: ["cookie", "x-s", "x-t"],
+          minimality_evidence_artifact_refs: [
+            "artifact://search/cookie-contract",
+            "artifact://search/missing-x-s",
+            "artifact://search/missing-x-t"
+          ],
           missing_headers: [],
           empty_headers: [],
+          missing_minimality_evidence: [],
           blockers: []
         },
         {
@@ -80,14 +149,30 @@ describe("closeout required headers matrix verifier", () => {
           decision: "PASS",
           passed: true,
           required_headers: ["referer", "x-s", "x-t"],
-          observed_header_names: ["referer", "x-s", "x-t"]
+          observed_header_names: ["referer", "x-s", "x-t"],
+          observed_browser_headers: ["referer", "x-s", "x-t"],
+          minimal_required_headers: ["referer", "x-s", "x-t"],
+          minimality_evidence_headers: ["referer", "x-s", "x-t"],
+          minimality_evidence_artifact_refs: [
+            "artifact://detail/missing-x-s",
+            "artifact://detail/missing-x-t",
+            "artifact://detail/referer-contract"
+          ]
         },
         {
           route_id: "xhs.user_home",
           decision: "PASS",
           passed: true,
           required_headers: ["user-agent", "x-s", "x-t"],
-          observed_header_names: ["user-agent", "x-s", "x-t"]
+          observed_header_names: ["user-agent", "x-s", "x-t"],
+          observed_browser_headers: ["user-agent", "x-s", "x-t"],
+          minimal_required_headers: ["user-agent", "x-s", "x-t"],
+          minimality_evidence_headers: ["user-agent", "x-s", "x-t"],
+          minimality_evidence_artifact_refs: [
+            "artifact://user-home/missing-x-s",
+            "artifact://user-home/missing-x-t",
+            "artifact://user-home/user-agent-contract"
+          ]
         }
       ],
       summary: {
@@ -113,7 +198,21 @@ describe("closeout required headers matrix verifier", () => {
         routes: [
           {
             route_id: "example.inventory.lookup",
-            required_headers: ["Authorization", "X-Request-Id"]
+            required_headers: ["Authorization", "X-Request-Id"],
+            minimality_evidence: [
+              {
+                header_name: "Authorization",
+                proof_kind: "negative_omission_probe",
+                result: "blocked_or_failed",
+                artifact_ref: "artifact://inventory/missing-auth"
+              },
+              {
+                header_name: "X-Request-Id",
+                proof_kind: "contracted_platform_requirement",
+                result: "contracted_required",
+                artifact_ref: "artifact://inventory/request-id-contract"
+              }
+            ]
           }
         ]
       },
@@ -140,6 +239,7 @@ describe("closeout required headers matrix verifier", () => {
     });
     expect(JSON.stringify(result)).not.toContain("redacted-auth");
     expect(JSON.stringify(result)).not.toContain("redacted-request");
+    expect(JSON.stringify(result)).toContain("artifact://inventory/missing-auth");
   });
 
   it.each([
@@ -238,7 +338,8 @@ describe("closeout required headers matrix verifier", () => {
           routes: [
             {
               route_id: "xhs.search",
-              required_headers: []
+              required_headers: [],
+              minimality_evidence: []
             }
           ]
         };
@@ -248,13 +349,137 @@ describe("closeout required headers matrix verifier", () => {
       header_name: null
     },
     {
+      name: "missing minimality evidence",
+      mutate: (input: EvaluateCloseoutRequiredHeadersMatrixInput) => {
+        input.matrix = {
+          routes: [
+            {
+              route_id: "xhs.search",
+              required_headers: ["X-S"]
+            }
+          ]
+        };
+      },
+      blocker_code: "missing_minimality_evidence",
+      route_id: "xhs.search",
+      header_name: null
+    },
+    {
+      name: "minimality evidence without artifact ref",
+      mutate: (input: EvaluateCloseoutRequiredHeadersMatrixInput) => {
+        input.matrix = {
+          routes: [
+            {
+              route_id: "xhs.search",
+              required_headers: ["X-S"],
+              minimality_evidence: [
+                {
+                  header_name: "X-S",
+                  proof_kind: "negative_omission_probe",
+                  result: "blocked_or_failed"
+                }
+              ]
+            }
+          ]
+        };
+      },
+      blocker_code: "invalid_minimality_evidence",
+      route_id: "xhs.search",
+      header_name: null
+    },
+    {
+      name: "mixed valid and malformed minimality evidence",
+      mutate: (input: EvaluateCloseoutRequiredHeadersMatrixInput) => {
+        input.matrix = {
+          routes: [
+            {
+              route_id: "xhs.search",
+              required_headers: ["X-S"],
+              minimality_evidence: [
+                {
+                  header_name: "X-S",
+                  proof_kind: "negative_omission_probe",
+                  result: "blocked_or_failed",
+                  artifact_ref: "artifact://search/missing-x-s"
+                },
+                {
+                  header_name: "X-S",
+                  proof_kind: "negative_omission_probe",
+                  result: "blocked_or_failed"
+                }
+              ]
+            }
+          ]
+        };
+      },
+      blocker_code: "invalid_minimality_evidence",
+      route_id: "xhs.search",
+      header_name: null
+    },
+    {
+      name: "passive observed headers without admitted minimality evidence",
+      mutate: (input: EvaluateCloseoutRequiredHeadersMatrixInput) => {
+        input.matrix = {
+          routes: [
+            {
+              route_id: "xhs.search",
+              required_headers: ["X-S"],
+              minimality_evidence: [
+                {
+                  header_name: "X-S",
+                  proof_kind: "passive_observed_header",
+                  result: "observed",
+                  artifact_ref: "artifact://search/passive-only"
+                }
+              ]
+            }
+          ]
+        };
+      },
+      blocker_code: "invalid_minimality_evidence",
+      route_id: "xhs.search",
+      header_name: null
+    },
+    {
+      name: "required header missing its minimality proof",
+      mutate: (input: EvaluateCloseoutRequiredHeadersMatrixInput) => {
+        input.matrix = {
+          routes: [
+            {
+              route_id: "xhs.search",
+              required_headers: ["X-S", "X-T"],
+              minimality_evidence: [
+                {
+                  header_name: "X-S",
+                  proof_kind: "negative_omission_probe",
+                  result: "blocked_or_failed",
+                  artifact_ref: "artifact://search/missing-x-s"
+                }
+              ]
+            }
+          ]
+        };
+      },
+      blocker_code: "missing_minimality_evidence",
+      route_id: "xhs.search",
+      header_name: "x-t"
+    },
+    {
       name: "blank required header name",
       mutate: (input: EvaluateCloseoutRequiredHeadersMatrixInput) => {
         input.matrix = {
           routes: [
             {
               route_id: "xhs.search",
-              required_headers: ["X-S", " "]
+              required_headers: ["X-S", " "],
+              minimality_evidence: [
+                {
+                  header_name: "X-S",
+                  proof_kind: "negative_omission_probe",
+                  result: "blocked_or_failed",
+                  artifact_ref: "artifact://search/missing-x-s"
+                }
+              ]
             }
           ]
         };
@@ -270,7 +495,15 @@ describe("closeout required headers matrix verifier", () => {
           routes: [
             {
               route_id: " ",
-              required_headers: ["X-S"]
+              required_headers: ["X-S"],
+              minimality_evidence: [
+                {
+                  header_name: "X-S",
+                  proof_kind: "negative_omission_probe",
+                  result: "blocked_or_failed",
+                  artifact_ref: "artifact://search/missing-x-s"
+                }
+              ]
             }
           ]
         };
@@ -332,6 +565,8 @@ describe("closeout required headers matrix verifier", () => {
           decision: "FAIL",
           passed: false,
           empty_headers: ["x-t"],
+          minimal_required_headers: ["referer", "x-s", "x-t"],
+          missing_minimality_evidence: [],
           blockers: [
             expect.objectContaining({
               blocker_code: "empty_required_header",
