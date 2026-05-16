@@ -904,7 +904,14 @@ export class ProfileRuntimeService {
             : null
       });
       launchedControllerPid = browserLaunch.controllerPid;
-      await this.#updateLockOwnerPid(lockPath, input.runId, browserLaunch.controllerPid, nowIso);
+      await this.#updateLockOwnerPid(lockPath, input.runId, {
+        ownerPid:
+          browserLaunch.processOwnership === "external_persistent_app"
+            ? browserLaunch.browserPid
+            : browserLaunch.controllerPid,
+        controllerPid: browserLaunch.controllerPid,
+        nowIso
+      });
       session = markSessionReady(session);
       const readiness = identityPreflight.identityBindingState === "bound"
         ? await this.#deliverRuntimeBootstrap({
@@ -1101,7 +1108,14 @@ export class ProfileRuntimeService {
               : null
         });
         launchedControllerPid = browserLaunch.controllerPid;
-        await this.#updateLockOwnerPid(lockPath, input.runId, browserLaunch.controllerPid, nowIso);
+        await this.#updateLockOwnerPid(lockPath, input.runId, {
+          ownerPid:
+            browserLaunch.processOwnership === "external_persistent_app"
+              ? browserLaunch.browserPid
+              : browserLaunch.controllerPid,
+          controllerPid: browserLaunch.controllerPid,
+          nowIso
+        });
       }
 
       await store.writeMeta(
@@ -2054,8 +2068,11 @@ export class ProfileRuntimeService {
   async #updateLockOwnerPid(
     lockPath: string,
     runId: string,
-    ownerPid: number,
-    nowIso: string
+    input: {
+      ownerPid: number;
+      controllerPid: number;
+      nowIso: string;
+    }
   ): Promise<void> {
     const existing = await this.#readLock(lockPath);
     if (!existing) {
@@ -2070,10 +2087,10 @@ export class ProfileRuntimeService {
     }
     const updated: ProfileLock = {
       ...existing,
-      ownerPid,
-      controllerPid: ownerPid,
+      ownerPid: input.ownerPid,
+      controllerPid: input.controllerPid,
       controllerPidState: "live",
-      lastHeartbeatAt: nowIso
+      lastHeartbeatAt: input.nowIso
     };
     await this.#writeLock(lockPath, updated);
   }
@@ -2298,7 +2315,10 @@ export class ProfileRuntimeService {
     return {
       profileName: input.profile,
       lockPath: input.lockPath,
-      ownerPid: input.state.controllerPid,
+      ownerPid:
+        input.state.processOwnership === "external_persistent_app"
+          ? input.state.browserPid
+          : input.state.controllerPid,
       controllerPid: input.state.controllerPid,
       controllerPidState: "live",
       ownerRunId: input.state.runId,

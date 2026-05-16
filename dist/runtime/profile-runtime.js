@@ -538,7 +538,13 @@ export class ProfileRuntimeService {
                     : null
             });
             launchedControllerPid = browserLaunch.controllerPid;
-            await this.#updateLockOwnerPid(lockPath, input.runId, browserLaunch.controllerPid, nowIso);
+            await this.#updateLockOwnerPid(lockPath, input.runId, {
+                ownerPid: browserLaunch.processOwnership === "external_persistent_app"
+                    ? browserLaunch.browserPid
+                    : browserLaunch.controllerPid,
+                controllerPid: browserLaunch.controllerPid,
+                nowIso
+            });
             session = markSessionReady(session);
             const readiness = identityPreflight.identityBindingState === "bound"
                 ? await this.#deliverRuntimeBootstrap({
@@ -701,7 +707,13 @@ export class ProfileRuntimeService {
                         : null
                 });
                 launchedControllerPid = browserLaunch.controllerPid;
-                await this.#updateLockOwnerPid(lockPath, input.runId, browserLaunch.controllerPid, nowIso);
+                await this.#updateLockOwnerPid(lockPath, input.runId, {
+                    ownerPid: browserLaunch.processOwnership === "external_persistent_app"
+                        ? browserLaunch.browserPid
+                        : browserLaunch.controllerPid,
+                    controllerPid: browserLaunch.controllerPid,
+                    nowIso
+                });
             }
             await store.writeMeta(input.profile, this.#patchMeta(recoveredMeta, {
                 profileName: input.profile,
@@ -1548,7 +1560,7 @@ export class ProfileRuntimeService {
     async #writeLock(lockPath, lock) {
         await this.#lockFileAdapter.writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
     }
-    async #updateLockOwnerPid(lockPath, runId, ownerPid, nowIso) {
+    async #updateLockOwnerPid(lockPath, runId, input) {
         const existing = await this.#readLock(lockPath);
         if (!existing) {
             throw new CliError("ERR_PROFILE_LOCKED", "profile 当前被其他运行占用", {
@@ -1562,10 +1574,10 @@ export class ProfileRuntimeService {
         }
         const updated = {
             ...existing,
-            ownerPid,
-            controllerPid: ownerPid,
+            ownerPid: input.ownerPid,
+            controllerPid: input.controllerPid,
             controllerPidState: "live",
-            lastHeartbeatAt: nowIso
+            lastHeartbeatAt: input.nowIso
         };
         await this.#writeLock(lockPath, updated);
     }
@@ -1756,7 +1768,9 @@ export class ProfileRuntimeService {
         return {
             profileName: input.profile,
             lockPath: input.lockPath,
-            ownerPid: input.state.controllerPid,
+            ownerPid: input.state.processOwnership === "external_persistent_app"
+                ? input.state.browserPid
+                : input.state.controllerPid,
             controllerPid: input.state.controllerPid,
             controllerPidState: "live",
             ownerRunId: input.state.runId,
