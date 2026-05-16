@@ -37,6 +37,7 @@
 - [x] 2026-05-16 已消费 PR `#682` 合入后的 closeout 事实：PR `#682` 已 `MERGED`，head `31b0d7875095f51cbce7fe9c62d7ba39c794c055`，merge commit `545cb0a193dbbb74a42c12ad8f820b3fce886d9b`
 - [x] 2026-05-16 已确认 issue `#445` managed-profile live closeout 完成：`run_id=issue445-pr-head-31b0d78-20260516T0735Z`，official profile `xhs_001`，`cwd=/Users/mc/dev/WebEnvoy`，official profile root `/Users/mc/dev/WebEnvoy/.webenvoy/profiles/xhs_001`
 - [x] 2026-05-16 已确认 `search/detail/user_home` 均达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`，对应路由为 `POST /api/sns/web/v1/search/notes`、`POST /api/sns/web/v1/feed`、`GET /api/sns/web/v1/user_posted`
+- [x] 2026-05-16 已将上述三条 closeout success 回写到 `research.md` 的结构化 endpoint catalog / required request context 条目：`search-closeout-20260516`、`detail-closeout-20260516`、`user-home-closeout-20260516`
 - [x] 2026-05-16 已确认 closeout evaluator `PASS`：`latest_head_matches=true`、`run_matches=true`、`artifact_matches=true`、`accepted_round_count=2`、`unique_artifact_count=2`
 - [x] 2026-05-16 已确认 #445 closeout 所需请求上下文矩阵按 browser-owned passive API capture 口径收口；本结论不等同于后续手工 header reconstruction 或字段生命周期细化已完成
 - [x] 2026-05-16 已确认 `runtime.stop` 成功，post-stop official profile processes / exact main Chrome count 为 `0`，controlled merge 前 guardian `APPROVE` 且 GitHub checks green

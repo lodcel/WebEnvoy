@@ -129,7 +129,8 @@
 
 - 每条证据显式包含 `route_role`、`path_kind`、`evidence_status`、`evidence_maturity`。
 - `route_role=fallback` 且 `path_kind=page` 的证据统一标记为 `fallback-only`，只作为降级路径证据，不构成实现准入。
-- 仅 `route_role=primary` + `evidence_status=success` 且补齐最小必要请求上下文实验矩阵，才可进入实现准入；当前轮次尚未满足。
+- 仅 `route_role=primary` + `evidence_status=success` 且补齐最小必要请求上下文实验矩阵，才可进入实现准入；1.x 阶段的早期手动样本尚未满足。
+- 2026-05-16 `#445` closeout 已用 PR `#682` 的 browser-owned passive API capture 补齐 `search/detail/user_home` 三场景的 `primary + api + success + reproduced_multi_round` 证据；下列 `*-closeout-20260516` 条目是当前 closeout 事实，早期 `observed_once/candidate/failed` 条目继续作为历史样本保留。
 
 ### 2.1 search
 
@@ -137,6 +138,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `search-primary-01` | `primary` | `api` | `success` | `observed_once` | `browser_first_hand` | `POST` | `/api/sns/web/v1/search/notes` | 真实搜索交互中观测到 `HTTP 200` 成功样本 | 主路径强证据，但仍缺最小必要 headers/cookie/origin 矩阵 |
 | `search-primary-02` | `primary` | `api` | `failed` | `observed_once` | `browser_first_hand` | `POST` | `/api/sns/web/v1/search/notes` | 手动仅补 `X-s/X-t` 得到 `HTTP 500` + `create invoker failed` | 阻断“仅双字段签名可复现”的假设 |
+| `search-closeout-20260516` | `primary` | `api` | `success` | `reproduced_multi_round` | `managed_profile_live_closeout` | `POST` | `/api/sns/web/v1/search/notes` | PR `#682` head `31b0d7875095f51cbce7fe9c62d7ba39c794c055` / run `issue445-pr-head-31b0d78-20260516T0735Z` 通过 real-browser passive API capture 复核 | 满足 `#445` closeout bar；不等同于手工 header reconstruction 已 admission-ready |
 
 `search` 端点补充字段：
 
@@ -154,11 +156,18 @@
   - `success_signal`: `n/a`
   - `failure_signals`: `gateway_invoker_failed`
   - `page_state_fallback`: `null`
+- `search-closeout-20260516`
+  - `required_headers_observed`: browser-owned request context captured by real Chrome passive API capture; includes signed XHS request headers and browser navigation context for `/api/sns/web/v1/search/notes`
+  - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
+  - `required_params`: `keyword`, `page`, `page_size`, `sort`, `note_type`
+  - `success_signal`: `closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
+  - `page_state_fallback`: `null`
 当前结论：
 
-- `search/notes` 仍是 `primary` 候选主路径，但当前只达到 `observed_once`，未达“实现准入”。
+- `search/notes` 已通过 2026-05-16 `#445` closeout 复核成为当前 formal closeout 的 `primary api success` 路径；早期 `observed_once` 结论只作为历史样本保留。
 - `search` 场景当前无可冻结的 `page` fallback 成功证据；其余辅助 API 证据仅保留为候选，不构成实现准入。
-- 当前已观测头族：`Accept`、`Content-Type`（POST）、`x-b3-traceid`、`x-xray-traceid`、`X-s`、`X-t`、`X-S-Common`；Cookie/Origin/Referer/UA-CH 仍为候选必要项。
+- 当前 closeout 所需请求上下文矩阵已按 browser-owned passive API capture 口径收口；Cookie/Origin/Referer/UA-CH 的手工 reconstruction 仍不是本 PR 的完成项。
 
 `search` 辅助 API 证据（不进入正式 `endpoint_catalog`）：
 
@@ -178,6 +187,7 @@
 | `detail-fallback-01` | `fallback` | `page` | `success` | `observed_once` | `browser_first_hand` | `N/A` | `N/A` | 页面命中后 `window.__INITIAL_STATE__` 为 `object`，`note.noteDetailMap` 可读到当前 `noteId`；具体页面模板见 `page_state_fallback.path_template` | `fallback-only`（不构成实现准入） |
 | `detail-primary-01` | `primary` | `api` | `candidate` | `observed_once` | `repo_baseline` | `POST` | `/api/sns/web/v1/feed` | 存在端点与参数形态（`source_note_id`）证据，但无成功闭环 | 主路径候选，未准入 |
 | `detail-primary-02` | `primary` | `api` | `failed` | `observed_once` | `browser_first_hand` | `POST` | `/api/sns/web/v1/feed` | 手动请求返回 `HTTP 461` + `code=300011`（账号异常） | 风控阻断证据 |
+| `detail-closeout-20260516` | `primary` | `api` | `success` | `reproduced_multi_round` | `managed_profile_live_closeout` | `POST` | `/api/sns/web/v1/feed` | PR `#682` head `31b0d7875095f51cbce7fe9c62d7ba39c794c055` / run `issue445-pr-head-31b0d78-20260516T0735Z` 通过 real-browser passive API capture 复核 | 满足 `#445` closeout bar；不等同于手工 header reconstruction 已 admission-ready |
 
 `detail` 端点补充字段：
 
@@ -195,6 +205,13 @@
   - `success_signal`: `n/a`
   - `failure_signals`: `account_abnormal`
   - `page_state_fallback`: `null`
+- `detail-closeout-20260516`
+  - `required_headers_observed`: browser-owned request context captured by real Chrome passive API capture; includes signed XHS request headers and browser navigation context for `/api/sns/web/v1/feed`
+  - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
+  - `required_params`: `note_id`
+  - `success_signal`: `closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
+  - `page_state_fallback`: `detail-fallback-01` remains a fallback-only historical sample
 
 `detail-fallback-01` 对应 `page_state_fallback` 冻结快照：
 
@@ -227,7 +244,7 @@
 当前结论：
 
 - detail 的 `page` 路径只有 `fallback-only` 价值。
-- detail 的 `api primary` 未获得成功样本，不构成实现准入。
+- detail 的 `api primary` 已在 2026-05-16 `#445` closeout 中通过 browser-owned passive API capture 收口；早期 `candidate/failed` 条目继续作为历史失败/候选样本保留。
 
 ### 2.3 user_home
 
@@ -236,6 +253,7 @@
 | `user-home-fallback-01` | `fallback` | `page` | `success` | `observed_once` | `browser_first_hand` | `N/A` | `N/A` | 页面命中后 `window.__INITIAL_STATE__` 为 `object`，顶层可见 `user`/`board`/`note`；具体页面模板见 `page_state_fallback.path_template` | `fallback-only`（不构成实现准入） |
 | `user-home-primary-02` | `primary` | `api` | `failed` | `observed_once` | `browser_first_hand` | `GET` | `/api/sns/web/v1/user/otherinfo?...` | 手动仅补 `X-s/X-t` 返回 `HTTP 200 + code=300015`（环境异常） | 阻断“低上下文请求可复现”假设 |
 | `user-home-primary-03` | `primary` | `api` | `candidate` | `observed_once` | `repo_baseline` | `GET` | `/api/sns/web/v1/user/otherinfo?...` | 端点语义相关，但本轮无成功闭环 | 候选，不准入 |
+| `user-home-closeout-20260516` | `primary` | `api` | `success` | `reproduced_multi_round` | `managed_profile_live_closeout` | `GET` | `/api/sns/web/v1/user_posted` | PR `#682` head `31b0d7875095f51cbce7fe9c62d7ba39c794c055` / run `issue445-pr-head-31b0d78-20260516T0735Z` 通过 real-browser passive API capture 复核 | 满足 `#445` closeout bar；不等同于手工 header reconstruction 已 admission-ready |
 
 `user_home` 端点补充字段：
 
@@ -253,6 +271,13 @@
   - `success_signal`: `HTTP 200 + 用户主页核心字段稳定返回`
   - `failure_signals`: `candidate_only`
   - `page_state_fallback`: `null`
+- `user-home-closeout-20260516`
+  - `required_headers_observed`: browser-owned request context captured by real Chrome passive API capture; includes signed XHS request headers and browser navigation context for `/api/sns/web/v1/user_posted`
+  - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
+  - `required_params`: `user_id`
+  - `success_signal`: `closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`, `execution_gate_blocked`
+  - `page_state_fallback`: `user-home-fallback-01` remains a fallback-only historical sample
 
 `user-home-fallback-01` 对应 `page_state_fallback` 冻结快照：
 
@@ -287,7 +312,7 @@
 
 - user_home 的 `page` 路径仅为 `fallback-only`。
 - `/api/sns/web/v1/board/user` 当前只保留为辅助 API 证据，不冻结为 `primary`。
-- user_home 的 `primary api` 仍缺“可稳定读取核心字段 + 最小必要请求上下文”的闭环证据，不构成实现准入。
+- user_home 的 `primary api` 已在 2026-05-16 `#445` closeout 中以 `/api/sns/web/v1/user_posted` 通过 browser-owned passive API capture 收口；早期 `otherinfo` 候选/失败记录继续作为历史样本保留。
 
 `user_home` 辅助 API 证据（不进入正式 `endpoint_catalog`）：
 
