@@ -129,7 +129,8 @@
 
 - 每条证据显式包含 `route_role`、`path_kind`、`evidence_status`、`evidence_maturity`。
 - `route_role=fallback` 且 `path_kind=page` 的证据统一标记为 `fallback-only`，只作为降级路径证据，不构成实现准入。
-- 仅 `route_role=primary` + `evidence_status=success` 且补齐最小必要请求上下文实验矩阵，才可进入实现准入；当前轮次尚未满足。
+- 仅 `route_role=primary` + `evidence_status=success` 且补齐最小必要请求上下文实验矩阵，才可进入实现准入；1.x 阶段的早期手动样本尚未满足。
+- 2026-05-16 PR `#682` 已用 browser-owned passive API capture 补齐 `search/detail/user_home` 三场景的 `primary + api + success + reproduced_multi_round` 子条件；下列 `*-closeout-20260516` 条目是可复核的 partial closeout evidence fact，早期 `observed_once/candidate/failed` 条目继续作为历史样本保留。required-header minimal matrix 已由 5.8 的 PR `#683` closeout chain 补齐。
 
 ### 2.1 search
 
@@ -137,6 +138,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `search-primary-01` | `primary` | `api` | `success` | `observed_once` | `browser_first_hand` | `POST` | `/api/sns/web/v1/search/notes` | 真实搜索交互中观测到 `HTTP 200` 成功样本 | 主路径强证据，但仍缺最小必要 headers/cookie/origin 矩阵 |
 | `search-primary-02` | `primary` | `api` | `failed` | `observed_once` | `browser_first_hand` | `POST` | `/api/sns/web/v1/search/notes` | 手动仅补 `X-s/X-t` 得到 `HTTP 500` + `create invoker failed` | 阻断“仅双字段签名可复现”的假设 |
+| `search-closeout-20260516` | `primary` | `api` | `success` | `reproduced_multi_round` | `browser_first_hand` | `POST` | `/api/sns/web/v1/search/notes` | PR `#682` head `31b0d7875095f51cbce7fe9c62d7ba39c794c055` / run `issue445-pr-head-31b0d78-20260516T0735Z` 通过 real-browser passive API capture 复核 | 满足 `primary api multi-round` 子条件；5.8 另行补齐 required-header minimal matrix |
 
 `search` 端点补充字段：
 
@@ -154,11 +156,18 @@
   - `success_signal`: `n/a`
   - `failure_signals`: `gateway_invoker_failed`
   - `page_state_fallback`: `null`
+- `search-closeout-20260516`
+  - `required_headers_observed`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
+  - `required_headers_candidate`: manual request reconstruction remains a later L3 implementation concern；5.8 已对 closeout 所需 minimal matrix 收口
+  - `required_params`: `keyword`, `page`, `page_size`, `sort`, `note_type`
+  - `success_signal`: `request_admission_result.admission_decision=allowed + execution_audit.request_admission_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
+  - `page_state_fallback`: `null`
 当前结论：
 
-- `search/notes` 仍是 `primary` 候选主路径，但当前只达到 `observed_once`，未达“实现准入”。
+- `search/notes` 已通过 2026-05-16 PR `#682` 复核成为当前 formal 记录中的 `primary api success` 路径；早期 `observed_once` 结论只作为历史样本保留。
 - `search` 场景当前无可冻结的 `page` fallback 成功证据；其余辅助 API 证据仅保留为候选，不构成实现准入。
-- 当前已观测头族：`Accept`、`Content-Type`（POST）、`x-b3-traceid`、`x-xray-traceid`、`X-s`、`X-t`、`X-S-Common`；Cookie/Origin/Referer/UA-CH 仍为候选必要项。
+- 当前 partial closeout 已按 browser-owned passive API capture 口径记录 observed request context；5.8 已补齐 closeout 所需 required-header minimal matrix，Cookie/Origin/Referer/UA-CH 的进一步手工 reconstruction 仍属于后续 L3 implementation concern。
 
 `search` 辅助 API 证据（不进入正式 `endpoint_catalog`）：
 
@@ -178,6 +187,7 @@
 | `detail-fallback-01` | `fallback` | `page` | `success` | `observed_once` | `browser_first_hand` | `N/A` | `N/A` | 页面命中后 `window.__INITIAL_STATE__` 为 `object`，`note.noteDetailMap` 可读到当前 `noteId`；具体页面模板见 `page_state_fallback.path_template` | `fallback-only`（不构成实现准入） |
 | `detail-primary-01` | `primary` | `api` | `candidate` | `observed_once` | `repo_baseline` | `POST` | `/api/sns/web/v1/feed` | 存在端点与参数形态（`source_note_id`）证据，但无成功闭环 | 主路径候选，未准入 |
 | `detail-primary-02` | `primary` | `api` | `failed` | `observed_once` | `browser_first_hand` | `POST` | `/api/sns/web/v1/feed` | 手动请求返回 `HTTP 461` + `code=300011`（账号异常） | 风控阻断证据 |
+| `detail-closeout-20260516` | `primary` | `api` | `success` | `reproduced_multi_round` | `browser_first_hand` | `POST` | `/api/sns/web/v1/feed` | PR `#682` head `31b0d7875095f51cbce7fe9c62d7ba39c794c055` / run `issue445-pr-head-31b0d78-20260516T0735Z` 通过 real-browser passive API capture 复核 | 满足 `primary api multi-round` 子条件；5.8 另行补齐 required-header minimal matrix |
 
 `detail` 端点补充字段：
 
@@ -194,6 +204,13 @@
   - `required_params`: `source_note_id`
   - `success_signal`: `n/a`
   - `failure_signals`: `account_abnormal`
+  - `page_state_fallback`: `null`
+- `detail-closeout-20260516`
+  - `required_headers_observed`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`, `xy-direction`
+  - `required_headers_candidate`: manual request reconstruction remains a later L3 implementation concern；5.8 已对 closeout 所需 minimal matrix 收口
+  - `required_params`: `note_id`
+  - `success_signal`: `audit_record.gate_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
   - `page_state_fallback`: `null`
 
 `detail-fallback-01` 对应 `page_state_fallback` 冻结快照：
@@ -227,7 +244,8 @@
 当前结论：
 
 - detail 的 `page` 路径只有 `fallback-only` 价值。
-- detail 的 `api primary` 未获得成功样本，不构成实现准入。
+- detail 的 `api primary` 已在 2026-05-16 PR `#682` 中通过 browser-owned passive API capture 形成可复核成功证据；早期 `candidate/failed` 条目继续作为历史失败/候选样本保留。
+- `detail-fallback-01` 仍是独立 page fallback 历史样本；API closeout record 的 `page_state_fallback` 按契约保持为 `null`。
 
 ### 2.3 user_home
 
@@ -236,6 +254,7 @@
 | `user-home-fallback-01` | `fallback` | `page` | `success` | `observed_once` | `browser_first_hand` | `N/A` | `N/A` | 页面命中后 `window.__INITIAL_STATE__` 为 `object`，顶层可见 `user`/`board`/`note`；具体页面模板见 `page_state_fallback.path_template` | `fallback-only`（不构成实现准入） |
 | `user-home-primary-02` | `primary` | `api` | `failed` | `observed_once` | `browser_first_hand` | `GET` | `/api/sns/web/v1/user/otherinfo?...` | 手动仅补 `X-s/X-t` 返回 `HTTP 200 + code=300015`（环境异常） | 阻断“低上下文请求可复现”假设 |
 | `user-home-primary-03` | `primary` | `api` | `candidate` | `observed_once` | `repo_baseline` | `GET` | `/api/sns/web/v1/user/otherinfo?...` | 端点语义相关，但本轮无成功闭环 | 候选，不准入 |
+| `user-home-closeout-20260516` | `primary` | `api` | `success` | `reproduced_multi_round` | `browser_first_hand` | `GET` | `/api/sns/web/v1/user_posted` | PR `#682` head `31b0d7875095f51cbce7fe9c62d7ba39c794c055` / run `issue445-pr-head-31b0d78-20260516T0735Z` 通过 real-browser passive API capture 复核 | 满足 `primary api multi-round` 子条件；5.8 另行补齐 required-header minimal matrix |
 
 `user_home` 端点补充字段：
 
@@ -252,6 +271,13 @@
   - `required_params`: `user_id`
   - `success_signal`: `HTTP 200 + 用户主页核心字段稳定返回`
   - `failure_signals`: `candidate_only`
+  - `page_state_fallback`: `null`
+- `user-home-closeout-20260516`
+  - `required_headers_observed`: `Accept`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
+  - `required_headers_candidate`: manual request reconstruction matrix remains unresolved; passive capture only records observed browser-owned request context
+  - `required_params`: `user_id`
+  - `success_signal`: `request_admission_result.admission_decision=allowed + execution_audit.request_admission_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`, `execution_gate_blocked`
   - `page_state_fallback`: `null`
 
 `user-home-fallback-01` 对应 `page_state_fallback` 冻结快照：
@@ -287,7 +313,8 @@
 
 - user_home 的 `page` 路径仅为 `fallback-only`。
 - `/api/sns/web/v1/board/user` 当前只保留为辅助 API 证据，不冻结为 `primary`。
-- user_home 的 `primary api` 仍缺“可稳定读取核心字段 + 最小必要请求上下文”的闭环证据，不构成实现准入。
+- user_home 的 `primary api` 已在 2026-05-16 PR `#682` 中以 `/api/sns/web/v1/user_posted` 通过 browser-owned passive API capture 形成可复核成功证据；早期 `otherinfo` 候选/失败记录继续作为历史样本保留。
+- `user-home-fallback-01` 仍是独立 page fallback 历史样本；API closeout record 的 `page_state_fallback` 按契约保持为 `null`。
 
 `user_home` 辅助 API 证据（不进入正式 `endpoint_catalog`）：
 
@@ -389,7 +416,7 @@
 - `search` 仍停留在 `observed_once` 的 `primary` 成功样本，尚缺 WebEnvoy-managed profile 下的多轮 replay 与 required headers 最小必要集。
 - `detail` 与 `user_home` 仍分别停留在 `fallback-only` 与 `candidate/failed` 组合，不满足进入实现 FR 的前提。
 - 上述快照支撑了 2026-04-06 中午的 `No-Go/paused` 历史 closeout。
-- 截至当前 PR，WebEnvoy-managed profile 下的后续同口径复核尚未作为正式结论收口；因此 formal FR 的当前状态仍保持 blocked。
+- 截至 2026-04-06 中午该轮 PR/执行现场，WebEnvoy-managed profile 下的后续同口径复核尚未作为正式结论收口；因此当时 formal FR 状态保持 blocked。2026-05-16 PR `#682` 已补齐 `primary api multi-round` 子条件，5.8 后续补齐 required-header minimal matrix。
 - 若后续执行现场已恢复受管 XHS profile，应继续补齐 `search/detail/user_home` 的同口径复核，并在结论收口后再更新正式状态。
 
 ### 5.2 2026-04-10 WebEnvoy-managed official runtime 再预检（issue #445，中间现场）
@@ -436,7 +463,7 @@
 - 在 `ERR_RUNTIME_IDENTITY_MISMATCH / IDENTITY_MANIFEST_MISSING` 未解除前，本轮不能合法进入 `search/detail/user_home` 的 managed-profile fresh live rerun。
 - 因为合法的 `real_browser` official runtime rerun 根本没有开始，本轮没有新增 `search/detail/user_home` 的 API primary 成功样本，也没有新增 `required_headers` 最小必要集矩阵证据。
 - 因此 `search` 仍停留在 `observed_once` 的 `primary` 成功样本；`detail` 与 `user_home` 仍分别停留在 `fallback-only` 与 `candidate/failed` 组合。
-- issue `#445` 本轮已按同一 formal 口径重做 Go/No-Go 判定，结论维持 `No-Go/paused`，formal FR 当前状态继续保持 blocked。
+- issue `#445` 在 2026-04-10 该轮已按同一 formal 口径重做 Go/No-Go 判定，当时结论维持 `No-Go/paused`，formal FR 状态继续保持 blocked；2026-05-16 PR `#682` 已补齐 `primary api multi-round` 子条件，5.8 后续补齐 required-header minimal matrix。
 - 在修复 `xhs_001` 的 official runtime identity mismatch、并恢复合法的 `real_browser` 执行面之前，不得把外部手工浏览器、旧 head、旧 artifact 或 headless `about:blank` 现场补写成 managed-profile live 复核结论。
 
 ### 5.3 2026-04-11 main 目录恢复后再复核（issue #445 正式收口）
@@ -551,8 +578,8 @@
 - 但是 `tested_head_sha=e8e686d3ecc5924770131264671bc4da5713ef57` 的 XHS read 执行 bundle 在 `search` 首次 fresh rerun 就失败，错误为 `executeXhsSearchImpl is not defined`；这属于当前仓库该提交的执行层阻断，不是外部 profile 根目录问题。
 - 同时，`risk_state_output.current_state=paused` 仍未解除，本轮也没有新增 approval / headers matrix / API primary success 样本。
 - 因此 `search/detail/user_home` 三类场景都没有达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`。
-- issue `#445` 本轮正式 Go/No-Go 结论继续维持：`No-Go/paused`。
-- 当前唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`。
+- issue `#445` 在 2026-04-11 该轮正式 Go/No-Go 结论继续维持：`No-Go/paused`。
+- 2026-04-11 该轮唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`；2026-05-16 PR `#682` 已补齐 `primary api multi-round` 子条件，5.8 后续补齐 required-header minimal matrix。
 
 ### 5.4 2026-04-11 仓库内已固化 fresh rerun 样本（issue #445-B）
 
@@ -686,8 +713,8 @@
 - 但 `search` 在 current formal state 下只能达到 `dry_run` 成功壳；一旦请求 `live_read_high_risk`，就会被 `risk_state=paused` 与 `ISSUE_ACTION_MATRIX_BLOCKED` 明确阻断，未形成 `primary + api + success` 样本。
 - `detail` 与 `user_home` 在该轮 fixed sample head 上仍无公开 CLI 命令入口，因此本轮没有合法的同口径 fresh rerun 路径去产出 primary API success 样本。
 - 因此 `search/detail/user_home` 三类场景依然没有同时达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`。
-- issue `#445` 的本轮正式 Go/No-Go 结论继续维持：`No-Go/paused`。
-- 当前唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`；其中该轮 fixed sample head 的直接阻断已更新为 `live_read_blocked_by_risk_state + detail/user_home formal command surface missing`。
+- issue `#445` 在 2026-04-11 固定样本头下的正式 Go/No-Go 结论继续维持：`No-Go/paused`。
+- 2026-04-11 固定样本头下唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`；其中该轮 fixed sample head 的直接阻断已更新为 `live_read_blocked_by_risk_state + detail/user_home formal command surface missing`。2026-05-16 PR `#682` 已补齐 `primary api multi-round` 子条件，5.8 后续补齐 required-header minimal matrix。
 - current main 上 detail/user_home 的 current command surface 已由 `FR-0025` 冻结，但这不会替代 latest-main fresh rerun 所需的 live primary success 与 headers matrix 证据。
 
 #### 5.4.6 2026-04-11 PR gate refresh 参考样本与 latest-head 维护口径
@@ -739,15 +766,185 @@
 - formal FR 在仓库内只保留 stable closeout bar 与 fixed/historical sample
 - dated blocker refresh 样本不得在 formal docs 内被表述成 current-head / latest-head 证据
 
-因此，2026-04-16 这轮 blocker refresh 不在本文件逐项展开；formal 结论也未因此发生变化，FR-0005 继续保持 `No-Go/paused`，直到正式 closeout bar 被满足为止。
+因此，2026-04-16 这轮 blocker refresh 不在本文件逐项展开；当时 formal 结论也未因此发生变化，FR-0005 继续保持 `No-Go/paused`。2026-05-16 PR `#682` 已补齐 `primary api multi-round` 子条件；随后 5.8 的 PR `#683` closeout chain 补齐 required-header minimal matrix 后，FR-0005 closeout 进入完成态。
+
+### 5.6 2026-05-16 issue #445 managed-profile live partial closeout 记录
+
+2026-05-16 消费已合入 `main` 的 PR `#682` live evidence 事实。本节不删除 5.1-5.5 的历史 `No-Go/paused` 记录；这些记录继续作为当时执行现场的 dated fact 保留。本节只表达：PR `#682` 已补齐 `search/detail/user_home` 的 `primary + api + success + reproduced_multi_round` 子条件；5.8 记录了随后完成的 required-header minimal matrix 与 full closeout。
+
+合入与执行身份事实：
+
+- PR `#682` 状态：`MERGED`
+- PR head：`31b0d7875095f51cbce7fe9c62d7ba39c794c055`
+- merge commit：`545cb0a193dbbb74a42c12ad8f820b3fce886d9b`
+- closeout run：`run_id=issue445-pr-head-31b0d78-20260516T0735Z`
+- 执行目录：`cwd=/Users/mc/dev/WebEnvoy`
+- official profile：`xhs_001`
+- official profile root：`/Users/mc/dev/WebEnvoy/.webenvoy/profiles/xhs_001`
+
+三场景 live primary API 子条件结果：
+
+| 场景 | route_role | path_kind | evidence_status | method | path | 子条件结果 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `search` | `primary` | `api` | `success` | `POST` | `/api/sns/web/v1/search/notes` | `PASS` |
+| `detail` | `primary` | `api` | `success` | `POST` | `/api/sns/web/v1/feed` | `PASS` |
+| `user_home` | `primary` | `api` | `success` | `GET` | `/api/sns/web/v1/user_posted` | `PASS` |
+
+partial closeout evaluator 结果：
+
+- 总结论：`PASS`
+- `request_admission_result.admission_decision=allowed`
+- `request_admission_result.runtime_target_match=true`
+- `request_admission_result.grant_match=true`
+- `request_admission_result.anonymous_isolation_ok=true`
+- `request_admission_result.reason_codes=["LIVE_MODE_APPROVED"]`
+- `execution_audit.request_admission_decision=allowed`
+- `execution_audit.risk_signals=["NO_ADDITIONAL_RISK_SIGNALS"]`
+- `execution_audit` 是 gate/audit payload 的顶层结构化字段，不属于 `observability`
+- `route_role=primary`
+- `path_kind=api`
+- `evidence_status=success`
+- `reproduced_multi_round=true`
+- `latest_head_matches=true`
+- `run_matches=true`
+- `artifact_matches=true`
+- `accepted_round_count=2`
+- `unique_artifact_count=2`
+
+required headers 与请求上下文口径：
+
+- 本次 PR `#682` 以 `real_browser` passive API capture 的 browser-owned request context 完成 `primary api multi-round` 子条件记录。
+- 该证据证明 `search/detail/user_home` 三场景在 official Chrome / managed profile / browser-owned request context 下达到 `primary + api + success + reproduced_multi_round`。
+- 已捕获 request header 名称：
+  - `search`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
+  - `detail`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`, `xy-direction`
+  - `user_home`: `Accept`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
+- 对 `#445` full closeout 而言，本次只证明同一 run 下由真实浏览器页面自然发起并被 WebEnvoy passive capture 接受的 API 请求，能够通过 route / head / run / artifact / multi-round evaluator 校验；不证明 required-header minimal matrix 已关闭。
+- 本节不把 passive capture 等同为 required-header minimal matrix 已关闭，也不把手工 header reconstruction、字段生命周期细化或签名分流策略升级为 `admission_ready`；这些仍属于后续 L3 实现 FR 或字段治理工作。
+
+运行时停止与合并门禁：
+
+- `runtime.stop` 执行成功。
+- stop 后 official profile 相关进程已清理，exact main Chrome count 为 `0`。
+- controlled merge 前 latest guardian verdict 为 `APPROVE`。
+- controlled merge 前 GitHub checks 为 green。
+
+当前正式结论：
+
+- 5.1-5.5 的 `No-Go/paused` 是历史阶段事实，继续保留。
+- PR `#682` 合入后，FR-0005 的 `primary api multi-round` 子条件已完成；本节记录的是 5.8 之前的 partial checkpoint。
+- 5.8 已在 PR `#683` closeout chain 中补齐剩余 required-header minimal matrix 与 stop/process evidence，因此 `#445` 可在对应 closeout PR 受控合并后关闭。
+- 后续是否进入小红书 L3 读适配实现 FR、字段生命周期细化、签名分流策略、未登录/会话过期映射等，不由本次部分 closeout 记录自动完成。
+
+### 5.7 2026-05-16 docs-only PR #683 fresh rerun 例外记录
+
+PR `#683` 是 `#682` 合入后的 FR-0005 docs/TODO partial closeout 回写 PR，不承载新的实现变更，也不作为 `#445` 的自动关闭 PR。为排除“证据链缺失”疑虑，PR `#683` 早前 head `6d474a455e9b84970ef0674f20939f7aff278b78` 曾执行一次 docs PR head fresh rerun；该 rerun 没有形成完整成功 gate，因此只作为失败事实记录，不替代 `#682` 已合入的 live evidence，也不表示当前 PR head 的新成功 gate。
+
+该 rerun 的已成功部分：
+
+- official profile pre-start：`0`，exact main Chrome：`0`
+- post-start：official profile processes `12`，exact main Chrome `1`
+- `xhs.search`：`PASS`
+- `xhs.detail`：`PASS`
+- `runtime.xhs_capture_user_home_context`：两轮 `PASS`，且捕获到 `GET /api/sns/web/v1/user_posted` 的 request headers 与响应
+- `runtime.stop`：成功，post-stop official profile processes `0`，exact main Chrome `0`
+
+该 rerun 的阻断点：
+
+- 最终 `xhs.user_home` closeout 返回 `ERR_EXECUTION_FAILED`
+- `reason=EXECUTION_MODE_GATE_BLOCKED`
+- `request_admission_result.admission_decision=blocked`
+- `runtime_target_match=false`
+- `reason_codes=[TARGET_URL_CONTEXT_MISMATCH]`
+
+已定位的直接原因是 URL 绑定口径不一致：`runtime_target.url` 带有 `?xsec_token=...`，但真实 profile tab 与 passive capture artifact 中的页面 URL 已规范化为不带 query 的 `https://www.xiaohongshu.com/user/profile/<user_id>`。当前 gate 会要求 expected query 在 actual URL 中同名同值出现，因此把该 docs PR rerun 判为 `TARGET_URL_CONTEXT_MISMATCH`。
+
+本失败记录的解释边界：
+
+- 它不表示 `search/detail/user_home` 的 `#682` closeout success 被推翻。
+- 它不允许把 PR `#683` 写成新的成功 `live_evidence_record`。
+- 它不应扩大 PR `#683` 范围去修 `TARGET_URL_CONTEXT_MISMATCH`，除非另立实现修复事项。
+- PR `#683` 的正确语义已从 partial closeout 回写升级为 full closeout 回写；该升级基于 5.8 的 PR-head closeout evidence chain，不复用本节失败 rerun 作为 success gate。
+
+### 5.8 2026-05-16 issue #445 PR #683 full closeout 记录
+
+本节记录 PR `#683` full closeout 回写链路。根据 FR-0016 live evidence 治理口径，落入专项门禁的 PR 以 PR 描述中的 `live_evidence_record` 作为 current latest-head gate 输入；仓库 formal docs 保留可复核固定样本与 closeout 事实，不要求在同一 docs-only 提交中自指追写自己的 SHA。
+
+PR `#683` 曾先在 current main `a289576e990dba5caecf0d08f8a1d8db1187e0f9` 完成 full closeout rerun；guardian 随后要求该 PR 自身 head 也提供 fresh evidence。2026-05-16 已在 PR head `42aae2ec06f8150e49f86bb649f4aa0629801c4c` 上重跑 `search/detail/user_home`、required-header matrix 与 shutdown 证据。合并门禁以 PR body 中最终 latest-head `live_evidence_record` 为准；本节不把旧 main artifact 或早前 docs-only 失败 rerun 伪装成 latest-head success gate。
+
+执行身份与 artifact：
+
+- evidence sample head：`42aae2ec06f8150e49f86bb649f4aa0629801c4c`
+- run_id：`issue445-pr-head-42aae2e-20260516T1913Z`
+- profile：`xhs_001`
+- execution_surface：`real_browser`
+- browser_channel：`chrome`
+- native host install proof：`.webenvoy/issue445-runtime-install-pr-head-42aae2e-20260516T1913Z.json`
+- search evidence：`.webenvoy/issue445-search-pr-head-42aae2e-20260516T1914Z-r1-live.json`
+- detail evidence：`.webenvoy/issue445-open-detail-pr-head-42aae2e-20260516T1915Z-r1.json`、`.webenvoy/issue445-open-detail-pr-head-42aae2e-20260516T1916Z-r2.json`、`.webenvoy/issue445-detail-pr-head-42aae2e-20260516T1917Z-r1-live.json`
+- user_home evidence：`.webenvoy/issue445-capture-userhome-pr-head-42aae2e-20260516T1918Z-r1.json`、`.webenvoy/issue445-capture-userhome-pr-head-42aae2e-20260516T1919Z-r2.json`、`.webenvoy/issue445-userhome-pr-head-42aae2e-20260516T1920Z-r1-live.json`
+- required-header matrix：`.webenvoy/issue445-required-headers-matrix-pr-head-42aae2e-20260516T1922Z-input-result.json`
+- minimality proof artifact：`.webenvoy/issue445-required-headers-matrix-pr-head-42aae2e-20260516T1922Z-proof.json`
+- shutdown evidence：`.webenvoy/issue445-stop-pr-head-42aae2e-20260516T1921Z.json`、`.webenvoy/issue445-status-post-stop-pr-head-42aae2e-20260516T1921Z.json`、`.webenvoy/issue445-post-stop-processes-pr-head-42aae2e-20260516T1922Z.txt`
+
+三场景 closeout evaluator 结果：
+
+| 场景 | route_role | path_kind | evidence_status | evidence_class | reproduced_multi_round | 结论 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `search` | `primary` | `api` | `success` | `passive_api_capture` | `true` | `PASS` |
+| `detail` | `primary` | `api` | `success` | `passive_api_capture` | `true` | `PASS` |
+| `user_home` | `primary` | `api` | `success` | `passive_api_capture` | `true` | `PASS` |
+
+说明：`detail` 与 `user_home` 的 command output 仍保留 page-state fallback 的 runtime route field；本轮 closeout 判定使用显式 `closeout_evidence_rounds` 与 `closeout_evidence_evaluation`，其 `evaluated_route=primary:api:passive_api_capture:success`、`accepted_round_count=2`、`unique_artifact_count=2`，不把 fallback 字段当作成功依据。
+
+canonical gate/audit 结果：
+
+- `request_admission_result.admission_decision=allowed`
+- `request_admission_result.runtime_target_match=true`
+- `request_admission_result.grant_match=true`
+- `request_admission_result.anonymous_isolation_ok=true`
+- `request_admission_result.reason_codes=["LIVE_MODE_APPROVED"]`
+- `execution_audit.request_admission_decision=allowed`
+- `execution_audit.risk_signals=["NO_ADDITIONAL_RISK_SIGNALS"]`
+- `execution_audit` 位于 canonical gate/audit payload，不在 `observability`
+
+required-header minimal matrix 结果：
+
+| route_id | minimal_required_headers | observed_browser_headers 是否区分 | minimality evidence | 结论 |
+| --- | --- | --- | --- | --- |
+| `xhs.search` | `accept`, `content-type`, `x-s`, `x-s-common`, `x-t` | 是 | `.webenvoy/issue445-required-headers-matrix-pr-head-42aae2e-20260516T1922Z-proof.json#xhs.search/*` | `PASS` |
+| `xhs.detail` | `accept`, `content-type`, `x-s`, `x-s-common`, `x-t` | 是 | `.webenvoy/issue445-required-headers-matrix-pr-head-42aae2e-20260516T1922Z-proof.json#xhs.detail/*` | `PASS` |
+| `xhs.user_home` | `accept`, `x-s`, `x-s-common`, `x-t` | 是 | `.webenvoy/issue445-required-headers-matrix-pr-head-42aae2e-20260516T1922Z-proof.json#xhs.user_home/*` | `PASS` |
+
+matrix evaluator summary：
+
+- `decision=PASS`
+- `passed=true`
+- `total_routes=3`
+- `passed_routes=3`
+- `failed_routes=0`
+- `blocker_count=0`
+- `trace.evaluated_route_ids=["xhs.search","xhs.detail","xhs.user_home"]`
+- passive capture 仅作为 observed browser-owned request context 输入；matrix 成功由 fail-closed evaluator 与显式 minimality evidence artifact 证明
+
+shutdown 与清理：
+
+- `runtime.stop` 成功，`profileState=stopped`、`browserState=absent`、`lockHeld=false`
+- post-stop status 继续显示 `profileState=stopped`、`browserState=absent`、`lockHeld=false`
+- post-stop process scan `.webenvoy/issue445-post-stop-processes-pr-head-42aae2e-20260516T1922Z.txt` 为 `matched_process_count=0`
+
+最终 formal 结论：
+
+- `search/detail/user_home` 三条命令均已在 PR `#683` head evidence sample 上达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`。
+- canonical `request_admission_result` 与 `execution_audit` 均完整，且 `execution_audit` 不在 `observability`。
+- required-header minimal matrix 已对三条 route 收口，并由 fail-closed evaluator 通过。
+- issue `#684` 已关闭；本轮 profile URL restore/capture 未再被 `TARGET_URL_CONTEXT_MISMATCH` 阻断。
+- FR-0005 / issue `#445` 的 full closeout 条件已由 PR `#683` latest-head gate record 与本节固定样本共同支撑；待本 PR 通过 guardian、GitHub checks 并受控合并后，可用 PR body 的最终 `live_evidence_record` 与本节证据链关闭 `#445`。
 
 ## 未决项（进入下一轮复核前保留）
 
 - 保持 `xhs_001` 的 main 目录绑定不再回写到 worktree 路径
-- 在风险状态满足准入、且具备合法 approval / gate 前提后，再重新执行 `search` 的 managed-profile `real_browser` fresh live rerun
-- 在满足上述前提后，再重新执行 `search/detail/user_home` 的 managed-profile `real_browser` fresh live rerun
-- 在新会话样本中复核 `detail` 的成功路径与最小必要请求上下文
-- 在新会话样本中复核 `user_home` 主端点（含 `otherinfo` 与候选聚合端点）的成功路径
-- 对 `search/detail/user_home` 分别完成“required_headers 最小必要集”实验矩阵
+- 继续保持 #445 closeout 已验证的 official profile root 与 browser-owned request context 口径，避免回退到 worktree 路径污染
+- 若后续 L3 实现 FR 需要脱离 browser-owned request context 手工构造请求，字段生命周期与签名分流策略仍应在后续实现 FR 中单独设计；该后续工作不影响本次 FR-0005 closeout
 - 复核 `a1 / webId / gid` 的跨刷新与跨会话生命周期
 - 复核 `window._webmsxyw` 的页面/版本分流条件，并补统一降级策略
