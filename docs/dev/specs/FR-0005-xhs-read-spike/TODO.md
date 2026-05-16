@@ -32,13 +32,14 @@
 - [x] 仓库内已固化的历史 fresh rerun 样本头 `eca28babebe929821aa20fbb113b2f94d6ce4f49` 已确认：`#445-A` 修复后的 `xhs.search` 不再出现 `executeXhsSearchImpl is not defined`
 - [x] 同一轮 fresh rerun 已确认 `xhs_001` 仍满足 managed-profile / official runtime / `real_browser` 启动前提，且 `runtime.start`、`runtime.ping`、internal `runtime.tabs` 均可达
 - [x] 仓库内已固化样本中的 `search` 已获得合法 fresh rerun 样本，但只达到 `dry_run` 成功壳；请求 `live_read_high_risk` 时会被 `risk_state=paused` + `ISSUE_ACTION_MATRIX_BLOCKED` 阻断，未形成 API primary success
-- [x] FR-0016 新治理口径已收口：repo formal docs 只保留 fixed/historical sample 与稳定 closeout bar，不再在仓库 formal 记录中承接 moving latest-head gate truth；formal 结论继续保持 `No-Go/paused`
-- [x] 当前 formal FR 的文档收口已完成；正式功能停点继续保持为：`search/detail/user_home` 仍缺 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`；其中 `search` 还需补齐 required headers 最小必要集矩阵，正式结论继续 `No-Go/paused`
+- [x] FR-0016 新治理口径已收口：repo formal docs 只保留 fixed/historical sample 与稳定 closeout bar，不再在仓库 formal 记录中承接 moving latest-head gate truth；2026-04-11 固定样本头的历史 formal 结论继续保持 `No-Go/paused`
+- [x] 2026-04-11 固定样本头的 formal FR 文档收口已完成；当时正式功能停点为：`search/detail/user_home` 仍缺 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`，其中 `search` 还需补齐 required headers 最小必要集矩阵；该历史停点已被 2026-05-16 的 `#445` closeout 结论取代
 - [x] 2026-05-16 已消费 PR `#682` 合入后的 closeout 事实：PR `#682` 已 `MERGED`，head `31b0d7875095f51cbce7fe9c62d7ba39c794c055`，merge commit `545cb0a193dbbb74a42c12ad8f820b3fce886d9b`
 - [x] 2026-05-16 已确认 issue `#445` managed-profile live closeout 完成：`run_id=issue445-pr-head-31b0d78-20260516T0735Z`，official profile `xhs_001`，`cwd=/Users/mc/dev/WebEnvoy`，official profile root `/Users/mc/dev/WebEnvoy/.webenvoy/profiles/xhs_001`
 - [x] 2026-05-16 已确认 `search/detail/user_home` 均达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`，对应路由为 `POST /api/sns/web/v1/search/notes`、`POST /api/sns/web/v1/feed`、`GET /api/sns/web/v1/user_posted`
 - [x] 2026-05-16 已将上述三条 closeout success 回写到 `research.md` 的结构化 endpoint catalog / required request context 条目：`search-closeout-20260516`、`detail-closeout-20260516`、`user-home-closeout-20260516`
 - [x] 2026-05-16 已确认 closeout evaluator `PASS`：`latest_head_matches=true`、`run_matches=true`、`artifact_matches=true`、`accepted_round_count=2`、`unique_artifact_count=2`
+- [x] 2026-05-16 已确认 closeout gate/audit 字段：`request_admission_result.admission_decision=allowed`、`runtime_target_match=true`、`grant_match=true`、`anonymous_isolation_ok=true`、`execution_audit.request_admission_decision=allowed`、`execution_audit.risk_signals=["NO_ADDITIONAL_RISK_SIGNALS"]`；`execution_audit` 属于顶层 gate/audit payload，不属于 `observability`
 - [x] 2026-05-16 已确认 #445 closeout 所需请求上下文矩阵按 browser-owned passive API capture 口径收口；本结论不等同于后续手工 header reconstruction 或字段生命周期细化已完成
 - [x] 2026-05-16 已确认 `runtime.stop` 成功，post-stop official profile processes / exact main Chrome count 为 `0`，controlled merge 前 guardian `APPROVE` 且 GitHub checks green
 - [x] 2026-05-16 已记录 PR `#683` 早前 docs-only head `6d474a455e9b84970ef0674f20939f7aff278b78` 的 fresh rerun 例外事实：`search/detail/runtime.xhs_capture_user_home_context` 成功，但最终 `xhs.user_home` closeout 被 `EXECUTION_MODE_GATE_BLOCKED` / `TARGET_URL_CONTEXT_MISMATCH` 阻断，不构成新的成功 gate evidence，也不表示当前 PR head 的新成功 gate
@@ -64,7 +65,7 @@
 ## 后续衔接
 
 - [x] 2026-04-06 中午已形成本轮 Go/No-Go 历史结论：`No-Go/paused`
-- [x] 上述 `No-Go/paused` 继续保留为带日期的历史 closeout；当前 formal FR 何时解除停点，取决于 WebEnvoy-managed profile 下剩余同口径复核是否补齐
+- [x] 上述 `No-Go/paused` 继续保留为带日期的历史 closeout；该历史停点已被 2026-05-16 的 `#445` closeout 结论取代
 - [x] 2026-04-10 晚间已按最新 managed-profile / official runtime 现场重做 Go/No-Go 判定，结论继续维持 `No-Go/paused`
 - [x] 2026-04-11 已在 main 目录完成恢复后再复核，并把 “worktree 路径污染不是最终结论” 写回正式记录
 - [x] 2026-04-11 已在 latest head 重新确认：此前的 XHS read bundle 阻断已被 `#445-A` 解除，但 FR-0005 的正式停点尚未解除

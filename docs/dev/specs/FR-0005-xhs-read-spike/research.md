@@ -157,10 +157,10 @@
   - `failure_signals`: `gateway_invoker_failed`
   - `page_state_fallback`: `null`
 - `search-closeout-20260516`
-  - `required_headers_observed`: browser-owned request context captured by real Chrome passive API capture; includes signed XHS request headers and browser navigation context for `/api/sns/web/v1/search/notes`
+  - `required_headers_observed`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
   - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
   - `required_params`: `keyword`, `page`, `page_size`, `sort`, `note_type`
-  - `success_signal`: `closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `success_signal`: `request_admission_result.admission_decision=allowed + execution_audit.request_admission_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
   - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
   - `page_state_fallback`: `null`
 当前结论：
@@ -206,10 +206,10 @@
   - `failure_signals`: `account_abnormal`
   - `page_state_fallback`: `null`
 - `detail-closeout-20260516`
-  - `required_headers_observed`: browser-owned request context captured by real Chrome passive API capture; includes signed XHS request headers and browser navigation context for `/api/sns/web/v1/feed`
+  - `required_headers_observed`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`, `xy-direction`
   - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
   - `required_params`: `note_id`
-  - `success_signal`: `closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `success_signal`: `audit_record.gate_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
   - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
   - `page_state_fallback`: `null`
 
@@ -273,10 +273,10 @@
   - `failure_signals`: `candidate_only`
   - `page_state_fallback`: `null`
 - `user-home-closeout-20260516`
-  - `required_headers_observed`: browser-owned request context captured by real Chrome passive API capture; includes signed XHS request headers and browser navigation context for `/api/sns/web/v1/user_posted`
+  - `required_headers_observed`: `Accept`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
   - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
   - `required_params`: `user_id`
-  - `success_signal`: `closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
+  - `success_signal`: `request_admission_result.admission_decision=allowed + execution_audit.request_admission_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
   - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`, `execution_gate_blocked`
   - `page_state_fallback`: `null`
 
@@ -416,7 +416,7 @@
 - `search` 仍停留在 `observed_once` 的 `primary` 成功样本，尚缺 WebEnvoy-managed profile 下的多轮 replay 与 required headers 最小必要集。
 - `detail` 与 `user_home` 仍分别停留在 `fallback-only` 与 `candidate/failed` 组合，不满足进入实现 FR 的前提。
 - 上述快照支撑了 2026-04-06 中午的 `No-Go/paused` 历史 closeout。
-- 截至当前 PR，WebEnvoy-managed profile 下的后续同口径复核尚未作为正式结论收口；因此 formal FR 的当前状态仍保持 blocked。
+- 截至 2026-04-06 中午该轮 PR/执行现场，WebEnvoy-managed profile 下的后续同口径复核尚未作为正式结论收口；因此当时 formal FR 状态保持 blocked。该历史状态已被 2026-05-16 的 `#445` closeout 结论取代。
 - 若后续执行现场已恢复受管 XHS profile，应继续补齐 `search/detail/user_home` 的同口径复核，并在结论收口后再更新正式状态。
 
 ### 5.2 2026-04-10 WebEnvoy-managed official runtime 再预检（issue #445，中间现场）
@@ -463,7 +463,7 @@
 - 在 `ERR_RUNTIME_IDENTITY_MISMATCH / IDENTITY_MANIFEST_MISSING` 未解除前，本轮不能合法进入 `search/detail/user_home` 的 managed-profile fresh live rerun。
 - 因为合法的 `real_browser` official runtime rerun 根本没有开始，本轮没有新增 `search/detail/user_home` 的 API primary 成功样本，也没有新增 `required_headers` 最小必要集矩阵证据。
 - 因此 `search` 仍停留在 `observed_once` 的 `primary` 成功样本；`detail` 与 `user_home` 仍分别停留在 `fallback-only` 与 `candidate/failed` 组合。
-- issue `#445` 本轮已按同一 formal 口径重做 Go/No-Go 判定，结论维持 `No-Go/paused`，formal FR 当前状态继续保持 blocked。
+- issue `#445` 在 2026-04-10 该轮已按同一 formal 口径重做 Go/No-Go 判定，当时结论维持 `No-Go/paused`，formal FR 状态继续保持 blocked；该历史状态已被 2026-05-16 的 `#445` closeout 结论取代。
 - 在修复 `xhs_001` 的 official runtime identity mismatch、并恢复合法的 `real_browser` 执行面之前，不得把外部手工浏览器、旧 head、旧 artifact 或 headless `about:blank` 现场补写成 managed-profile live 复核结论。
 
 ### 5.3 2026-04-11 main 目录恢复后再复核（issue #445 正式收口）
@@ -578,8 +578,8 @@
 - 但是 `tested_head_sha=e8e686d3ecc5924770131264671bc4da5713ef57` 的 XHS read 执行 bundle 在 `search` 首次 fresh rerun 就失败，错误为 `executeXhsSearchImpl is not defined`；这属于当前仓库该提交的执行层阻断，不是外部 profile 根目录问题。
 - 同时，`risk_state_output.current_state=paused` 仍未解除，本轮也没有新增 approval / headers matrix / API primary success 样本。
 - 因此 `search/detail/user_home` 三类场景都没有达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`。
-- issue `#445` 本轮正式 Go/No-Go 结论继续维持：`No-Go/paused`。
-- 当前唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`。
+- issue `#445` 在 2026-04-11 该轮正式 Go/No-Go 结论继续维持：`No-Go/paused`。
+- 2026-04-11 该轮唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`；该历史停点已被 2026-05-16 的 `#445` closeout 结论取代。
 
 ### 5.4 2026-04-11 仓库内已固化 fresh rerun 样本（issue #445-B）
 
@@ -713,8 +713,8 @@
 - 但 `search` 在 current formal state 下只能达到 `dry_run` 成功壳；一旦请求 `live_read_high_risk`，就会被 `risk_state=paused` 与 `ISSUE_ACTION_MATRIX_BLOCKED` 明确阻断，未形成 `primary + api + success` 样本。
 - `detail` 与 `user_home` 在该轮 fixed sample head 上仍无公开 CLI 命令入口，因此本轮没有合法的同口径 fresh rerun 路径去产出 primary API success 样本。
 - 因此 `search/detail/user_home` 三类场景依然没有同时达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`。
-- issue `#445` 的本轮正式 Go/No-Go 结论继续维持：`No-Go/paused`。
-- 当前唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`；其中该轮 fixed sample head 的直接阻断已更新为 `live_read_blocked_by_risk_state + detail/user_home formal command surface missing`。
+- issue `#445` 在 2026-04-11 固定样本头下的正式 Go/No-Go 结论继续维持：`No-Go/paused`。
+- 2026-04-11 固定样本头下唯一允许写入 formal FR 的停点应是：`仍缺某些场景的 API primary 成功/矩阵证据，继续 No-Go/paused`；其中该轮 fixed sample head 的直接阻断已更新为 `live_read_blocked_by_risk_state + detail/user_home formal command surface missing`。该历史停点已被 2026-05-16 的 `#445` closeout 结论取代。
 - current main 上 detail/user_home 的 current command surface 已由 `FR-0025` 冻结，但这不会替代 latest-main fresh rerun 所需的 live primary success 与 headers matrix 证据。
 
 #### 5.4.6 2026-04-11 PR gate refresh 参考样本与 latest-head 维护口径
@@ -766,7 +766,7 @@
 - formal FR 在仓库内只保留 stable closeout bar 与 fixed/historical sample
 - dated blocker refresh 样本不得在 formal docs 内被表述成 current-head / latest-head 证据
 
-因此，2026-04-16 这轮 blocker refresh 不在本文件逐项展开；formal 结论也未因此发生变化，FR-0005 继续保持 `No-Go/paused`，直到正式 closeout bar 被满足为止。
+因此，2026-04-16 这轮 blocker refresh 不在本文件逐项展开；当时 formal 结论也未因此发生变化，FR-0005 继续保持 `No-Go/paused`。该历史停点已在 2026-05-16 的 `#445` closeout 中解除。
 
 ### 5.6 2026-05-16 issue #445 managed-profile live closeout 完成
 
@@ -793,6 +793,14 @@
 closeout evaluator 结果：
 
 - 总结论：`PASS`
+- `request_admission_result.admission_decision=allowed`
+- `request_admission_result.runtime_target_match=true`
+- `request_admission_result.grant_match=true`
+- `request_admission_result.anonymous_isolation_ok=true`
+- `request_admission_result.reason_codes=["LIVE_MODE_APPROVED"]`
+- `execution_audit.request_admission_decision=allowed`
+- `execution_audit.risk_signals=["NO_ADDITIONAL_RISK_SIGNALS"]`
+- `execution_audit` 是 gate/audit payload 的顶层结构化字段，不属于 `observability`
 - `route_role=primary`
 - `path_kind=api`
 - `evidence_status=success`
@@ -807,6 +815,10 @@ required headers 与请求上下文口径：
 
 - 本次 `#445` closeout 以 `real_browser` passive API capture 的 browser-owned request context 完成 gate 收口。
 - 该证据证明 `search/detail/user_home` 三场景在 official Chrome / managed profile / browser-owned request context 下达到 `primary + api + success + reproduced_multi_round`。
+- 已捕获 request header 名称：
+  - `search`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
+  - `detail`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`, `xy-direction`
+  - `user_home`: `Accept`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
 - 对 `#445` closeout 而言，最小必要请求上下文矩阵的收口标准是：同一 run 下由真实浏览器页面自然发起并被 WebEnvoy passive capture 接受的 API 请求，能够通过 route / head / run / artifact / multi-round evaluator 校验；这覆盖 closeout gate 所需的 required request context。
 - 本节不把手工 header reconstruction、字段生命周期细化或签名分流策略升级为 `admission_ready`；这些仍属于后续 L3 实现 FR 或字段治理工作。
 
