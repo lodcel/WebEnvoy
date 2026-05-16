@@ -130,7 +130,7 @@
 - 每条证据显式包含 `route_role`、`path_kind`、`evidence_status`、`evidence_maturity`。
 - `route_role=fallback` 且 `path_kind=page` 的证据统一标记为 `fallback-only`，只作为降级路径证据，不构成实现准入。
 - 仅 `route_role=primary` + `evidence_status=success` 且补齐最小必要请求上下文实验矩阵，才可进入实现准入；1.x 阶段的早期手动样本尚未满足。
-- 2026-05-16 `#445` closeout 已用 PR `#682` 的 browser-owned passive API capture 补齐 `search/detail/user_home` 三场景的 `primary + api + success + reproduced_multi_round` 证据；下列 `*-closeout-20260516` 条目是当前 closeout 事实，早期 `observed_once/candidate/failed` 条目继续作为历史样本保留。
+- 2026-05-16 `#445` closeout 已用 PR `#682` 的 browser-owned passive API capture 补齐 `search/detail/user_home` 三场景的 `primary + api + success + reproduced_multi_round` 证据；下列 `*-closeout-20260516` 条目是当前 closeout 事实，早期 `observed_once/candidate/failed` 条目继续作为历史样本保留。该 closeout 不把 passive capture 等同为手工请求构造所需的 required-header minimal matrix 已关闭。
 
 ### 2.1 search
 
@@ -158,7 +158,7 @@
   - `page_state_fallback`: `null`
 - `search-closeout-20260516`
   - `required_headers_observed`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
-  - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
+  - `required_headers_candidate`: manual request reconstruction matrix remains unresolved; passive capture only records observed browser-owned request context
   - `required_params`: `keyword`, `page`, `page_size`, `sort`, `note_type`
   - `success_signal`: `request_admission_result.admission_decision=allowed + execution_audit.request_admission_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
   - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
@@ -167,7 +167,7 @@
 
 - `search/notes` 已通过 2026-05-16 `#445` closeout 复核成为当前 formal closeout 的 `primary api success` 路径；早期 `observed_once` 结论只作为历史样本保留。
 - `search` 场景当前无可冻结的 `page` fallback 成功证据；其余辅助 API 证据仅保留为候选，不构成实现准入。
-- 当前 closeout 所需请求上下文矩阵已按 browser-owned passive API capture 口径收口；Cookie/Origin/Referer/UA-CH 的手工 reconstruction 仍不是本 PR 的完成项。
+- 当前 closeout 已按 browser-owned passive API capture 口径记录 observed request context；Cookie/Origin/Referer/UA-CH 的手工 required-header minimal matrix 仍未关闭，也不是本 PR 的完成项。
 
 `search` 辅助 API 证据（不进入正式 `endpoint_catalog`）：
 
@@ -207,7 +207,7 @@
   - `page_state_fallback`: `null`
 - `detail-closeout-20260516`
   - `required_headers_observed`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`, `xy-direction`
-  - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
+  - `required_headers_candidate`: manual request reconstruction matrix remains unresolved; passive capture only records observed browser-owned request context
   - `required_params`: `note_id`
   - `success_signal`: `audit_record.gate_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
   - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`
@@ -274,7 +274,7 @@
   - `page_state_fallback`: `null`
 - `user-home-closeout-20260516`
   - `required_headers_observed`: `Accept`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
-  - `required_headers_candidate`: `[]` for `#445` closeout gate; future manual request construction must re-open header lifecycle / reconstruction work
+  - `required_headers_candidate`: manual request reconstruction matrix remains unresolved; passive capture only records observed browser-owned request context
   - `required_params`: `user_id`
   - `success_signal`: `request_admission_result.admission_decision=allowed + execution_audit.request_admission_decision=allowed + closeout evaluator PASS + accepted_round_count=2 + unique_artifact_count=2`
   - `failure_signals`: `stale_head`, `run_mismatch`, `artifact_mismatch`, `route_mismatch`, `insufficient_rounds`, `execution_gate_blocked`
@@ -819,8 +819,8 @@ required headers 与请求上下文口径：
   - `search`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
   - `detail`: `Accept`, `Content-Type`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`, `xy-direction`
   - `user_home`: `Accept`, `Referer`, `User-Agent`, `X-S-Common`, `X-s`, `X-t`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `x-b3-traceid`, `x-rap-param`, `x-xray-traceid`
-- 对 `#445` closeout 而言，最小必要请求上下文矩阵的收口标准是：同一 run 下由真实浏览器页面自然发起并被 WebEnvoy passive capture 接受的 API 请求，能够通过 route / head / run / artifact / multi-round evaluator 校验；这覆盖 closeout gate 所需的 required request context。
-- 本节不把手工 header reconstruction、字段生命周期细化或签名分流策略升级为 `admission_ready`；这些仍属于后续 L3 实现 FR 或字段治理工作。
+- 对 `#445` closeout 而言，本次只证明同一 run 下由真实浏览器页面自然发起并被 WebEnvoy passive capture 接受的 API 请求，能够通过 route / head / run / artifact / multi-round evaluator 校验。
+- 本节不把 passive capture 等同为 required-header minimal matrix 已关闭，也不把手工 header reconstruction、字段生命周期细化或签名分流策略升级为 `admission_ready`；这些仍属于后续 L3 实现 FR 或字段治理工作。
 
 运行时停止与合并门禁：
 
