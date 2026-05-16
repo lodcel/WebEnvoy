@@ -798,7 +798,7 @@ required headers 与请求上下文口径：
 
 ### 5.7 2026-05-16 docs-only PR #683 fresh rerun 例外记录
 
-PR `#683` 是 `#682` 合入后的 FR-0005 docs/TODO closeout 回写 PR，不承载新的实现变更，也不作为 `#445` 的自动关闭 PR。为排除“证据链缺失”疑虑，PR `#683` 当前 head `6d474a455e9b84970ef0674f20939f7aff278b78` 曾执行一次 docs PR head fresh rerun；该 rerun 没有形成完整成功 gate，因此只作为失败事实记录，不替代 `#682` 已合入的成功 closeout evidence。
+PR `#683` 是 `#682` 合入后的 FR-0005 docs/TODO closeout 回写 PR，不承载新的实现变更，也不作为 `#445` 的自动关闭 PR。为排除“证据链缺失”疑虑，PR `#683` 早前 head `6d474a455e9b84970ef0674f20939f7aff278b78` 曾执行一次 docs PR head fresh rerun；该 rerun 没有形成完整成功 gate，因此只作为失败事实记录，不替代 `#682` 已合入的成功 closeout evidence，也不表示当前 PR head 的新成功 gate。
 
 该 rerun 的已成功部分：
 

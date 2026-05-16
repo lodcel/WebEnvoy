@@ -40,7 +40,7 @@
 - [x] 2026-05-16 已确认 closeout evaluator `PASS`：`latest_head_matches=true`、`run_matches=true`、`artifact_matches=true`、`accepted_round_count=2`、`unique_artifact_count=2`
 - [x] 2026-05-16 已确认 #445 closeout 所需请求上下文矩阵按 browser-owned passive API capture 口径收口；本结论不等同于后续手工 header reconstruction 或字段生命周期细化已完成
 - [x] 2026-05-16 已确认 `runtime.stop` 成功，post-stop official profile processes / exact main Chrome count 为 `0`，controlled merge 前 guardian `APPROVE` 且 GitHub checks green
-- [x] 2026-05-16 已记录 PR `#683` docs-only head `6d474a455e9b84970ef0674f20939f7aff278b78` 的 fresh rerun 例外事实：`search/detail/runtime.xhs_capture_user_home_context` 成功，但最终 `xhs.user_home` closeout 被 `EXECUTION_MODE_GATE_BLOCKED` / `TARGET_URL_CONTEXT_MISMATCH` 阻断，不构成新的成功 gate evidence
+- [x] 2026-05-16 已记录 PR `#683` 早前 docs-only head `6d474a455e9b84970ef0674f20939f7aff278b78` 的 fresh rerun 例外事实：`search/detail/runtime.xhs_capture_user_home_context` 成功，但最终 `xhs.user_home` closeout 被 `EXECUTION_MODE_GATE_BLOCKED` / `TARGET_URL_CONTEXT_MISMATCH` 阻断，不构成新的成功 gate evidence，也不表示当前 PR head 的新成功 gate
 - [x] 2026-05-16 已明确 PR `#683` 只作为 `Refs #445` 的 FR-0005 docs/TODO closeout 回写 PR，不使用 `Fixes #445` 承载自动关闭；`#445` 的关闭依据继续来自已合入的 PR `#682` 与其成功 live evidence
 
 ## #185 阻断点吸收（本次规约修订）
