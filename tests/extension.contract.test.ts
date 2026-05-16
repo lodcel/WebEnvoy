@@ -1594,6 +1594,116 @@ describe("extension build contract", () => {
     });
   });
 
+  it("rejects legacy user_home request-context artifacts on the old user/otherinfo path", async () => {
+    const href = "https://www.xiaohongshu.com/user/profile/user-legacy-001";
+    const runId = "run-bundled-user-home-legacy-route-001";
+    const sessionId = "nm-session-bundled-user-home-legacy-route-001";
+    const gateInvocationId = "issue209-gate-run-bundled-user-home-legacy-route-001";
+    const admissionContext = buildLiveReadAdmissionContext({
+      runId,
+      sessionId,
+      gateInvocationId,
+      targetTabId: 8,
+      targetPage: "profile_tab"
+    });
+    await expect(
+      executeBundledXhsCommand(contentScriptBuildPath, {
+        moduleVar: "__webenvoy_module_xhs_user_home",
+        exportName: "executeXhsUserHome",
+        commandInput: {
+          abilityId: "xhs.user.home.v1",
+          abilityLayer: "L3",
+          abilityAction: "read",
+          params: {
+            user_id: "user-legacy-001"
+          },
+          options: {
+            issue_scope: "issue_209",
+            target_domain: "www.xiaohongshu.com",
+            target_tab_id: 8,
+            target_page: "profile_tab",
+            actual_target_domain: "www.xiaohongshu.com",
+            actual_target_tab_id: 8,
+            actual_target_page: "profile_tab",
+            action_type: "read",
+            risk_state: "allowed",
+            requested_execution_mode: "live_read_high_risk",
+            upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
+              requestRef: "upstream_bundled_user_home_legacy_route_001",
+              actionName: "xhs.read_user_home",
+              targetPage: "profile_tab",
+              targetTabId: 8,
+              profileRef: "profile-a",
+              approvalRefs: [
+                String(admissionContext.approval_admission_evidence.approval_admission_ref)
+              ],
+              auditRefs: [String(admissionContext.audit_admission_evidence.audit_admission_ref)]
+            }),
+            admission_context: admissionContext,
+            explicit_request_context_artifact: {
+              rejected_observation: {
+                source_kind: "page_request",
+                transport: "fetch",
+                method: "GET",
+                path: "/api/sns/web/v1/user/otherinfo",
+                url: "https://www.xiaohongshu.com/api/sns/web/v1/user/otherinfo?user_id=user-legacy-001",
+                status: 200,
+                captured_at: 1_710_000_000_000,
+                observed_at: 1_710_000_000_000,
+                page_context_namespace: createPageContextNamespace(href),
+                shape_key: JSON.stringify({
+                  command: "xhs.user_home",
+                  method: "GET",
+                  pathname: "/api/sns/web/v1/user/otherinfo",
+                  user_id: "user-legacy-001"
+                }),
+                request_status: {
+                  completion: "failed",
+                  http_status: 200
+                },
+                request: {
+                  body: {
+                    user_id: "user-legacy-001"
+                  }
+                },
+                response: {
+                  body: {
+                    code: 0,
+                    data: { items: [] }
+                  }
+                },
+                template_ready: false,
+                rejection_reason: "failed_request_rejected"
+              }
+            }
+          },
+          executionContext: {
+            runId,
+            sessionId,
+            profile: "profile-a",
+            gateInvocationId
+          }
+        },
+        envOverrides: {
+          getLocationHref: () => href,
+          getDocumentTitle: () => "User Home",
+          getReadyState: () => "complete",
+          getCookie: () => "a1=session-cookie"
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "ERR_EXECUTION_FAILED"
+      },
+      payload: {
+        details: {
+          reason: "REQUEST_CONTEXT_MISSING"
+        }
+      }
+    });
+  });
+
   it("executes source xhs.search live-read path with canonical execution_audit in summary", async () => {
     const admissionContext = buildLiveReadAdmissionContext({
       runId: "run-source-search-live-001",
@@ -1853,6 +1963,115 @@ describe("extension build contract", () => {
     });
     expect(callSignature).not.toHaveBeenCalled();
     expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it("returns two closeout rounds when an exact hit is followed by a fresh passive search", async () => {
+    const admissionContext = buildLiveReadAdmissionContext({
+      runId: "run-source-search-closeout-rounds-001",
+      sessionId: "nm-session-source-search-closeout-rounds-001",
+      gateInvocationId: "issue445-gate-run-source-search-closeout-rounds-001",
+      targetTabId: 11,
+      targetPage: "search_result_tab"
+    });
+    const href = "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5";
+    let nowMs = 1_710_000_000_000;
+    const performSearchPassiveAction = vi.fn(async () => {
+      nowMs = 1_710_000_001_000;
+      return {
+        evidence_class: "humanized_action",
+        action_kind: "submit_search",
+        run_id: "run-source-search-closeout-rounds-001",
+        page_url: href,
+        query: "露营装备"
+      };
+    });
+    const readCapturedRequestContext = vi.fn(async (lookup: { min_observed_at?: number }) =>
+      createCapturedSearchContextArtifact({
+        href,
+        keyword: "露营装备",
+        captured_at: lookup.min_observed_at ? 1_710_000_001_000 : 1_710_000_000_000,
+        responseBody: {
+          code: 0,
+          data: {
+            items: []
+          }
+        }
+      })
+    );
+
+    const result = await executeXhsSearch(
+      {
+        abilityId: "xhs.note.search.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          query: "露营装备"
+        },
+        options: {
+          issue_scope: "issue_209",
+          target_domain: "www.xiaohongshu.com",
+          target_tab_id: 11,
+          target_page: "search_result_tab",
+          actual_target_domain: "www.xiaohongshu.com",
+          actual_target_tab_id: 11,
+          actual_target_page: "search_result_tab",
+          action_type: "read",
+          risk_state: "allowed",
+          requested_execution_mode: "live_read_high_risk",
+          closeout_evidence_evaluation: true,
+          __runtime_latest_head_sha: "head-source-search-closeout-rounds-001",
+          upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
+            requestRef: "upstream_source_search_closeout_rounds_001",
+            actionName: "xhs.read_search_results",
+            targetPage: "search_result_tab",
+            targetTabId: 11,
+            profileRef: "profile-a",
+            approvalRefs: [
+              String(admissionContext.approval_admission_evidence.approval_admission_ref)
+            ],
+            auditRefs: [String(admissionContext.audit_admission_evidence.audit_admission_ref)]
+          }),
+          admission_context: admissionContext
+        },
+        executionContext: {
+          runId: "run-source-search-closeout-rounds-001",
+          sessionId: "nm-session-source-search-closeout-rounds-001",
+          profile: "profile-a",
+          gateInvocationId: "issue445-gate-run-source-search-closeout-rounds-001"
+        }
+      },
+      {
+        now: () => nowMs,
+        randomId: () => "source-req-closeout-rounds-001",
+        getLocationHref: () => href,
+        getDocumentTitle: () => "Search Result",
+        getReadyState: () => "complete",
+        getCookie: () => "a1=session-cookie",
+        performSearchPassiveAction,
+        readCapturedRequestContext,
+        callSignature: async () => {
+          throw new Error("signature should not be used for passive closeout");
+        },
+        fetchJson: async () => {
+          throw new Error("active fetch should not be used for passive closeout");
+        }
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const summary = result.payload.summary as Record<string, unknown>;
+    const routeEvidence = summary.route_evidence as Record<string, unknown>;
+    const expected = summary.closeout_evidence_expected as Record<string, unknown>;
+    const rounds = summary.closeout_evidence_rounds as Array<Record<string, unknown>>;
+    expect(performSearchPassiveAction).toHaveBeenCalledTimes(1);
+    expect(readCapturedRequestContext).toHaveBeenCalledTimes(2);
+    expect(routeEvidence.reproduced_multi_round).toBe(true);
+    expect(rounds).toHaveLength(2);
+    expect(new Set(rounds.map((round) => round.artifact_identity))).toHaveProperty("size", 2);
+    expect(expected.artifact_identities).toEqual(rounds.map((round) => round.artifact_identity));
   });
 
   it("accepts trusted captured search URLs as passive evidence without active fetch", async () => {

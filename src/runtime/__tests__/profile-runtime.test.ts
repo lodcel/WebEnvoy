@@ -2852,23 +2852,31 @@ describe("profile-runtime identity preflight", () => {
       "utf8"
     );
 
-	    const staleService = createTestService({
-	      bridgeFactory: () =>
-	        createStaleTargetTakeoverBridge({
-	          targetTabId: 88,
-	          targetDomain: "www.xiaohongshu.com",
-	          targetPage: "search_result_tab"
-	        })
-	    });
-	    const params = {
+    const staleBridgeCommands: string[] = [];
+    const staleService = createTestService({
+      bridgeFactory: () => {
+        const bridge = createStaleTargetTakeoverBridge({
+          targetTabId: 88,
+          targetDomain: "www.xiaohongshu.com",
+          targetPage: "search_result_tab"
+        });
+        return {
+          runCommand: async (commandInput) => {
+            staleBridgeCommands.push(commandInput.command);
+            return bridge.runCommand(commandInput);
+          }
+        };
+      }
+    });
+    const params = {
       persistent_extension_identity: {
         extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         manifest_path: manifestPath
       },
-	      requested_execution_mode: "live_read_limited",
-	      requested_at: "2026-05-06T14:00:00.000Z",
-	      target_domain: "www.xiaohongshu.com",
-	      target_tab_id: 88,
+      requested_execution_mode: "live_read_limited",
+      requested_at: "2026-05-06T14:00:00.000Z",
+      target_domain: "www.xiaohongshu.com",
+      target_tab_id: 88,
       target_page: "search_result_tab"
     };
 
@@ -2892,23 +2900,23 @@ describe("profile-runtime identity preflight", () => {
         staleBootstrapRecoverable: true,
         transportBootstrapViable: true,
         freshness: "fresh",
-	        ownerConflictFree: true,
-	        observedRuntimeSessionId: "nm-session-stale-bootstrap-001",
-	        observedRuntimeInstanceId: `nm-session-stale-bootstrap-001:run-runtime-attach-stale-bootstrap-owner-001:${buildRuntimeBootstrapContextId(
-	          "attach_stale_bootstrap_profile",
-	          "run-runtime-attach-stale-bootstrap-owner-001"
-	        )}`,
-	        requestRunId: "run-runtime-attach-stale-bootstrap-next-001",
-	        requestRuntimeContextId: buildRuntimeBootstrapContextId(
-	          "attach_stale_bootstrap_profile",
-	          "run-runtime-attach-stale-bootstrap-next-001"
-	        ),
-	        managedTargetTabId: 88,
-	        managedTargetDomain: "www.xiaohongshu.com",
-	        managedTargetPage: "search_result_tab",
-	        targetTabContinuity: "runtime_trust_state",
-	        takeoverEvidenceObservedAt: "2999-01-01T00:00:00.000Z"
-	      })
+        ownerConflictFree: true,
+        observedRuntimeSessionId: "nm-session-stale-bootstrap-001",
+        observedRuntimeInstanceId: `nm-session-stale-bootstrap-001:run-runtime-attach-stale-bootstrap-owner-001:${buildRuntimeBootstrapContextId(
+          "attach_stale_bootstrap_profile",
+          "run-runtime-attach-stale-bootstrap-owner-001"
+        )}`,
+        requestRunId: "run-runtime-attach-stale-bootstrap-next-001",
+        requestRuntimeContextId: buildRuntimeBootstrapContextId(
+          "attach_stale_bootstrap_profile",
+          "run-runtime-attach-stale-bootstrap-next-001"
+        ),
+        managedTargetTabId: 88,
+        managedTargetDomain: "www.xiaohongshu.com",
+        managedTargetPage: "search_result_tab",
+        targetTabContinuity: "runtime_trust_state",
+        takeoverEvidenceObservedAt: "2999-01-01T00:00:00.000Z"
+      })
     });
 
     await expect(
@@ -2921,10 +2929,11 @@ describe("profile-runtime identity preflight", () => {
     ).resolves.toMatchObject({
       profileState: "ready",
       lockHeld: true,
-      runtimeReadiness: "blocked",
+      runtimeReadiness: "ready",
       transportState: "ready",
-      bootstrapState: "stale"
+      bootstrapState: "ready"
     });
+    expect(staleBridgeCommands).toContain("runtime.bootstrap");
 
     const lockRaw = await readFile(join(profileDir, "__webenvoy_lock.json"), "utf8");
     const lock = JSON.parse(lockRaw) as ProfileLock;
@@ -2983,13 +2992,21 @@ describe("profile-runtime identity preflight", () => {
     );
     await unlink(join(profileDir, "__webenvoy_lock.json"));
 
+    const staleBridgeCommands: string[] = [];
     const staleService = createTestService({
-      bridgeFactory: () =>
-        createStaleTargetTakeoverBridge({
+      bridgeFactory: () => {
+        const bridge = createStaleTargetTakeoverBridge({
           targetTabId: 88,
           targetDomain: "www.xiaohongshu.com",
           targetPage: "search_result_tab"
-        })
+        });
+        return {
+          runCommand: async (commandInput) => {
+            staleBridgeCommands.push(commandInput.command);
+            return bridge.runCommand(commandInput);
+          }
+        };
+      }
     });
     const params = {
       persistent_extension_identity: {
@@ -3033,8 +3050,10 @@ describe("profile-runtime identity preflight", () => {
     ).resolves.toMatchObject({
       profileState: "ready",
       lockHeld: true,
-      bootstrapState: "stale"
+      runtimeReadiness: "ready",
+      bootstrapState: "ready"
     });
+    expect(staleBridgeCommands).toContain("runtime.bootstrap");
 
     const lockRaw = await readFile(join(profileDir, "__webenvoy_lock.json"), "utf8");
     const lock = JSON.parse(lockRaw) as ProfileLock;
@@ -5066,6 +5085,83 @@ describe("profile-runtime stop rollback", () => {
       killSpy.mockRestore();
     }
   });
+
+  it("terminates the pinned browser pid when controller shutdown leaves Chrome alive", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-stop-browser-left-alive-"));
+    tempDirs.push(baseDir);
+    const alivePids = new Set<number>([999998, 999999]);
+    const shutdownCalls: Array<{ profileDir: string; controllerPid: number; runId: string }> = [];
+    const service = createTestService({
+      isProcessAlive: (pid: number) => alivePids.has(pid),
+      browserLauncher: {
+        launch: async () => ({
+          browserPath: "/mock/chrome",
+          browserPid: 999999,
+          controllerPid: 999998,
+          launchArgs: ["about:blank"],
+          launchedAt: new Date().toISOString()
+        }),
+        shutdown: async (input) => {
+          shutdownCalls.push(input);
+          alivePids.delete(input.controllerPid);
+        }
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        return alivePids.has(pid);
+      }
+      alivePids.delete(pid);
+      return true;
+    }) as typeof process.kill);
+
+    try {
+      await service.start({
+        cwd: baseDir,
+        profile: "stop_browser_left_alive_profile",
+        runId: "run-runtime-test-132",
+        params: {}
+      });
+      const profileDir = join(baseDir, ".webenvoy", "profiles", "stop_browser_left_alive_profile");
+      await writeFile(
+        join(profileDir, BROWSER_STATE_FILENAME),
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            launchToken: "stop-browser-left-alive-token-001",
+            profileDir,
+            runId: "run-runtime-test-132",
+            browserPath: "/mock/chrome",
+            controllerPid: 999998,
+            browserPid: 999999,
+            launchedAt: new Date().toISOString()
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+
+      await expect(
+        service.stop({
+          cwd: baseDir,
+          profile: "stop_browser_left_alive_profile",
+          runId: "run-runtime-test-132",
+          params: {}
+        })
+      ).resolves.toMatchObject({
+        profile: "stop_browser_left_alive_profile",
+        profileState: "stopped",
+        lockHeld: false
+      });
+      expect(shutdownCalls).toHaveLength(1);
+      expect(killSpy).toHaveBeenCalledWith(999999, "SIGTERM");
+      expect(killSpy).not.toHaveBeenCalledWith(999998, "SIGTERM");
+      expect(alivePids.has(999999)).toBe(false);
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
 });
 
 describe("profile-runtime stale lock reclaim", () => {
@@ -5503,7 +5599,7 @@ describe("profile-runtime stale lock reclaim", () => {
     }
   });
 
-  it("stops external persistent app runtime state without terminating the external browser pid", async () => {
+  it("stops external persistent app runtime state by terminating the pinned browser pid", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-stop-external-"));
     tempDirs.push(baseDir);
     const alivePids = new Set<number>([999999]);
@@ -5570,8 +5666,8 @@ describe("profile-runtime stale lock reclaim", () => {
         lockHeld: false,
         orphanRecovered: false
       });
-      expect(alivePids.has(999999)).toBe(true);
-      expect(killedPids).not.toContain(999999);
+      expect(alivePids.has(999999)).toBe(false);
+      expect(killedPids).toContain(999999);
       await expect(readFile(browserStatePath, "utf8")).rejects.toMatchObject({
         code: "ENOENT"
       });

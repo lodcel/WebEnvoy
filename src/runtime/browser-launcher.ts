@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -81,6 +81,7 @@ interface BrowserInstanceState {
   browserPath: string;
   controllerPid: number;
   browserPid: number;
+  launchArgs?: string[];
   launchedAt: string;
   headless?: boolean;
   executionSurface?: "headless_browser" | "real_browser";
@@ -145,6 +146,15 @@ const parseStartUrl = (params: JsonObject): string => {
 const pathExists = async (path: string): Promise<boolean> => {
   try {
     await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const pathEntryExists = async (path: string): Promise<boolean> => {
+  try {
+    await lstat(path);
     return true;
   } catch {
     return false;
@@ -242,6 +252,28 @@ const cleanupSupervisorArtifacts = async (profileDir: string): Promise<void> => 
   await deleteFileQuietly(artifactPaths.controlFilePath);
 };
 
+const CHROME_SINGLETON_FILENAMES = ["SingletonLock", "SingletonCookie", "SingletonSocket"] as const;
+
+const readProfileSingletonLockOwnerPid = async (profileDir: string): Promise<number | null> => {
+  try {
+    const lockTarget = await readlink(join(profileDir, "SingletonLock"));
+    const match = /-(\d+)$/.exec(lockTarget.trim());
+    if (!match) {
+      return null;
+    }
+    const pid = Number.parseInt(match[1], 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+};
+
+const cleanupStaleProfileSingletonLock = async (profileDir: string): Promise<void> => {
+  await Promise.all(
+    CHROME_SINGLETON_FILENAMES.map((filename) => deleteFileQuietly(join(profileDir, filename)))
+  );
+};
+
 const parseBrowserInstanceState = (raw: string): BrowserInstanceState | null => {
   const parsed = JSON.parse(raw) as Partial<BrowserInstanceState>;
   if (
@@ -271,6 +303,11 @@ const readBrowserInstanceState = async (path: string): Promise<BrowserInstanceSt
     return null;
   }
 };
+
+const stringArraysEqual = (left: string[] | undefined, right: string[]): boolean =>
+  Array.isArray(left) &&
+  left.length === right.length &&
+  left.every((value, index) => value === right[index]);
 
 const resolveSupervisorScriptPath = async (): Promise<string> => {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -304,26 +341,39 @@ const waitForBrowserReady = async (
   profileDir: string,
   pid: number,
   launchedAtMs: number,
+  stateFilePath: string,
   processOwnership: "owned_child" | "external_persistent_app" = "owned_child",
   controllerPid: number | null = null
 ): Promise<void> => {
   const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
 
   for (let attempt = 0; attempt < READY_WAIT_MAX_ATTEMPTS; attempt += 1) {
-    if (processOwnership === "external_persistent_app") {
-      if (controllerPid === null || !isProcessAlive(controllerPid)) {
-        throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
-      }
-    } else {
-      assertProcessAlive(pid);
-    }
-
     let markerReady = false;
     for (const marker of readyMarkers) {
       if (await isFreshReadyMarker(marker, launchedAtMs)) {
         markerReady = true;
         break;
       }
+    }
+    const startupFlagReady = await isFreshReadyMarker(stateFilePath, launchedAtMs);
+
+    if (processOwnership === "external_persistent_app") {
+      if (controllerPid === null || !isProcessAlive(controllerPid)) {
+        throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
+      }
+      const profileLockReady = await pathEntryExists(join(profileDir, "SingletonLock"));
+      if (
+        (markerReady || (startupFlagReady && profileLockReady)) &&
+        Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS
+      ) {
+        await sleep(READY_CONFIRM_DELAY_MS);
+        if (controllerPid === null || !isProcessAlive(controllerPid)) {
+          throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
+        }
+        return;
+      }
+    } else {
+      assertProcessAlive(pid);
     }
 
     if (markerReady && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
@@ -428,6 +478,92 @@ const prepareBrowserInstanceArtifacts = async (profileDir: string): Promise<void
   await deleteFileQuietly(artifactPaths.controlFilePath);
 };
 
+const resolveReusableBrowserInstance = async (input: {
+  profileDir: string;
+  executablePath: string;
+  runId: string;
+  headless: boolean;
+  executionSurface: BrowserLaunchResult["executionSurface"];
+  launchArgs: string[];
+  stateFilePath: string;
+}): Promise<BrowserLaunchResult | null> => {
+  const state = await readBrowserInstanceState(input.stateFilePath);
+  if (
+    !state ||
+    state.profileDir !== input.profileDir ||
+    state.browserPath !== input.executablePath ||
+    state.headless !== input.headless ||
+    state.executionSurface !== input.executionSurface ||
+    !stringArraysEqual(state.launchArgs, input.launchArgs) ||
+    !isProcessAlive(state.controllerPid) ||
+    !isProcessAlive(state.browserPid)
+  ) {
+    return null;
+  }
+
+  if (state.runId !== input.runId) {
+    await writeFile(
+      input.stateFilePath,
+      `${JSON.stringify({ ...state, runId: input.runId }, null, 2)}\n`,
+      "utf8"
+    );
+  }
+
+  return {
+    browserPath: state.browserPath,
+    browserPid: state.browserPid,
+    controllerPid: state.controllerPid,
+    launchArgs: [...input.launchArgs],
+    launchedAt: state.launchedAt,
+    headless: input.headless,
+    executionSurface: state.executionSurface,
+    launchSurface: state.launchSurface,
+    processOwnership: state.processOwnership
+  };
+};
+
+const pinExternalBrowserPidFromProfileLock = async (input: {
+  profileDir: string;
+  stateFilePath: string;
+  fallbackState: BrowserInstanceState;
+}): Promise<BrowserInstanceState> => {
+  if (input.fallbackState.processOwnership !== "external_persistent_app") {
+    return input.fallbackState;
+  }
+  const ownerPid = await readProfileSingletonLockOwnerPid(input.profileDir);
+  if (ownerPid === null || !isProcessAlive(ownerPid)) {
+    throw new BrowserLaunchError(
+      "BROWSER_LAUNCH_FAILED",
+      "LaunchServices 启动后未能确认真实 Chrome profile 锁所有者 PID"
+    );
+  }
+  if (ownerPid === input.fallbackState.browserPid) {
+    return input.fallbackState;
+  }
+  const pinnedState = {
+    ...input.fallbackState,
+    browserPid: ownerPid
+  };
+  await writeFile(input.stateFilePath, `${JSON.stringify(pinnedState, null, 2)}\n`, "utf8");
+  return pinnedState;
+};
+
+const assertProfileLaunchBoundaryClear = async (profileDir: string): Promise<void> => {
+  const singletonLockPath = join(profileDir, "SingletonLock");
+  if (!(await pathEntryExists(singletonLockPath))) {
+    return;
+  }
+  const ownerPid = await readProfileSingletonLockOwnerPid(profileDir);
+  if (ownerPid !== null && !isProcessAlive(ownerPid)) {
+    await cleanupStaleProfileSingletonLock(profileDir);
+    return;
+  }
+  throw new BrowserLaunchError(
+    "BROWSER_LAUNCH_FAILED",
+    `profile 已存在浏览器实例锁，拒绝再次启动以避免同一 profile 打开多个窗口: ${singletonLockPath}`
+  );
+};
+
 const waitForBrowserInstanceState = async (input: {
   stateFilePath: string;
   expectedToken: string;
@@ -455,9 +591,12 @@ const cleanupFailedBrowserLaunch = async (input: {
   profileDir: string;
   controllerPid: number | null;
 }): Promise<void> => {
+  if (input.controllerPid === null) {
+    return;
+  }
   const artifactPaths = getBrowserInstanceArtifactPaths(input.profileDir);
   const state = await readBrowserInstanceState(artifactPaths.stateFilePath);
-  if (input.controllerPid !== null && isProcessAlive(input.controllerPid)) {
+  if (isProcessAlive(input.controllerPid)) {
     try {
       process.kill(input.controllerPid, "SIGTERM");
     } catch {
@@ -515,6 +654,19 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
   let controllerPid: number | null = null;
   let launchSucceeded = false;
   try {
+    const reusable = await resolveReusableBrowserInstance({
+      profileDir: input.profileDir,
+      executablePath,
+      runId: input.runId,
+      headless: shouldHeadless,
+      executionSurface,
+      launchArgs,
+      stateFilePath: artifactPaths.stateFilePath
+    });
+    if (reusable) {
+      return reusable;
+    }
+    await assertProfileLaunchBoundaryClear(input.profileDir);
     await prepareBrowserInstanceArtifacts(input.profileDir);
     const launched = await launchProcess(supervisorScriptPath, executablePath, launchArgs, {
       stateFilePath: artifactPaths.stateFilePath,
@@ -533,20 +685,26 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
       input.profileDir,
       state.browserPid,
       launched.launchedAtMs,
+      artifactPaths.stateFilePath,
       state.processOwnership,
       state.controllerPid
     );
+    const pinnedState = await pinExternalBrowserPidFromProfileLock({
+      profileDir: input.profileDir,
+      stateFilePath: artifactPaths.stateFilePath,
+      fallbackState: state
+    });
     launchSucceeded = true;
     return {
       browserPath: executablePath,
-      browserPid: state.browserPid,
-      controllerPid: state.controllerPid,
+      browserPid: pinnedState.browserPid,
+      controllerPid: pinnedState.controllerPid,
       launchArgs: [...launchArgs],
       launchedAt: launched.launchedAt,
       headless: shouldHeadless,
       executionSurface,
-      launchSurface: state.launchSurface,
-      processOwnership: state.processOwnership
+      launchSurface: pinnedState.launchSurface,
+      processOwnership: pinnedState.processOwnership
     };
   } catch (error) {
     await cleanupFailedBrowserLaunch({

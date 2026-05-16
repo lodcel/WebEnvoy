@@ -330,7 +330,7 @@ export class InMemoryContentScriptRuntime {
                 url: "https://www.xiaohongshu.com/user/profile/user-id",
                 title: "User Home",
                 request_method: "GET",
-                request_url: "/api/sns/web/v1/user/otherinfo",
+                request_url: "/api/sns/web/v1/user_posted",
                 successDataRef: {
                   user_id: String(normalizedInput.user_id ?? "")
                 }

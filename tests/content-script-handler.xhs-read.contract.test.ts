@@ -764,7 +764,7 @@ describe("content-script handler xhs read commands", () => {
     });
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/feed"
+        url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed"
       })
     );
   });

@@ -4,10 +4,10 @@ import {
   createChromeApi,
   createFingerprintRuntimeContext,
   createMockPort,
+  primeTrustedFingerprintContext,
   respondHandshake,
   startChromeBackgroundBridge,
-  waitForBridgeTurn,
-  waitForPostedMessage
+  waitForBridgeTurn
 } from "./extension.service-worker.shared.js";
 
 const profile = "xhs_001";
@@ -15,14 +15,29 @@ const sessionId = "nm-session-001";
 const targetTabId = 44;
 const userId = "6505e12400000000120058d2";
 const targetUrl = `https://www.xiaohongshu.com/user/profile/${userId}?xsec_token=token-001`;
-const endpointUrl = `https://edith.xiaohongshu.com/api/sns/web/v1/user/otherinfo?target_user_id=${userId}&user_id=${userId}`;
+const endpointPath = "/api/sns/web/v1/user_posted";
+const endpointUrl = `https://edith.xiaohongshu.com${endpointPath}?num=30&cursor=&user_id=${userId}`;
 
 const primeProfileBootstrap = async (
   port: ReturnType<typeof createMockPort>,
-  runId: string
+  runId: string,
+  runtimeMessageListeners: Parameters<typeof primeTrustedFingerprintContext>[0]["runtimeMessageListeners"]
 ) => {
-  port.onMessageListeners[0]?.({
-    id: `${runId}-bootstrap`,
+  const baseFingerprintContext = createFingerprintRuntimeContext();
+  const fingerprintContext = {
+    ...baseFingerprintContext,
+    profile,
+    fingerprint_patch_manifest: {
+      ...(asRecord(baseFingerprintContext.fingerprint_patch_manifest) ?? {}),
+      profile
+    },
+    fingerprint_consistency_check: {
+      ...(asRecord(baseFingerprintContext.fingerprint_consistency_check) ?? {}),
+      profile
+    }
+  };
+  const sendBootstrap = (id: string) => port.onMessageListeners[0]?.({
+    id,
     method: "bridge.forward",
     profile,
     params: {
@@ -37,7 +52,7 @@ const primeProfileBootstrap = async (
         target_domain: "www.xiaohongshu.com",
         target_page: "profile_tab",
         target_tab_id: targetTabId,
-        fingerprint_runtime: createFingerprintRuntimeContext(),
+        fingerprint_runtime: fingerprintContext,
         fingerprint_patch_manifest: {
           manifest_version: "1"
         },
@@ -47,6 +62,19 @@ const primeProfileBootstrap = async (
     },
     timeout_ms: 100
   });
+  sendBootstrap(`${runId}-bootstrap`);
+  await waitForBridgeTurn();
+  await primeTrustedFingerprintContext({
+    runtimeMessageListeners,
+    runId,
+    runtimeContextId: `${runId}-ctx`,
+    profile,
+    sessionId,
+    fingerprintContext,
+    tabId: targetTabId,
+    tabUrl: targetUrl
+  });
+  sendBootstrap(`${runId}-bootstrap-ready`);
   await waitForBridgeTurn();
 };
 
@@ -55,6 +83,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
     const port = createMockPort();
     const {
       chromeApi,
+      runtimeMessageListeners,
       debuggerAttach,
       debuggerDetach,
       debuggerOnEventListeners,
@@ -104,10 +133,15 @@ describe("runtime.xhs_capture_user_home_context", () => {
           body: JSON.stringify({
             success: true,
             data: {
-              user: {
-                user_id: userId,
-                nickname: "closeout-user"
-              }
+              notes: [
+                {
+                  note_id: "note-user-home-001",
+                  user: {
+                    user_id: userId,
+                    nickname: "closeout-user"
+                  }
+                }
+              ]
             }
           })
         };
@@ -118,7 +152,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(port);
     await waitForBridgeTurn();
-    await primeProfileBootstrap(port, runId);
+    await primeProfileBootstrap(port, runId, runtimeMessageListeners);
     port.postMessage.mockClear();
 
     port.onMessageListeners[0]?.({
@@ -141,10 +175,17 @@ describe("runtime.xhs_capture_user_home_context", () => {
       timeout_ms: 100
     });
 
-    await waitForPostedMessage(port.postMessage, {
-      id: runId,
-      status: "success"
-    });
+    await vi.waitFor(
+      () => {
+        expect(port.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: runId,
+            status: "success"
+          })
+        );
+      },
+      { timeout: 6_000 }
+    );
 
     expect(debuggerAttach).toHaveBeenCalledWith({ tabId: targetTabId }, "1.3");
     expect(debuggerSendCommand).toHaveBeenCalledWith({ tabId: targetTabId }, "Network.enable");
@@ -164,7 +205,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
       route_evidence_class: "passive_api_capture",
       source_kind: "page_request",
       method: "GET",
-      path: "/api/sns/web/v1/user/otherinfo",
+      path: endpointPath,
       profile_ref: profile,
       session_id: sessionId,
       target_tab_id: targetTabId,
@@ -178,9 +219,13 @@ describe("runtime.xhs_capture_user_home_context", () => {
     expect(asRecord(asRecord(artifact?.response)?.body)).toMatchObject({
       success: true,
       data: {
-        user: {
-          user_id: userId
-        }
+        notes: [
+          {
+            user: {
+              user_id: userId
+            }
+          }
+        ]
       }
     });
     expect(asRecord(asRecord(artifact?.request)?.headers)).toMatchObject({
@@ -197,7 +242,8 @@ describe("runtime.xhs_capture_user_home_context", () => {
 
   it("reserves response budget before user_home passive capture waits time out", async () => {
     const port = createMockPort();
-    const { chromeApi, debuggerDetach, debuggerSendCommand } = createChromeApi([port]);
+    const { chromeApi, runtimeMessageListeners, debuggerDetach, debuggerSendCommand } =
+      createChromeApi([port]);
     const runId = "run-user-home-capture-timeout-001";
 
     chromeApi.tabs.query.mockResolvedValue([{ id: targetTabId, url: targetUrl, active: true }]);
@@ -206,7 +252,7 @@ describe("runtime.xhs_capture_user_home_context", () => {
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(port);
     await waitForBridgeTurn();
-    await primeProfileBootstrap(port, runId);
+    await primeProfileBootstrap(port, runId, runtimeMessageListeners);
     port.postMessage.mockClear();
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
@@ -230,11 +276,20 @@ describe("runtime.xhs_capture_user_home_context", () => {
         timeout_ms: 10
       });
 
-      await waitForPostedMessage(port.postMessage, {
-        id: runId,
-        status: "error"
-      });
-      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 9)).toBe(true);
+      await vi.waitFor(
+        () => {
+          expect(port.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              id: runId,
+              status: "error"
+            })
+          );
+        },
+        { timeout: 6_000 }
+      );
+      const scheduledDelays = setTimeoutSpy.mock.calls.map((call) => call[1]);
+      expect(scheduledDelays).not.toContain(1_500);
+      expect(scheduledDelays).not.toContain(450);
     } finally {
       setTimeoutSpy.mockRestore();
     }

@@ -9,7 +9,7 @@ import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsComm
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 const defaultForwardTimeoutMs = 3_000;
 const defaultHandshakeTimeoutMs = 30_000;
 const defaultNativeHostName = "com.webenvoy.host";
@@ -2106,6 +2106,7 @@ class ChromeBackgroundBridge {
         const canRebindReadyBootstrap = !!bootstrap &&
             bootstrap.sessionId === input.sessionId &&
             bootstrap.runId === input.runId &&
+            bootstrap.runtimeContextId === input.runtimeContextId &&
             (bootstrap.status === "pending" || bootstrap.status === "ready");
         const canRecoverStaleBootstrap = !!bootstrap &&
             input.allowStaleBootstrapRecovery === true &&
@@ -2113,11 +2114,22 @@ class ChromeBackgroundBridge {
             bootstrap.runId === input.runId &&
             bootstrap.runtimeContextId === input.runtimeContextId &&
             bootstrap.status === "stale";
+        const bootstrapBindsRestoredTarget = !!bootstrap &&
+            (bootstrap.status === "pending" || bootstrap.status === "ready") &&
+            bootstrap.sessionId === input.sessionId &&
+            bootstrap.runId === input.runId &&
+            bootstrap.runtimeContextId === input.runtimeContextId &&
+            bootstrap.sourceTabId === input.targetTabId &&
+            bootstrap.sourceDomain === input.targetDomain &&
+            bootstrap.sourcePage === input.targetPage;
         if (canRebindReadyBootstrap ||
-            canRecoverStaleBootstrap) {
+            canRecoverStaleBootstrap ||
+            bootstrapBindsRestoredTarget) {
             this.#runtimeTrustState.setBootstrap(input.profile, {
                 ...bootstrap,
                 status: canRecoverStaleBootstrap ? "ready" : bootstrap.status,
+                runId: input.runId,
+                runtimeContextId: input.runtimeContextId ?? bootstrap.runtimeContextId,
                 sourceTabId: input.targetTabId,
                 sourceDomain: input.targetDomain,
                 sourcePage: input.targetPage,
@@ -2125,13 +2137,19 @@ class ChromeBackgroundBridge {
             });
         }
         const trusted = this.#runtimeTrustState.getTrusted(input.profile, input.sessionId);
-        if (trusted && trusted.runId === input.runId) {
+        const trustedBindsRestoredTarget = !!trusted &&
+            trusted.runId === input.runId &&
+            trusted.runtimeContextId === input.runtimeContextId &&
+            trusted.sourceTabId === input.targetTabId &&
+            trusted.sourceDomain === input.targetDomain &&
+            trusted.sourcePage === input.targetPage;
+        if (trusted && (trusted.runId === input.runId || trustedBindsRestoredTarget)) {
             this.#upsertTrustedFingerprintContext(input.profile, input.sessionId, trusted.fingerprintRuntime, {
                 sourceTabId: input.targetTabId,
                 sourceDomain: input.targetDomain,
                 sourcePage: input.targetPage,
-                runId: trusted.runId,
-                runtimeContextId: trusted.runtimeContextId
+                runId: input.runId,
+                runtimeContextId: input.runtimeContextId ?? trusted.runtimeContextId
             });
         }
     }
@@ -2795,12 +2813,18 @@ class ChromeBackgroundBridge {
         const bootstrapBindsTarget = !!bootstrap &&
             (bootstrap.status === "pending" || bootstrap.status === "ready") &&
             bootstrap.sessionId === sessionId &&
+            bootstrap.runId === runId &&
+            bootstrap.runtimeContextId === restoreSafetyGate?.runtime_context_id &&
             bootstrap.sourceTabId === sourceTab.id &&
-            bootstrap.sourceDomain === targetDomain;
+            bootstrap.sourceDomain === targetDomain &&
+            bootstrap.sourcePage === targetPage;
         const trustedBindsTarget = !!trusted &&
             trusted.sessionId === sessionId &&
+            trusted.runId === runId &&
+            trusted.runtimeContextId === restoreSafetyGate?.runtime_context_id &&
             trusted.sourceTabId === sourceTab.id &&
-            trusted.sourceDomain === targetDomain;
+            trusted.sourceDomain === targetDomain &&
+            trusted.sourcePage === targetPage;
         const staleRestoreLease = this.#getStaleRestoreBindingLease(profile, sessionId);
         const staleRestoreLeaseBindsTarget = !!staleRestoreLease &&
             staleRestoreLease.runId === runId &&
@@ -3769,6 +3793,7 @@ class ChromeBackgroundBridge {
         }
         const bootstrap = this.#runtimeTrustState.getBootstrap(profile);
         const trusted = this.#runtimeTrustState.getTrusted(profile, sessionId);
+        const staleRestoreLease = this.#getStaleRestoreBindingLease(profile, sessionId);
         const bootstrapBindsTarget = !!bootstrap &&
             (bootstrap.status === "pending" || bootstrap.status === "ready") &&
             bootstrap.sessionId === sessionId &&
@@ -3782,7 +3807,12 @@ class ChromeBackgroundBridge {
             trusted.sourceTabId === tab.id &&
             trusted.sourceDomain === targetDomain &&
             trusted.sourcePage === targetPage;
-        if (!bootstrapBindsTarget && !trustedBindsTarget) {
+        const staleRestoreLeaseBindsTarget = !!staleRestoreLease &&
+            staleRestoreLease.runId === runId &&
+            staleRestoreLease.targetTabId === tab.id &&
+            staleRestoreLease.targetDomain === targetDomain &&
+            staleRestoreLease.targetPage === targetPage;
+        if (!bootstrapBindsTarget && !trustedBindsTarget && !staleRestoreLeaseBindsTarget) {
             fail("USER_HOME_CAPTURE_MANAGED_TAB_NOT_BOUND", "runtime.xhs_capture_user_home_context requires a current managed profile tab binding", {
                 bootstrap_source_tab_id: bootstrap?.sourceTabId ?? null,
                 bootstrap_source_domain: bootstrap?.sourceDomain ?? null,
@@ -3791,7 +3821,11 @@ class ChromeBackgroundBridge {
                 trusted_source_tab_id: trusted?.sourceTabId ?? null,
                 trusted_source_domain: trusted?.sourceDomain ?? null,
                 trusted_source_page: trusted?.sourcePage ?? null,
-                trusted_run_id: trusted?.runId ?? null
+                trusted_run_id: trusted?.runId ?? null,
+                stale_restore_lease_target_tab_id: staleRestoreLease?.targetTabId ?? null,
+                stale_restore_lease_target_domain: staleRestoreLease?.targetDomain ?? null,
+                stale_restore_lease_target_page: staleRestoreLease?.targetPage ?? null,
+                stale_restore_lease_run_id: staleRestoreLease?.runId ?? null
             });
             return;
         }
@@ -3801,16 +3835,53 @@ class ChromeBackgroundBridge {
             return;
         }
         const captureTimeoutMs = reserveXhsPassiveCaptureResponseSafetyMs(readTimeoutMs(request.timeout_ms) ?? 10_000);
+        const captureDeadlineMs = Date.now() + captureTimeoutMs;
         let debuggerAttached = false;
         try {
             await debuggerApi.attach({ tabId: tab.id }, debuggerProtocolVersion);
             debuggerAttached = true;
             await debuggerApi.sendCommand({ tabId: tab.id }, "Network.enable");
-            const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(tab.id, userId, captureTimeoutMs);
+            const capture = this.#waitForXhsUserHomeDebuggerNetworkCapture(tab.id, userId, Math.max(1, captureDeadlineMs - Date.now()));
+            let artifact;
+            const waitForCaptureOrDelay = async (delayMs) => {
+                const remainingMs = captureDeadlineMs - Date.now();
+                if (remainingMs <= 0) {
+                    return false;
+                }
+                const waitMs = Math.min(delayMs, remainingMs);
+                const result = await Promise.race([
+                    capture.then((value) => ({ type: "capture", value })),
+                    this.#sleep(waitMs).then(() => ({ type: "delay" }))
+                ]);
+                if (result.type === "capture") {
+                    artifact = result.value;
+                    return true;
+                }
+                return false;
+            };
             await debuggerApi.sendCommand({ tabId: tab.id }, "Page.reload", { ignoreCache: true });
-            const artifact = await capture;
-            if (!artifact) {
-                fail("USER_HOME_CAPTURE_CONTEXT_MISSING", "runtime.xhs_capture_user_home_context did not observe user_home API request", { page_url: tabUrl });
+            await waitForCaptureOrDelay(1_500);
+            for (let index = 0; index < 4; index += 1) {
+                if (artifact !== undefined || captureDeadlineMs - Date.now() <= 0) {
+                    break;
+                }
+                await debuggerApi.sendCommand({ tabId: tab.id }, "Input.dispatchMouseEvent", {
+                    type: "mouseWheel",
+                    x: 900,
+                    y: 800,
+                    deltaX: 0,
+                    deltaY: 900
+                }).catch(() => undefined);
+                await waitForCaptureOrDelay(450);
+            }
+            artifact ??= await capture;
+            if (!artifact || artifact.diagnostic_only === true) {
+                fail("USER_HOME_CAPTURE_CONTEXT_MISSING", "runtime.xhs_capture_user_home_context did not observe user_home API request", {
+                    page_url: tabUrl,
+                    observed_api_requests: Array.isArray(artifact?.observed_api_requests)
+                        ? artifact.observed_api_requests
+                        : []
+                });
                 return;
             }
             const shape = {
@@ -6208,6 +6279,7 @@ class ChromeBackgroundBridge {
             return Promise.resolve(null);
         }
         const pending = new Map();
+        const observedApiRequests = [];
         const parseBody = (value) => {
             if (typeof value !== "string" || value.length === 0) {
                 return null;
@@ -6261,7 +6333,10 @@ class ChromeBackgroundBridge {
                 }
                 resolve(value);
             };
-            const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+            const timeout = setTimeout(() => finish({
+                diagnostic_only: true,
+                observed_api_requests: observedApiRequests.slice(-50)
+            }), Math.max(1, timeoutMs));
             const listener = (source, method, params) => {
                 if (settled || source.tabId !== tabId || !params) {
                     return;
@@ -6274,6 +6349,23 @@ class ChromeBackgroundBridge {
                     const request = asRecord(params.request);
                     const url = asNonEmptyString(request?.url);
                     const requestMethod = asNonEmptyString(request?.method);
+                    if (url) {
+                        try {
+                            const parsed = new URL(url);
+                            if (parsed.hostname.endsWith("xiaohongshu.com") &&
+                                parsed.pathname.includes("/api/")) {
+                                observedApiRequests.push({
+                                    method: requestMethod ?? null,
+                                    url,
+                                    pathname: parsed.pathname,
+                                    search: parsed.search
+                                });
+                            }
+                        }
+                        catch {
+                            // Ignore malformed diagnostic URLs.
+                        }
+                    }
                     if (!url || requestMethod !== "GET" || !isUserHomeEndpoint(url)) {
                         return;
                     }
@@ -7130,10 +7222,10 @@ class ChromeBackgroundBridge {
                 input.url,
                 input.method,
                 sanitizedHeaders,
-                input.body,
+                input.body ?? null,
                 input.timeoutMs,
-                input.referrer,
-                input.referrerPolicy
+                input.referrer ?? null,
+                input.referrerPolicy ?? null
             ]
         });
         const first = Array.isArray(results) ? results[0] : null;

@@ -916,6 +916,45 @@ export const pickXhsCloseoutEvidenceSummaryFieldsForContract = (payload: JsonObj
   return picked;
 };
 
+const includeCallerCloseoutEvidenceFieldsForRuntime = (
+  payload: JsonObject,
+  options: JsonObject
+): JsonObject => {
+  const nextPayload = { ...payload };
+  const summary = asObject(payload.summary);
+  for (const key of CLOSEOUT_EVIDENCE_SUMMARY_FIELDS) {
+    if (key === "closeout_route_evidence" || key === "route_evidence") {
+      continue;
+    }
+    const bridgeAlreadyProvidedField =
+      hasOwn(payload, key) ||
+      (hasOwn(summary ?? undefined, key) &&
+        summary?.[key] !== null &&
+        summary?.[key] !== undefined &&
+        !isSparseCloseoutSummaryField(summary?.[key]));
+    if (
+      bridgeAlreadyProvidedField &&
+      (key === "closeout_evidence_input" ||
+        key === "closeout_evidence_expected" ||
+        key === "closeout_evidence_rounds")
+    ) {
+      continue;
+    }
+    if (hasOwn(options, key) && options[key] !== null && options[key] !== undefined) {
+      nextPayload[key] = options[key];
+    }
+  }
+  return nextPayload;
+};
+
+export const mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract = (
+  payload: JsonObject,
+  options: JsonObject
+): JsonObject =>
+  pickXhsCloseoutEvidenceSummaryFieldsForContract(
+    includeCallerCloseoutEvidenceFieldsForRuntime(payload, options)
+  );
+
 const isCloseoutPrimaryApiSuccessRoute = (record: JsonObject | null | undefined): boolean => {
   const routeRole = asString(record?.route_role);
   const pathKind = asString(record?.path_kind);
@@ -1214,27 +1253,37 @@ const buildCloseoutEvidenceInputForRuntime = (
     : null;
   const expected = explicitExpected ?? summaryExpected;
   const explicitExpectedBinding = explicitExpected !== null || summaryExpected !== null;
+  const effectiveExpected =
+    expected !== null &&
+    hasDeterministicRoundSource &&
+    (!Array.isArray(expected.artifact_identities) || expected.artifact_identities.length === 0) &&
+    expected.artifact_identity !== null
+      ? {
+          ...expected,
+          artifact_identities: [expected.artifact_identity]
+        }
+      : expected;
   const routeEvidenceCanProvideRound =
     routeEvidenceRequiresCloseout &&
     roundRecords !== null &&
-    isCompleteCloseoutEvidenceExpected(expected) &&
-    closeoutEvidenceMatchesExpected(expected, routeEvidenceRound);
-  const selectedEvidenceRound = selectCloseoutEvidenceRound(expected, roundRecords);
+    isCompleteCloseoutEvidenceExpected(effectiveExpected) &&
+    closeoutEvidenceMatchesExpected(effectiveExpected, routeEvidenceRound);
+  const selectedEvidenceRound = selectCloseoutEvidenceRound(effectiveExpected, roundRecords);
   const firstParsedEvidenceRound = roundRecords
     ? toCloseoutEvidenceRound(asObject(roundRecords[0]) ?? {})
     : null;
   const firstEvidenceRoundCanProvideRound =
     roundRecords !== null &&
-    isCompleteCloseoutEvidenceExpected(expected) &&
+    isCompleteCloseoutEvidenceExpected(effectiveExpected) &&
     isCompleteCloseoutEvidenceRound(selectedEvidenceRound);
   const deterministicRoundsCanProvideEvidence =
     firstEvidenceRoundCanProvideRound && (roundRecords?.length ?? 0) >= 2;
   const canonicalEvidenceRoundCanProvideRound =
     firstEvidenceRoundCanProvideRound &&
-    expected !== null &&
+    effectiveExpected !== null &&
     selectedEvidenceRound !== null &&
-    expected.artifact_identity !== null &&
-    selectedEvidenceRound.artifact_identity === expected.artifact_identity;
+    effectiveExpected.artifact_identity !== null &&
+    selectedEvidenceRound.artifact_identity === effectiveExpected.artifact_identity;
   const explicitEvidenceCandidate = toCloseoutEvidenceRound(asObject(explicitInput?.evidence));
   const explicitEvidence = isCompleteCloseoutEvidenceRound(explicitEvidenceCandidate)
     ? explicitEvidenceCandidate
@@ -1252,7 +1301,7 @@ const buildCloseoutEvidenceInputForRuntime = (
     (firstEvidenceRoundCanProvideRound ? selectedEvidenceRound : null) ??
     explicitEvidence ??
     (roundRecords !== null ? firstParsedEvidenceRound : null);
-  if (!expected || !evidence) {
+  if (!effectiveExpected || !evidence) {
     return null;
   }
 
@@ -1270,7 +1319,7 @@ const buildCloseoutEvidenceInputForRuntime = (
   }
 
   return {
-    expected,
+    expected: effectiveExpected,
     evidence,
     ...(evidenceRounds ? { evidence_rounds: evidenceRounds } : {})
   };
@@ -2439,6 +2488,110 @@ const buildInProcessGateOnlyResult = (input: {
   };
 };
 
+const shouldReturnExplicitCloseoutEvidenceResult = (input: {
+  command: string;
+  requestedExecutionMode: XhsExecutionMode;
+  options: JsonObject;
+}): boolean =>
+  (input.command === "xhs.detail" || input.command === "xhs.user_home") &&
+  isLiveXhsReadExecutionMode(input.requestedExecutionMode) &&
+  input.options.closeout_audit_required === true &&
+  asObject(input.options.closeout_evidence_expected) !== null &&
+  hasCloseoutEvidenceRoundRecords(
+    toCloseoutEvidenceRoundRecords(input.options.closeout_evidence_rounds)
+  );
+
+const buildExplicitCloseoutEvidenceResult = (input: {
+  context: RuntimeContext;
+  envelope: AbilityEnvelope;
+  gate: ReturnType<typeof normalizeGateOptionsForContract>;
+  parsedInput: JsonObject;
+  preparedIssue209LiveRead: ReturnType<typeof prepareIssue209LiveReadEnvelopeForContract>;
+  runtimeGateOptions: JsonObject;
+  sessionId: string;
+  dataRefKey: "query" | "note_id" | "user_id";
+}): CommandExecutionResult => {
+  const profile = input.context.profile ?? "unknown";
+  const gateBundle = buildLoopbackGate(
+    input.runtimeGateOptions,
+    input.envelope.ability.action,
+    {
+      runId: input.context.run_id,
+      requestId: input.envelope.requestId ?? undefined,
+      commandRequestId: input.preparedIssue209LiveRead.commandRequestId ?? undefined,
+      sessionId: input.sessionId,
+      profile,
+      gateInvocationId: input.preparedIssue209LiveRead.gateInvocationId ?? undefined
+    }
+  );
+  const auditRecord = buildLoopbackAuditRecord({
+    runId: input.context.run_id,
+    sessionId: input.sessionId,
+    profile,
+    gate: gateBundle
+  });
+  auditRecord.recorded_at = new Date().toISOString();
+  const gatePayload = buildLoopbackGatePayload({
+    runId: input.context.run_id,
+    sessionId: input.sessionId,
+    profile,
+    gate: gateBundle,
+    auditRecord
+  });
+  const dataRefValue =
+    typeof input.parsedInput[input.dataRefKey] === "string"
+      ? String(input.parsedInput[input.dataRefKey])
+      : "";
+  const closeoutEvidenceSummaryFields = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+    gatePayload,
+    input.runtimeGateOptions
+  );
+  const summary = mapCapabilitySummaryForContract(input.envelope.ability.id, {
+    ...buildCapabilityResult(input.envelope.ability, {
+      data_ref: dataRefValue ? { [input.dataRefKey]: dataRefValue } : {},
+      metrics: {
+        count: 0
+      }
+    }),
+    ...gatePayload,
+    ...closeoutEvidenceSummaryFields,
+    session_id: input.sessionId,
+    requested_execution_mode: input.gate.requestedExecutionMode,
+    closeout_audit_required: true,
+    explicit_closeout_evidence_only: true
+  });
+
+  assertCloseoutEvidenceForRuntime(
+    input.envelope.ability,
+    buildXhsCloseoutEvidenceTrustedBindingForContract({
+      cwd: input.context.cwd,
+      runId: input.context.run_id,
+      profileRef: input.context.profile,
+      targetTabId: input.gate.targetTabId,
+      summary
+    }),
+    summary
+  );
+
+  if (requiresCanonicalExecutionAuditForContract({ payload: gatePayload, summary })) {
+    assertCloseoutCanonicalExecutionAuditForRuntime(
+      input.envelope.ability,
+      input.context.run_id,
+      {
+        success: {
+          summary,
+          observability: gatePayload.observability
+        }
+      }
+    );
+  }
+
+  return {
+    summary,
+    observability: asObservabilityInput(gatePayload.observability)
+  };
+};
+
 const assertXhsLivePreflightAllowsCommand = (input: {
   command: string;
   ability: AbilityRef;
@@ -3040,8 +3193,9 @@ const xhsReadCommand = async (
       bridgeResult.payload,
       "execution_audit"
     );
-    const closeoutEvidenceSummaryFields = pickXhsCloseoutEvidenceSummaryFieldsForContract(
-      bridgeResult.payload
+    const closeoutEvidenceSummaryFields = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+      bridgeResult.payload,
+      gate.options
     );
     const mergedBridgeSummary = {
       ...(asObject(bridgeResult.payload.summary) ?? {}),

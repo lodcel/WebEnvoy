@@ -1193,17 +1193,21 @@ describe("native messaging legacy loopback runtime", () => {
       command: "xhs.detail",
       abilityId: "xhs.note.detail.v1",
       input: { note_id: "note-loopback-001" },
-      targetPage: "explore_detail_tab"
+      targetPage: "explore_detail_tab",
+      requestMethod: "POST",
+      requestUrl: "/api/sns/web/v1/feed"
     },
     {
       command: "xhs.user_home",
       abilityId: "xhs.user.home.v1",
       input: { user_id: "user-loopback-001" },
-      targetPage: "profile_tab"
+      targetPage: "profile_tab",
+      requestMethod: "GET",
+      requestUrl: "/api/sns/web/v1/user_posted"
     }
   ])(
     "applies the same live_read_limited gate bundle to $command",
-    async ({ command, abilityId, input, targetPage }) => {
+    async ({ command, abilityId, input, targetPage, requestMethod, requestUrl }) => {
       const runId = `run-${command.replace(".", "-")}-live-limited-001`;
       const requestId = `${command.replace(".", "-")}-live-limited-001`;
       const targetTabId = 36;
@@ -1295,6 +1299,18 @@ describe("native messaging legacy loopback runtime", () => {
               requested_execution_mode: "live_read_limited",
               effective_execution_mode: "live_read_limited"
             })
+          })
+        })
+      );
+      expect(result.payload).toEqual(
+        expect.objectContaining({
+          observability: expect.objectContaining({
+            key_requests: [
+              expect.objectContaining({
+                method: requestMethod,
+                url: requestUrl
+              })
+            ]
           })
         })
       );

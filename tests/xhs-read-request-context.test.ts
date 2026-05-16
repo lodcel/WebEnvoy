@@ -237,17 +237,17 @@ const createUserHomeArtifact = (
     source_kind: "page_request",
     transport: "fetch",
     method: "GET",
-    path: "/api/sns/web/v1/user/otherinfo",
-    url: "https://www.xiaohongshu.com/api/sns/web/v1/user/otherinfo?user_id=user-001",
+    path: "/api/sns/web/v1/user_posted",
+    url: "https://www.xiaohongshu.com/api/sns/web/v1/user_posted?user_id=user-001",
     status: 200,
     captured_at: 1_710_000_000_000,
     page_context_namespace: "xhs.user_home",
     shape_key:
-      '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user/otherinfo","user_id":"user-001"}',
+      '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user_posted","user_id":"user-001"}',
     shape: {
       command: "xhs.user_home",
       method: "GET",
-      pathname: "/api/sns/web/v1/user/otherinfo",
+      pathname: "/api/sns/web/v1/user_posted",
       user_id: "user-001"
     },
     request: {
@@ -354,7 +354,7 @@ describe("xhs read request-context exact-shape reuse", () => {
     });
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/feed",
+        url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
         method: "POST",
         pageContextRequest: true,
         referrer:
@@ -1951,7 +1951,7 @@ describe("xhs read request-context exact-shape reuse", () => {
     });
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/feed",
+        url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed",
         method: "POST",
         pageContextRequest: true
       })
@@ -2734,19 +2734,19 @@ describe("xhs read request-context exact-shape reuse", () => {
         fetchJson,
         readCapturedRequestContext: async () =>
           createUserHomeArtifact({
-            url: "https://www.xiaohongshu.com/api/sns/web/v1/user/otherinfo?user_id=user-001&sec_user_id=sec-001"
+            url: "https://www.xiaohongshu.com/api/sns/web/v1/user_posted?user_id=user-001&sec_user_id=sec-001"
           })
       })
     );
 
     expect(result.ok).toBe(true);
     expect(callSignature).toHaveBeenCalledWith(
-      "/api/sns/web/v1/user/otherinfo?user_id=user-001&sec_user_id=sec-001",
+      "/api/sns/web/v1/user_posted?user_id=user-001&sec_user_id=sec-001",
       {}
     );
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/user/otherinfo?user_id=user-001&sec_user_id=sec-001",
+        url: "https://edith.xiaohongshu.com/api/sns/web/v1/user_posted?user_id=user-001&sec_user_id=sec-001",
         method: "GET",
         pageContextRequest: true,
         referrer:
@@ -2758,6 +2758,46 @@ describe("xhs read request-context exact-shape reuse", () => {
         })
       })
     );
+  });
+
+  it("rejects legacy user_home otherinfo artifacts instead of normalizing them", async () => {
+    const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0, data: {} } }));
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-001"
+        },
+        options: createLiveReadOptions("run-user-home-legacy-otherinfo-001", "profile_tab"),
+        executionContext: createExecutionContext("run-user-home-legacy-otherinfo-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-001",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: async () =>
+          createUserHomeArtifact({
+            path: "/api/sns/web/v1/user/otherinfo",
+            url: "https://www.xiaohongshu.com/api/sns/web/v1/user/otherinfo?user_id=user-001",
+            shape_key:
+              '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user/otherinfo","user_id":"user-001"}',
+            shape: {
+              command: "xhs.user_home",
+              method: "GET",
+              pathname: "/api/sns/web/v1/user/otherinfo",
+              user_id: "user-001"
+            }
+          })
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
   });
 
   it("fails closed for raw user_home artifacts without an exact shape even when the response user_id matches", async () => {
@@ -2923,7 +2963,7 @@ describe("xhs read request-context exact-shape reuse", () => {
         readCapturedRequestContext: async () => ({
           page_context_namespace: "profile-page",
           shape_key:
-            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user/otherinfo","user_id":"user-001"}',
+            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user_posted","user_id":"user-001"}',
           admitted_template: null,
           rejected_observation: rejectedObservation,
           incompatible_observation: null,
@@ -3031,7 +3071,7 @@ describe("xhs read request-context exact-shape reuse", () => {
         readCapturedRequestContext: async () => ({
           page_context_namespace: "profile-page",
           shape_key:
-            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user/otherinfo","user_id":"user-001"}',
+            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user_posted","user_id":"user-001"}',
           admitted_template: admittedTemplate,
           rejected_observation: rejectedObservation,
           incompatible_observation: null,
@@ -3073,12 +3113,12 @@ describe("xhs read request-context exact-shape reuse", () => {
         readCapturedRequestContext: async () => ({
           page_context_namespace: "profile-page",
           shape_key:
-            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user/otherinfo","user_id":"user-001"}',
+            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user_posted","user_id":"user-001"}',
           admitted_template: null,
           rejected_observation: null,
           incompatible_observation: null,
           available_shape_keys: [
-            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user/otherinfo","user_id":"user-999"}'
+            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user_posted","user_id":"user-999"}'
           ]
         })
       })
@@ -3118,7 +3158,7 @@ describe("xhs read request-context exact-shape reuse", () => {
             shape: {
               command: "xhs.user_home",
               method: "GET",
-              pathname: "/api/sns/web/v1/user/otherinfo",
+              pathname: "/api/sns/web/v1/user_posted",
               user_id: "user-001"
             },
             response: {
@@ -3170,7 +3210,7 @@ describe("xhs read request-context exact-shape reuse", () => {
             shape: {
               command: "xhs.user_home",
               method: "GET",
-              pathname: "/api/sns/web/v1/user/otherinfo",
+              pathname: "/api/sns/web/v1/user_posted",
               user_id: "user-001"
             },
             response: {
@@ -3234,7 +3274,7 @@ describe("xhs read request-context exact-shape reuse", () => {
             shape: {
               command: "xhs.user_home",
               method: "GET",
-              pathname: "/api/sns/web/v1/user/otherinfo",
+              pathname: "/api/sns/web/v1/user_posted",
               user_id: "user-001"
             },
             response: {
@@ -3299,7 +3339,7 @@ describe("xhs read request-context exact-shape reuse", () => {
             shape: {
               command: "xhs.user_home",
               method: "GET",
-              pathname: "/api/sns/web/v1/user/otherinfo",
+              pathname: "/api/sns/web/v1/user_posted",
               user_id: "user-001"
             },
             response: {
@@ -3441,7 +3481,7 @@ describe("xhs read request-context exact-shape reuse", () => {
               shape: {
                 command: "xhs.user_home",
                 method: "GET",
-                pathname: "/api/sns/web/v1/user/otherinfo",
+                pathname: "/api/sns/web/v1/user_posted",
                 user_id: "user-001"
               },
               response: {
@@ -3502,7 +3542,7 @@ describe("xhs read request-context exact-shape reuse", () => {
             shape: {
               command: "xhs.user_home",
               method: "GET",
-              pathname: "/api/sns/web/v1/user/otherinfo",
+              pathname: "/api/sns/web/v1/user_posted",
               user_id: "user-001"
             },
             response: {
@@ -3578,7 +3618,7 @@ describe("xhs read request-context exact-shape reuse", () => {
         readCapturedRequestContext: async () => ({
           page_context_namespace: "profile-page",
           shape_key:
-            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user/otherinfo","user_id":"user-001"}',
+            '{"command":"xhs.user_home","method":"GET","pathname":"/api/sns/web/v1/user_posted","user_id":"user-001"}',
           admitted_template: admittedTemplate,
           rejected_observation: rejectedObservation,
           incompatible_observation: null,

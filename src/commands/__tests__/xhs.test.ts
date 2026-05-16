@@ -11,6 +11,7 @@ import {
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
   evaluateXhsSearchPrimaryPassiveApiReadinessForContract,
+  mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract,
   normalizeGateOptionsForContract,
   pickXhsCloseoutEvidenceSummaryFieldsForContract,
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
@@ -2190,6 +2191,55 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("requires explicit artifact allowlists for caller-provided closeout rounds", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const firstRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        closeout_evidence_expected: expected,
+        closeout_evidence_rounds: [
+          firstRound,
+          {
+            ...firstRound,
+            artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+          }
+        ]
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      freshness: {
+        expected_artifact_identities: ["artifact/xhs-closeout/run-closeout-001/round-1"]
+      },
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "stale_artifact"
+        })
+      ])
+    });
+  });
+
   it("counts top-level route evidence as a legacy round for singular artifact closeout", () => {
     const expected = {
       latest_head_sha: "head-closeout-001",
@@ -2286,6 +2336,65 @@ describe("normalizeGateOptionsForContract", () => {
       passed: true,
       reproduced_multi_round: true,
       blockers: []
+    });
+  });
+
+  it("merges caller closeout rounds without self-authorizing expected artifacts", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/current",
+      artifact_identities: ["artifact/xhs-closeout/run-closeout-001/current"],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/search_result?keyword=closeout",
+      action_ref: "action/xhs.search/query"
+    };
+    const previousRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/previous",
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const currentRound = {
+      ...previousRound,
+      artifact_identity: expected.artifact_identity
+    };
+
+    const merged = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+      {
+        summary: {
+          closeout_evidence_expected: expected,
+          closeout_evidence_rounds: [currentRound]
+        }
+      },
+      {
+        closeout_evidence_rounds: [previousRound]
+      }
+    );
+
+    expect(merged).toMatchObject({
+      closeout_evidence_expected: {
+        artifact_identities: ["artifact/xhs-closeout/run-closeout-001/current"]
+      },
+      closeout_evidence_rounds: [currentRound]
+    });
+    expect(evaluateXhsCloseoutEvidenceForContract(merged)).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      reproduced_multi_round: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_multi_round_evidence"
+        })
+      ])
     });
   });
 
@@ -3934,6 +4043,136 @@ describe("normalizeGateOptionsForContract", () => {
         ]
       })
     ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      reproduced_multi_round: true,
+      blockers: []
+    });
+  });
+
+  it("keeps canonical closeout evidence ahead of closeout fields injected through gate options", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-001",
+      run_id: "run-closeout-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-001/round-1",
+        "artifact/xhs-closeout/run-closeout-001/round-2"
+      ],
+      profile_ref: "profile/xhs_closeout_001",
+      target_tab_id: 32,
+      page_url: "https://www.xiaohongshu.com/explore?keyword=closeout",
+      action_ref: "action/xhs.search/open_result_card"
+    };
+    const canonicalRound = {
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const secondCanonicalRound = {
+      ...canonicalRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/round-2"
+    };
+    const injectedRouteEvidence = {
+      ...canonicalRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-001/stale-route"
+    };
+
+    const merged = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+      {
+        summary: {
+          closeout_evidence_expected: expected,
+          closeout_evidence_rounds: [canonicalRound, secondCanonicalRound],
+          route_evidence: canonicalRound
+        }
+      },
+      {
+        closeout_evidence_expected: {
+          latest_head_sha: "head-closeout-stale",
+          run_id: "run-closeout-stale",
+          artifact_identity: "artifact/xhs-closeout/run-closeout-stale/round-9",
+          artifact_identities: ["artifact/xhs-closeout/run-closeout-stale/round-9"],
+          profile_ref: "profile/xhs_closeout_stale",
+          target_tab_id: 99,
+          page_url: "https://www.xiaohongshu.com/explore?keyword=stale",
+          action_ref: "action/xhs.search/stale"
+        },
+        closeout_evidence_rounds: [injectedRouteEvidence],
+        route_evidence: injectedRouteEvidence
+      }
+    );
+
+    expect(merged.closeout_evidence_expected).toMatchObject(expected);
+    expect(merged.closeout_evidence_rounds).toMatchObject([canonicalRound, secondCanonicalRound]);
+    expect(merged.route_evidence).toMatchObject(canonicalRound);
+    expect(evaluateXhsCloseoutEvidenceForContract(merged)).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: []
+    });
+  });
+
+  it("uses caller-provided explicit closeout evidence rounds when bridge summary falls back", () => {
+    const expected = {
+      latest_head_sha: "head-closeout-detail-001",
+      run_id: "run-closeout-detail-001",
+      artifact_identity: "artifact/xhs-closeout/run-closeout-detail-001/round-1",
+      artifact_identities: [
+        "artifact/xhs-closeout/run-closeout-detail-001/round-1",
+        "artifact/xhs-closeout/run-closeout-detail-001/round-2"
+      ],
+      profile_ref: "profile/xhs_001",
+      target_tab_id: 1230450311,
+      page_url: "https://www.xiaohongshu.com/explore/detail-closeout-001",
+      action_ref: "action/xhs.detail/read_note"
+    };
+    const firstRound = {
+      route: "xhs.detail.api",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      head_sha: expected.latest_head_sha,
+      run_id: expected.run_id,
+      artifact_identity: expected.artifact_identity,
+      profile_ref: expected.profile_ref,
+      target_tab_id: expected.target_tab_id,
+      page_url: expected.page_url,
+      action_ref: expected.action_ref
+    };
+    const secondRound = {
+      ...firstRound,
+      artifact_identity: "artifact/xhs-closeout/run-closeout-detail-001/round-2"
+    };
+
+    const merged = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(
+      {
+        summary: {
+          source: "page_state_fallback",
+          metrics: {
+            count: 1
+          }
+        }
+      },
+      {
+        closeout_evidence_expected: expected,
+        closeout_evidence_rounds: [firstRound, secondRound]
+      }
+    );
+
+    expect(merged).toMatchObject({
+      closeout_evidence_expected: expected,
+      closeout_evidence_rounds: [firstRound, secondRound]
+    });
+    expect(evaluateXhsCloseoutEvidenceForContract(merged)).toMatchObject({
       decision: "PASS",
       passed: true,
       reproduced_multi_round: true,
@@ -6539,6 +6778,215 @@ describe("normalizeGateOptionsForContract", () => {
         delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
       } else {
         process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("evaluates explicit user_home closeout evidence after executing the live bridge path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-user-home-closeout-explicit-"));
+    const runId = "run-user-home-explicit-closeout-001";
+    const requestId = "req-user-home-explicit-closeout-001";
+    const gateInvocationId = "gate-user-home-explicit-closeout-001";
+    const decisionId = `gate_decision_${gateInvocationId}`;
+    const approvalId = `gate_appr_${decisionId}`;
+    const profile = "xhs_user_home_explicit_closeout_profile";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    const previousLatestHead = process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+    process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA = "head-user-home-explicit-closeout-001";
+    try {
+      await seedXhsCloseoutReady({ cwd, profile });
+      const expected = {
+        latest_head_sha: "head-user-home-explicit-closeout-001",
+        run_id: runId,
+        artifact_identity: null,
+        artifact_identities: [
+          `artifact/user-home-explicit/${runId}/round-1`,
+          `artifact/user-home-explicit/${runId}/round-2`
+        ],
+        profile_ref: `profile/${profile}`,
+        target_tab_id: 35,
+        page_url: "https://www.xiaohongshu.com/user/profile/user-explicit-001?xsec_source=pc_search",
+        action_ref: "read"
+      };
+      const firstRound = {
+        round_id: "user-home-r1",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success",
+        evidence_class: "passive_api_capture",
+        head_sha: expected.latest_head_sha,
+        run_id: expected.run_id,
+        artifact_identity: `artifact/user-home-explicit/${runId}/round-1`,
+        profile_ref: expected.profile_ref,
+        target_tab_id: expected.target_tab_id,
+        page_url: expected.page_url,
+        action_ref: expected.action_ref,
+        artifact_log_ref: ".webenvoy/user-home-r1.json"
+      };
+
+      const result = await executeCommand(
+        {
+          cwd,
+          command: "xhs.user_home",
+          profile,
+          run_id: runId,
+          params: {
+            request_id: requestId,
+            gate_invocation_id: gateInvocationId,
+            ability: {
+              id: "xhs.user.home.v1",
+              layer: "L3",
+              action: "read"
+            },
+            input: {
+              user_id: "user-explicit-001"
+            },
+            options: {
+              simulate_result: "success",
+              issue_scope: "issue_209",
+              target_domain: "www.xiaohongshu.com",
+              target_tab_id: 35,
+              target_page: "profile_tab",
+              action_type: "read",
+              requested_execution_mode: "live_read_high_risk",
+              risk_state: "allowed",
+              approval_record: createIssue209FormalApprovalRecord(decisionId, approvalId),
+              audit_record: {
+                ...createIssue209FormalAuditRecord(requestId, decisionId, approvalId),
+                target_tab_id: 35,
+                target_page: "profile_tab"
+              },
+              admission_context: {
+                approval_admission_evidence: {
+                  approval_admission_ref: `approval_admission_${runId}_${requestId}`,
+                  request_id: requestId,
+                  run_id: runId,
+                  session_id: "nm-session-001",
+                  issue_scope: "issue_209",
+                  target_domain: "www.xiaohongshu.com",
+                  target_tab_id: 35,
+                  target_page: "profile_tab",
+                  action_type: "read",
+                  requested_execution_mode: "live_read_high_risk",
+                  approved: true,
+                  approver: "qa-reviewer",
+                  approved_at: "2026-05-15T10:00:00Z",
+                  checks: ISSUE209_APPROVAL_CHECKS,
+                  recorded_at: "2026-05-15T10:00:00Z"
+                },
+                audit_admission_evidence: {
+                  audit_admission_ref: `audit_admission_${runId}_${requestId}`,
+                  request_id: requestId,
+                  run_id: runId,
+                  session_id: "nm-session-001",
+                  issue_scope: "issue_209",
+                  target_domain: "www.xiaohongshu.com",
+                  target_tab_id: 35,
+                  target_page: "profile_tab",
+                  action_type: "read",
+                  requested_execution_mode: "live_read_high_risk",
+                  risk_state: "allowed",
+                  audited_checks: ISSUE209_APPROVAL_CHECKS,
+                  recorded_at: "2026-05-15T10:00:30Z"
+                }
+              },
+              upstream_authorization_request: {
+                action_request: {
+                  request_ref: requestId,
+                  action_name: "xhs.read_user_home",
+                  action_category: "read",
+                  requested_at: "2026-05-15T10:00:00Z"
+                },
+                resource_binding: {
+                  binding_ref: `binding_${requestId}`,
+                  resource_kind: "profile_session",
+                  profile_ref: profile,
+                  binding_constraints: {
+                    anonymous_required: false,
+                    reuse_logged_in_context_forbidden: false
+                  }
+                },
+                authorization_grant: {
+                  grant_ref: `grant_${requestId}`,
+                  allowed_actions: ["xhs.read_user_home"],
+                  binding_scope: {
+                    allowed_resource_kinds: ["profile_session"],
+                    allowed_profile_refs: [profile]
+                  },
+                  target_scope: {
+                    allowed_domains: ["www.xiaohongshu.com"],
+                    allowed_pages: ["profile_tab"]
+                  },
+                  resource_state_snapshot: "active",
+                  granted_at: "2026-05-15T10:00:00Z",
+                  approval_refs: [`approval_admission_${runId}_${requestId}`],
+                  audit_refs: [`audit_admission_${runId}_${requestId}`]
+                },
+                runtime_target: {
+                  target_ref: `target_${requestId}`,
+                  domain: "www.xiaohongshu.com",
+                  page: "profile_tab",
+                  tab_id: 35
+                }
+              },
+              closeout_audit_required: true,
+              closeout_evidence_expected: expected,
+              closeout_evidence_rounds: [
+                firstRound,
+                {
+                  ...firstRound,
+                  round_id: "user-home-r2",
+                  artifact_identity: `artifact/user-home-explicit/${runId}/round-2`,
+                  artifact_log_ref: ".webenvoy/user-home-r2.json"
+                }
+              ]
+            }
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      );
+
+      expect(result.summary).toMatchObject({
+        capability_result: {
+          outcome: "success"
+        },
+        closeout_evidence_evaluation: {
+          decision: "PASS",
+          passed: true,
+          reproduced_multi_round: true,
+          multi_round: {
+            accepted_round_count: 2,
+            unique_artifact_count: 2
+          }
+        }
+      });
+      expect(result.summary.explicit_closeout_evidence_only).toBeUndefined();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      if (previousLatestHead === undefined) {
+        delete process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA;
+      } else {
+        process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA = previousLatestHead;
       }
     }
   });

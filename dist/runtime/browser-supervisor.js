@@ -44,7 +44,7 @@ const buildBrowserSpawn = (args) => {
     const appBundlePath = resolveMacosAppBundlePath(args.browserPath) ?? args.browserPath;
     return {
         file: openPath,
-        args: ["-a", appBundlePath, "--args", ...args.launchArgs],
+        args: ["-n", "-a", appBundlePath, "--args", ...args.launchArgs],
         kind: "macos_launchservices"
     };
 };
@@ -135,6 +135,7 @@ const run = async () => {
         browserPath: args.browserPath,
         controllerPid: process.pid,
         browserPid,
+        launchArgs: [...args.launchArgs],
         launchedAt: new Date().toISOString(),
         headless: args.launchArgs.includes("--headless=new"),
         executionSurface: args.launchArgs.includes("--headless=new")
@@ -202,11 +203,11 @@ const run = async () => {
     browser.once("error", async () => {
         await shutdown(1);
     });
-    if (browserSpawn.kind === "direct") {
-        browser.once("exit", async () => {
-            await shutdown(0);
-        });
-    }
+    browser.once("exit", async (code) => {
+        if (browserSpawn.kind === "direct" || code !== 0) {
+            await shutdown(code === 0 || code === null ? 0 : 1);
+        }
+    });
     process.on("SIGTERM", () => {
         void shutdown(0);
     });

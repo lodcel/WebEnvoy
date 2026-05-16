@@ -5,7 +5,7 @@ import { executeXhsUserHome } from "../extension/xhs-user-home.js";
 import type { XhsSearchEnvironment, XhsSearchOptions } from "../extension/xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 
 const createApprovalRecord = () => ({
   approved: true,
@@ -636,7 +636,7 @@ describe("xhs read execution fallback", () => {
     });
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/feed"
+        url: "https://edith.xiaohongshu.com/api/sns/web/v1/feed"
       })
     );
   });
@@ -896,12 +896,12 @@ describe("xhs read execution fallback", () => {
     });
     expect(result.payload).not.toHaveProperty("diagnosis");
     expect(callSignature).toHaveBeenCalledWith(
-      "/api/sns/web/v1/user/otherinfo?user_id=user-success-001",
+      `${USER_HOME_ENDPOINT}?user_id=user-success-001`,
       {}
     );
     expect(fetchJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "/api/sns/web/v1/user/otherinfo?user_id=user-success-001"
+        url: `https://edith.xiaohongshu.com${USER_HOME_ENDPOINT}?user_id=user-success-001`
       })
     );
   });
@@ -943,7 +943,24 @@ describe("xhs read execution fallback", () => {
         fetchJson,
         readCapturedRequestContext: createRequestContextReader(
           createUserHomeRequestContext("user-closeout-001", {
-            observed_at: 1_710_000_000_000
+            observed_at: 1_710_000_000_000,
+            response: {
+              headers: {},
+              body: {
+                code: 0,
+                data: {
+                  notes: [
+                    {
+                      note_id: "note-user-closeout-001",
+                      user: {
+                        user_id: "user-closeout-001",
+                        nickname: "closeout user"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           })
         )
       })
@@ -974,6 +991,167 @@ describe("xhs read execution fallback", () => {
     expect(result.payload.summary.closeout_route_evidence).toMatchObject(
       result.payload.summary.route_evidence as Record<string, unknown>
     );
+  });
+
+  it("keeps passive user_home closeout valid for the same profile page across signed URL token changes", async () => {
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          user: {
+            userId: "user-closeout-token-001"
+          }
+        }
+      }
+    }));
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-closeout-token-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-closeout-token-001",
+          targetPage: "profile_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-user-closeout-token-001"
+          }
+        }),
+        executionContext: createFallbackExecutionContext("run-user-closeout-token-001")
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/user/profile/user-closeout-token-001?xsec_token=current-token&xsec_source=pc_search",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-closeout-token-001", {
+            observed_at: 1_710_000_000_000,
+            page_url:
+              "https://www.xiaohongshu.com/user/profile/user-closeout-token-001?xsec_token=captured-token&xsec_source=pc_search",
+            referrer:
+              "https://www.xiaohongshu.com/user/profile/user-closeout-token-001?xsec_token=captured-token&xsec_source=pc_search",
+            response: {
+              headers: {},
+              body: {
+                code: 0,
+                data: {
+                  notes: [
+                    {
+                      note_id: "note-user-closeout-token-001",
+                      user: {
+                        user_id: "user-closeout-token-001"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          })
+        )
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_home passive closeout success across token changes");
+    }
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      route: "xhs.user_home.api",
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      passive_api_capture_closeout_gate: {
+        gate_decision: "allowed",
+        reason_codes: []
+      }
+    });
+  });
+
+  it("fails closed when passive user_home closeout is bound to a different profile page", async () => {
+    const callSignature = vi.fn(async () => ({ "X-s": "sig", "X-t": "1710000000" }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          user: {
+            userId: "user-closeout-binding-001"
+          }
+        }
+      }
+    }));
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-closeout-binding-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-closeout-binding-001",
+          targetPage: "profile_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-user-closeout-binding-001"
+          }
+        }),
+        executionContext: createFallbackExecutionContext("run-user-closeout-binding-001")
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/user/profile/user-closeout-wrong-001?xsec_token=current-token&xsec_source=pc_search",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-closeout-binding-001", {
+            observed_at: 1_710_000_000_000,
+            page_url:
+              "https://www.xiaohongshu.com/user/profile/user-closeout-binding-001?xsec_token=captured-token&xsec_source=pc_search",
+            referrer:
+              "https://www.xiaohongshu.com/user/profile/user-closeout-binding-001?xsec_token=captured-token&xsec_source=pc_search",
+            response: {
+              headers: {},
+              body: {
+                code: 0,
+                data: {
+                  notes: [
+                    {
+                      note_id: "note-user-closeout-binding-001",
+                      user: {
+                        user_id: "user-closeout-binding-001"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          })
+        )
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected user_home passive closeout page mismatch to fail closed");
+    }
+    expect(result.payload.details).toMatchObject({
+      reason: "PASSIVE_API_CAPTURE_CLOSEOUT_GATE_BLOCKED",
+      passive_api_capture_closeout_gate: {
+        gate_decision: "blocked",
+        reason_codes: expect.arrayContaining(["PASSIVE_CAPTURE_PAGE_MISMATCH"])
+      }
+    });
+    expect(callSignature).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
   });
 
   it("blocks passive closeout success when captured user_home artifact is not bound to the current run", async () => {
@@ -1140,6 +1318,124 @@ describe("xhs read execution fallback", () => {
     });
   });
 
+  it("accepts user_posted payloads when the requested user id is inside notes[].user", async () => {
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-posted-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-posted-001",
+          targetPage: "profile_tab"
+        }),
+        executionContext: createFallbackExecutionContext("run-user-posted-001")
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/user/profile/user-posted-001",
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-posted-001")
+        ),
+        fetchJson: async () => ({
+          status: 200,
+          body: {
+            code: 0,
+            data: {
+              notes: [
+                {
+                  note_id: "note-user-posted-001",
+                  user: {
+                    user_id: "user-posted-001",
+                    nickname: "posted user"
+                  }
+                }
+              ]
+            }
+          }
+        })
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_posted user_home success");
+    }
+    expect(result.payload.summary).toMatchObject({
+      capability_result: {
+        outcome: "success",
+        data_ref: {
+          user_id: "user-posted-001"
+        }
+      }
+    });
+  });
+
+  it("accepts empty user_posted payloads when signed continuity proves the requested profile", async () => {
+    const callSignature = vi.fn(async () => ({
+      "X-s": "sig",
+      "X-t": "1710000000"
+    }));
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        success: true,
+        data: {
+          notes: [],
+          has_more: false,
+          cursor: ""
+        }
+      }
+    }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: "user-empty-posted-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId: "run-user-empty-posted-001",
+          targetPage: "profile_tab"
+        }),
+        executionContext: createFallbackExecutionContext("run-user-empty-posted-001")
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/user/profile/user-empty-posted-001?xsec_token=token-user-empty-posted-001&xsec_source=pc_search",
+        callSignature,
+        fetchJson,
+        readCapturedRequestContext: createRequestContextReader(
+          createUserHomeRequestContext("user-empty-posted-001")
+        )
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected empty user_posted user_home success");
+    }
+    expect(result.payload.summary).toMatchObject({
+      capability_result: {
+        outcome: "success",
+        data_ref: {
+          user_id: "user-empty-posted-001"
+        }
+      },
+      signed_continuity: {
+        token_presence: "present",
+        user_home_url:
+          "https://www.xiaohongshu.com/user/profile/user-empty-posted-001?xsec_token=token-user-empty-posted-001&xsec_source=pc_search"
+      }
+    });
+    expect(callSignature).toHaveBeenCalled();
+    expect(fetchJson).toHaveBeenCalled();
+  });
+
   it("keeps detail execution failed when api success payload does not contain requested note", async () => {
     const result = await executeXhsDetail(
       {
@@ -1235,7 +1531,7 @@ describe("xhs read execution fallback", () => {
     });
     expect(result.payload.diagnosis).toMatchObject({
       failure_site: {
-        target: "/api/sns/web/v1/user/otherinfo"
+        target: USER_HOME_ENDPOINT
       }
     });
   });
@@ -1285,7 +1581,7 @@ describe("xhs read execution fallback", () => {
     });
     expect(result.payload.diagnosis).toMatchObject({
       failure_site: {
-        target: "/api/sns/web/v1/user/otherinfo"
+        target: USER_HOME_ENDPOINT
       }
     });
   });
@@ -1921,7 +2217,7 @@ describe("xhs read execution fallback", () => {
       category: "request_failed",
       failure_site: {
         component: "network",
-        target: "/api/sns/web/v1/user/otherinfo"
+        target: USER_HOME_ENDPOINT
       }
     });
     expect(fetchJson).not.toHaveBeenCalled();

@@ -649,7 +649,7 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
-  it("keeps restored XHS search tabs bound for opening result cards in the same run", async () => {
+  it("rebinds restored XHS search tabs to the restore run before opening result cards", async () => {
     const firstPort = createMockPort();
     const {
       chromeApi,
@@ -778,7 +778,7 @@ describe("extension service worker / gate and approval", () => {
     runtimeMessageListeners[0]?.(
       {
         kind: "result",
-        id: "run-restore-open-result-card-binding-001-bootstrap",
+        id: "run-restore-open-result-card-binding-previous-bootstrap",
         ok: true,
         payload: {
           result: {
@@ -1568,7 +1568,7 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
-  it("restores a managed XHS tab that was bound by a previous run in the same native session", async () => {
+  it("blocks restoring a managed XHS tab that was only bound by a previous run in the same native session", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);
     chromeApi.tabs.query.mockImplementation(async () => [
@@ -1613,19 +1613,16 @@ describe("extension service worker / gate and approval", () => {
     await waitForBridgeTurn();
 
     expect(chromeApi.tabs.get).toHaveBeenCalledWith(44);
-    expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
-      url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5&type=51",
-      active: true
-    });
+    expect(chromeApi.tabs.update).not.toHaveBeenCalled();
     const response = firstPort.postMessage.mock.calls
       .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
       .find((message) => message.id === "run-restore-xhs-search-tab-attached-001");
     expect(response).toMatchObject({
       id: "run-restore-xhs-search-tab-attached-001",
-      status: "success",
+      status: "error",
       payload: {
-        restore_evidence: {
-          restore_action: "navigate_existing_tab",
+        details: {
+          reason: "TARGET_RESTORE_MANAGED_TAB_NOT_BOUND",
           active_fetch_performed: false,
           closeout_bundle_entered: false
         }
@@ -1725,7 +1722,8 @@ describe("extension service worker / gate and approval", () => {
     const runId = "run-restore-xhs-profile-tab-stale-bootstrap-001";
     const userId = "6593ce8b000000002001d754";
     const targetUrl = "https://www.xiaohongshu.com/user/profile/" + userId + "?xsec_token=token-001&xsec_source=pc_search";
-    const endpointUrl = "https://edith.xiaohongshu.com/api/sns/web/v1/user/otherinfo?target_user_id=" + userId + "&user_id=" + userId;
+    const endpointPath = "/api/sns/web/v1/user_posted";
+    const endpointUrl = "https://edith.xiaohongshu.com" + endpointPath + "?num=30&cursor=&user_id=" + userId;
     chromeApi.tabs.query.mockImplementation(async () => [
       {
         id: 44,
@@ -1774,10 +1772,15 @@ describe("extension service worker / gate and approval", () => {
           body: JSON.stringify({
             success: true,
             data: {
-              user: {
-                user_id: userId,
-                nickname: "closeout-user"
-              }
+              notes: [
+                {
+                  note_id: "note-user-home-stale-restore-001",
+                  user: {
+                    user_id: userId,
+                    nickname: "closeout-user"
+                  }
+                }
+              ]
             }
           })
         };
@@ -1904,10 +1907,17 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await waitForPostedMessage(firstPort.postMessage, {
-      id: runId + "-capture",
-      status: "success"
-    });
+    await vi.waitFor(
+      () => {
+        expect(firstPort.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: runId + "-capture",
+            status: "success"
+          })
+        );
+      },
+      { timeout: 6_000 }
+    );
 
     expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
       url: targetUrl,
@@ -1926,7 +1936,7 @@ describe("extension service worker / gate and approval", () => {
     expect(artifact).toMatchObject({
       route_evidence_class: "passive_api_capture",
       source_kind: "page_request",
-      path: "/api/sns/web/v1/user/otherinfo",
+      path: endpointPath,
       profile_ref: "xhs_001",
       session_id: "nm-session-001",
       target_tab_id: 44,

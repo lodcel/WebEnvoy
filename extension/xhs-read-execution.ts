@@ -19,7 +19,7 @@ import {
 
 type XhsReadCommandName = "xhs.detail" | "xhs.user_home";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
-const USER_HOME_ENDPOINT = "/api/sns/web/v1/user/otherinfo";
+const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 const XHS_READ_API_ORIGIN = "https://edith.xiaohongshu.com";
 
 type CapturedReadRequestContextArtifact = {
@@ -320,9 +320,9 @@ const XHS_USER_HOME_SPEC: XhsReadCommandSpec = {
   requestClass: "xhs.user_home",
   buildPayload: () => ({}),
   buildUrl: (params) =>
-    `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}&target_user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
+    `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
   buildSignatureUri: (params) =>
-    `/api/sns/web/v1/user/otherinfo?user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}&target_user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
+    `${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent((params as XhsUserHomeParams).user_id)}`,
   buildDataRef: (params) => ({
     user_id: (params as XhsUserHomeParams).user_id
   })
@@ -421,6 +421,16 @@ const resolveCapturedArtifactRequestUrl = (value: unknown): string | null => {
     }
   }
   return asString(record.path);
+};
+
+const resolveReadApiFetchUrl = (value: string): string => {
+  if (/^https?:\/\//iu.test(value)) {
+    return value;
+  }
+  if (value.startsWith("/")) {
+    return `${XHS_READ_API_ORIGIN}${value}`;
+  }
+  return value;
 };
 
 const resolveCapturedArtifactRequestBody = (value: unknown): JsonRecord | null => {
@@ -741,6 +751,22 @@ const extractXhsDetailPageNoteId = (value: string | null): string | null => {
   }
 };
 
+const extractXhsUserHomePageUserId = (value: string | null): string | null => {
+  if (!value || isSecurityRedirectUrl(value)) {
+    return null;
+  }
+  try {
+    const url = new URL(value, "https://www.xiaohongshu.com");
+    if (url.protocol !== "https:" || url.hostname !== "www.xiaohongshu.com") {
+      return null;
+    }
+    const match = url.pathname.match(/^\/user\/profile\/([^/?#]+)$/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+
 const isSameXhsDetailPageBinding = (input: {
   templatePageUrl: string | null;
   currentPageUrl: string | null;
@@ -763,6 +789,39 @@ const isSameXhsDetailPageBinding = (input: {
     templateNoteId === continuityNoteId
   );
 };
+
+const isSameXhsUserHomePageBinding = (input: {
+  templatePageUrl: string | null;
+  currentPageUrl: string | null;
+  signedContinuity: XhsSignedContinuity;
+}): boolean => {
+  if (input.templatePageUrl === input.currentPageUrl) {
+    return true;
+  }
+  if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
+    return false;
+  }
+  const templateUserId = extractXhsUserHomePageUserId(input.templatePageUrl);
+  const currentUserId = extractXhsUserHomePageUserId(input.currentPageUrl);
+  const continuityUserId = extractXhsUserHomePageUserId(input.signedContinuity.target_url);
+  return (
+    templateUserId !== null &&
+    currentUserId !== null &&
+    continuityUserId !== null &&
+    templateUserId === currentUserId &&
+    templateUserId === continuityUserId
+  );
+};
+
+const isSameXhsReadPageBinding = (input: {
+  spec: XhsReadCommandSpec;
+  templatePageUrl: string | null;
+  currentPageUrl: string | null;
+  signedContinuity: XhsSignedContinuity;
+}): boolean =>
+  input.spec.pageKind === "user_home"
+    ? isSameXhsUserHomePageBinding(input)
+    : isSameXhsDetailPageBinding(input);
 
 const resolveSignedContinuityFailure = (
   continuity: XhsSignedContinuity,
@@ -851,6 +910,17 @@ const parseUserIdFromUrl = (value: string | null): string | null => {
   }
 };
 
+const parsePathnameFromUrl = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  try {
+    return new URL(value, "https://www.xiaohongshu.com").pathname;
+  } catch {
+    return null;
+  }
+};
+
 const resolveDetailResponseNoteId = (
   value: unknown,
   preferredNoteId?: string | null,
@@ -930,6 +1000,11 @@ const iterateUserHomeResponseCandidates = (value: unknown): JsonRecord[] => {
     ...collectCandidates(dataRecord.basic_info),
     ...collectCandidates(dataRecord.basicInfo),
     ...collectCandidates(dataRecord.profile),
+    ...collectCandidates(dataRecord.notes),
+    ...collectCandidates(dataRecord.items),
+    ...collectCandidates(dataRecord.list),
+    ...collectCandidates(dataRecord.note_list),
+    ...collectCandidates(dataRecord.noteList),
     ...(hasUserHomeResponseDataShape(dataRecord) ? [dataRecord] : [])
   ];
 };
@@ -949,6 +1024,39 @@ const resolveUserHomeResponseUserId = (
     }
   }
   return preferredUserId ? null : fallbackUserId;
+};
+
+const isSignedContinuityBoundToUserHome = (
+  params: XhsUserHomeParams,
+  continuity?: XhsSignedContinuity | null
+): boolean =>
+  continuity?.token_presence === "present" &&
+  continuity.xsec_source === "pc_search" &&
+  continuity.source_route === "xhs.search" &&
+  continuity.target_url !== null &&
+  parseUserProfileIdFromHref(continuity.target_url) === params.user_id;
+
+const isEmptyUserPostedSuccessForSignedUserHome = (
+  body: unknown,
+  params: XhsUserHomeParams,
+  continuity?: XhsSignedContinuity | null
+): boolean => {
+  if (!isSignedContinuityBoundToUserHome(params, continuity)) {
+    return false;
+  }
+  const responseRecord = asRecord(body);
+  const dataRecord = asRecord(responseRecord?.data ?? body);
+  if (!dataRecord) {
+    return false;
+  }
+  const businessCode = asInteger(responseRecord?.code);
+  const businessSuccess = businessCode === 0 || responseRecord?.success === true;
+  return (
+    businessSuccess &&
+    Array.isArray(dataRecord.notes) &&
+    dataRecord.notes.length === 0 &&
+    (dataRecord.has_more === false || dataRecord.hasMore === false)
+  );
 };
 
 const createDetailShape = (noteId: string): DetailRequestShape => ({
@@ -1003,6 +1111,11 @@ const deriveDetailRejectedShapeFromRequestSource = (value: unknown): DetailReque
 const deriveUserHomeShapeFromSource = (value: unknown): UserHomeRequestShape | null => {
   const record = asRecord(value);
   if (!record) {
+    return null;
+  }
+  const declaredPathname =
+    asString(record.pathname) ?? asString(record.path) ?? parsePathnameFromUrl(asString(record.url));
+  if (declaredPathname !== null && declaredPathname !== USER_HOME_ENDPOINT) {
     return null;
   }
   const userId = asString(record.user_id) ?? asString(record.userId) ?? parseUserIdFromUrl(asString(record.url));
@@ -1092,8 +1205,13 @@ const deriveReadShapeFromArtifact = (
   if (spec.command === "xhs.detail" && options?.allowDetailRequestFallback !== false) {
     return deriveDetailShapeFromSource(request?.body);
   }
+  const capturedPathname =
+    asString(record.pathname) ?? asString(record.path) ?? parsePathnameFromUrl(asString(record.url));
   const urlShape = deriveUserHomeShapeFromSource({ url: asString(record.url) });
-  const requestShape = deriveUserHomeShapeFromSource(request?.body);
+  const requestShape = deriveUserHomeShapeFromSource({
+    ...(request ?? {}),
+    pathname: capturedPathname ?? undefined
+  });
   const expectedUserId = urlShape?.user_id ?? requestShape?.user_id ?? null;
   if (artifactStatus.rejectionReason && expectedUserId) {
     return (
@@ -1594,6 +1712,7 @@ const resolvePassiveApiCaptureCloseoutGate = (input: {
   signedContinuity: XhsSignedContinuity;
   env: XhsSearchEnvironment;
 }): JsonRecord => {
+  const spec = READ_COMMAND_SPECS[input.executionInput.command];
   const binding = buildActiveFallbackTemplateBinding({
     executionContext: input.executionInput.executionContext,
     options: input.executionInput.options,
@@ -1634,7 +1753,8 @@ const resolvePassiveApiCaptureCloseoutGate = (input: {
     reasonCodes.push("PASSIVE_CAPTURE_ACTION_MISMATCH");
   }
   if (
-    !isSameXhsDetailPageBinding({
+    !isSameXhsReadPageBinding({
+      spec,
       templatePageUrl: input.templateEvidence.page_url,
       currentPageUrl: asString(binding.page_url),
       signedContinuity: input.signedContinuity
@@ -1676,7 +1796,12 @@ const createPassiveApiCaptureSuccess = (
     template.source_kind !== "page_request" ||
     requestContextResult.responseStatus === null ||
     requestContextResult.responseStatus >= 400 ||
-    !responseContainsRequestedTarget(spec, input.params, requestContextResult.responseBody)
+    !responseContainsRequestedTarget(
+      spec,
+      input.params,
+      requestContextResult.responseBody,
+      requestContextResult.signedContinuity
+    )
   ) {
     return null;
   }
@@ -2256,6 +2381,21 @@ const getUserHomeResponseCandidates = (body: unknown): JsonRecord[] => {
       "user"
     ]),
     ...collectNestedRecordCandidates(dataRecord.profile, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.notes, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.items, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.list, ["basic_info", "basicInfo", "profile", "user"]),
+    ...collectNestedRecordCandidates(dataRecord.note_list, [
+      "basic_info",
+      "basicInfo",
+      "profile",
+      "user"
+    ]),
+    ...collectNestedRecordCandidates(dataRecord.noteList, [
+      "basic_info",
+      "basicInfo",
+      "profile",
+      "user"
+    ]),
     ...(hasUserDataShape(dataRecord) ? [dataRecord] : [])
   ];
 };
@@ -2263,7 +2403,8 @@ const getUserHomeResponseCandidates = (body: unknown): JsonRecord[] => {
 const responseContainsRequestedTarget = (
   spec: XhsReadCommandSpec,
   params: XhsDetailParams | XhsUserHomeParams,
-  body: unknown
+  body: unknown,
+  continuity?: XhsSignedContinuity | null
 ): boolean => {
   if (spec.command === "xhs.detail") {
     return getDetailResponseCandidates(body).some((candidate) =>
@@ -2278,7 +2419,7 @@ const responseContainsRequestedTarget = (
       "user_id",
       "userId"
     ])
-  );
+  ) || isEmptyUserPostedSuccessForSignedUserHome(body, params as XhsUserHomeParams, continuity);
 };
 
 const createReadDiagnosis = (
@@ -2588,6 +2729,7 @@ const createPageStateFallbackSuccess = (
   fallback: {
     reason: string;
     message: string;
+    detail?: string;
     statusCode?: number;
     platformCode?: number;
     requestAttempted?: boolean;
@@ -2660,6 +2802,9 @@ const createPageStateFallbackSuccess = (
                     ? { status_code: fallback.statusCode }
                     : {}),
                   failure_reason: fallback.reason,
+                  ...(typeof fallback.detail === "string" && fallback.detail.length > 0
+                    ? { failure_detail: fallback.detail }
+                    : {}),
                   request_class: spec.requestClass
                 }
               ]
@@ -3310,7 +3455,7 @@ const executeXhsRead = async (
   let response: { status: number; body: unknown };
   try {
     response = await env.fetchJson({
-      url: requestUrl,
+      url: resolveReadApiFetchUrl(requestUrl),
       method: spec.method,
       headers: buildHeaders(env, input.options, signature, requestContextResult.headers),
       ...(spec.method === "POST" ? { body: JSON.stringify(requestPayload) } : {}),
@@ -3328,7 +3473,8 @@ const executeXhsRead = async (
     if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, failure.reason)) {
       return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
         reason: failure.reason,
-        message: failure.message
+        message: failure.message,
+        detail: failure.detail
       });
     }
     return withExecutionAuditInFailurePayload(
@@ -3405,7 +3551,12 @@ const executeXhsRead = async (
     );
   }
 
-  if (!responseContainsRequestedTarget(spec, input.params, response.body)) {
+  if (!responseContainsRequestedTarget(
+    spec,
+    input.params,
+    response.body,
+    requestContextResult.signedContinuity
+  )) {
     const pageStateRoot = await resolvePageStateRoot();
     if (canUsePageStateFallbackForReason(spec, input.params, pageStateRoot, "TARGET_DATA_NOT_FOUND")) {
       return createPageStateFallbackSuccess(input, spec, gate, auditRecord, env, requestPayload, startedAt, {
