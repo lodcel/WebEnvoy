@@ -40,6 +40,8 @@
 - [x] 2026-05-16 已确认 closeout evaluator `PASS`：`latest_head_matches=true`、`run_matches=true`、`artifact_matches=true`、`accepted_round_count=2`、`unique_artifact_count=2`
 - [x] 2026-05-16 已确认 #445 closeout 所需请求上下文矩阵按 browser-owned passive API capture 口径收口；本结论不等同于后续手工 header reconstruction 或字段生命周期细化已完成
 - [x] 2026-05-16 已确认 `runtime.stop` 成功，post-stop official profile processes / exact main Chrome count 为 `0`，controlled merge 前 guardian `APPROVE` 且 GitHub checks green
+- [x] 2026-05-16 已记录 PR `#683` docs-only head `6d474a455e9b84970ef0674f20939f7aff278b78` 的 fresh rerun 例外事实：`search/detail/runtime.xhs_capture_user_home_context` 成功，但最终 `xhs.user_home` closeout 被 `EXECUTION_MODE_GATE_BLOCKED` / `TARGET_URL_CONTEXT_MISMATCH` 阻断，不构成新的成功 gate evidence
+- [x] 2026-05-16 已明确 PR `#683` 只作为 `Refs #445` 的 FR-0005 docs/TODO closeout 回写 PR，不使用 `Fixes #445` 承载自动关闭；`#445` 的关闭依据继续来自已合入的 PR `#682` 与其成功 live evidence
 
 ## #185 阻断点吸收（本次规约修订）
 
@@ -71,6 +73,7 @@
 - [x] 在具备合法 approval / gate 前提后，已重新执行 `search` 的 managed-profile `real_browser` live primary API 复核；本次以 browser-owned request context 的 passive API capture 收口，不把手工 required headers reconstruction 全量升级为 admission-ready
 - [x] 按 `FR-0025` 已冻结的 current command surface，已完成 `detail/user_home` 在 repo 内可复核的 managed-profile official-runtime replay closeout；`runtime.tabs` 等 internal bridge diagnostics 仍不构成替代
 - [x] 已判定 `search/detail/user_home` 达到 `route_role=primary + path_kind=api + evidence_status=success + reproduced_multi_round`
+- [x] 已将 PR `#683` docs-only rerun 的 `xhs.user_home` gate 阻断记录为失败事实；该失败不回写为 success gate，不改变 PR `#682` 的 closeout 结论
 - [ ] 若后续 L3 实现 FR 需要脱离 browser-owned passive capture 构造请求，再单独补齐手工 header reconstruction、字段生命周期与签名分流策略
 - [ ] 完成浏览器内复核后，再决定是否进入后续实现 FR
 - [ ] 若存在 fallback-only 场景：先补 API primary 成功证据，或提交“实现范围修订”并通过独立 spec review

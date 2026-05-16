@@ -796,6 +796,36 @@ required headers 与请求上下文口径：
 - PR `#682` 合入后，issue `#445` 对应的 FR-0005 managed-profile live closeout 已完成。
 - 后续是否进入小红书 L3 读适配实现 FR、字段生命周期细化、签名分流策略、未登录/会话过期映射等，不由本次 #445 closeout 自动完成。
 
+### 5.7 2026-05-16 docs-only PR #683 fresh rerun 例外记录
+
+PR `#683` 是 `#682` 合入后的 FR-0005 docs/TODO closeout 回写 PR，不承载新的实现变更，也不作为 `#445` 的自动关闭 PR。为排除“证据链缺失”疑虑，PR `#683` 当前 head `6d474a455e9b84970ef0674f20939f7aff278b78` 曾执行一次 docs PR head fresh rerun；该 rerun 没有形成完整成功 gate，因此只作为失败事实记录，不替代 `#682` 已合入的成功 closeout evidence。
+
+该 rerun 的已成功部分：
+
+- official profile pre-start：`0`，exact main Chrome：`0`
+- post-start：official profile processes `12`，exact main Chrome `1`
+- `xhs.search`：`PASS`
+- `xhs.detail`：`PASS`
+- `runtime.xhs_capture_user_home_context`：两轮 `PASS`，且捕获到 `GET /api/sns/web/v1/user_posted` 的 request headers 与响应
+- `runtime.stop`：成功，post-stop official profile processes `0`，exact main Chrome `0`
+
+该 rerun 的阻断点：
+
+- 最终 `xhs.user_home` closeout 返回 `ERR_EXECUTION_FAILED`
+- `reason=EXECUTION_MODE_GATE_BLOCKED`
+- `request_admission_result.admission_decision=blocked`
+- `runtime_target_match=false`
+- `reason_codes=[TARGET_URL_CONTEXT_MISMATCH]`
+
+已定位的直接原因是 URL 绑定口径不一致：`runtime_target.url` 带有 `?xsec_token=...`，但真实 profile tab 与 passive capture artifact 中的页面 URL 已规范化为不带 query 的 `https://www.xiaohongshu.com/user/profile/<user_id>`。当前 gate 会要求 expected query 在 actual URL 中同名同值出现，因此把该 docs PR rerun 判为 `TARGET_URL_CONTEXT_MISMATCH`。
+
+本失败记录的解释边界：
+
+- 它不表示 `search/detail/user_home` 的 `#682` closeout success 被推翻。
+- 它不允许把 PR `#683` 写成新的成功 `live_evidence_record`。
+- 它不应扩大 PR `#683` 范围去修 `TARGET_URL_CONTEXT_MISMATCH`，除非另立实现修复事项。
+- PR `#683` 的正确语义是 `Refs #445` 的 docs-only closeout 回写；`#445` 的关闭依据继续来自已合入的 PR `#682`、merge commit `545cb0a193dbbb74a42c12ad8f820b3fce886d9b` 与 `run_id=issue445-pr-head-31b0d78-20260516T0735Z`。
+
 ## 未决项（进入下一轮复核前保留）
 
 - 保持 `xhs_001` 的 main 目录绑定不再回写到 worktree 路径
