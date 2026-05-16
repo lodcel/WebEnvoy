@@ -812,6 +812,10 @@ describe("xhs-search gate helpers", () => {
       {
         name: "different path",
         actualTargetUrl: "https://www.xiaohongshu.com/explore/user-001"
+      },
+      {
+        name: "nested profile path",
+        actualTargetUrl: "https://www.xiaohongshu.com/user/profile/user-001/extra"
       }
     ];
 

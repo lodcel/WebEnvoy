@@ -241,7 +241,7 @@ const parseXhsProfileUserId = (url) => {
   if (!(url instanceof URL)) {
     return null;
   }
-  const match = url.pathname.match(/^\/user\/profile\/([^/?#]+)/u);
+  const match = url.pathname.match(/^\/user\/profile\/([^/?#]+)\/?$/u);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 };
 
