@@ -525,7 +525,10 @@ const resolveTargetExtensionReferenceLatestMtimeMs = async (
 
 type ResolvedServiceWorkerCacheMtime = {
   mtimeMs: number;
-  source: "registration_database" | "script_cache";
+  source:
+    | "registration_database"
+    | "registration_database_with_opaque_script_cache"
+    | "script_cache";
 };
 
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
@@ -533,6 +536,7 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   extensionId: string
 ): Promise<ResolvedServiceWorkerCacheMtime | null> => {
   let latest: number | null = null;
+  let opaqueLatest: number | null = null;
   const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
   const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
   const pending = [rootPath];
@@ -554,6 +558,9 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
     if (!stat.isDirectory()) {
       if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
         latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
+      } else {
+        opaqueLatest =
+          opaqueLatest === null ? stat.mtimeMs : Math.max(opaqueLatest, stat.mtimeMs);
       }
       continue;
     }
@@ -578,12 +585,19 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
     join(serviceWorkerPath, "Database"),
     extensionId
   );
-  return registrationLatestMtimeMs !== null
-    ? {
-        mtimeMs: registrationLatestMtimeMs,
-        source: "registration_database"
-      }
-    : null;
+  if (registrationLatestMtimeMs === null) {
+    return null;
+  }
+  if (opaqueLatest !== null) {
+    return {
+      mtimeMs: opaqueLatest,
+      source: "registration_database_with_opaque_script_cache"
+    };
+  }
+  return {
+    mtimeMs: registrationLatestMtimeMs,
+    source: "registration_database"
+  };
 };
 
 const resolveEnabledUnpackedPath = async (
@@ -693,6 +707,19 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs,
       recoveryHint
+    };
+  }
+
+  if (serviceWorkerCacheMtime?.source === "registration_database_with_opaque_script_cache") {
+    return {
+      state: "unknown",
+      reason: "SERVICE_WORKER_CACHE_MISSING",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs: null,
+      recoveryHint: null
     };
   }
 

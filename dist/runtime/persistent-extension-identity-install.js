@@ -388,6 +388,7 @@ const resolveTargetExtensionReferenceLatestMtimeMs = async (path, extensionId) =
 };
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, extensionId) => {
     let latest = null;
+    let opaqueLatest = null;
     const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
     const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
     const pending = [rootPath];
@@ -410,6 +411,10 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
             if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
                 latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
             }
+            else {
+                opaqueLatest =
+                    opaqueLatest === null ? stat.mtimeMs : Math.max(opaqueLatest, stat.mtimeMs);
+            }
             continue;
         }
         let entries;
@@ -430,12 +435,19 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
         };
     }
     const registrationLatestMtimeMs = await resolveTargetExtensionReferenceLatestMtimeMs(join(serviceWorkerPath, "Database"), extensionId);
-    return registrationLatestMtimeMs !== null
-        ? {
-            mtimeMs: registrationLatestMtimeMs,
-            source: "registration_database"
-        }
-        : null;
+    if (registrationLatestMtimeMs === null) {
+        return null;
+    }
+    if (opaqueLatest !== null) {
+        return {
+            mtimeMs: opaqueLatest,
+            source: "registration_database_with_opaque_script_cache"
+        };
+    }
+    return {
+        mtimeMs: registrationLatestMtimeMs,
+        source: "registration_database"
+    };
 };
 const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
     const preferenceCandidates = [
@@ -527,6 +539,18 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, 
             serviceWorkerPath,
             serviceWorkerLatestMtimeMs,
             recoveryHint
+        };
+    }
+    if (serviceWorkerCacheMtime?.source === "registration_database_with_opaque_script_cache") {
+        return {
+            state: "unknown",
+            reason: "SERVICE_WORKER_CACHE_MISSING",
+            extensionId,
+            extensionPath,
+            extensionLatestMtimeMs,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs: null,
+            recoveryHint: null
         };
     }
     return {

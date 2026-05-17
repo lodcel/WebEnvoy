@@ -1563,7 +1563,7 @@ describe("runIdentityPreflight", () => {
     });
   });
 
-  it("does not fail closed for opaque script cache files without extension id bytes", async () => {
+  it("fails closed when registration database identifies an opaque stale script cache", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-opaque-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-opaque-sw-"));
     const manifestPath = join(
@@ -1652,14 +1652,13 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: false,
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
       extensionServiceWorkerFreshness: {
-        state: "unknown",
-        reason: "SERVICE_WORKER_CACHE_MISSING",
-        extensionPath: unpackedDir,
-        serviceWorkerLatestMtimeMs: null
+        state: "stale",
+        reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+        extensionPath: unpackedDir
       }
     });
   });
