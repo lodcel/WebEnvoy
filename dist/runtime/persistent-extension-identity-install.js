@@ -348,6 +348,43 @@ const isTargetServiceWorkerCacheFile = async (path, extensionId) => {
         return false;
     }
 };
+const directoryContainsTargetExtensionReference = async (path, extensionId) => {
+    const rootPath = await realpath(path).catch(() => path);
+    const pending = [rootPath];
+    while (pending.length > 0) {
+        const currentPath = pending.pop();
+        if (!currentPath) {
+            continue;
+        }
+        let stat;
+        try {
+            stat = await lstat(currentPath);
+        }
+        catch {
+            continue;
+        }
+        if (stat.isSymbolicLink()) {
+            continue;
+        }
+        if (!stat.isDirectory()) {
+            if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
+                return true;
+            }
+            continue;
+        }
+        let entries;
+        try {
+            entries = await readdir(currentPath, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            pending.push(join(currentPath, entry.name));
+        }
+    }
+    return false;
+};
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, extensionId) => {
     let latest = null;
     let conservativeOldest = null;
@@ -388,7 +425,15 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
             pending.push(join(currentPath, entry.name));
         }
     }
-    return latest ?? conservativeOldest;
+    if (latest !== null) {
+        return latest;
+    }
+    if (conservativeOldest === null) {
+        return null;
+    }
+    return (await directoryContainsTargetExtensionReference(join(serviceWorkerPath, "Database"), extensionId))
+        ? conservativeOldest
+        : null;
 };
 const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
     const preferenceCandidates = [

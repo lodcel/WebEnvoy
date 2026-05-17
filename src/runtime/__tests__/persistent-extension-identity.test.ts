@@ -1487,12 +1487,25 @@ describe("runIdentityPreflight", () => {
     const extensionBuildFile = join(unpackedDir, "build", "background.js");
     const serviceWorkerDir = join(profileDir, "Default", "Service Worker", "ScriptCache");
     const opaqueCacheFile = join(serviceWorkerDir, "opaque-cache-entry");
+    const serviceWorkerDatabaseFile = join(
+      profileDir,
+      "Default",
+      "Service Worker",
+      "Database",
+      "000003.log"
+    );
     vi.stubEnv("HOME", fakeHome);
     await mkdir(dirname(manifestPath), { recursive: true });
     await mkdir(dirname(extensionBuildFile), { recursive: true });
     await mkdir(serviceWorkerDir, { recursive: true });
+    await mkdir(dirname(serviceWorkerDatabaseFile), { recursive: true });
     await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'opaque';\n", "utf8");
     await writeFile(opaqueCacheFile, "\u0000opaque chrome script cache bytes\n", "utf8");
+    await writeFile(
+      serviceWorkerDatabaseFile,
+      `registration_storage_key=chrome-extension://${EXTENSION_ID}/\n`,
+      "utf8"
+    );
     await utimes(
       extensionBuildFile,
       new Date("2026-05-01T00:00:00.000Z"),
