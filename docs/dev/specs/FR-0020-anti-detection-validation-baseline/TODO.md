@@ -1,25 +1,27 @@
 # FR-0020 TODO
 
-- [ ] 将 `#239` 从“横切主线 issue”收口为 canonical FR 容器
-- [ ] reviewer 确认 baseline snapshot 与 validation record 已清楚分离
-- [ ] reviewer 确认 `effective_execution_mode` 已进入共享 baseline key，`dry_run/recon/live` 不会混用
-- [ ] reviewer 确认 `sample_ref` 的正式归属对象已冻结为 `anti_detection_structured_sample`
-- [ ] reviewer 确认 validation request 已具备稳定 identity 与单向 lifecycle
-- [ ] reviewer 确认 baseline replacement 的唯一真相源已冻结为 `anti_detection_baseline_registry_entry`
-- [ ] reviewer 确认 validation record 已携带完整作用域键
-- [ ] reviewer 确认完成态 validation record 不会丢失 `sample_ref`
-- [ ] reviewer 确认 `baseline_status` 的 closed enum 语义已冻结
-- [ ] reviewer 确认 `browser_channel` 的 current canonical label 已在本 FR 内闭合，并与 `FR-0015/0016` 保持同值
-- [ ] reviewer 确认与 `FR-0015` / `FR-0016` 的边界无冲突
-- [ ] spec review 通过并形成明确结论
-- [ ] 后续实现 Work Item 命名与 ownership 建议冻结
+> GitHub Issue / PR / Project 是进度真相源。
+> 本文件只保留 FR-0020 的 historical closeout、后续消费边界和恢复入口；不再维护 active checklist。
 
-## Handoff
+## Historical Closeout
 
-- 当前阶段只冻结规约，不承诺实现代码。
-- 后续实现应优先消费本 FR 的：
-  - `anti_detection_validation_request`
-  - `anti_detection_structured_sample`
-  - `anti_detection_baseline_snapshot`
-  - `anti_detection_validation_record`
-  - `anti_detection_validation_view`
+- `#239` 已作为 FR-0020 canonical FR 容器关闭，不再是 open 横切主线 issue。
+- `#239` 当前职责已收口为“反风控验证与基线评估”的 formal owner，为 `FR-0012/0013/0014` 与后续 Layer 4 消费统一验证对象。
+- 后续实现或恢复链路应直接消费 `FR-0020` 已冻结对象，不再通过新的 umbrella issue 表达归属。
+
+## 后续消费边界
+
+后续事项如需消费 FR-0020，优先使用以下对象：
+
+- `anti_detection_validation_request`
+- `anti_detection_structured_sample`
+- `anti_detection_baseline_snapshot`
+- `anti_detection_baseline_registry_entry`
+- `anti_detection_validation_record`
+- `anti_detection_validation_view`
+
+## 非目标
+
+- 不在本文件中重新打开 spec review。
+- 不把 `#239` 重新挂回 active backlog。
+- 不通过 TODO.md 改写 `spec.md` / `contracts/` / `data-model.md` 的正式契约语义。
