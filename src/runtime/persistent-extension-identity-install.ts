@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { access, lstat, readFile, readdir } from "node:fs/promises";
+import { access, lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { inspectManagedNativeHostInstall } from "../install/native-host-install-root.js";
@@ -381,7 +381,8 @@ const readProfileExtensionStateFromPreferences = (
 
 const resolveLatestMtimeMs = async (path: string): Promise<number | null> => {
   let latest: number | null = null;
-  const pending = [path];
+  const rootPath = await realpath(path).catch(() => path);
+  const pending = [rootPath];
 
   while (pending.length > 0) {
     const currentPath = pending.pop();
@@ -498,7 +499,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  if (extensionLatestMtimeMs > serviceWorkerLatestMtimeMs + 1000) {
+  if (extensionLatestMtimeMs >= serviceWorkerLatestMtimeMs) {
     return {
       state: "stale",
       reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
