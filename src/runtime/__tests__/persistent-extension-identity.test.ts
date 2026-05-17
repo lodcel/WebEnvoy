@@ -84,7 +84,11 @@ const writeServiceWorkerCache = async (input: {
   const serviceWorkerDir = join(input.profileDir, "Default", "Service Worker", "ScriptCache");
   const scriptPath = join(serviceWorkerDir, "service-worker.js");
   await mkdir(serviceWorkerDir, { recursive: true });
-  await writeFile(scriptPath, "self.addEventListener('install', () => undefined);\n", "utf8");
+  await writeFile(
+    scriptPath,
+    `const WEBENVOY_EXTENSION_URL = "chrome-extension://${EXTENSION_ID}/build/background.js";\nself.addEventListener('install', () => undefined);\n`,
+    "utf8"
+  );
   await utimes(scriptPath, input.mtime, input.mtime);
   await utimes(serviceWorkerDir, input.mtime, input.mtime);
   await utimes(join(input.profileDir, "Default", "Service Worker"), input.mtime, input.mtime);
@@ -1659,6 +1663,23 @@ describe("runIdentityPreflight", () => {
       profileDir,
       mtime: new Date("2026-04-30T00:00:00.000Z")
     });
+    const unrelatedCacheFile = join(
+      profileDir,
+      "Default",
+      "Service Worker",
+      "ScriptCache",
+      "unrelated-service-worker.js"
+    );
+    await writeFile(
+      unrelatedCacheFile,
+      "self.addEventListener('install', () => undefined);\n",
+      "utf8"
+    );
+    await utimes(
+      unrelatedCacheFile,
+      new Date("2026-05-02T00:00:00.000Z"),
+      new Date("2026-05-02T00:00:00.000Z")
+    );
     await utimes(
       join(profileDir, "Default", "Service Worker"),
       new Date("2026-05-02T00:00:00.000Z"),

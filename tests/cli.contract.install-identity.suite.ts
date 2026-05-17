@@ -35,7 +35,11 @@ describe("webenvoy cli contract / install and identity", () => {
       new Date("2026-05-01T00:00:00.000Z")
     );
     await mkdir(serviceWorkerDir, { recursive: true });
-    await writeFile(serviceWorkerFile, "self.addEventListener('install', () => undefined);\n", "utf8");
+    await writeFile(
+      serviceWorkerFile,
+      `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\nself.addEventListener('install', () => undefined);\n`,
+      "utf8"
+    );
     await utimes(
       serviceWorkerFile,
       new Date("2026-04-30T00:00:00.000Z"),

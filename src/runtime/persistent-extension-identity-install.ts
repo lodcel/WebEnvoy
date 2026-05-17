@@ -463,6 +463,67 @@ const resolveExtensionBundleLatestMtimeMs = async (extensionPath: string): Promi
   return latest;
 };
 
+const isTargetServiceWorkerCacheFile = async (
+  path: string,
+  extensionId: string
+): Promise<boolean> => {
+  if (path.includes(extensionId)) {
+    return true;
+  }
+  try {
+    const content = await readFile(path);
+    return (
+      content.includes(Buffer.from(extensionId)) ||
+      content.includes(Buffer.from(`chrome-extension://${extensionId}`))
+    );
+  } catch {
+    return false;
+  }
+};
+
+const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
+  serviceWorkerPath: string,
+  extensionId: string
+): Promise<number | null> => {
+  let latest: number | null = null;
+  const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
+  const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
+  const pending = [rootPath];
+
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (!currentPath) {
+      continue;
+    }
+    let stat;
+    try {
+      stat = await lstat(currentPath);
+    } catch {
+      continue;
+    }
+    if (stat.isSymbolicLink()) {
+      continue;
+    }
+    if (!stat.isDirectory()) {
+      if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
+        latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
+      }
+      continue;
+    }
+    let entries;
+    try {
+      entries = await readdir(currentPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      pending.push(join(currentPath, entry.name));
+    }
+  }
+
+  return latest;
+};
+
 const resolveEnabledUnpackedPath = async (
   profileDir: string,
   extensionId: string
@@ -529,8 +590,9 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  const serviceWorkerLatestMtimeMs = await resolveLatestMtimeMs(
-    join(serviceWorkerPath, "ScriptCache")
+  const serviceWorkerLatestMtimeMs = await resolveTargetServiceWorkerCacheLatestMtimeMs(
+    serviceWorkerPath,
+    extensionId
   );
   if (serviceWorkerLatestMtimeMs === null) {
     return {
