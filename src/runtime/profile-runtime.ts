@@ -769,7 +769,8 @@ const buildIdentityPreflightOutput = (identityPreflight: IdentityPreflightResult
   browserVersion: identityPreflight.browserVersion,
   blocking: identityPreflight.blocking,
   failureReason: identityPreflight.failureReason,
-  installDiagnostics: identityPreflight.installDiagnostics
+  installDiagnostics: identityPreflight.installDiagnostics,
+  extensionServiceWorkerFreshness: identityPreflight.extensionServiceWorkerFreshness
 });
 
 export class ProfileRuntimeService {

@@ -1,7 +1,116 @@
+import { utimes } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { repoRoot, binPath, mockBrowserPath, nativeHostMockPath, repoOwnedNativeHostEntryPath, browserStateFilename, tempDirs, resolveDatabaseSync, DatabaseSync, itWithSqlite, createRuntimeCwd, createNativeHostManifest, seedInstalledPersistentExtension, defaultRuntimeEnv, runCli, expectBundledNativeHostStarts, createNativeHostCommand, createShellWrappedNativeHostCommand, PROFILE_MODE_ROOT_PREFERRED, quoteLauncherExportValue, resolveCanonicalExpectedProfileDir, expectProfileRootOnlyLauncherContract, expectDualEnvRootPreferredLauncherContract, runGit, createGitWorktreePair, runCliAsync, parseSingleJsonLine, encodeNativeBridgeEnvelope, readSingleNativeBridgeEnvelope, asRecord, resolveCliGateEnvelope, resolveWriteInteractionTier, scopedXhsGateOptions, assertLockMissing, detectSystemChromePath, wait, runHeadlessDomProbe, realBrowserContractsEnabled, BROWSER_STATE_FILENAME, BROWSER_CONTROL_FILENAME, isPidAlive, scopedReadGateOptions, path, readFile, writeFile, mkdir, mkdtemp, realpath, rm, stat, chmod, symlink, spawn, spawnSync, createServer, createRequire, tmpdir, type DatabaseSyncCtor } from "./cli.contract.shared.js";
 
 describe("webenvoy cli contract / install and identity", () => {
+  it("fails closed with a distinct service worker refresh error before starting stale managed extension runtime", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const profile = "stale_service_worker_profile";
+    const profileDir = path.join(runtimeCwd, ".webenvoy", "profiles", profile);
+    const defaultDir = path.join(profileDir, "Default");
+    const extensionId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const unpackedDir = path.join(runtimeCwd, "extension");
+    const extensionBuildFile = path.join(unpackedDir, "build", "background.js");
+    const serviceWorkerDir = path.join(defaultDir, "Service Worker", "ScriptCache");
+    const serviceWorkerFile = path.join(serviceWorkerDir, "service-worker.js");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: [`chrome-extension://${extensionId}/`]
+    });
+
+    await mkdir(path.dirname(extensionBuildFile), { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'fresh';\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      path.dirname(extensionBuildFile),
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      unpackedDir,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await mkdir(serviceWorkerDir, { recursive: true });
+    await writeFile(serviceWorkerFile, "self.addEventListener('install', () => undefined);\n", "utf8");
+    await utimes(
+      serviceWorkerFile,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await utimes(
+      serviceWorkerDir,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await utimes(
+      path.join(defaultDir, "Service Worker"),
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await writeFile(
+      path.join(defaultDir, "Preferences"),
+      `${JSON.stringify(
+        {
+          extensions: {
+            settings: {
+              [extensionId]: {
+                state: 1,
+                location: 4,
+                path: unpackedDir
+              }
+            }
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = runCli(
+      [
+        "runtime.start",
+        "--profile",
+        profile,
+        "--run-id",
+        "run-contract-stale-service-worker-001",
+        "--params",
+        JSON.stringify({
+          headless: false,
+          persistent_extension_identity: {
+            extension_id: extensionId,
+            manifest_path: manifestPath
+          }
+        })
+      ],
+      runtimeCwd,
+      {
+        WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154"
+      }
+    );
+
+    expect(result.status, result.stdout).toBe(5);
+    expect(parseSingleJsonLine(result.stdout)).toMatchObject({
+      command: "runtime.start",
+      status: "error",
+      error: {
+        code: "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+        details: {
+          reason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+          extension_service_worker_freshness_reason:
+            "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+          extension_service_worker_extension_path: unpackedDir,
+          extension_service_worker_cache_path: path.join(defaultDir, "Service Worker"),
+          recovery_hint: expect.stringContaining("Default/Service Worker")
+        }
+      }
+    });
+  });
+
   it("creates native host manifest and posix launcher through runtime.install", async () => {
     const runtimeCwd = await createRuntimeCwd();
     const manifestDir = path.join(runtimeCwd, ".webenvoy", "native-host-install", "chrome", "manifests");

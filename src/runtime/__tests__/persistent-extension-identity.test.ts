@@ -1,10 +1,11 @@
-import { chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildIdentityPreflightError,
   resetIdentityPreflightAdaptersForTests,
   runIdentityPreflight,
   setIdentityPreflightAdaptersForTests
@@ -74,6 +75,19 @@ const writeInstalledProfileExtension = async (input: {
   const extensionDir = join(input.profileDir, "Default", "Extensions", input.extensionId, "1.0.0");
   await mkdir(extensionDir, { recursive: true });
   await writeFile(join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
+};
+
+const writeServiceWorkerCache = async (input: {
+  profileDir: string;
+  mtime: Date;
+}): Promise<void> => {
+  const serviceWorkerDir = join(input.profileDir, "Default", "Service Worker", "ScriptCache");
+  const scriptPath = join(serviceWorkerDir, "service-worker.js");
+  await mkdir(serviceWorkerDir, { recursive: true });
+  await writeFile(scriptPath, "self.addEventListener('install', () => undefined);\n", "utf8");
+  await utimes(scriptPath, input.mtime, input.mtime);
+  await utimes(serviceWorkerDir, input.mtime, input.mtime);
+  await utimes(join(input.profileDir, "Default", "Service Worker"), input.mtime, input.mtime);
 };
 
 const createNativeHostManifest = async (input: {
@@ -1269,7 +1283,197 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       identityBindingState: "bound",
       failureReason: "IDENTITY_PREFLIGHT_PASSED",
-      manifestPath
+      manifestPath,
+      extensionServiceWorkerFreshness: {
+        state: "unknown",
+        reason: "SERVICE_WORKER_CACHE_MISSING",
+        extensionPath: unpackedDir
+      }
+    });
+  });
+
+  it("fails closed when managed profile service worker cache is older than unpacked extension build", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-stale-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-stale-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-stale-sw-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'fresh';\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      dirname(extensionBuildFile),
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      unpackedDir,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: new Date("2026-04-30T00:00:00.000Z")
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      extensionServiceWorkerFreshness: {
+        state: "stale",
+        reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+        extensionId: EXTENSION_ID,
+        extensionPath: unpackedDir,
+        serviceWorkerPath: join(profileDir, "Default", "Service Worker")
+      }
+    });
+    expect(buildIdentityPreflightError(result)).toMatchObject({
+      code: "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+        extension_service_worker_freshness_reason:
+          "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+        recovery_hint: expect.stringContaining("Default/Service Worker")
+      }
+    });
+  });
+
+  it("allows current managed profile service worker cache for unpacked extension builds", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-fresh-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-fresh-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-fresh-sw-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'current';\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await utimes(
+      dirname(extensionBuildFile),
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await utimes(
+      unpackedDir,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: new Date("2026-05-01T00:00:00.000Z")
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      extensionServiceWorkerFreshness: {
+        state: "fresh",
+        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        extensionPath: unpackedDir
+      }
     });
   });
 
