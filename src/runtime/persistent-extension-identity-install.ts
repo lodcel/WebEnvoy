@@ -523,10 +523,15 @@ const resolveTargetExtensionReferenceLatestMtimeMs = async (
   return latest;
 };
 
+type ResolvedServiceWorkerCacheMtime = {
+  mtimeMs: number;
+  source: "registration_database" | "script_cache";
+};
+
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   serviceWorkerPath: string,
   extensionId: string
-): Promise<number | null> => {
+): Promise<ResolvedServiceWorkerCacheMtime | null> => {
   let latest: number | null = null;
   const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
   const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
@@ -564,13 +569,20 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   }
 
   if (latest !== null) {
-    return latest;
+    return {
+      mtimeMs: latest,
+      source: "script_cache"
+    };
   }
-  return (await resolveTargetExtensionReferenceLatestMtimeMs(
+  const registrationLatestMtimeMs = await resolveTargetExtensionReferenceLatestMtimeMs(
     join(serviceWorkerPath, "Database"),
     extensionId
-  )) !== null
-    ? 0
+  );
+  return registrationLatestMtimeMs !== null
+    ? {
+        mtimeMs: registrationLatestMtimeMs,
+        source: "registration_database"
+      }
     : null;
 };
 
@@ -640,10 +652,11 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  const serviceWorkerLatestMtimeMs = await resolveTargetServiceWorkerCacheLatestMtimeMs(
+  const serviceWorkerCacheMtime = await resolveTargetServiceWorkerCacheLatestMtimeMs(
     serviceWorkerPath,
     extensionId
   );
+  const serviceWorkerLatestMtimeMs = serviceWorkerCacheMtime?.mtimeMs ?? null;
   if (serviceWorkerLatestMtimeMs === null) {
     return {
       state: "unknown",
@@ -667,6 +680,19 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs,
       recoveryHint
+    };
+  }
+
+  if (serviceWorkerCacheMtime?.source === "registration_database") {
+    return {
+      state: "unknown",
+      reason: "SERVICE_WORKER_CACHE_MISSING",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs: null,
+      recoveryHint: null
     };
   }
 

@@ -424,10 +424,17 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
         }
     }
     if (latest !== null) {
-        return latest;
+        return {
+            mtimeMs: latest,
+            source: "script_cache"
+        };
     }
-    return (await resolveTargetExtensionReferenceLatestMtimeMs(join(serviceWorkerPath, "Database"), extensionId)) !== null
-        ? 0
+    const registrationLatestMtimeMs = await resolveTargetExtensionReferenceLatestMtimeMs(join(serviceWorkerPath, "Database"), extensionId);
+    return registrationLatestMtimeMs !== null
+        ? {
+            mtimeMs: registrationLatestMtimeMs,
+            source: "registration_database"
+        }
         : null;
 };
 const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
@@ -484,7 +491,8 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, 
             recoveryHint: null
         };
     }
-    const serviceWorkerLatestMtimeMs = await resolveTargetServiceWorkerCacheLatestMtimeMs(serviceWorkerPath, extensionId);
+    const serviceWorkerCacheMtime = await resolveTargetServiceWorkerCacheLatestMtimeMs(serviceWorkerPath, extensionId);
+    const serviceWorkerLatestMtimeMs = serviceWorkerCacheMtime?.mtimeMs ?? null;
     if (serviceWorkerLatestMtimeMs === null) {
         return {
             state: "unknown",
@@ -507,6 +515,18 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, 
             serviceWorkerPath,
             serviceWorkerLatestMtimeMs,
             recoveryHint
+        };
+    }
+    if (serviceWorkerCacheMtime?.source === "registration_database") {
+        return {
+            state: "unknown",
+            reason: "SERVICE_WORKER_CACHE_MISSING",
+            extensionId,
+            extensionPath,
+            extensionLatestMtimeMs,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs: null,
+            recoveryHint: null
         };
     }
     return {
