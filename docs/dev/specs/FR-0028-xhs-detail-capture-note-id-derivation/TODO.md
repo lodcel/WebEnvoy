@@ -1,14 +1,24 @@
 # FR-0028 TODO
 
-- [ ] reviewer 确认 current v1 `xhs.detail` capture-side canonical `note_id` derivation` 已被独立 formal freeze
-- [ ] reviewer 确认 admitted derivation source 只允许 response-side detail note candidate record 上的 `note_id` / `noteId` / `id`
-- [ ] reviewer 确认 current matcher 已接受的 detail response candidate root / path family 已冻结到“先取 `body.data ?? body`，当顶层 `body.data` 为 nullish 时回退到顶层 `body`”、detail-shaped self root、`.note`、`.note_card`、`.note_card_list[*]`、`.current_note`、`.item`、`.items[*]`、`.notes[*]` 及其递归 `.note` / `.note_card` / `.current_note` / `.item`
-- [ ] reviewer 确认 bare-body detail roots、self root、其他 direct entry 与递归 nested path 已作为 current main observable matcher truth 正确进入 formal freeze，而不是被本 FR 误收窄
-- [ ] reviewer 确认 metadata-only note id 不构成 admitted success evidence
-- [ ] reviewer 确认 `body.data.note` 与 `body.data.items[*].note_card` 已作为仓库内直接测试证据写入 formal rationale
-- [ ] reviewer 确认其余 matcher 分支虽以 current main implementation 作为 observable truth 来源，但没有被误写成完整 rigid response schema
-- [ ] reviewer 确认 `source_note_id` 与 referrer 仍只属于 candidate-only observation，不进入 admitted canonical truth
-- [ ] reviewer 确认本 FR 未与 `FR-0025` 的 command surface baseline 冲突
-- [ ] reviewer 确认本 FR 未与 `FR-0026` 的 identity-only freeze 冲突
-- [ ] reviewer 确认本 FR 未越权冻结 `#508` 负责的 shared reuse semantics
-- [ ] reviewer 确认 replacement implementation 的 detail formal gate 已显式要求消费本 FR
+> GitHub Issue / PR / Project 是进度真相源。
+> 本文件只保留 FR-0028 的 historical closeout、后续消费边界和实现入口；不再维护 active checklist。
+
+## Historical Closeout
+
+- `#510` 已作为 FR-0028 canonical FR issue 关闭，当前保持 historical-complete。
+- FR-0028 的 owner 范围为 current-main observable detail matcher 与 admitted canonical `note_id` derivation truth。
+- Prerequisite-tree maintenance 已由 `#513/#514` 收口；本 FR 不再隐式承接该维护范围。
+
+## 后续消费边界
+
+后续实现应优先消费本 FR 冻结的：
+
+- current-main observable detail response candidate matcher 边界
+- response-side admitted canonical `note_id` derivation source
+- rejected / incompatible observation 可保留的 candidate-only derivation 边界
+- request-side `source_note_id`、referrer、metadata-only note fields 的 current formal 地位
+
+## 实现入口
+
+- successor implementation 后续应消费 `#504 + #505 + #508 + #510` 的已完成前置。
+- 本文件不重新打开 spec review，也不把 `#510` 重新挂回 active backlog。

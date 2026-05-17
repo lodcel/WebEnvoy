@@ -1,18 +1,27 @@
 # FR-0027 TODO
 
-- [x] 建立 `FR-0027-xhs-shared-request-context-reuse` 正式套件
-- [x] 建立 canonical issue 绑定 `#508`
-- [ ] reviewer 确认 `#502/#504/#505/#508/#510` formal owner 已无重叠或缺口
-- [ ] reviewer 确认 page-local namespace、route bucket 与 shape slotting 已冻结为 shared slotting identity
-- [ ] reviewer 确认 route bucket identity 与 shape slot identity 只有一套一致定义
-- [ ] reviewer 确认 admitted / rejected / incompatible bucket state 分层及其最小结构字段已冻结为 shared request-context model
-- [ ] reviewer 确认 admitted template 只承载 completed 2xx success-only request_status
-- [ ] reviewer 确认 shape-slot rejected observation 强制携带非空 machine-readable `rejection_reason`
-- [ ] reviewer 确认 detail/user_home canonical reuse-shape 已冻结为 `note_id` / `user_id` only，且 detail additional derivation 仍保持 deferred
-- [ ] reviewer 确认 detail referrer / transport derivation 仍保持 deferred，未被误写成 current formal truth
-- [ ] reviewer 确认 synthetic / failed source 不进入 admitted template
-- [ ] reviewer 确认 exact-match / freshness / fail-closed 规则已冻结
-- [ ] reviewer 确认 replacement implementation formal gate 已更新为：`#508` 只冻结 shared reuse semantics，detail capture-side canonical `note_id` derivation 仍需等待 `#510`
-- [ ] reviewer 确认 `Closing=Refs #508`、`review_lane=formal_spec_review_pr`、`live_evidence_record=N/A`
-- [ ] reviewer 确认 `bash scripts/check-pr-purity.sh docs/FR-0027-xhs-shared-request-context-reuse main` 与单分支职责一致
-- [ ] spec review 通过并形成 replacement implementation 的新正式输入
+> GitHub Issue / PR / Project 是进度真相源。
+> 本文件只保留 FR-0027 的 historical closeout、后续消费边界和实现入口；不再维护 active checklist。
+
+## Historical Closeout
+
+- `#508` 已作为 FR-0027 canonical FR issue 关闭，当前保持 historical-complete。
+- Merged formal suite 为 `#509`；`#512` compatibility/backwrite 与 `#513` prerequisite-tree maintenance 已在关闭前完成。
+- FR-0027 的 owner 范围为 XHS shared request-context minimal invariants 与 successor implementation shared gate。
+- 关闭本 FR 不等于 implementation-ready；后续实现仍需显式消费已冻结 shared gate truth。
+
+## 后续消费边界
+
+后续实现应优先消费本 FR 冻结的：
+
+- page-local / document-local `page_context_namespace`
+- route bucket 与 shape slot 层级身份
+- canonical `shape_key`、exact-match、fail-closed、namespace isolation
+- sibling-shape `shape_mismatch` 的最小 shared 诊断面
+- successor implementation 的 shared formal gate 表达
+
+## 非目标
+
+- 不在本文件中重新打开 spec review。
+- 不把 `#508` 重新挂回 active backlog。
+- 不通过 TODO.md 改写 `spec.md` / `contracts/` / `data-model.md` 的正式契约语义。
