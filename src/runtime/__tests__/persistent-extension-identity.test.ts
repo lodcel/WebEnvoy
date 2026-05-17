@@ -1622,7 +1622,7 @@ describe("runIdentityPreflight", () => {
     });
   });
 
-  it("uses non-empty service worker directory mtime as freshness evidence", async () => {
+  it("does not let service worker directory mtime mask stale script cache", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-dir-mtime-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-dir-mtime-sw-"));
     const manifestPath = join(
@@ -1703,12 +1703,12 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: false,
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
       extensionServiceWorkerFreshness: {
-        state: "fresh",
-        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        state: "stale",
+        reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
         extensionPath: unpackedDir
       }
     });
@@ -1815,6 +1815,111 @@ describe("runIdentityPreflight", () => {
       extensionServiceWorkerFreshness: {
         state: "fresh",
         reason: "SERVICE_WORKER_CACHE_CURRENT",
+        extensionPath: unpackedDir
+      }
+    });
+  });
+
+  it("fails closed when any extension build output is newer than service worker script cache", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-build-output-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-build-output-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-build-output-sw-"));
+    const extensionManifestPath = join(unpackedDir, "manifest.json");
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    const extensionDependencyFile = join(unpackedDir, "build", "background-runtime-trust.js");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await writeFile(
+      extensionManifestPath,
+      `${JSON.stringify(
+        {
+          manifest_version: 3,
+          background: {
+            service_worker: "build/background.js",
+            type: "module"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(extensionBuildFile, "import './background-runtime-trust.js';\n", "utf8");
+    await writeFile(extensionDependencyFile, "export const trust = 'newer';\n", "utf8");
+    await utimes(
+      extensionManifestPath,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await utimes(
+      extensionDependencyFile,
+      new Date("2026-05-02T00:00:00.000Z"),
+      new Date("2026-05-02T00:00:00.000Z")
+    );
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: new Date("2026-05-01T00:00:00.000Z")
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      extensionServiceWorkerFreshness: {
+        state: "stale",
+        reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
         extensionPath: unpackedDir
       }
     });

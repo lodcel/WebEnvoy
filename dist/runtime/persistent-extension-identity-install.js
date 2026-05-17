@@ -284,9 +284,6 @@ const resolveLatestMtimeMs = async (path) => {
         catch {
             continue;
         }
-        if (entries.length > 0) {
-            latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
-        }
         for (const entry of entries) {
             if (entry.name === "node_modules" || entry.name === ".git") {
                 continue;
@@ -312,7 +309,8 @@ const resolveFileMtimeMs = async (path) => {
 };
 const resolveExtensionBundleLatestMtimeMs = async (extensionPath) => {
     const manifestPath = join(extensionPath, "manifest.json");
-    const bundlePaths = new Set([manifestPath, join(extensionPath, "build", "background.js")]);
+    const buildLatestMtimeMs = await resolveLatestMtimeMs(join(extensionPath, "build"));
+    const bundlePaths = new Set([manifestPath]);
     try {
         const raw = await readFile(manifestPath, "utf8");
         const manifest = asRecord(JSON.parse(raw));
@@ -326,6 +324,9 @@ const resolveExtensionBundleLatestMtimeMs = async (extensionPath) => {
         // Missing or invalid manifest falls back to the conventional built background bundle path.
     }
     let latest = null;
+    if (buildLatestMtimeMs !== null) {
+        latest = buildLatestMtimeMs;
+    }
     for (const bundlePath of bundlePaths) {
         const mtimeMs = await resolveFileMtimeMs(bundlePath);
         if (mtimeMs !== null) {
@@ -388,7 +389,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, 
             recoveryHint: null
         };
     }
-    const serviceWorkerLatestMtimeMs = await resolveLatestMtimeMs(serviceWorkerPath);
+    const serviceWorkerLatestMtimeMs = await resolveLatestMtimeMs(join(serviceWorkerPath, "ScriptCache"));
     if (serviceWorkerLatestMtimeMs === null) {
         return {
             state: "unknown",

@@ -408,9 +408,6 @@ const resolveLatestMtimeMs = async (path: string): Promise<number | null> => {
     } catch {
       continue;
     }
-    if (entries.length > 0) {
-      latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
-    }
     for (const entry of entries) {
       if (entry.name === "node_modules" || entry.name === ".git") {
         continue;
@@ -438,7 +435,8 @@ const resolveFileMtimeMs = async (path: string): Promise<number | null> => {
 
 const resolveExtensionBundleLatestMtimeMs = async (extensionPath: string): Promise<number | null> => {
   const manifestPath = join(extensionPath, "manifest.json");
-  const bundlePaths = new Set<string>([manifestPath, join(extensionPath, "build", "background.js")]);
+  const buildLatestMtimeMs = await resolveLatestMtimeMs(join(extensionPath, "build"));
+  const bundlePaths = new Set<string>([manifestPath]);
 
   try {
     const raw = await readFile(manifestPath, "utf8");
@@ -453,6 +451,9 @@ const resolveExtensionBundleLatestMtimeMs = async (extensionPath: string): Promi
   }
 
   let latest: number | null = null;
+  if (buildLatestMtimeMs !== null) {
+    latest = buildLatestMtimeMs;
+  }
   for (const bundlePath of bundlePaths) {
     const mtimeMs = await resolveFileMtimeMs(bundlePath);
     if (mtimeMs !== null) {
@@ -528,7 +529,9 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  const serviceWorkerLatestMtimeMs = await resolveLatestMtimeMs(serviceWorkerPath);
+  const serviceWorkerLatestMtimeMs = await resolveLatestMtimeMs(
+    join(serviceWorkerPath, "ScriptCache")
+  );
   if (serviceWorkerLatestMtimeMs === null) {
     return {
       state: "unknown",
