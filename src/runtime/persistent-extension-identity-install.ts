@@ -382,15 +382,12 @@ const readProfileExtensionStateFromPreferences = (
 const resolveLatestMtimeMs = async (path: string): Promise<number | null> => {
   let latest: number | null = null;
   const pending = [path];
-  let visited = 0;
-  const maxVisited = 5000;
 
-  while (pending.length > 0 && visited < maxVisited) {
+  while (pending.length > 0) {
     const currentPath = pending.pop();
     if (!currentPath) {
       continue;
     }
-    visited += 1;
     let stat;
     try {
       stat = await lstat(currentPath);
@@ -400,8 +397,8 @@ const resolveLatestMtimeMs = async (path: string): Promise<number | null> => {
     if (stat.isSymbolicLink()) {
       continue;
     }
-    latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
     if (!stat.isDirectory()) {
+      latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
       continue;
     }
     let entries;

@@ -1242,6 +1242,7 @@ describe("runIdentityPreflight", () => {
     const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-"));
     vi.stubEnv("HOME", fakeHome);
     await mkdir(dirname(manifestPath), { recursive: true });
+    await writeFile(join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
     await writeFile(
       manifestPath,
       `${JSON.stringify(
@@ -1288,6 +1289,82 @@ describe("runIdentityPreflight", () => {
         state: "unknown",
         reason: "SERVICE_WORKER_CACHE_MISSING",
         extensionPath: unpackedDir
+      }
+    });
+  });
+
+  it("treats an empty managed profile service worker directory as missing cache", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-empty-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-empty-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-empty-sw-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    const emptyServiceWorkerDir = join(profileDir, "Default", "Service Worker");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await mkdir(emptyServiceWorkerDir, { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'empty-sw';\n", "utf8");
+    await utimes(
+      emptyServiceWorkerDir,
+      new Date("2026-04-01T00:00:00.000Z"),
+      new Date("2026-04-01T00:00:00.000Z")
+    );
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      extensionServiceWorkerFreshness: {
+        state: "unknown",
+        reason: "SERVICE_WORKER_CACHE_MISSING",
+        extensionPath: unpackedDir,
+        serviceWorkerLatestMtimeMs: null
       }
     });
   });
