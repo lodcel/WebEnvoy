@@ -253,6 +253,20 @@ spec review 的执行约束：
 - Spike、规约、研究或仅部分完成闭环：使用 `Refs #<issue-number>`，不要提前关闭
 - 若 PR 声称完成真实 runtime / 真实页面交互 / 真实 live read-write 闭环，或把 live evidence 作为关闭 issue、判定“已完成”或请求 merge 放行的核心依据，只有 latest head 上的新鲜有效 live evidence 已齐备，才允许使用 `Fixes #<issue-number>`；否则一律使用 `Refs #<issue-number>`
 
+## Closeout Issue 执行纪律
+
+closeout issue 只用于把已满足的关闭条件、证据链和仓库状态收口到一致，不得继续承载实现探索、需求发现或重复探测。
+
+- 如果 closeout 执行中发现实现缺口、证据口径缺口或运行时阻断，必须停在失败检查点，记录 fresh failure evidence，并拆出 blocker 归属；不得继续推进整个 closeout bundle 来“顺手发现更多问题”
+- 高风险 live / real-browser / account-touching closeout 在实际执行前，必须已有可复核的 readiness 或 admission 证据；缺少前置证据时只能停在准备阶段，不得把首次 live 尝试当成准入探针
+- 高风险 closeout 的 readiness matrix 至少覆盖 runtime/profile/lock、extension/native messaging、account safety、anti-detection baseline、gate/admission/audit、route evidence evaluator、required headers verifier、stop/cleanup proof
+- live 验证按阶梯推进：`static tests -> runtime.status/audit -> dry_run -> recon -> single-route limited live -> route evidence evaluator -> full bundle`；任一步失败即停，不继续跑后续路线
+- 一轮 live 只回答一个问题；不得用同一次 live run 同时验证 search/detail/user_home、headers、恢复、风控和 cleanup
+- 产品回退价值必须与 formal closeout 证据分离：例如 DOM/state extraction 可以记录为 fallback 或用户价值，但不得替代 `primary/api/success`、required-header matrix、canonical audit 等正式关闭条件
+- live evidence closeout 只能使用当前 PR latest head / current latest main 的 fresh evidence；历史 artifact、旧 head、旧 run 或 same-head 历史产物不能作为本轮关闭依据
+- PR 描述必须显式声明 issue 类型、readiness/admission 状态、closeout 证据、fallback 限制，以及适用时的 blocker 拆分处理；无法填齐时必须使用 `Refs #...`，并保持 issue 未关闭
+- closeout issue 不得关闭到“代码已合并但主干真相、PR 元数据、issue 结论或 formal 文档仍不一致”的状态
+
 ## 真实 Live Evidence 专项门禁
 
 以下门禁不是所有 PR 的统一要求，只适用于满足任一条件的 PR：

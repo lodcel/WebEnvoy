@@ -86,6 +86,20 @@
 - stub/fake host 的成功结果被描述为 official Chrome live evidence
 - reviewer / guardian 被要求把仓库 formal 文档中的固定样本逐提交追写到当前 PR head，来替代 PR 描述中的 `live_evidence_record`
 
+## Closeout Issue 审查
+
+当 PR 声称关闭 issue、完成 formal closeout，或把 live evidence 作为完成依据时，必须额外核对：
+
+- closeout issue 是否仍保持 closeout-only；若 PR 中继续承载 implementation discovery、需求发现或 repeated probing，默认 `REQUEST_CHANGES`
+- high-risk live / real-browser / account-touching closeout 是否在执行前已有 readiness/admission 证据；缺少前置证据时不得放行 live closeout 或 `Fixes #...`
+- readiness matrix 是否覆盖 runtime/profile/lock、extension/native messaging、account safety、anti-detection baseline、gate/admission/audit、route evidence evaluator、required headers verifier、stop/cleanup proof
+- live 验证是否按 `static tests -> runtime.status/audit -> dry_run -> recon -> single-route limited live -> route evidence evaluator -> full bundle` 阶梯推进，并在任一步失败时停止
+- 单轮 live 是否只回答一个问题；若同一轮同时混验多条 route、headers、恢复、风控和 cleanup，默认视为证据不可判定
+- live 失败后是否停在失败检查点并拆分 blocker 归属；若继续推进整个 bundle、混用多个失败来源或把 blocker 留在 closeout issue 内滚动探测，默认阻断
+- fallback 产品价值是否与 formal closeout 证据分离；DOM/state extraction、observed browser state、passive context 等 fallback 不能替代正式关闭条件
+- closeout evidence 是否来自当前 PR latest head 或 current latest main 的 fresh run；旧 head、旧 artifact、历史 run 或 same-head 历史产物只能作为背景
+- PR 元数据是否声明 `issue_type`、`readiness_admission_status`、`closeout_evidence`、`fallback_limitations` 和 `blocker_split_handling`
+
 ## 必查维度
 
 - 需求与意图
@@ -107,6 +121,7 @@
   - `joint_acceptance_needed=yes` 或 `merge_gate=integration_check_required` 时，是否已在提 PR 前与合并前核对 integration 状态
 - 流程与元数据合规
   - 是否满足提交信息规范、PR 描述规范、`Fixes #...` / `refs #...` 使用时机、目标分支与仓库合并策略
+  - 若 PR 是 closeout / live closeout / formal completion PR，是否声明 issue 类型、readiness/admission 状态、关闭证据、fallback 限制和 blocker 拆分处理
   - 若 PR 属于 formal spec review PR、治理落库/治理维护 PR 或落入“真实 Live Evidence 专项门禁”，PR 描述是否完整提供必需的结构化 `gate_applicability`
   - 若 PR 自报或实质上属于治理相关 lane，是否同时满足“精确五文件范围 + `governance_context_issue_ref` + 与 lane 一致的 closing 语义”；若不满足，是否已按 blocker 处理，而不是退回普通 PR
   - 若 PR 落入“真实 Live Evidence 专项门禁”，PR 描述是否完整提供 `live_evidence_record`，且字段、来源和 latest head 一致性可复核
@@ -127,6 +142,11 @@
   - 若出现扩 scope，是否已拆分为新分支/新 PR，而不是继续回灌到当前 PR
 - 本地门禁可见性
   - 若 PR 声明通过本地创建脚本发起，是否在 PR 描述或评论中提供了可复核的门禁执行证据
+- closeout 元数据完整性
+  - 对 closeout / live closeout / formal completion PR，是否已写明 `issue_type`、`readiness_admission_status`、`closeout_evidence`、`fallback_limitations`、`blocker_split_handling`
+  - 对 high-risk live / real-browser / account-touching closeout，是否已写明 readiness matrix 和 live validation ladder 的实际通过阶段
+  - 是否明确区分 fresh closing evidence、historical context、fallback value 和 unresolved blockers
+  - 若 closeout 中出现失败，是否停在失败检查点并拆出 blocker，而不是继续重复 probing
 - live evidence 元数据完整性
   - 对 formal spec review PR、治理落库/治理维护 PR 与所有落入专项门禁的 PR，是否已显式提供 `gate_applicability`
   - 对治理落库/治理维护 PR，是否已显式核对 `governance_context_issue_ref`、精确五文件范围、formal spec review 前置是否满足，以及是否存在 FR-0016 spec / `TODO.md` handoff 与治理文件混线
@@ -226,6 +246,8 @@
 - 高风险改动缺少关键验证或回滚说明
 - 存在安全、滥用、权限或数据风险
 - 流程与元数据不合规，且会影响合并判断，例如在 `spike/spec-ready` 阶段误用 `Fixes #...`
+- closeout PR 把 implementation discovery、repeated probing、fallback 产品价值或历史 artifact 混作正式关闭证据
+- high-risk live / real-browser / account-touching closeout 缺少执行前 readiness/admission 证据，或 live 失败后未停在失败检查点并拆分 blocker
 - formal spec review PR、治理落库/治理维护 PR 或落入“真实 Live Evidence 专项门禁”的 PR 缺少必需的 `gate_applicability`
 - 治理落库/治理维护 PR 缺少 `governance_context_issue_ref`、未精确命中五处冻结治理目标文件，或 `governance_context_issue_ref` 与 `review_lane`/closing 语义不一致
 - 同一 PR 同时触碰 FR-0016 正式契约文件，或触碰 `docs/dev/specs/FR-0016-live-evidence-governance-gate/TODO.md`，且又触碰任一治理落库目标文件
