@@ -9,6 +9,15 @@
 - 如果存在高概率行为回归、安全风险、关键验证缺失、错误关闭语义或合并元数据不合规，默认给出阻断性结论。
 - 对应 GitHub Issue 已存在时，完整实现闭环使用 `Fixes #...`；Spike、规约、研究或部分完成场景使用 `Refs #...`。
 - findings 必须聚焦可操作的阻断性问题，并附带尽量精确的 diff 内代码位置。
+- closeout issue 只允许收口已满足的关闭条件；若 PR 继续承载 implementation discovery、需求发现或 repeated probing，必须阻断。
+- high-risk live / real-browser / account-touching closeout 在执行前必须已有 readiness/admission 证据；缺失时不得批准 live closeout 或自动关闭 issue。
+- readiness matrix 至少覆盖 runtime/profile/lock、extension/native messaging、account safety、anti-detection baseline、gate/admission/audit、route evidence evaluator、required headers verifier、stop/cleanup proof。
+- live 验证必须按 `static tests -> runtime.status/audit -> dry_run -> recon -> single-route limited live -> route evidence evaluator -> full bundle` 阶梯推进；任一步失败即停。
+- 一轮 live 只回答一个问题；若同一轮混验多条 route、headers、恢复、风控和 cleanup，证据默认不可判定。
+- live closeout 失败后必须停在失败检查点并拆分 blocker 归属；不得继续推进整个 bundle 来滚动探测。
+- fallback 产品价值必须与 formal closeout 证据分离；DOM/state extraction、observed context 或 fallback 结果不能替代正式关闭条件。
+- live evidence closeout 必须使用当前 PR latest head 或 current latest main 的 fresh evidence；旧 head、历史 artifact、旧 run 或 same-head 历史产物只能作为背景。
+- closeout / live closeout / formal completion PR 必须在 PR 描述中声明 `issue_type`、`readiness_admission_status`、`closeout_evidence`、`fallback_limitations` 和 `blocker_split_handling`。
 - 若事项触及跨仓共享契约、跨仓依赖或联合验收，先核对 PR 描述中的 `integration_check`；缺失时不得默认视为本地单仓事项。
 - 若当前 PR 改 integration gate / review 语义、联合验收口径或其他共享协作契约，即使 diff 只落在治理文档，也必须按 integration-gated 事项审查；不得因“未改实现代码”而跳过 `integration_check`。
 - 真实 Live Evidence 专项门禁只适用于声称完成真实 runtime / 真实页面交互 / 真实 live read-write 闭环，或把 live evidence 作为关闭 issue、判定“已完成”或请求 merge 放行核心依据的 PR。

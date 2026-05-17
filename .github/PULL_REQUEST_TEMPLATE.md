@@ -18,6 +18,24 @@
 - 已执行：
 - 未执行：
 
+## closeout_control（关闭 issue、formal closeout 或以 live evidence 作为完成依据时必填；不适用写 `N/A`）
+
+- issue_type（`implementation` / `spike` / `spec` / `closeout` / `governance` / `other`）:
+- readiness_admission_status（执行前 readiness/admission 证据；无则写 blocked 原因）:
+- readiness_matrix（runtime/profile/lock、extension/native messaging、account safety、anti-detection baseline、gate/admission/audit、route evaluator、required headers verifier、stop/cleanup proof 的状态；不适用写 `N/A`）:
+- live_validation_ladder（`static tests -> runtime.status/audit -> dry_run -> recon -> single-route limited live -> route evidence evaluator -> full bundle` 当前推进到哪一步；不适用写 `N/A`）:
+- closeout_evidence（本 PR/latest head 的关闭证据；不得只写历史 artifact）:
+- fallback_limitations（fallback / DOM-state / observed context 的边界；不适用写 `N/A`）:
+- blocker_split_handling（失败检查点与 blocker 归属拆分；无 blocker 写 `N/A`）:
+
+补充说明：
+
+- closeout issue 只收口已满足的关闭条件，不承载实现探索、需求发现或重复 probing。
+- high-risk live / real-browser / account-touching closeout 在实际执行前必须具备 readiness/admission 证据。
+- live 验证必须阶梯推进，一轮 live 只回答一个问题；失败后必须停在失败检查点并拆分 blocker，不能继续推进整个 bundle。
+- fallback 产品价值必须与 formal closeout 证据分离，不能替代正式关闭条件。
+- live evidence closeout 必须基于当前 PR latest head 或 current latest main 的 fresh evidence。
+
 ## integration_check
 
 - integration_applicable（`yes` / `no`）:
@@ -97,6 +115,7 @@
 - [ ] 已确认标题和提交信息符合中文 Conventional Commits 约束
 - [ ] 已补充与风险相匹配的验证证据
 - [ ] 如有对应 Issue，已在 PR 描述中显式写出正确的关闭语义（`Fixes #...` 或 `Refs #...`）
+- [ ] 若本 PR 是 closeout / live closeout / formal completion PR，已填写 `closeout_control`，并确认未把实现探索、重复 probing、fallback 产品价值或历史 artifact 当作正式关闭证据
 - [ ] 若本 PR 属于 formal spec review PR、live evidence 治理落库/治理维护 PR 或落入真实 live evidence 专项门禁，已补齐 `gate_applicability`
 - [ ] 若本 PR 属于治理相关 lane，已确认 `governance_context_issue_ref`、`review_lane`、精确五文件治理范围与 closing 语义彼此一致，且未混入 FR-0016 formal spec / `docs/dev/specs/FR-0016-live-evidence-governance-gate/TODO.md` 范围
 - [ ] 若本 PR 落入真实 live evidence 专项门禁，已补齐 latest head 的有效 `live_evidence_record`，且未把 stub/fake host、`runtime.ping` 或 `runtime.bootstrap` 误写为真实闭环证据
