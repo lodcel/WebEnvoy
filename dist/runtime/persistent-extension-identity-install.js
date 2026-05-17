@@ -296,6 +296,44 @@ const resolveLatestMtimeMs = async (path) => {
     }
     return latest;
 };
+const resolveFileMtimeMs = async (path) => {
+    try {
+        const stat = await lstat(path);
+        if (stat.isSymbolicLink()) {
+            const resolvedPath = await realpath(path);
+            const resolvedStat = await lstat(resolvedPath);
+            return resolvedStat.isDirectory() ? null : resolvedStat.mtimeMs;
+        }
+        return stat.isDirectory() ? null : stat.mtimeMs;
+    }
+    catch {
+        return null;
+    }
+};
+const resolveExtensionBundleLatestMtimeMs = async (extensionPath) => {
+    const manifestPath = join(extensionPath, "manifest.json");
+    const bundlePaths = new Set([manifestPath, join(extensionPath, "build", "background.js")]);
+    try {
+        const raw = await readFile(manifestPath, "utf8");
+        const manifest = asRecord(JSON.parse(raw));
+        const background = manifest ? asRecord(manifest.background) : null;
+        const serviceWorkerPath = background ? asNonEmptyString(background.service_worker) : null;
+        if (serviceWorkerPath) {
+            bundlePaths.add(join(extensionPath, serviceWorkerPath));
+        }
+    }
+    catch {
+        // Missing or invalid manifest falls back to the conventional built background bundle path.
+    }
+    let latest = null;
+    for (const bundlePath of bundlePaths) {
+        const mtimeMs = await resolveFileMtimeMs(bundlePath);
+        if (mtimeMs !== null) {
+            latest = latest === null ? mtimeMs : Math.max(latest, mtimeMs);
+        }
+    }
+    return latest;
+};
 const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
     const preferenceCandidates = [
         join(profileDir, "Default", "Preferences"),
@@ -337,7 +375,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, 
             recoveryHint: null
         };
     }
-    const extensionLatestMtimeMs = await resolveLatestMtimeMs(extensionPath);
+    const extensionLatestMtimeMs = await resolveExtensionBundleLatestMtimeMs(extensionPath);
     if (extensionLatestMtimeMs === null) {
         return {
             state: "unknown",
