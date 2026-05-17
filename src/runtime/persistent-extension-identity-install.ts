@@ -408,6 +408,9 @@ const resolveLatestMtimeMs = async (path: string): Promise<number | null> => {
     } catch {
       continue;
     }
+    if (entries.length > 0) {
+      latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
+    }
     for (const entry of entries) {
       if (entry.name === "node_modules" || entry.name === ".git") {
         continue;
@@ -499,7 +502,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  if (extensionLatestMtimeMs >= serviceWorkerLatestMtimeMs) {
+  if (extensionLatestMtimeMs > serviceWorkerLatestMtimeMs) {
     return {
       state: "stale",
       reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",

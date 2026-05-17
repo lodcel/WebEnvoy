@@ -1546,7 +1546,7 @@ describe("runIdentityPreflight", () => {
     });
   });
 
-  it("fails closed when extension build and service worker cache share the same timestamp", async () => {
+  it("allows extension build and service worker cache to share the same timestamp", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-same-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-same-sw-"));
     const manifestPath = join(
@@ -1566,6 +1566,8 @@ describe("runIdentityPreflight", () => {
     await mkdir(dirname(extensionBuildFile), { recursive: true });
     await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'same-second';\n", "utf8");
     await utimes(extensionBuildFile, sameTimestamp, sameTimestamp);
+    await utimes(dirname(extensionBuildFile), sameTimestamp, sameTimestamp);
+    await utimes(unpackedDir, sameTimestamp, sameTimestamp);
     await writeServiceWorkerCache({
       profileDir,
       mtime: sameTimestamp
@@ -1609,11 +1611,104 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: true,
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
       extensionServiceWorkerFreshness: {
-        state: "stale",
-        reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+        state: "fresh",
+        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        extensionPath: unpackedDir
+      }
+    });
+  });
+
+  it("uses non-empty service worker directory mtime as freshness evidence", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-dir-mtime-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-dir-mtime-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-dir-mtime-sw-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'dir-mtime';\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      dirname(extensionBuildFile),
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      unpackedDir,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: new Date("2026-04-30T00:00:00.000Z")
+    });
+    await utimes(
+      join(profileDir, "Default", "Service Worker"),
+      new Date("2026-05-02T00:00:00.000Z"),
+      new Date("2026-05-02T00:00:00.000Z")
+    );
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      extensionServiceWorkerFreshness: {
+        state: "fresh",
+        reason: "SERVICE_WORKER_CACHE_CURRENT",
         extensionPath: unpackedDir
       }
     });
