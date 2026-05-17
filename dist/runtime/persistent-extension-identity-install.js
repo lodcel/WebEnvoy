@@ -426,7 +426,9 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
     if (latest !== null) {
         return latest;
     }
-    return await resolveTargetExtensionReferenceLatestMtimeMs(join(serviceWorkerPath, "Database"), extensionId);
+    return (await resolveTargetExtensionReferenceLatestMtimeMs(join(serviceWorkerPath, "Database"), extensionId)) !== null
+        ? 0
+        : null;
 };
 const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
     const preferenceCandidates = [

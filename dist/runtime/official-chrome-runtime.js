@@ -603,6 +603,18 @@ export const prepareOfficialChromeRuntime = async (input) => {
         });
     }
     if (identityBindingState === "mismatch") {
+        const currentIdentityPreflight = asObject(status.identityPreflight);
+        if (asNonEmptyString(currentIdentityPreflight?.failureReason) ===
+            "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED") {
+            throw new CliError("ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED", "managed profile 的 persistent extension Service Worker 缓存早于当前 extension build，已阻止继续执行", {
+                details: {
+                    ...buildBaseDetails(),
+                    reason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+                    identity_preflight: currentIdentityPreflight
+                },
+                retryable: false
+            });
+        }
         throw new CliError("ERR_RUNTIME_IDENTITY_MISMATCH", "official Chrome runtime identity 不一致", {
             details: {
                 ...buildBaseDetails(),

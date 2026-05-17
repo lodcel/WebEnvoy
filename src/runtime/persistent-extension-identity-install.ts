@@ -566,10 +566,12 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   if (latest !== null) {
     return latest;
   }
-  return await resolveTargetExtensionReferenceLatestMtimeMs(
+  return (await resolveTargetExtensionReferenceLatestMtimeMs(
     join(serviceWorkerPath, "Database"),
     extensionId
-  );
+  )) !== null
+    ? 0
+    : null;
 };
 
 const resolveEnabledUnpackedPath = async (
