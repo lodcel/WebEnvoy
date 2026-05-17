@@ -350,6 +350,7 @@ const isTargetServiceWorkerCacheFile = async (path, extensionId) => {
 };
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, extensionId) => {
     let latest = null;
+    let conservativeOldest = null;
     const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
     const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
     const pending = [rootPath];
@@ -369,6 +370,8 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
             continue;
         }
         if (!stat.isDirectory()) {
+            conservativeOldest =
+                conservativeOldest === null ? stat.mtimeMs : Math.min(conservativeOldest, stat.mtimeMs);
             if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
                 latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
             }
@@ -385,7 +388,7 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
             pending.push(join(currentPath, entry.name));
         }
     }
-    return latest;
+    return latest ?? conservativeOldest;
 };
 const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
     const preferenceCandidates = [

@@ -1471,6 +1471,88 @@ describe("runIdentityPreflight", () => {
     });
   });
 
+  it("fails closed for opaque stale script cache files without extension id bytes", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-opaque-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-opaque-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-opaque-sw-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    const serviceWorkerDir = join(profileDir, "Default", "Service Worker", "ScriptCache");
+    const opaqueCacheFile = join(serviceWorkerDir, "opaque-cache-entry");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await mkdir(serviceWorkerDir, { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'opaque';\n", "utf8");
+    await writeFile(opaqueCacheFile, "\u0000opaque chrome script cache bytes\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      opaqueCacheFile,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      extensionServiceWorkerFreshness: {
+        state: "stale",
+        reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+        extensionPath: unpackedDir
+      }
+    });
+  });
+
   it("fails closed when unpacked extension root is symlinked to a newer build", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-symlink-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-symlink-sw-"));
