@@ -348,7 +348,8 @@ const isTargetServiceWorkerCacheFile = async (path, extensionId) => {
         return false;
     }
 };
-const directoryContainsTargetExtensionReference = async (path, extensionId) => {
+const resolveTargetExtensionReferenceLatestMtimeMs = async (path, extensionId) => {
+    let latest = null;
     const rootPath = await realpath(path).catch(() => path);
     const pending = [rootPath];
     while (pending.length > 0) {
@@ -368,7 +369,7 @@ const directoryContainsTargetExtensionReference = async (path, extensionId) => {
         }
         if (!stat.isDirectory()) {
             if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
-                return true;
+                latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
             }
             continue;
         }
@@ -383,11 +384,10 @@ const directoryContainsTargetExtensionReference = async (path, extensionId) => {
             pending.push(join(currentPath, entry.name));
         }
     }
-    return false;
+    return latest;
 };
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, extensionId) => {
     let latest = null;
-    let conservativeOldest = null;
     const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
     const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
     const pending = [rootPath];
@@ -407,8 +407,6 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
             continue;
         }
         if (!stat.isDirectory()) {
-            conservativeOldest =
-                conservativeOldest === null ? stat.mtimeMs : Math.min(conservativeOldest, stat.mtimeMs);
             if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
                 latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
             }
@@ -428,12 +426,7 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, e
     if (latest !== null) {
         return latest;
     }
-    if (conservativeOldest === null) {
-        return null;
-    }
-    return (await directoryContainsTargetExtensionReference(join(serviceWorkerPath, "Database"), extensionId))
-        ? conservativeOldest
-        : null;
+    return await resolveTargetExtensionReferenceLatestMtimeMs(join(serviceWorkerPath, "Database"), extensionId);
 };
 const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
     const preferenceCandidates = [

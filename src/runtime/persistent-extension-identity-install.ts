@@ -481,10 +481,11 @@ const isTargetServiceWorkerCacheFile = async (
   }
 };
 
-const directoryContainsTargetExtensionReference = async (
+const resolveTargetExtensionReferenceLatestMtimeMs = async (
   path: string,
   extensionId: string
-): Promise<boolean> => {
+): Promise<number | null> => {
+  let latest: number | null = null;
   const rootPath = await realpath(path).catch(() => path);
   const pending = [rootPath];
 
@@ -504,7 +505,7 @@ const directoryContainsTargetExtensionReference = async (
     }
     if (!stat.isDirectory()) {
       if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
-        return true;
+        latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
       }
       continue;
     }
@@ -519,7 +520,7 @@ const directoryContainsTargetExtensionReference = async (
     }
   }
 
-  return false;
+  return latest;
 };
 
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
@@ -527,7 +528,6 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   extensionId: string
 ): Promise<number | null> => {
   let latest: number | null = null;
-  let conservativeOldest: number | null = null;
   const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
   const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
   const pending = [rootPath];
@@ -547,8 +547,6 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
       continue;
     }
     if (!stat.isDirectory()) {
-      conservativeOldest =
-        conservativeOldest === null ? stat.mtimeMs : Math.min(conservativeOldest, stat.mtimeMs);
       if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
         latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
       }
@@ -568,15 +566,10 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   if (latest !== null) {
     return latest;
   }
-  if (conservativeOldest === null) {
-    return null;
-  }
-  return (await directoryContainsTargetExtensionReference(
+  return await resolveTargetExtensionReferenceLatestMtimeMs(
     join(serviceWorkerPath, "Database"),
     extensionId
-  ))
-    ? conservativeOldest
-    : null;
+  );
 };
 
 const resolveEnabledUnpackedPath = async (

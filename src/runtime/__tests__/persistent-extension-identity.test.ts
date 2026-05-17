@@ -1516,6 +1516,11 @@ describe("runIdentityPreflight", () => {
       new Date("2026-04-30T00:00:00.000Z"),
       new Date("2026-04-30T00:00:00.000Z")
     );
+    await utimes(
+      serviceWorkerDatabaseFile,
+      new Date("2026-04-30T00:00:00.000Z"),
+      new Date("2026-04-30T00:00:00.000Z")
+    );
     await writeFile(
       manifestPath,
       `${JSON.stringify(
