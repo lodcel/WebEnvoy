@@ -15,9 +15,11 @@ import {
 } from "./persistent-extension-binding.js";
 import {
   type IdentityPreflightInstallDiagnostics,
+  type ExtensionServiceWorkerFreshnessDiagnostics,
   type IdentityManifestAdapters,
   type ManifestSource,
   readNativeHostManifest,
+  resolveProfileExtensionServiceWorkerFreshness,
   resolveInstallDiagnostics,
   resolveManifestPathForBinding,
   resolveProfileExtensionState
@@ -38,6 +40,7 @@ export interface IdentityPreflightResult {
   expectedOrigin: string | null;
   allowedOrigins: string[];
   installDiagnostics: IdentityPreflightInstallDiagnostics;
+  extensionServiceWorkerFreshness: ExtensionServiceWorkerFreshnessDiagnostics | null;
   blocking: boolean;
   failureReason:
     | "IDENTITY_PREFLIGHT_NOT_REQUIRED"
@@ -48,6 +51,7 @@ export interface IdentityPreflightResult {
     | "IDENTITY_NATIVE_HOST_NAME_MISMATCH"
     | "IDENTITY_ALLOWED_ORIGIN_MISSING"
     | "IDENTITY_BINDING_CONFLICT"
+    | "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED"
     | "BOOTSTRAP_PENDING";
 }
 
@@ -127,8 +131,25 @@ export const buildIdentityPreflightError = (
     launcher_profile_root: result.installDiagnostics.launcherProfileRoot,
     expected_profile_root: result.installDiagnostics.expectedProfileRoot,
     profile_root_matches: result.installDiagnostics.profileRootMatches,
-    legacy_launcher_detected: result.installDiagnostics.legacyLauncherDetected
+    legacy_launcher_detected: result.installDiagnostics.legacyLauncherDetected,
+    extension_service_worker_freshness_state: result.extensionServiceWorkerFreshness?.state ?? null,
+    extension_service_worker_freshness_reason: result.extensionServiceWorkerFreshness?.reason ?? null,
+    extension_service_worker_extension_path: result.extensionServiceWorkerFreshness?.extensionPath ?? null,
+    extension_service_worker_extension_mtime_ms:
+      result.extensionServiceWorkerFreshness?.extensionLatestMtimeMs ?? null,
+    extension_service_worker_cache_path: result.extensionServiceWorkerFreshness?.serviceWorkerPath ?? null,
+    extension_service_worker_cache_mtime_ms:
+      result.extensionServiceWorkerFreshness?.serviceWorkerLatestMtimeMs ?? null,
+    recovery_hint: result.extensionServiceWorkerFreshness?.recoveryHint ?? null
   };
+
+  if (result.failureReason === "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED") {
+    return new CliError(
+      "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      "managed profile 的 persistent extension Service Worker 缓存早于当前 extension build，已阻止继续执行",
+      { details, retryable: false }
+    );
+  }
 
   if (result.failureReason === "BOOTSTRAP_PENDING") {
     return new CliError(
@@ -178,6 +199,7 @@ export const runIdentityPreflight = async (input: {
         expectedOrigin: null,
         allowedOrigins: [],
         installDiagnostics: EMPTY_INSTALL_DIAGNOSTICS,
+        extensionServiceWorkerFreshness: null,
         blocking: false,
         failureReason: "IDENTITY_PREFLIGHT_NOT_REQUIRED"
       };
@@ -193,6 +215,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin: null,
       allowedOrigins: [],
       installDiagnostics: EMPTY_INSTALL_DIAGNOSTICS,
+      extensionServiceWorkerFreshness: null,
       blocking: false,
       failureReason: "IDENTITY_PREFLIGHT_NOT_REQUIRED"
     };
@@ -210,6 +233,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin: null,
       allowedOrigins: [],
       installDiagnostics: EMPTY_INSTALL_DIAGNOSTICS,
+      extensionServiceWorkerFreshness: null,
       blocking: false,
       failureReason: "IDENTITY_PREFLIGHT_NOT_REQUIRED"
     };
@@ -230,6 +254,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin: null,
       allowedOrigins: [],
       installDiagnostics: EMPTY_INSTALL_DIAGNOSTICS,
+      extensionServiceWorkerFreshness: null,
       failureReason: "IDENTITY_BINDING_MISSING"
     });
   }
@@ -253,6 +278,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin,
       allowedOrigins: [],
       installDiagnostics: EMPTY_INSTALL_DIAGNOSTICS,
+      extensionServiceWorkerFreshness: null,
       failureReason: "IDENTITY_BINDING_CONFLICT"
     });
   }
@@ -273,6 +299,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin,
       allowedOrigins: [],
       installDiagnostics: EMPTY_INSTALL_DIAGNOSTICS,
+      extensionServiceWorkerFreshness: null,
       failureReason: "IDENTITY_MANIFEST_MISSING"
     });
   }
@@ -298,6 +325,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin,
       allowedOrigins: [],
       installDiagnostics,
+      extensionServiceWorkerFreshness: null,
       failureReason: "IDENTITY_MANIFEST_MISSING"
     });
   }
@@ -324,6 +352,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin,
       allowedOrigins: manifest.allowed_origins,
       installDiagnostics,
+      extensionServiceWorkerFreshness: null,
       failureReason: "IDENTITY_MANIFEST_MISSING"
     });
   }
@@ -343,6 +372,7 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin,
       allowedOrigins: manifest.allowed_origins,
       installDiagnostics,
+      extensionServiceWorkerFreshness: null,
       failureReason: "IDENTITY_NATIVE_HOST_NAME_MISMATCH"
     });
   }
@@ -362,10 +392,12 @@ export const runIdentityPreflight = async (input: {
       expectedOrigin,
       allowedOrigins: manifest.allowed_origins,
       installDiagnostics,
+      extensionServiceWorkerFreshness: null,
       failureReason: "IDENTITY_ALLOWED_ORIGIN_MISSING"
     });
   }
 
+  let extensionServiceWorkerFreshness: ExtensionServiceWorkerFreshnessDiagnostics | null = null;
   if (profileDir) {
     const extensionState = await resolveProfileExtensionState(profileDir, binding.extensionId);
     if (extensionState !== "enabled") {
@@ -383,7 +415,29 @@ export const runIdentityPreflight = async (input: {
         expectedOrigin,
         allowedOrigins: manifest.allowed_origins,
         installDiagnostics,
+        extensionServiceWorkerFreshness: null,
         failureReason: "IDENTITY_BINDING_MISSING"
+      });
+    }
+    extensionServiceWorkerFreshness =
+      await resolveProfileExtensionServiceWorkerFreshness(profileDir, binding.extensionId);
+    if (extensionServiceWorkerFreshness.state === "stale") {
+      return buildBlockingResult({
+        mode: "official_chrome_persistent_extension",
+        browserPath,
+        browserVersion,
+        identityBindingState: "mismatch",
+        binding: {
+          ...binding,
+          manifestPath
+        },
+        manifestPath,
+        manifestSource: manifestResolution.manifestSource,
+        expectedOrigin,
+        allowedOrigins: manifest.allowed_origins,
+        installDiagnostics,
+        extensionServiceWorkerFreshness,
+        failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED"
       });
     }
   }
@@ -402,6 +456,7 @@ export const runIdentityPreflight = async (input: {
     expectedOrigin,
     allowedOrigins: manifest.allowed_origins,
     installDiagnostics,
+    extensionServiceWorkerFreshness,
     blocking: false,
     failureReason: "IDENTITY_PREFLIGHT_PASSED"
   };

@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { inspectManagedNativeHostInstall } from "../install/native-host-install-root.js";
 import { resolveManifestPathForChannel } from "../install/native-host-platform.js";
@@ -252,6 +252,316 @@ const readProfileExtensionStateFromPreferences = (input, extensionId) => {
     return {
         state: "enabled",
         unpackedPath
+    };
+};
+const resolveLatestMtimeMs = async (path) => {
+    let latest = null;
+    const rootPath = await realpath(path).catch(() => path);
+    const pending = [rootPath];
+    while (pending.length > 0) {
+        const currentPath = pending.pop();
+        if (!currentPath) {
+            continue;
+        }
+        let stat;
+        try {
+            stat = await lstat(currentPath);
+        }
+        catch {
+            continue;
+        }
+        if (stat.isSymbolicLink()) {
+            continue;
+        }
+        if (!stat.isDirectory()) {
+            latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
+            continue;
+        }
+        let entries;
+        try {
+            entries = await readdir(currentPath, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            if (entry.name === "node_modules" || entry.name === ".git") {
+                continue;
+            }
+            pending.push(join(currentPath, entry.name));
+        }
+    }
+    return latest;
+};
+const resolveFileMtimeMs = async (path) => {
+    try {
+        const stat = await lstat(path);
+        if (stat.isSymbolicLink()) {
+            const resolvedPath = await realpath(path);
+            const resolvedStat = await lstat(resolvedPath);
+            return resolvedStat.isDirectory() ? null : resolvedStat.mtimeMs;
+        }
+        return stat.isDirectory() ? null : stat.mtimeMs;
+    }
+    catch {
+        return null;
+    }
+};
+const resolveExtensionBundleLatestMtimeMs = async (extensionPath) => {
+    const manifestPath = join(extensionPath, "manifest.json");
+    const buildLatestMtimeMs = await resolveLatestMtimeMs(join(extensionPath, "build"));
+    const bundlePaths = new Set([manifestPath]);
+    try {
+        const raw = await readFile(manifestPath, "utf8");
+        const manifest = asRecord(JSON.parse(raw));
+        const background = manifest ? asRecord(manifest.background) : null;
+        const serviceWorkerPath = background ? asNonEmptyString(background.service_worker) : null;
+        if (serviceWorkerPath) {
+            bundlePaths.add(join(extensionPath, serviceWorkerPath));
+        }
+    }
+    catch {
+        // Missing or invalid manifest falls back to the conventional built background bundle path.
+    }
+    let latest = null;
+    if (buildLatestMtimeMs !== null) {
+        latest = buildLatestMtimeMs;
+    }
+    for (const bundlePath of bundlePaths) {
+        const mtimeMs = await resolveFileMtimeMs(bundlePath);
+        if (mtimeMs !== null) {
+            latest = latest === null ? mtimeMs : Math.max(latest, mtimeMs);
+        }
+    }
+    return latest;
+};
+const isTargetServiceWorkerCacheFile = async (path, extensionId) => {
+    if (path.includes(extensionId)) {
+        return true;
+    }
+    try {
+        const content = await readFile(path);
+        return (content.includes(Buffer.from(extensionId)) ||
+            content.includes(Buffer.from(`chrome-extension://${extensionId}`)));
+    }
+    catch {
+        return false;
+    }
+};
+const resolveTargetExtensionReferenceLatestMtimeMs = async (path, extensionId) => {
+    let latest = null;
+    const rootPath = await realpath(path).catch(() => path);
+    const pending = [rootPath];
+    while (pending.length > 0) {
+        const currentPath = pending.pop();
+        if (!currentPath) {
+            continue;
+        }
+        let stat;
+        try {
+            stat = await lstat(currentPath);
+        }
+        catch {
+            continue;
+        }
+        if (stat.isSymbolicLink()) {
+            continue;
+        }
+        if (!stat.isDirectory()) {
+            if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
+                latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
+            }
+            continue;
+        }
+        let entries;
+        try {
+            entries = await readdir(currentPath, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            pending.push(join(currentPath, entry.name));
+        }
+    }
+    return latest;
+};
+const resolveTargetServiceWorkerCacheLatestMtimeMs = async (serviceWorkerPath, extensionId) => {
+    let latest = null;
+    let opaqueLatest = null;
+    const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
+    const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
+    const pending = [rootPath];
+    while (pending.length > 0) {
+        const currentPath = pending.pop();
+        if (!currentPath) {
+            continue;
+        }
+        let stat;
+        try {
+            stat = await lstat(currentPath);
+        }
+        catch {
+            continue;
+        }
+        if (stat.isSymbolicLink()) {
+            continue;
+        }
+        if (!stat.isDirectory()) {
+            if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
+                latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
+            }
+            else {
+                opaqueLatest =
+                    opaqueLatest === null ? stat.mtimeMs : Math.max(opaqueLatest, stat.mtimeMs);
+            }
+            continue;
+        }
+        let entries;
+        try {
+            entries = await readdir(currentPath, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            pending.push(join(currentPath, entry.name));
+        }
+    }
+    if (latest !== null) {
+        return {
+            mtimeMs: latest,
+            source: "script_cache"
+        };
+    }
+    const registrationLatestMtimeMs = await resolveTargetExtensionReferenceLatestMtimeMs(join(serviceWorkerPath, "Database"), extensionId);
+    if (registrationLatestMtimeMs === null) {
+        return null;
+    }
+    if (opaqueLatest !== null) {
+        return {
+            mtimeMs: opaqueLatest,
+            source: "registration_database_with_opaque_script_cache"
+        };
+    }
+    return {
+        mtimeMs: registrationLatestMtimeMs,
+        source: "registration_database"
+    };
+};
+const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
+    const preferenceCandidates = [
+        join(profileDir, "Default", "Preferences"),
+        join(profileDir, "Default", "Secure Preferences"),
+        join(profileDir, "Secure Preferences")
+    ];
+    for (const preferencePath of preferenceCandidates) {
+        try {
+            const raw = await readFile(preferencePath, "utf8");
+            const parsed = JSON.parse(raw);
+            const record = asRecord(parsed);
+            if (!record) {
+                continue;
+            }
+            const preferenceState = readProfileExtensionStateFromPreferences(record, extensionId);
+            if (preferenceState.state === "enabled" && preferenceState.unpackedPath) {
+                return preferenceState.unpackedPath;
+            }
+        }
+        catch {
+            // ignore preference file read/parse failures and continue probing
+        }
+    }
+    return null;
+};
+export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, extensionId) => {
+    const serviceWorkerPath = join(profileDir, "Default", "Service Worker");
+    const extensionPath = await resolveEnabledUnpackedPath(profileDir, extensionId);
+    const recoveryHint = "Stop the WebEnvoy-managed runtime, refresh only this managed profile's Default/Service Worker cache, then rerun runtime.install/runtime.start; do not touch a daily Chrome profile.";
+    if (!extensionPath) {
+        return {
+            state: "not_applicable",
+            reason: "PROFILE_EXTENSION_NOT_UNPACKED",
+            extensionId,
+            extensionPath: null,
+            extensionLatestMtimeMs: null,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs: null,
+            recoveryHint: null
+        };
+    }
+    const extensionLatestMtimeMs = await resolveExtensionBundleLatestMtimeMs(extensionPath);
+    if (extensionLatestMtimeMs === null) {
+        return {
+            state: "unknown",
+            reason: "EXTENSION_SOURCE_MTIME_UNAVAILABLE",
+            extensionId,
+            extensionPath,
+            extensionLatestMtimeMs: null,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs: null,
+            recoveryHint: null
+        };
+    }
+    const serviceWorkerCacheMtime = await resolveTargetServiceWorkerCacheLatestMtimeMs(serviceWorkerPath, extensionId);
+    const serviceWorkerLatestMtimeMs = serviceWorkerCacheMtime?.mtimeMs ?? null;
+    if (serviceWorkerLatestMtimeMs === null) {
+        return {
+            state: "unknown",
+            reason: "SERVICE_WORKER_CACHE_MISSING",
+            extensionId,
+            extensionPath,
+            extensionLatestMtimeMs,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs: null,
+            recoveryHint: null
+        };
+    }
+    if (serviceWorkerCacheMtime?.source === "registration_database") {
+        return {
+            state: "unknown",
+            reason: "SERVICE_WORKER_CACHE_MISSING",
+            extensionId,
+            extensionPath,
+            extensionLatestMtimeMs,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs: null,
+            recoveryHint: null
+        };
+    }
+    if (extensionLatestMtimeMs > serviceWorkerLatestMtimeMs) {
+        return {
+            state: "stale",
+            reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+            extensionId,
+            extensionPath,
+            extensionLatestMtimeMs,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs,
+            recoveryHint
+        };
+    }
+    if (serviceWorkerCacheMtime?.source === "registration_database_with_opaque_script_cache") {
+        return {
+            state: "unknown",
+            reason: "SERVICE_WORKER_CACHE_MISSING",
+            extensionId,
+            extensionPath,
+            extensionLatestMtimeMs,
+            serviceWorkerPath,
+            serviceWorkerLatestMtimeMs: null,
+            recoveryHint: null
+        };
+    }
+    return {
+        state: "fresh",
+        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        extensionId,
+        extensionPath,
+        extensionLatestMtimeMs,
+        serviceWorkerPath,
+        serviceWorkerLatestMtimeMs,
+        recoveryHint: null
     };
 };
 export const resolveProfileExtensionState = async (profileDir, extensionId) => {
