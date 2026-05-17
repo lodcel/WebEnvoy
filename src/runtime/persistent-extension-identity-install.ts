@@ -670,19 +670,6 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  if (extensionLatestMtimeMs > serviceWorkerLatestMtimeMs) {
-    return {
-      state: "stale",
-      reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
-      extensionId,
-      extensionPath,
-      extensionLatestMtimeMs,
-      serviceWorkerPath,
-      serviceWorkerLatestMtimeMs,
-      recoveryHint
-    };
-  }
-
   if (serviceWorkerCacheMtime?.source === "registration_database") {
     return {
       state: "unknown",
@@ -693,6 +680,19 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs: null,
       recoveryHint: null
+    };
+  }
+
+  if (extensionLatestMtimeMs > serviceWorkerLatestMtimeMs) {
+    return {
+      state: "stale",
+      reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs,
+      recoveryHint
     };
   }
 

@@ -1373,6 +1373,98 @@ describe("runIdentityPreflight", () => {
     });
   });
 
+  it("does not fail closed on registration database records without script cache evidence", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-db-only-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-db-only-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-db-only-sw-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    const registrationRecord = join(
+      profileDir,
+      "Default",
+      "Service Worker",
+      "Database",
+      "registration-record"
+    );
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await mkdir(dirname(registrationRecord), { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'db-only';\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await writeFile(
+      registrationRecord,
+      `registration: chrome-extension://${EXTENSION_ID}/build/background.js\n`,
+      "utf8"
+    );
+    await utimes(
+      registrationRecord,
+      new Date("2026-04-01T00:00:00.000Z"),
+      new Date("2026-04-01T00:00:00.000Z")
+    );
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      extensionServiceWorkerFreshness: {
+        state: "unknown",
+        reason: "SERVICE_WORKER_CACHE_MISSING",
+        extensionPath: unpackedDir,
+        serviceWorkerLatestMtimeMs: null
+      }
+    });
+  });
+
   it("fails closed when managed profile service worker cache is older than unpacked extension build", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-stale-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-stale-sw-"));
@@ -1471,7 +1563,7 @@ describe("runIdentityPreflight", () => {
     });
   });
 
-  it("fails closed for opaque stale script cache files without extension id bytes", async () => {
+  it("does not fail closed for opaque script cache files without extension id bytes", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-opaque-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-opaque-sw-"));
     const manifestPath = join(
@@ -1560,13 +1652,14 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: true,
-      identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
       extensionServiceWorkerFreshness: {
-        state: "stale",
-        reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
-        extensionPath: unpackedDir
+        state: "unknown",
+        reason: "SERVICE_WORKER_CACHE_MISSING",
+        extensionPath: unpackedDir,
+        serviceWorkerLatestMtimeMs: null
       }
     });
   });
