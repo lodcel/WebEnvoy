@@ -1,0 +1,163 @@
+{
+  "schema_version": "loom-bootstrap-manifest/v1",
+  "tool": "skills/shared/scripts/loom_init.py",
+  "tool_version": "1.3.0",
+  "root_entry": "loom-init",
+  "contract_version": "1.3.0",
+  "output": ".loom/bootstrap/init-result.json",
+  "artifacts": [
+    {
+      "path": ".loom/README.md",
+      "kind": "rule-entry",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/bootstrap/intake.snapshot.json",
+      "kind": "intake",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/bootstrap/init-result.json",
+      "kind": "init-result",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/bootstrap/manifest.json",
+      "kind": "manifest",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/bootstrap/capability-map.md",
+      "kind": "capability-map",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/bin/loom_init.py",
+      "kind": "loom-tool",
+      "source": "skills/shared/scripts/loom_init.py",
+      "sha256": "373481d53e1cec6ec8038b6d7690c523072509f42109c3fa6efe59f7960f10c2"
+    },
+    {
+      "path": ".loom/bin/fact_chain_support.py",
+      "kind": "loom-tool-support",
+      "source": "skills/shared/scripts/fact_chain_support.py",
+      "sha256": "fa1305b6e68173d5e37dd83569718221707588d317c79c24a189e9279580c45c"
+    },
+    {
+      "path": ".loom/bin/governance_surface.py",
+      "kind": "loom-tool-support",
+      "source": "skills/shared/scripts/governance_surface.py",
+      "sha256": "7df0dfe0517cd808a1620dd00d0939d12a476e699dbab143c5bb8dc05d7b1d93"
+    },
+    {
+      "path": ".loom/bin/loom_flow.py",
+      "kind": "loom-tool",
+      "source": "skills/shared/scripts/loom_flow.py",
+      "sha256": "22ec0e7343eaa4ad79a458641c07917d395c763b15c5a004ab4aa42d8db651a9"
+    },
+    {
+      "path": ".loom/bin/loom_status.py",
+      "kind": "loom-tool",
+      "source": "skills/shared/scripts/loom_status.py",
+      "sha256": "31bbe5965183bf9458fccde49230a0f8d918b319088937b322c0c04a68edb948"
+    },
+    {
+      "path": ".loom/bin/runtime_paths.py",
+      "kind": "loom-tool-support",
+      "source": "skills/shared/scripts/runtime_paths.py",
+      "sha256": "2e2701f2ca131482cabf1efd00d1c58790bec807f5ef1203d7332256892653f5"
+    },
+    {
+      "path": ".loom/bin/runtime_state.py",
+      "kind": "loom-tool-support",
+      "source": "skills/shared/scripts/runtime_state.py",
+      "sha256": "049d7bc65bb1cdd25359ccf93b9b43ff2b02bd899309d2a92a317147bda7dcc4"
+    },
+    {
+      "path": ".loom/bin/loom_check.py",
+      "kind": "loom-tool",
+      "source": "skills/shared/scripts/loom_check.py",
+      "sha256": "6fea4373aa752a5d2e85d734c3109889c09dc6e32ea68c6085386207d87b3c1f"
+    },
+    {
+      "path": ".loom/companion/README.md",
+      "kind": "repo-companion-entry",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/companion/manifest.json",
+      "kind": "repo-companion-manifest",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/companion/repo-interface.json",
+      "kind": "repo-companion-interface",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/companion/interop.json",
+      "kind": "repo-companion-interop",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/companion/checkpoints.md",
+      "kind": "repo-companion-doc",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/companion/review.md",
+      "kind": "repo-companion-doc",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/companion/merge-ready.md",
+      "kind": "repo-companion-doc",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/companion/closeout.md",
+      "kind": "repo-companion-doc",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/admission-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/admission-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/review-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/review-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/merge-ready-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/merge-ready-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/closeout-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/closeout-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    }
+  ]
+}

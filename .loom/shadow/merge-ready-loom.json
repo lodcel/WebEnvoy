@@ -1,0 +1,9 @@
+{
+  "result": "pass",
+  "source_files": [
+    ".github/PULL_REQUEST_TEMPLATE.md"
+  ],
+  "source_sha256": {
+    ".github/PULL_REQUEST_TEMPLATE.md": "29e93d621837b0c4f020f641d83fb9fb89c68a1cd060796d7ef5d2629dc4965b"
+  }
+}
