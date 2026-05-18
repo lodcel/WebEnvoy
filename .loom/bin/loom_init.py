@@ -2072,9 +2072,21 @@ def verify_shadow_payload(target_root: Path, relative: str) -> list[str]:
     if source_set != hash_set:
         errors.append(f"shadow payload `{relative}` source_sha256 keys must match source_files")
     for source in source_files:
-        source_path = target_root / source
+        source_relative = Path(source)
+        if source_relative.is_absolute() or ".." in source_relative.parts:
+            errors.append(f"shadow payload `{relative}` source file must be repo-relative: {source}")
+            continue
+        source_path = (target_root / source_relative).resolve()
+        try:
+            source_path.relative_to(target_root.resolve())
+        except ValueError:
+            errors.append(f"shadow payload `{relative}` source file escapes repository: {source}")
+            continue
         if not source_path.exists():
             errors.append(f"shadow payload `{relative}` source file is missing on disk: {source}")
+            continue
+        if not source_path.is_file():
+            errors.append(f"shadow payload `{relative}` source file must be a regular file: {source}")
             continue
         expected = source_sha256.get(source)
         if not isinstance(expected, str) or not expected:
@@ -2197,6 +2209,8 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
         initial_work_items = result.get("initial_work_items")
         validated_work_items: list[dict[str, object]] = []
         if isinstance(initial_work_items, list):
+            if not initial_work_items:
+                errors.append("init-result initial_work_items must be a non-empty list")
             for work_item in initial_work_items:
                 if not isinstance(work_item, dict):
                     errors.append("every initial work item must be an object")
@@ -2223,6 +2237,8 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
                 elif attach_only and manifest_paths and set(work_item_artifacts) != manifest_paths:
                     errors.append("attach-only initial work item artifacts must match bootstrap manifest artifacts")
                 validated_work_items.append(work_item)
+        else:
+            errors.append("init-result initial_work_items must be a non-empty list")
         if attach_only:
             errors.extend(verify_companion_contracts(target_root))
             fact_chain = result.get("fact_chain")
