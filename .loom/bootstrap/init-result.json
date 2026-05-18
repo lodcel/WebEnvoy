@@ -109,7 +109,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "a9fb611867889e27a83c3822f4c9279ddf6744ae9d46628fd6ff6fdab81ba2bd"
+      "sha256": "373481d53e1cec6ec8038b6d7690c523072509f42109c3fa6efe59f7960f10c2"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
@@ -121,7 +121,7 @@
       "path": ".loom/bin/governance_surface.py",
       "kind": "loom-tool-support",
       "source": "skills/shared/scripts/governance_surface.py",
-      "sha256": "b0a8d810025c1672164e2a89a4b933aa26cbf3fd918df11a84172cdf7bdcc884"
+      "sha256": "7df0dfe0517cd808a1620dd00d0939d12a476e699dbab143c5bb8dc05d7b1d93"
     },
     {
       "path": ".loom/bin/loom_flow.py",
@@ -376,8 +376,8 @@
     "validation_entry": "python3 .loom/bin/loom_init.py verify --target .",
     "review_merge_surface": {
       "pr_template": ".github/PULL_REQUEST_TEMPLATE.md",
-      "validation_surface": ".loom/status/current.md",
-      "merge_surface": "python3 .loom/bin/loom_flow.py checkpoint merge --target . --item INIT-0001"
+      "validation_surface": "unknown",
+      "merge_surface": "unknown"
     },
     "github_control_plane": {
       "repository": "MC-and-his-Agents/WebEnvoy",

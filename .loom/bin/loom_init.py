@@ -2622,7 +2622,7 @@ def route(args: argparse.Namespace) -> int:
     registry_skill_ids, registry_error = load_registry_skill_ids()
     if registry_error:
         if runtime_state.get("carrier") == "bootstrapped-target-runtime":
-            registry_skill_ids = tuple(sorted({"loom-init", *SKILL_SIGNAL_RULES.keys()}))
+            registry_skill_ids = ("loom-init",)
         else:
             print(
                 json.dumps(

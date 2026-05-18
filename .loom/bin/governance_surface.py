@@ -2822,10 +2822,13 @@ def detect_validation_entry(root: Path, loom_state: str, *, bootstrap_mode: bool
 def detect_review_merge_surface(root: Path, loom_state: str, *, bootstrap_mode: bool, active_item_id: str = "INIT-0001") -> dict[str, str]:
     pr_template = ".github/PULL_REQUEST_TEMPLATE.md" if file_exists(root, ".github/PULL_REQUEST_TEMPLATE.md") else "unknown"
     validation_surface = ".loom/status/current.md" if file_exists(root, ".loom/status/current.md") else "unknown"
-    if bootstrap_mode and validation_surface == "unknown":
-        validation_surface = ".loom/status/current.md"
+    carriers = detect_carrier_summary(root, repository_mode="existing", planning_mode=False)
+    merge_carriers_present = all(
+        carriers.get(key, {}).get("status") == "present"
+        for key in ("work_item", "review", "status_surface")
+    )
 
-    if bootstrap_mode:
+    if bootstrap_mode and merge_carriers_present:
         merge_surface = f"python3 .loom/bin/loom_flow.py checkpoint merge --target . --item {active_item_id}"
     elif loom_state == "active":
         merge_surface = f"{command_prefix(root, 'loom_flow.py')} checkpoint merge --target . --item {active_item_id}"
