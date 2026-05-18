@@ -1930,9 +1930,16 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
     pr_template = target_root / ".github/PULL_REQUEST_TEMPLATE.md"
     if pr_template.exists():
         text = pr_template.read_text(encoding="utf-8")
-        for needle in ("## Summary", "## Validation", "## Risks And Follow-ups", "## Related Work"):
-            if needle not in text:
-                errors.append(f"PR template is missing section: {needle}")
+        required_sections = {
+            "## Summary": ("## Summary", "## 摘要"),
+            "## Validation": ("## Validation", "## 验证"),
+            "## Risks And Follow-ups": ("## Risks And Follow-ups", "## 风险级别", "## 回滚"),
+            "## Related Work": ("## Related Work", "## 关联事项"),
+        }
+        for canonical, accepted_headings in required_sections.items():
+            if not any(heading in text for heading in accepted_headings):
+                accepted = ", ".join(accepted_headings)
+                errors.append(f"PR template is missing section equivalent for {canonical}: {accepted}")
 
     flow_tool = target_root / ".loom/bin/loom_flow.py"
     if flow_tool.exists():
