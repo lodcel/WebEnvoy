@@ -7,6 +7,7 @@ WebEnvoy vendors these Loom skills so a clean checkout can read and execute the 
 - Skills are installed as real directories under `.agents/skills/loom-*`.
 - Symlinks are not allowed.
 - Each skill keeps its own `SKILL.md`, `contract.json`, `loom-package.json`, launcher script, references, and package-local `.loom-runtime`.
+- The `.agents/skills` root also keeps the installed runtime registry/layout surface: `registry.json`, `install-layout.json`, `upgrade-contract.json`, `route-matrix.md`, and `shared/**`.
 - The vendored snapshot is recorded in `manifest.json`.
 - WebEnvoy does not treat these skills as a second project truth source. They are executable entrypoints only.
 - Clean checkouts must use repo-local launcher commands such as `python3 .agents/skills/loom-init/scripts/loom-init.py verify --target .`, `python3 .agents/skills/loom-review/scripts/loom-review.py flow review --target .`, and `python3 .agents/skills/loom-spec-review/scripts/loom-spec-review.py flow spec-review --target .`.
@@ -23,12 +24,13 @@ WebEnvoy vendors these Loom skills so a clean checkout can read and execute the 
 
 1. Update the Loom source checkout to the desired revision.
 2. Copy only `loom-*` skill packages into `.agents/skills/`.
-3. Exclude local caches, `__pycache__`, logs, temporary outputs, and machine-local state.
-4. Refresh `source_revision` in each `loom-package.json`.
-5. Refresh `manifest.json`.
-6. Verify there are no symlinks and no host-specific absolute paths.
-7. Run WebEnvoy and Loom attach-only validation before opening a PR.
+3. Copy the installed runtime root files from the same Loom snapshot into `.agents/skills/`: `registry.json`, `install-layout.json`, `upgrade-contract.json`, `route-matrix.md`, and `shared/**`.
+4. Exclude local caches, `__pycache__`, logs, temporary outputs, and machine-local state.
+5. Refresh `source_revision` in each `loom-package.json`.
+6. Refresh `manifest.json`.
+7. Verify there are no symlinks and no host-specific absolute paths.
+8. Run WebEnvoy and Loom attach-only validation before opening a PR.
 
 ## Rollback
 
-Delete `.agents/skills/loom-*`, `.agents/skills/manifest.json`, and this README to return to the Phase 1 attach-only runtime state.
+Delete `.agents/skills/loom-*`, `.agents/skills/shared`, `.agents/skills/registry.json`, `.agents/skills/install-layout.json`, `.agents/skills/upgrade-contract.json`, `.agents/skills/route-matrix.md`, `.agents/skills/manifest.json`, and this README to return to the Phase 1 attach-only runtime state.

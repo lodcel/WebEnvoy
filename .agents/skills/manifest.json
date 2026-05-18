@@ -27,6 +27,11 @@
   "versioned_surfaces": {
     "always": [
       ".agents/skills/loom-*",
+      ".agents/skills/registry.json",
+      ".agents/skills/install-layout.json",
+      ".agents/skills/upgrade-contract.json",
+      ".agents/skills/route-matrix.md",
+      ".agents/skills/shared/**",
       ".agents/skills/manifest.json",
       ".agents/skills/README.md",
       ".loom/companion/**",
