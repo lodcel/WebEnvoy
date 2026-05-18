@@ -103,6 +103,13 @@
         "applicability_locator": ".github/PULL_REQUEST_TEMPLATE.md",
         "authority_locator": "code_review.md",
         "enforcement": "blocking"
+      },
+      {
+        "id": "closeout_control",
+        "summary": "WebEnvoy PR metadata block for closeout issue type, readiness, evidence freshness, fallback limits, and blocker split handling.",
+        "applicability_locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "authority_locator": "code_review.md",
+        "enforcement": "blocking"
       }
     ]
   },

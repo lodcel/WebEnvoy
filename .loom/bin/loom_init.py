@@ -776,9 +776,18 @@ def attach_only_artifact_paths(target_root: Path, install_pr_template: bool) -> 
         ".loom/bin/fact_chain_support.py",
         ".loom/bin/governance_surface.py",
         ".loom/bin/loom_flow.py",
+        ".loom/bin/loom_status.py",
         ".loom/bin/runtime_paths.py",
         ".loom/bin/runtime_state.py",
         ".loom/bin/loom_check.py",
+        ".loom/shadow/admission-loom.json",
+        ".loom/shadow/admission-repo.json",
+        ".loom/shadow/review-loom.json",
+        ".loom/shadow/review-repo.json",
+        ".loom/shadow/merge-ready-loom.json",
+        ".loom/shadow/merge-ready-repo.json",
+        ".loom/shadow/closeout-loom.json",
+        ".loom/shadow/closeout-repo.json",
     ]
     if install_pr_template or not (target_root / ".github/PULL_REQUEST_TEMPLATE.md").exists():
         artifacts.append(".github/PULL_REQUEST_TEMPLATE.md")
@@ -918,6 +927,46 @@ def initial_artifacts(target_root: Path, install_pr_template: bool, adoption_pat
                 {
                     "path": ".loom/companion/closeout.md",
                     "kind": "repo-companion-doc",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/admission-loom.json",
+                    "kind": "shadow-parity",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/admission-repo.json",
+                    "kind": "shadow-parity",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/review-loom.json",
+                    "kind": "shadow-parity",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/review-repo.json",
+                    "kind": "shadow-parity",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/merge-ready-loom.json",
+                    "kind": "shadow-parity",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/merge-ready-repo.json",
+                    "kind": "shadow-parity",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/closeout-loom.json",
+                    "kind": "shadow-parity",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/shadow/closeout-repo.json",
+                    "kind": "shadow-parity",
                     "source": "generated",
                 },
             ]
@@ -1865,7 +1914,12 @@ def verify_companion_contracts(target_root: Path) -> list[str]:
                     locator = field.get(locator_key)
                     if isinstance(locator, str) and locator and not (target_root / locator).exists():
                         errors.append(f"repo-interface metadata {locator_key} is missing on disk: {locator}")
-        for required_field in ("integration_check", "gate_applicability", "live_evidence_record"):
+        for required_field in (
+            "integration_check",
+            "gate_applicability",
+            "live_evidence_record",
+            "closeout_control",
+        ):
             if required_field not in field_ids:
                 errors.append(f"repo-interface metadata_contract.fields must include `{required_field}`")
 
@@ -1952,6 +2006,8 @@ def verify_companion_contracts(target_root: Path) -> list[str]:
                         errors.append(f"interop shadow_surfaces.{surface}.{locator_field} must be a non-empty string")
                     elif not (target_root / locator).exists():
                         errors.append(f"interop shadow surface locator is missing on disk: {locator}")
+                    else:
+                        errors.extend(verify_shadow_payload(target_root, locator))
 
     return errors
 
@@ -1970,6 +2026,49 @@ def read_required_bootstrap_manifest(target_root: Path, errors: list[str]) -> di
         errors.append("bootstrap manifest must be an object")
         return None
     return payload
+
+
+def verify_shadow_payload(target_root: Path, relative: str) -> list[str]:
+    errors: list[str] = []
+    path = target_root / relative
+    try:
+        payload = read_json(path)
+    except FileNotFoundError:
+        return [f"missing shadow payload: {relative}"]
+    except json.JSONDecodeError as exc:
+        return [f"invalid shadow payload JSON `{relative}`: {exc.msg}"]
+    if not isinstance(payload, dict):
+        return [f"shadow payload must be an object: {relative}"]
+
+    source_files = payload.get("source_files")
+    source_sha256 = payload.get("source_sha256")
+    if not isinstance(source_files, list) or not source_files:
+        errors.append(f"shadow payload `{relative}` must declare non-empty `source_files`")
+        return errors
+    if not all(isinstance(source, str) and source for source in source_files):
+        errors.append(f"shadow payload `{relative}` source_files must be non-empty strings")
+        return errors
+    if not isinstance(source_sha256, dict):
+        errors.append(f"shadow payload `{relative}` must declare `source_sha256`")
+        return errors
+
+    source_set = set(source_files)
+    hash_set = {source for source in source_sha256 if isinstance(source, str)}
+    if source_set != hash_set:
+        errors.append(f"shadow payload `{relative}` source_sha256 keys must match source_files")
+    for source in source_files:
+        source_path = target_root / source
+        if not source_path.exists():
+            errors.append(f"shadow payload `{relative}` source file is missing on disk: {source}")
+            continue
+        expected = source_sha256.get(source)
+        if not isinstance(expected, str) or not expected:
+            errors.append(f"shadow payload `{relative}` source_sha256 missing hash for `{source}`")
+            continue
+        actual = sha256_file(source_path)
+        if actual != expected:
+            errors.append(f"shadow payload `{relative}` source_sha256 drifted for `{source}`")
+    return errors
 
 
 def verify_target(target_root: Path, output_path: Path) -> list[str]:
@@ -2049,6 +2148,7 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
             if key not in result:
                 errors.append(f"init-result is missing required section: {key}")
         initial_artifacts = result.get("initial_artifacts")
+        initial_artifact_paths: set[str] = set()
         if isinstance(initial_artifacts, list):
             for artifact in initial_artifacts:
                 if not isinstance(artifact, dict):
@@ -2058,12 +2158,18 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
                 if not isinstance(artifact_path, str) or not artifact_path:
                     errors.append("every initial artifact must declare a non-empty `path`")
                     continue
+                initial_artifact_paths.add(artifact_path)
                 if not (target_root / artifact_path).exists():
                     errors.append(f"declared initial artifact is missing on disk: {artifact_path}")
         bootstrap_manifest = read_required_bootstrap_manifest(target_root, errors)
+        manifest_paths: set[str] = set()
         if bootstrap_manifest is not None:
             manifest_artifacts = bootstrap_manifest.get("artifacts")
-            manifest_paths = {artifact.get("path") for artifact in manifest_artifacts if isinstance(artifact, dict)} if isinstance(manifest_artifacts, list) else set()
+            manifest_paths = (
+                {artifact.get("path") for artifact in manifest_artifacts if isinstance(artifact, dict)}
+                if isinstance(manifest_artifacts, list)
+                else set()
+            )
             for companion_contract in (
                 ".loom/companion/manifest.json",
                 ".loom/companion/repo-interface.json",
@@ -2071,6 +2177,8 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
             ):
                 if companion_contract not in manifest_paths:
                     errors.append(f"bootstrap manifest artifacts must include `{companion_contract}`")
+            if attach_only and manifest_paths != initial_artifact_paths:
+                errors.append("attach-only bootstrap manifest artifacts must match init-result initial_artifacts")
         initial_work_items = result.get("initial_work_items")
         validated_work_items: list[dict[str, object]] = []
         if isinstance(initial_work_items, list):
@@ -2092,6 +2200,13 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
                     value = work_item.get(field)
                     if not isinstance(value, str) or not value:
                         errors.append(f"initial work item is missing required field: {field}")
+                work_item_artifacts = work_item.get("artifacts")
+                if not isinstance(work_item_artifacts, list) or not all(
+                    isinstance(artifact, str) and artifact for artifact in work_item_artifacts
+                ):
+                    errors.append("initial work item must declare `artifacts` as a non-empty string list")
+                elif attach_only and manifest_paths and set(work_item_artifacts) != manifest_paths:
+                    errors.append("attach-only initial work item artifacts must match bootstrap manifest artifacts")
                 validated_work_items.append(work_item)
         if attach_only:
             errors.extend(verify_companion_contracts(target_root))

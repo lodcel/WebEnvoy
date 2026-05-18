@@ -35,7 +35,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "a0fcf563d85df806fe36f90f0a1317c1394440e4e7607aeca3e819714c30a7e7"
+      "sha256": "5f1e484fb56da1f9d7746548fa1ef32e442654b69fc2d09ec3700600ba1703f9"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
@@ -47,7 +47,7 @@
       "path": ".loom/bin/governance_surface.py",
       "kind": "loom-tool-support",
       "source": "skills/shared/scripts/governance_surface.py",
-      "sha256": "3ec84df51716f601ab550474890fc5ca14d3b335f4ec650d6cdbffae3ccf04c8"
+      "sha256": "b0a8d810025c1672164e2a89a4b933aa26cbf3fd918df11a84172cdf7bdcc884"
     },
     {
       "path": ".loom/bin/loom_flow.py",
@@ -117,6 +117,46 @@
     {
       "path": ".loom/companion/closeout.md",
       "kind": "repo-companion-doc",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/admission-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/admission-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/review-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/review-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/merge-ready-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/merge-ready-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/closeout-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/closeout-repo.json",
+      "kind": "shadow-parity",
       "source": "generated"
     }
   ]

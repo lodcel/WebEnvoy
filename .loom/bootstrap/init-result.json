@@ -114,7 +114,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "a0fcf563d85df806fe36f90f0a1317c1394440e4e7607aeca3e819714c30a7e7"
+      "sha256": "5f1e484fb56da1f9d7746548fa1ef32e442654b69fc2d09ec3700600ba1703f9"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
@@ -126,7 +126,7 @@
       "path": ".loom/bin/governance_surface.py",
       "kind": "loom-tool-support",
       "source": "skills/shared/scripts/governance_surface.py",
-      "sha256": "3ec84df51716f601ab550474890fc5ca14d3b335f4ec650d6cdbffae3ccf04c8"
+      "sha256": "b0a8d810025c1672164e2a89a4b933aa26cbf3fd918df11a84172cdf7bdcc884"
     },
     {
       "path": ".loom/bin/loom_flow.py",
@@ -197,6 +197,46 @@
       "path": ".loom/companion/closeout.md",
       "kind": "repo-companion-doc",
       "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/admission-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/admission-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/review-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/review-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/merge-ready-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/merge-ready-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/closeout-loom.json",
+      "kind": "shadow-parity",
+      "source": "generated"
+    },
+    {
+      "path": ".loom/shadow/closeout-repo.json",
+      "kind": "shadow-parity",
+      "source": "generated"
     }
   ],
   "initial_work_items": [
@@ -227,9 +267,18 @@
         ".loom/bin/fact_chain_support.py",
         ".loom/bin/governance_surface.py",
         ".loom/bin/loom_flow.py",
+        ".loom/bin/loom_status.py",
         ".loom/bin/runtime_paths.py",
         ".loom/bin/runtime_state.py",
-        ".loom/bin/loom_check.py"
+        ".loom/bin/loom_check.py",
+        ".loom/shadow/admission-loom.json",
+        ".loom/shadow/admission-repo.json",
+        ".loom/shadow/review-loom.json",
+        ".loom/shadow/review-repo.json",
+        ".loom/shadow/merge-ready-loom.json",
+        ".loom/shadow/merge-ready-repo.json",
+        ".loom/shadow/closeout-loom.json",
+        ".loom/shadow/closeout-repo.json"
       ],
       "closing_condition": "The attach metadata, companion entry, and repo-local validation path are readable without generated Loom-owned recovery/status carriers",
       "post_build_continuation": "Extend the attached repo companion and interop surfaces without rewriting the retained host stack",
@@ -664,51 +713,105 @@
           "surface": "verification",
           "entrypoint": ".loom/bin/loom_init.py",
           "command": "python3 .loom/bin/loom_init.py verify --target .",
+          "required_carriers": [],
           "authority": "local",
           "enforcement": "advisory",
           "host_enforcement": false,
           "summary": "Run the repo-local Loom bootstrap verification entry.",
-          "runtime_present": true
+          "runtime_present": true,
+          "availability": "runnable",
+          "runnable": true,
+          "missing_inputs": []
         },
         "status": {
           "surface": "status",
           "entrypoint": ".loom/bin/loom_status.py",
-          "command": "python3 .loom/bin/loom_status.py --target . --item INIT-0001",
+          "command": null,
+          "required_carriers": [
+            "work_item",
+            "status_surface"
+          ],
           "authority": "local",
           "enforcement": "advisory",
           "host_enforcement": false,
           "summary": "Read the repo-local Loom status surface.",
-          "runtime_present": true
+          "runtime_present": true,
+          "availability": "deferred",
+          "runnable": false,
+          "missing_inputs": [
+            "work_item carrier",
+            "status_surface carrier"
+          ],
+          "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
         },
         "merge-ready": {
           "surface": "merge_ready",
           "entrypoint": ".loom/bin/loom_flow.py",
-          "command": "python3 .loom/bin/loom_flow.py flow merge-ready --target . --item INIT-0001",
+          "command": null,
+          "required_carriers": [
+            "work_item",
+            "review",
+            "status_surface"
+          ],
           "authority": "local",
           "enforcement": "advisory",
           "host_enforcement": false,
           "summary": "Run Loom's local merge-ready orchestration without taking over host merge controls.",
-          "runtime_present": true
+          "runtime_present": true,
+          "availability": "deferred",
+          "runnable": false,
+          "missing_inputs": [
+            "work_item carrier",
+            "review carrier",
+            "status_surface carrier"
+          ],
+          "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
         },
         "closeout-check": {
           "surface": "closeout",
           "entrypoint": ".loom/bin/loom_flow.py",
-          "command": "python3 .loom/bin/loom_flow.py closeout check --target .",
+          "command": null,
+          "required_carriers": [
+            "work_item",
+            "review",
+            "status_surface"
+          ],
           "authority": "local",
           "enforcement": "advisory",
           "host_enforcement": false,
           "summary": "Check closeout readiness against local Loom carriers and readable host inputs.",
-          "runtime_present": true
+          "runtime_present": true,
+          "availability": "deferred",
+          "runnable": false,
+          "missing_inputs": [
+            "work_item carrier",
+            "review carrier",
+            "status_surface carrier"
+          ],
+          "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
         },
         "reconciliation-audit": {
           "surface": "reconciliation",
           "entrypoint": ".loom/bin/loom_flow.py",
-          "command": "python3 .loom/bin/loom_flow.py reconciliation audit --target .",
+          "command": null,
+          "required_carriers": [
+            "work_item",
+            "review",
+            "status_surface"
+          ],
           "authority": "local",
           "enforcement": "advisory",
           "host_enforcement": false,
           "summary": "Audit closeout drift without mutating host state.",
-          "runtime_present": true
+          "runtime_present": true,
+          "availability": "deferred",
+          "runnable": false,
+          "missing_inputs": [
+            "work_item carrier",
+            "review carrier",
+            "status_surface carrier"
+          ],
+          "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
         }
       },
       "runtime_status": "present",
@@ -719,7 +822,13 @@
       "result": "pass",
       "missing_inputs": [],
       "missing_entrypoints": [],
-      "recommended_action": "run the repo-local aliases as advisory Loom checks, then configure host-required checks separately"
+      "deferred_aliases": [
+        "status",
+        "merge-ready",
+        "closeout-check",
+        "reconciliation-audit"
+      ],
+      "recommended_action": "run the repo-local runnable aliases only; deferred aliases require Loom-owned carriers from later adoption phases"
     },
     "governance_control_plane": {
       "schema_version": "loom-governance-control/v1",
@@ -776,51 +885,105 @@
             "surface": "verification",
             "entrypoint": ".loom/bin/loom_init.py",
             "command": "python3 .loom/bin/loom_init.py verify --target .",
+            "required_carriers": [],
             "authority": "local",
             "enforcement": "advisory",
             "host_enforcement": false,
             "summary": "Run the repo-local Loom bootstrap verification entry.",
-            "runtime_present": true
+            "runtime_present": true,
+            "availability": "runnable",
+            "runnable": true,
+            "missing_inputs": []
           },
           "status": {
             "surface": "status",
             "entrypoint": ".loom/bin/loom_status.py",
-            "command": "python3 .loom/bin/loom_status.py --target . --item INIT-0001",
+            "command": null,
+            "required_carriers": [
+              "work_item",
+              "status_surface"
+            ],
             "authority": "local",
             "enforcement": "advisory",
             "host_enforcement": false,
             "summary": "Read the repo-local Loom status surface.",
-            "runtime_present": true
+            "runtime_present": true,
+            "availability": "deferred",
+            "runnable": false,
+            "missing_inputs": [
+              "work_item carrier",
+              "status_surface carrier"
+            ],
+            "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
           },
           "merge-ready": {
             "surface": "merge_ready",
             "entrypoint": ".loom/bin/loom_flow.py",
-            "command": "python3 .loom/bin/loom_flow.py flow merge-ready --target . --item INIT-0001",
+            "command": null,
+            "required_carriers": [
+              "work_item",
+              "review",
+              "status_surface"
+            ],
             "authority": "local",
             "enforcement": "advisory",
             "host_enforcement": false,
             "summary": "Run Loom's local merge-ready orchestration without taking over host merge controls.",
-            "runtime_present": true
+            "runtime_present": true,
+            "availability": "deferred",
+            "runnable": false,
+            "missing_inputs": [
+              "work_item carrier",
+              "review carrier",
+              "status_surface carrier"
+            ],
+            "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
           },
           "closeout-check": {
             "surface": "closeout",
             "entrypoint": ".loom/bin/loom_flow.py",
-            "command": "python3 .loom/bin/loom_flow.py closeout check --target .",
+            "command": null,
+            "required_carriers": [
+              "work_item",
+              "review",
+              "status_surface"
+            ],
             "authority": "local",
             "enforcement": "advisory",
             "host_enforcement": false,
             "summary": "Check closeout readiness against local Loom carriers and readable host inputs.",
-            "runtime_present": true
+            "runtime_present": true,
+            "availability": "deferred",
+            "runnable": false,
+            "missing_inputs": [
+              "work_item carrier",
+              "review carrier",
+              "status_surface carrier"
+            ],
+            "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
           },
           "reconciliation-audit": {
             "surface": "reconciliation",
             "entrypoint": ".loom/bin/loom_flow.py",
-            "command": "python3 .loom/bin/loom_flow.py reconciliation audit --target .",
+            "command": null,
+            "required_carriers": [
+              "work_item",
+              "review",
+              "status_surface"
+            ],
             "authority": "local",
             "enforcement": "advisory",
             "host_enforcement": false,
             "summary": "Audit closeout drift without mutating host state.",
-            "runtime_present": true
+            "runtime_present": true,
+            "availability": "deferred",
+            "runnable": false,
+            "missing_inputs": [
+              "work_item carrier",
+              "review carrier",
+              "status_surface carrier"
+            ],
+            "deferred_reason": "attach-only adoption has not generated Loom-owned carriers for this alias"
           }
         },
         "runtime_status": "present",
@@ -831,7 +994,13 @@
         "result": "pass",
         "missing_inputs": [],
         "missing_entrypoints": [],
-        "recommended_action": "run the repo-local aliases as advisory Loom checks, then configure host-required checks separately"
+        "deferred_aliases": [
+          "status",
+          "merge-ready",
+          "closeout-check",
+          "reconciliation-audit"
+        ],
+        "recommended_action": "run the repo-local runnable aliases only; deferred aliases require Loom-owned carriers from later adoption phases"
       },
       "host_binding": {
         "schema_version": "loom-host-binding/v1",

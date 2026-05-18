@@ -66,6 +66,7 @@ GATE_STARTER_ALIASES = {
         "surface": "verification",
         "entrypoint": ".loom/bin/loom_init.py",
         "command": "python3 .loom/bin/loom_init.py verify --target .",
+        "required_carriers": [],
         "authority": "local",
         "enforcement": "advisory",
         "host_enforcement": False,
@@ -75,6 +76,7 @@ GATE_STARTER_ALIASES = {
         "surface": "status",
         "entrypoint": ".loom/bin/loom_status.py",
         "command": "python3 .loom/bin/loom_status.py --target . --item <current-item>",
+        "required_carriers": ["work_item", "status_surface"],
         "authority": "local",
         "enforcement": "advisory",
         "host_enforcement": False,
@@ -84,6 +86,7 @@ GATE_STARTER_ALIASES = {
         "surface": "merge_ready",
         "entrypoint": ".loom/bin/loom_flow.py",
         "command": "python3 .loom/bin/loom_flow.py flow merge-ready --target . --item <current-item>",
+        "required_carriers": ["work_item", "review", "status_surface"],
         "authority": "local",
         "enforcement": "advisory",
         "host_enforcement": False,
@@ -93,6 +96,7 @@ GATE_STARTER_ALIASES = {
         "surface": "closeout",
         "entrypoint": ".loom/bin/loom_flow.py",
         "command": "python3 .loom/bin/loom_flow.py closeout check --target .",
+        "required_carriers": ["work_item", "review", "status_surface"],
         "authority": "local",
         "enforcement": "advisory",
         "host_enforcement": False,
@@ -102,6 +106,7 @@ GATE_STARTER_ALIASES = {
         "surface": "reconciliation",
         "entrypoint": ".loom/bin/loom_flow.py",
         "command": "python3 .loom/bin/loom_flow.py reconciliation audit --target .",
+        "required_carriers": ["work_item", "review", "status_surface"],
         "authority": "local",
         "enforcement": "advisory",
         "host_enforcement": False,
@@ -2674,16 +2679,42 @@ def detect_workspace_profile(root: Path, *, host_binding: dict[str, Any]) -> dic
 def detect_gate_starter(root: Path) -> dict[str, Any]:
     active = active_entry_points(root)
     item_id = active.get("current_item_id", "INIT-0001")
+    carrier_summary = detect_carrier_summary(root, repository_mode="existing", planning_mode=False)
     aliases: dict[str, dict[str, Any]] = {}
     missing_entrypoints: list[str] = []
+    deferred_aliases: list[str] = []
     for alias, contract in GATE_STARTER_ALIASES.items():
         row = dict(contract)
         command = str(row["command"]).replace("<current-item>", item_id)
         row["command"] = command
         entrypoint = root / str(row["entrypoint"])
         row["runtime_present"] = entrypoint.exists()
+        required_carriers = row.get("required_carriers", [])
+        missing_carriers = [
+            carrier
+            for carrier in required_carriers
+            if carrier_summary.get(str(carrier), {}).get("status") != "present"
+        ]
         if not entrypoint.exists() and str(row["entrypoint"]) not in missing_entrypoints:
             missing_entrypoints.append(str(row["entrypoint"]))
+        if missing_carriers:
+            row["availability"] = "deferred"
+            row["runnable"] = False
+            row["command"] = None
+            row["missing_inputs"] = [f"{carrier} carrier" for carrier in missing_carriers]
+            row["deferred_reason"] = (
+                "attach-only adoption has not generated Loom-owned carriers for this alias"
+            )
+            if alias not in deferred_aliases:
+                deferred_aliases.append(alias)
+        elif not entrypoint.exists():
+            row["availability"] = "unavailable"
+            row["runnable"] = False
+            row["missing_inputs"] = [str(row["entrypoint"])]
+        else:
+            row["availability"] = "runnable"
+            row["runnable"] = True
+            row["missing_inputs"] = []
         aliases[alias] = row
     runtime_status = "present" if not missing_entrypoints else "missing"
     return {
@@ -2697,8 +2728,9 @@ def detect_gate_starter(root: Path) -> dict[str, Any]:
         "result": "pass",
         "missing_inputs": [],
         "missing_entrypoints": missing_entrypoints,
+        "deferred_aliases": deferred_aliases,
         "recommended_action": (
-            "run the repo-local aliases as advisory Loom checks, then configure host-required checks separately"
+            "run the repo-local runnable aliases only; deferred aliases require Loom-owned carriers from later adoption phases"
             if not missing_entrypoints
             else "install or refresh repo-local Loom runtime entries before using gate starter aliases"
         ),
