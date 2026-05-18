@@ -1,0 +1,123 @@
+{
+  "schema_version": "loom-repo-interface/v2",
+  "companion_entry": ".loom/companion/README.md",
+  "repo_specific_requirements": {
+    "review": [
+      {
+        "id": "webenvoy-implementation-review-instructions",
+        "summary": "Implementation review must use WebEnvoy's repository-owned review standard.",
+        "locator": "code_review.md",
+        "enforcement": "blocking"
+      },
+      {
+        "id": "webenvoy-root-rules",
+        "summary": "Review must honor WebEnvoy's root repository rules and delivery discipline.",
+        "locator": "AGENTS.md",
+        "enforcement": "blocking"
+      },
+      {
+        "id": "webenvoy-dev-workflow-rules",
+        "summary": "Review must honor WebEnvoy's docs/dev workflow, FR, worktree, and maturity rules.",
+        "locator": "docs/dev/AGENTS.md",
+        "enforcement": "blocking"
+      }
+    ],
+    "merge_ready": [
+      {
+        "id": "webenvoy-merge-gate-rules",
+        "summary": "Merge-ready must consume WebEnvoy's guardian, GitHub checks, PR metadata, live evidence, and integration gate rules.",
+        "locator": "code_review.md",
+        "enforcement": "blocking"
+      },
+      {
+        "id": "webenvoy-pr-template-metadata",
+        "summary": "Merge-ready must preserve WebEnvoy's PR metadata contract, including integration_check and gate_applicability.",
+        "locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "enforcement": "blocking"
+      }
+    ],
+    "closeout": [
+      {
+        "id": "webenvoy-closeout-discipline",
+        "summary": "Closeout must honor WebEnvoy's issue closing semantics, live evidence freshness, and blocker split rules.",
+        "locator": "AGENTS.md",
+        "enforcement": "blocking"
+      },
+      {
+        "id": "webenvoy-dev-closeout-rules",
+        "summary": "Closeout must keep GitHub Issues and Projects as the progress truth and avoid local backlog truth.",
+        "locator": "docs/dev/AGENTS.md",
+        "enforcement": "blocking"
+      }
+    ]
+  },
+  "specialized_gates": [
+    {
+      "id": "webenvoy-live-evidence-gate",
+      "summary": "PRs that claim real browser, live read/write, or formal closeout evidence must satisfy WebEnvoy's live evidence gate.",
+      "locator": "code_review.md",
+      "gate_type": "merge_ready"
+    },
+    {
+      "id": "webenvoy-integration-check",
+      "summary": "PRs touching cross-repo shared contracts or integration governance must satisfy WebEnvoy's integration_check metadata.",
+      "locator": ".github/PULL_REQUEST_TEMPLATE.md",
+      "gate_type": "merge_ready"
+    },
+    {
+      "id": "webenvoy-spec-review-gate",
+      "summary": "Formal FR and architecture changes must pass WebEnvoy's repository-owned spec review rules.",
+      "locator": "spec_review.md",
+      "gate_type": "review"
+    }
+  ],
+  "review_instruction_locators": {
+    "spec_review": {
+      "locator": "spec_review.md",
+      "mode": "repo_declared"
+    },
+    "implementation_review": {
+      "locator": "code_review.md",
+      "mode": "repo_declared"
+    }
+  },
+  "metadata_contract": {
+    "fields": [
+      {
+        "id": "integration_check",
+        "summary": "WebEnvoy PR metadata block for cross-repo shared contract and integration readiness.",
+        "locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "surface": "merge_ready"
+      },
+      {
+        "id": "gate_applicability",
+        "summary": "WebEnvoy PR metadata block for formal spec review, governance lanes, and live evidence gate applicability.",
+        "locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "surface": "review"
+      },
+      {
+        "id": "live_evidence_record",
+        "summary": "WebEnvoy PR metadata block for latest-head fresh live evidence when the live evidence gate applies.",
+        "locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "surface": "merge_ready"
+      }
+    ]
+  },
+  "context_schema": {
+    "fields": [
+      {
+        "id": "fr_suite",
+        "summary": "Formal WebEnvoy FR suites live under docs/dev/specs/FR-XXXX-* and remain repo-owned truth.",
+        "locator": "docs/dev/specs"
+      },
+      {
+        "id": "github_progress_truth",
+        "summary": "GitHub Issues and Projects remain the authoritative progress and backlog truth.",
+        "locator": "AGENTS.md"
+      }
+    ]
+  },
+  "dynamic_tool_locators": [],
+  "policy_locators": [],
+  "hook_locators": []
+}

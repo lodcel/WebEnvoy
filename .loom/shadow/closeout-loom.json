@@ -1,0 +1,9 @@
+{
+  "result": "done",
+  "source_files": [
+    ".loom/README.md"
+  ],
+  "source_sha256": {
+    ".loom/README.md": "bf7c0242abde0fa5d656295ba9f52d9c4fa3f02e7895bf347f9cb1728cdf8a5e"
+  }
+}
