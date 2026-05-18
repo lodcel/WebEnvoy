@@ -742,11 +742,6 @@ def deferred_capabilities(scenario: str, adoption_path: str) -> list[dict[str, s
                 "reason": "the first attach-only round must preserve repo-native carriers instead of generating Loom-owned recovery/status placeholders",
                 "upgrade_trigger": "the repo needs Loom-owned recovery or status carriers to stabilize multi-round execution",
             },
-            {
-                "name": "typed-repo-companion-and-interop",
-                "reason": "the first attach-only round only establishes the stable entry and read surface",
-                "upgrade_trigger": "the repo needs typed gates, metadata contracts, host adapters, or shadow parity",
-            },
         ]
     return [
         {
@@ -1422,6 +1417,16 @@ def repo_interop_payload() -> dict[str, object]:
     }
 
 
+def existing_json_or_default(path: Path, fallback: dict[str, object]) -> dict[str, object]:
+    if not path.exists():
+        return fallback
+    try:
+        payload = read_json(path)
+    except json.JSONDecodeError:
+        return fallback
+    return payload if isinstance(payload, dict) else fallback
+
+
 def default_shadow_source(target_root: Path, *, surface: str, side: str) -> str | None:
     loom_sources = {
         "admission": [".loom/work-items/INIT-0001.md", ".loom/status/current.md", ".loom/README.md"],
@@ -1667,6 +1672,16 @@ def scaffold_target(
     written = 0
     touched: list[str] = []
     attach_only = uses_attach_only_path(str(result["recommended_adoption"]["path"]))
+    repo_interface_contract = (
+        existing_json_or_default(target_root / ".loom/companion/repo-interface.json", repo_interface_payload())
+        if attach_only
+        else repo_interface_payload()
+    )
+    repo_interop_contract = (
+        existing_json_or_default(target_root / ".loom/companion/interop.json", repo_interop_payload())
+        if attach_only
+        else repo_interop_payload()
+    )
 
     writes: list[tuple[Path, str | dict[str, object], str]] = [
         (target_root / ".loom/README.md", render_loom_readme(result), "text"),
@@ -1676,8 +1691,8 @@ def scaffold_target(
         (target_root / ".loom/bootstrap/capability-map.md", render_capability_map(result), "text"),
         (target_root / ".loom/companion/README.md", render_companion_readme(result), "text"),
         (target_root / ".loom/companion/manifest.json", companion_manifest_payload(), "json"),
-        (target_root / ".loom/companion/repo-interface.json", repo_interface_payload(), "json"),
-        (target_root / ".loom/companion/interop.json", repo_interop_payload(), "json"),
+        (target_root / ".loom/companion/repo-interface.json", repo_interface_contract, "json"),
+        (target_root / ".loom/companion/interop.json", repo_interop_contract, "json"),
         (target_root / ".loom/companion/checkpoints.md", render_companion_checkpoints(), "text"),
         (target_root / ".loom/companion/review.md", render_companion_review(), "text"),
         (target_root / ".loom/companion/merge-ready.md", render_companion_merge_ready(), "text"),

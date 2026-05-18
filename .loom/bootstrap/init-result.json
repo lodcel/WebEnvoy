@@ -67,11 +67,6 @@
       "name": "loom-owned-recovery-carriers",
       "reason": "the first attach-only round must preserve repo-native carriers instead of generating Loom-owned recovery/status placeholders",
       "upgrade_trigger": "the repo needs Loom-owned recovery or status carriers to stabilize multi-round execution"
-    },
-    {
-      "name": "typed-repo-companion-and-interop",
-      "reason": "the first attach-only round only establishes the stable entry and read surface",
-      "upgrade_trigger": "the repo needs typed gates, metadata contracts, host adapters, or shadow parity"
     }
   ],
   "fact_chain": {
@@ -114,7 +109,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "5f1e484fb56da1f9d7746548fa1ef32e442654b69fc2d09ec3700600ba1703f9"
+      "sha256": "a452f4f10ec0ee0528e2b40f1e657f0296106948f7083c200750930798290367"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
