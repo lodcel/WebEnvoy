@@ -1847,9 +1847,65 @@ def verify_companion_contracts(target_root: Path) -> list[str]:
         metadata_contract = repo_interface.get("metadata_contract")
         metadata_fields = metadata_contract.get("fields") if isinstance(metadata_contract, dict) else None
         field_ids = {field.get("id") for field in metadata_fields if isinstance(field, dict)} if isinstance(metadata_fields, list) else set()
+        if not isinstance(metadata_fields, list) or not metadata_fields:
+            errors.append("repo-interface metadata_contract.fields must be a non-empty list")
+        elif isinstance(metadata_fields, list):
+            for field in metadata_fields:
+                if not isinstance(field, dict):
+                    errors.append("repo-interface metadata_contract.fields entries must be objects")
+                    continue
+                for key in ("id", "summary", "locator", "surface"):
+                    if not isinstance(field.get(key), str) or not field.get(key):
+                        errors.append(f"repo-interface metadata_contract.fields entry is missing `{key}`")
+                locator = field.get("locator")
+                if isinstance(locator, str) and locator and not (target_root / locator).exists():
+                    errors.append(f"repo-interface metadata locator is missing on disk: {locator}")
         for required_field in ("integration_check", "gate_applicability", "live_evidence_record"):
             if required_field not in field_ids:
                 errors.append(f"repo-interface metadata_contract.fields must include `{required_field}`")
+
+        specialized_gates = repo_interface.get("specialized_gates")
+        if not isinstance(specialized_gates, list) or not specialized_gates:
+            errors.append("repo-interface specialized_gates must be a non-empty list")
+        else:
+            gate_ids = {gate.get("id") for gate in specialized_gates if isinstance(gate, dict)}
+            for required_gate in ("webenvoy-live-evidence-gate", "webenvoy-integration-check", "webenvoy-spec-review-gate"):
+                if required_gate not in gate_ids:
+                    errors.append(f"repo-interface specialized_gates must include `{required_gate}`")
+            for gate in specialized_gates:
+                if not isinstance(gate, dict):
+                    errors.append("repo-interface specialized_gates entries must be objects")
+                    continue
+                for key in ("id", "summary", "locator", "gate_type"):
+                    if not isinstance(gate.get(key), str) or not gate.get(key):
+                        errors.append(f"repo-interface specialized_gates entry is missing `{key}`")
+                locator = gate.get("locator")
+                if isinstance(locator, str) and locator and not (target_root / locator).exists():
+                    errors.append(f"repo-interface gate locator is missing on disk: {locator}")
+
+        context_schema = repo_interface.get("context_schema")
+        context_fields = context_schema.get("fields") if isinstance(context_schema, dict) else None
+        if not isinstance(context_fields, list) or not context_fields:
+            errors.append("repo-interface context_schema.fields must be a non-empty list")
+        else:
+            context_ids = {field.get("id") for field in context_fields if isinstance(field, dict)}
+            for required_context in ("fr_suite", "github_progress_truth"):
+                if required_context not in context_ids:
+                    errors.append(f"repo-interface context_schema.fields must include `{required_context}`")
+            for field in context_fields:
+                if not isinstance(field, dict):
+                    errors.append("repo-interface context_schema.fields entries must be objects")
+                    continue
+                for key in ("id", "summary", "locator"):
+                    if not isinstance(field.get(key), str) or not field.get(key):
+                        errors.append(f"repo-interface context_schema.fields entry is missing `{key}`")
+                locator = field.get("locator")
+                if isinstance(locator, str) and locator and not (target_root / locator).exists():
+                    errors.append(f"repo-interface context locator is missing on disk: {locator}")
+
+        for optional_locator_list in ("dynamic_tool_locators", "policy_locators", "hook_locators"):
+            if not isinstance(repo_interface.get(optional_locator_list), list):
+                errors.append(f"repo-interface {optional_locator_list} must be a list")
 
     if interop is not None:
         if interop.get("schema_version") != "loom-repo-interop/v1":
@@ -1857,6 +1913,21 @@ def verify_companion_contracts(target_root: Path) -> list[str]:
         carriers = interop.get("repo_native_carriers")
         if not isinstance(carriers, list) or not carriers:
             errors.append("interop must declare non-empty `repo_native_carriers`")
+        else:
+            for carrier in carriers:
+                if not isinstance(carrier, dict):
+                    errors.append("interop repo_native_carriers entries must be objects")
+                    continue
+                for key in ("id", "summary", "surfaces", "locator", "owner", "requirement", "fallback_to"):
+                    if key == "surfaces":
+                        surfaces = carrier.get(key)
+                        if not isinstance(surfaces, list) or not all(isinstance(surface, str) and surface for surface in surfaces):
+                            errors.append("interop repo_native_carriers.surfaces must be a non-empty string list")
+                    elif not isinstance(carrier.get(key), str) or not carrier.get(key):
+                        errors.append(f"interop repo_native_carriers entry is missing `{key}`")
+                locator = carrier.get("locator")
+                if isinstance(locator, str) and locator and not (target_root / locator).exists():
+                    errors.append(f"interop repo-native carrier locator is missing on disk: {locator}")
         shadow_surfaces = interop.get("shadow_surfaces")
         if not isinstance(shadow_surfaces, dict):
             errors.append("interop must declare `shadow_surfaces`")
@@ -1874,6 +1945,22 @@ def verify_companion_contracts(target_root: Path) -> list[str]:
                         errors.append(f"interop shadow surface locator is missing on disk: {locator}")
 
     return errors
+
+
+def read_required_bootstrap_manifest(target_root: Path, errors: list[str]) -> dict[str, object] | None:
+    path = target_root / ".loom/bootstrap/manifest.json"
+    try:
+        payload = read_json(path)
+    except FileNotFoundError:
+        errors.append("missing bootstrap manifest: .loom/bootstrap/manifest.json")
+        return None
+    except json.JSONDecodeError as exc:
+        errors.append(f"invalid bootstrap manifest JSON: {exc.msg}")
+        return None
+    if not isinstance(payload, dict):
+        errors.append("bootstrap manifest must be an object")
+        return None
+    return payload
 
 
 def verify_target(target_root: Path, output_path: Path) -> list[str]:
@@ -1964,6 +2051,17 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
                     continue
                 if not (target_root / artifact_path).exists():
                     errors.append(f"declared initial artifact is missing on disk: {artifact_path}")
+        bootstrap_manifest = read_required_bootstrap_manifest(target_root, errors)
+        if bootstrap_manifest is not None:
+            manifest_artifacts = bootstrap_manifest.get("artifacts")
+            manifest_paths = {artifact.get("path") for artifact in manifest_artifacts if isinstance(artifact, dict)} if isinstance(manifest_artifacts, list) else set()
+            for companion_contract in (
+                ".loom/companion/manifest.json",
+                ".loom/companion/repo-interface.json",
+                ".loom/companion/interop.json",
+            ):
+                if companion_contract not in manifest_paths:
+                    errors.append(f"bootstrap manifest artifacts must include `{companion_contract}`")
         initial_work_items = result.get("initial_work_items")
         validated_work_items: list[dict[str, object]] = []
         if isinstance(initial_work_items, list):

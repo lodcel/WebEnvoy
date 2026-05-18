@@ -2776,7 +2776,7 @@ def detect_execution_entry(root: Path, loom_state: str, *, bootstrap_mode: bool,
     if loom_state == "active":
         return f"{command_prefix(root, 'loom_flow.py')} flow resume --target . --item {active_item_id}"
     if loom_state == "partial":
-        return f"{command_prefix(root, 'loom_init.py')} route --target <repo> --task \"请接手当前事项并恢复上下文后继续推进\""
+        return "python3 .loom/bin/loom_init.py verify --target ." if (root / ".loom/bin/loom_init.py").exists() else "unknown"
     return "unknown"
 
 
@@ -2786,7 +2786,7 @@ def detect_validation_entry(loom_state: str, *, bootstrap_mode: bool) -> str:
     if loom_state == "active":
         return "python3 .loom/bin/loom_init.py verify --target ."
     if loom_state == "partial":
-        return f"python3 {installed_skill_script(__file__, 'loom-init')} verify --target <repo>"
+        return "python3 .loom/bin/loom_init.py verify --target ." if (root / ".loom/bin/loom_init.py").exists() else "unknown"
     return "unknown"
 
 

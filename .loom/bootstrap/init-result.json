@@ -114,7 +114,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "b1d3f518c1290b24b778ccb297d85c7cf7f6e63894c2456b657f7efeecf76485"
+      "sha256": "d71308738d5a1be414099f076aa59fd5eccd4013799c567b91315ac6fc059736"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
@@ -126,7 +126,7 @@
       "path": ".loom/bin/governance_surface.py",
       "kind": "loom-tool-support",
       "source": "skills/shared/scripts/governance_surface.py",
-      "sha256": "bd4ba5a3dd0fa02fec634af94479e0290c1beaa8802002d93b60830192d4ae0e"
+      "sha256": "805658641a9144b2b385483354fd82882f768b66b54b5f08841aec11689e1c28"
     },
     {
       "path": ".loom/bin/loom_flow.py",
