@@ -15519,6 +15519,9 @@ def is_within(path: Path, root: Path) -> bool:
 
 
 def collect_failures(root: Path) -> list[Failure]:
+    if is_bootstrapped_target_runtime(root):
+        return collect_bootstrapped_target_failures(root)
+
     failures: list[Failure] = []
     failures.extend(check_required_paths(root, "top-level-dirs", TOP_LEVEL_DIRS))
     failures.extend(check_required_paths(root, "top-level-files", TOP_LEVEL_FILES))
@@ -15575,8 +15578,51 @@ def collect_failures(root: Path) -> list[Failure]:
     return failures
 
 
+def is_bootstrapped_target_runtime(root: Path) -> bool:
+    return (
+        (root / ".loom/bootstrap/manifest.json").exists()
+        and (root / ".loom/bin/loom_init.py").exists()
+        and not (root / "skills").exists()
+    )
+
+
+def collect_bootstrapped_target_failures(root: Path) -> list[Failure]:
+    failures: list[Failure] = []
+    required_paths = (
+        ".loom/README.md",
+        ".loom/bootstrap/init-result.json",
+        ".loom/bootstrap/manifest.json",
+        ".loom/bootstrap/capability-map.md",
+        ".loom/companion/README.md",
+        ".loom/companion/manifest.json",
+        ".loom/companion/repo-interface.json",
+        ".loom/companion/interop.json",
+        ".loom/bin/loom_init.py",
+    )
+    failures.extend(check_required_paths(root, "bootstrapped-target-runtime", required_paths))
+    if failures:
+        return failures
+
+    try:
+        completed = subprocess.run(
+            ["python3", ".loom/bin/loom_init.py", "verify", "--target", "."],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=ADOPT_VERIFY_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        failures.append(Failure("bootstrapped-target-runtime", "`loom_init.py verify` timed out"))
+        return failures
+    if completed.returncode != 0:
+        detail = (completed.stdout or completed.stderr).strip().replace("\n", " ")
+        failures.append(Failure("bootstrapped-target-runtime", f"`loom_init.py verify` failed: {detail}"))
+    return failures
+
+
 def print_report(root: Path, failures: list[Failure]) -> None:
-    categories_checked = 36
+    categories_checked = 1 if is_bootstrapped_target_runtime(root) else 36
     if not failures:
         print(f"loom_check: OK ({root})")
         print(f"checked {categories_checked} surfaces")

@@ -765,6 +765,9 @@ def attach_only_artifact_paths(target_root: Path, install_pr_template: bool) -> 
         ".loom/bootstrap/manifest.json",
         ".loom/bootstrap/capability-map.md",
         ".loom/companion/README.md",
+        ".loom/companion/manifest.json",
+        ".loom/companion/repo-interface.json",
+        ".loom/companion/interop.json",
         ".loom/companion/checkpoints.md",
         ".loom/companion/review.md",
         ".loom/companion/merge-ready.md",
@@ -880,6 +883,21 @@ def initial_artifacts(target_root: Path, install_pr_template: bool, adoption_pat
                 {
                     "path": ".loom/companion/README.md",
                     "kind": "repo-companion-entry",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/companion/manifest.json",
+                    "kind": "repo-companion-manifest",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/companion/repo-interface.json",
+                    "kind": "repo-companion-interface",
+                    "source": "generated",
+                },
+                {
+                    "path": ".loom/companion/interop.json",
+                    "kind": "repo-companion-interop",
                     "source": "generated",
                 },
                 {
