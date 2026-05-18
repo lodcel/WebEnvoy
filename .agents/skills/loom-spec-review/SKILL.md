@@ -30,12 +30,13 @@ description: 负责 formal spec review 执行层。Use when Codex needs to revie
 
 统一入口固定为：
 
-- `loom flow spec-review --target <repo> [--item <id>]`
-- `loom review run --target <repo> [--item <id>] --review-file .loom/reviews/<item>.spec.json`
-- `loom review record --target <repo> [--item <id>] --review-file .loom/reviews/<item>.spec.json --decision <allow|block|fallback> --kind spec_review --summary <text> --reviewer <id>`
+- `python3 .agents/skills/loom-spec-review/scripts/loom-spec-review.py flow spec-review --target <repo> [--item <id>]`
+- `python3 .agents/skills/loom-spec-review/scripts/loom-spec-review.py review run --target <repo> [--item <id>] --review-file .loom/reviews/<item>.spec.json`
+- `python3 .agents/skills/loom-spec-review/scripts/loom-spec-review.py review record --target <repo> [--item <id>] --review-file .loom/reviews/<item>.spec.json --decision <allow|block|fallback> --kind spec_review --summary <text> --reviewer <id>`
 
 补充约束：
 
+- WebEnvoy clean checkout 中必须使用 repo-local vendored launcher，不依赖全局 `loom` 命令或本机 Loom 源仓 checkout。
 - formal spec 路径不存在时，`flow spec-review` 必须 fail-closed
 - spec review 只写回单一 spec review record，不替代 implementation review record
 - `reviewed_head` 与 stale 语义必须显式暴露，供后续 gate 消费

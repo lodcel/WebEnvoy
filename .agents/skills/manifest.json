@@ -127,7 +127,7 @@
       "role": "bootstrap/root",
       "file_count": 161,
       "sha256": {
-        "SKILL.md": "8fba8fb04eca2866df5e7ddc47d8bf5eeaac1fdd226b16f1e6d7325a66607aa4",
+        "SKILL.md": "af3fa13a76abd37cc4bdb05a82a79374bb1e913d729ae98dd059e718a4d194c5",
         "contract.json": "2016a9a64b512e991d47d8c2c7874d3722cc816ba342284897144b3dd715f51a",
         "loom-package.json": "0d827ee8ec663e5fda873887f1d8fd362c12261219c67c0fb42943690a3d8da0"
       }
@@ -222,7 +222,7 @@
       "role": "scenario/review",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "970bf52ae451a8cc64783dcb3c53d59a83d4f86014018f2b03354f4a482668fa",
+        "SKILL.md": "96f7e947c2bbe820ad2c429f65ab1a798b34dc12bc118e7e18afb386082531ed",
         "contract.json": "e015babe4cc9dd69ac6446fb1bc016026c1394e4da3929647850094d1564d3b8",
         "loom-package.json": "ff865d92107d81be0acc7a116199b4655ad4780f185146946a4104fcb04af35e"
       }
@@ -241,7 +241,7 @@
       "role": "scenario/spec-review",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "b4785279188fa3f194b9a4fedeb649aa0e41f85dfa320898b5a5627758c263b8",
+        "SKILL.md": "c7b961eebcdf9375a0d3e0e23f288b0d3ee5f1d7825d0d108aee740d00162670",
         "contract.json": "312b611895b48e162aa465a20179ed939e282f367078c2f10f6a11c6feecb84e",
         "loom-package.json": "8172e111610371f06b5843b18c595fae79b92a1211d4896a19882fdc03f86d82"
       }

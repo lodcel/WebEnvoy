@@ -13,7 +13,7 @@ description: 负责正式 review 执行层。Use when Codex needs to run semanti
 - `loom-review` 负责执行正式语义审查并产出 `review gate` 结论
 - `loom-merge-ready` 负责 merge 前统一放行聚合
 
-对执行者来说，正式 review 的首层入口仍是 `loom-review` 这个场景 skill。repo-local 自动化、验证、调试和宿主编排可以统一调用 repo-local `loom CLI`，但这不替代场景 skill 的用户入口，也不改变 review / merge-ready 的边界。
+对执行者来说，正式 review 的首层入口仍是 `loom-review` 这个场景 skill。repo-local 自动化、验证、调试和宿主编排必须通过本仓库 vendored launcher 调用，不依赖全局 `loom` 命令，也不依赖本机 Loom 源仓 checkout。
 
 ## 1. 使用时机
 
@@ -32,9 +32,9 @@ description: 负责正式 review 执行层。Use when Codex needs to run semanti
 
 统一入口固定为：
 
-- `loom flow review --target <repo> [--item <id>]`
-- `loom review run --target <repo> [--item <id>]`
-- `loom review record --target <repo> [--item <id>] --decision <allow|block|fallback> --kind <general_review|code_review|spec_review> --summary <text> --reviewer <id>`
+- `python3 .agents/skills/loom-review/scripts/loom-review.py flow review --target <repo> [--item <id>]`
+- `python3 .agents/skills/loom-review/scripts/loom-review.py review run --target <repo> [--item <id>]`
+- `python3 .agents/skills/loom-review/scripts/loom-review.py review record --target <repo> [--item <id>] --decision <allow|block|fallback> --kind <general_review|code_review|spec_review> --summary <text> --reviewer <id>`
 
 补充约束：
 
@@ -46,7 +46,7 @@ description: 负责正式 review 执行层。Use when Codex needs to run semanti
 
 已验证 Codex App host context 中，默认 `review run` 使用 `loom/codex-app-review`，并必须证明 app-server/session locator、thread id、cwd proof、target root 与 reviewed head 绑定一致；该路径不得启动嵌套 `codex exec`。`CI` / `CODEX_CI`、headless、host proof 缺失或 app-server unavailable 时 fallback 到 `loom/default-codex-exec` + `codex exec --output-schema`。proof 冲突、cwd / target / head 不匹配或 schema normalization 失败时必须 fail closed 并回到 manual review 写同一 review record。
 
-安装态或 repo-local 开发态可以把这些 `loom ...` 动作映射到底层 `scripts/...` 或共享 runtime carrier；但 `loom-review` 自身的场景合同、进入时机和输出责任保持不变。
+全局 `loom ...` 形式只允许作为外部安装态的概念等价入口；在 WebEnvoy clean checkout 中必须使用上述 repo-local launcher 形式。但 `loom-review` 自身的场景合同、进入时机和输出责任保持不变。
 
 ## 3. 固定编排
 

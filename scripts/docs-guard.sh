@@ -82,7 +82,7 @@ DOC_LIST="${TMP_DIR}/docs.txt"
 REFS="${TMP_DIR}/refs.tsv"
 > "${REFS}"
 
-git -C "${REPO_ROOT}" ls-files '*.md' ':!:docs/archive/**' ':!:.agents/skills/**' \
+git -C "${REPO_ROOT}" ls-files '*.md' ':!:docs/archive/**' ':!:.agents/skills/loom-*/**' \
   | sed "s#^#${REPO_ROOT}/#" \
   | sort > "${DOC_LIST}"
 
