@@ -24,7 +24,7 @@ description: Turn product context, vision, roadmap, host issues, notes, or discu
 
 统一入口固定为：
 
-- `python3 scripts/loom-story.py flow story --target <repo> [--item <id>]`
+- `python3 .agents/skills/loom-story/scripts/loom-story.py flow story --target <repo> [--item <id>]`
 
 该入口只读取 Loom runtime 可用性，输出 story intake contract summary。实际 story shaping 由执行者根据输入上下文写入用户指定载体或后续 spec / plan，不由 runtime 自动裁决产品目标。
 

@@ -25,7 +25,7 @@ description: 负责 bounded implementation/build 执行轮。Use when Codex need
 
 统一入口固定为：
 
-- `python3 scripts/loom-build.py flow build --target <repo> [--item <id>] [--build-evidence <path>]`
+- `python3 .agents/skills/loom-build/scripts/loom-build.py flow build --target <repo> [--item <id>] [--build-evidence <path>]`
 
 ## 3. Subagent-Driven Ownership Contract
 

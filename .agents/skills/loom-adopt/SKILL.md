@@ -45,9 +45,9 @@ description: 负责把仓库接入 Loom 的初始化场景入口。Use when Code
 
 本 skill 不新增新 CLI，固定复用：
 
-- `python3 scripts/loom-adopt.py bootstrap --target <repo>`
-- `python3 scripts/loom-adopt.py verify --target <repo>`
-- `python3 scripts/loom-adopt.py fact-chain --target <repo>`
+- `python3 .agents/skills/loom-adopt/scripts/loom-adopt.py bootstrap --target <repo>`
+- `python3 .agents/skills/loom-adopt/scripts/loom-adopt.py verify --target <repo>`
+- `python3 .agents/skills/loom-adopt/scripts/loom-adopt.py fact-chain --target <repo>`
 
 执行顺序固定为：
 

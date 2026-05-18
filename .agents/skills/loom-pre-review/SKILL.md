@@ -26,7 +26,7 @@ description: 负责统一 review 前检查。Use when Codex needs a single pre-r
 
 统一入口固定为：
 
-- `python3 scripts/loom-pre-review.py flow pre-review --target <repo> [--item <id>]`
+- `python3 .agents/skills/loom-pre-review/scripts/loom-pre-review.py flow pre-review --target <repo> [--item <id>]`
 
 ## 3. 固定编排
 

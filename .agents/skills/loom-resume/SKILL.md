@@ -27,7 +27,7 @@ description: 负责恢复当前事项的执行入口。Use when Codex needs to t
 
 它依赖统一恢复摘要入口：
 
-- `python3 scripts/loom-resume.py flow resume --target <repo> [--item <id>]`
+- `python3 .agents/skills/loom-resume/scripts/loom-resume.py flow resume --target <repo> [--item <id>]`
 
 ## 3. 固定编排
 
