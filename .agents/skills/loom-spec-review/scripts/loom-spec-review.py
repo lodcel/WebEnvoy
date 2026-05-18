@@ -10,7 +10,7 @@ SCRIPT_PATH = Path(__file__).resolve()
 PACKAGE_ROOT = SCRIPT_PATH.parents[1]
 RUNTIME_ROOT = PACKAGE_ROOT / ".loom-runtime"
 
-os.environ.setdefault("LOOM_INSTALLED_SKILLS_ROOT", str(PACKAGE_ROOT.parent))
+os.environ["LOOM_INSTALLED_SKILLS_ROOT"] = str(PACKAGE_ROOT.parent)
 os.environ.setdefault("LOOM_PACKAGE_SKILL_ID", "loom-spec-review")
 
 
