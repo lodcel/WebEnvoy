@@ -59,6 +59,22 @@ tmp_issue_body.md
 .codex/
 .webenvoy/
 
+# Loom repo-local operating layer
+.loom/runtime/
+.loom/tmp/
+.loom/cache/
+.loom/**/attempts/
+.loom/**/*.raw.json
+.loom/**/*.normalized.json
+
+# Repo-local agent runtime scratch
+.agents/tmp/
+.agents/cache/
+.agents/runtime/
+.agents/**/*.log
+.agents/skills/**/__pycache__/
+.agents/skills/**/*.py[cod]
+
 # FR-0001 CLI contract requires clean-checkout executable entry.
 !/dist/
 !/dist/**

@@ -1,0 +1,269 @@
+{
+  "schema_version": "webenvoy-loom-skills-vendoring/v1",
+  "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+  "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+  "snapshot_mode": "repo-local-vendored-skills",
+  "install_root": ".agents/skills",
+  "symlinks_allowed": false,
+  "phase": "phase-1.1 attach-only executable skills",
+  "authority_boundary": {
+    "skills_are_authority": false,
+    "host_truth": [
+      "GitHub Issues/Projects",
+      "WebEnvoy guardian",
+      "WebEnvoy review rules",
+      "CI",
+      "live evidence gates",
+      "controlled merge"
+    ],
+    "loom_authored_truth_carriers_deferred": [
+      ".loom/work-items",
+      ".loom/specs",
+      ".loom/reviews",
+      ".loom/progress",
+      ".loom/status/current.md"
+    ]
+  },
+  "versioned_surfaces": {
+    "always": [
+      ".agents/skills/loom-*",
+      ".agents/skills/manifest.json",
+      ".agents/skills/README.md",
+      ".loom/companion/**",
+      ".loom/bootstrap/manifest.json",
+      ".loom/bootstrap/init-result.json",
+      ".loom/bin/**"
+    ],
+    "conditional": [
+      ".loom/work-items/**",
+      ".loom/specs/**",
+      ".loom/reviews/**",
+      ".loom/progress/**",
+      ".loom/status/current.md"
+    ],
+    "never": [
+      ".agents/tmp/**",
+      ".agents/cache/**",
+      ".agents/runtime/**",
+      ".loom/runtime/**",
+      ".loom/tmp/**",
+      ".loom/cache/**",
+      ".loom/**/attempts/**",
+      "raw engine logs",
+      "temporary review output",
+      "machine-local state",
+      "host-specific absolute paths"
+    ]
+  },
+  "skills": [
+    {
+      "id": "loom-adopt",
+      "path": ".agents/skills/loom-adopt",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.4.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/adopt",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "060d58c0991f1530d7b020f81ad713c34a111cf9ec1c26fd7d46efa57b28c009",
+        "contract.json": "c33a9cae352c2e38c108a716493ed8be9063a443daaaa80ec906cb174fe3a698",
+        "loom-package.json": "78dafd2bfba5ee28dc75ce3bbe225c68f8f680d72cf158515ebfdc2127fab5f1"
+      }
+    },
+    {
+      "id": "loom-build",
+      "path": ".agents/skills/loom-build",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.0.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/build",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "c883e44eacda28ffe5c730543b4ed7596a556588f7f1fdd0872c983247424fcf",
+        "contract.json": "76f6a9084071ce6d8a4255e03d41db4df132311bf563fbd8fbd8aed1b3367216",
+        "loom-package.json": "21817958388954356a77f40012d01f2cf81b065e1299468fd98d34497e33cf4d"
+      }
+    },
+    {
+      "id": "loom-handoff",
+      "path": ".agents/skills/loom-handoff",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.3.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/handoff",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "6a97084d3549d028b6f787aaa4e58d74267f288c6776a4f351a2f21a8adafea2",
+        "contract.json": "ee9e59e09285e917e676b8a61fabb8f49d46abeda7d7f5cceb4d2cf1a2930b91",
+        "loom-package.json": "23c3675f3c27608f450e132f673fe8242ce172018a62dc793e419ccff2da9b4d"
+      }
+    },
+    {
+      "id": "loom-init",
+      "path": ".agents/skills/loom-init",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.3.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": true,
+      "role": "bootstrap/root",
+      "file_count": 161,
+      "sha256": {
+        "SKILL.md": "8fba8fb04eca2866df5e7ddc47d8bf5eeaac1fdd226b16f1e6d7325a66607aa4",
+        "contract.json": "2016a9a64b512e991d47d8c2c7874d3722cc816ba342284897144b3dd715f51a",
+        "loom-package.json": "0d827ee8ec663e5fda873887f1d8fd362c12261219c67c0fb42943690a3d8da0"
+      }
+    },
+    {
+      "id": "loom-merge-ready",
+      "path": ".agents/skills/loom-merge-ready",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.3.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/merge-ready",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "04d2a476b5f0275969a1e3113af2020e94fc2baf325fe6b8204dab71bbe328b9",
+        "contract.json": "05e1ccff346cf4605d2e261892999d2c84c55f3e53026facad3adafc126a87cf",
+        "loom-package.json": "08606a60c62bd3de2e7c98d22d790ab934a9fe8bdb96a1d22986254df9c17243"
+      }
+    },
+    {
+      "id": "loom-pre-review",
+      "path": ".agents/skills/loom-pre-review",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.3.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/pre-review",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "eaa04a754efdf7c228e93b478c2cd0ed2ddd8f0159316c7c169103438695e538",
+        "contract.json": "3d3952c348f587bc7f451ec315a4ecf1cb158c1ae43cdefd4c8a0db1fc8556cd",
+        "loom-package.json": "65f953255eec68490135888deee4f51f66b19c78026d2e390b92a73a84fa86ef"
+      }
+    },
+    {
+      "id": "loom-resume",
+      "path": ".agents/skills/loom-resume",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.4.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/resume",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "9c8e23515514b7e0f81cde1cb78b2b164538cc48faf61d396473c32026295048",
+        "contract.json": "e2768767222b56e358046bc0059e755b5fcf5fe801c255917a208eb24adc0f41",
+        "loom-package.json": "a0f512b76338fc2ba4dec03134fbbab076c244ec2693e3d75c5ca4504a1e7e45"
+      }
+    },
+    {
+      "id": "loom-retire",
+      "path": ".agents/skills/loom-retire",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.3.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/retire",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "d69d8eea9cfe440ff3a55d021caa558a86ec90042dd4ca48a9a1782e2ac6e12e",
+        "contract.json": "fee2b8765a10739a562df3664e81cf7e72f47a8091a12bdb96df1c9956c52799",
+        "loom-package.json": "87bd39936dd740c92ef4b26eed69ddcce5b25e8c4676e5db243f97ecd93e14db"
+      }
+    },
+    {
+      "id": "loom-review",
+      "path": ".agents/skills/loom-review",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.4.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/review",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "970bf52ae451a8cc64783dcb3c53d59a83d4f86014018f2b03354f4a482668fa",
+        "contract.json": "e015babe4cc9dd69ac6446fb1bc016026c1394e4da3929647850094d1564d3b8",
+        "loom-package.json": "ff865d92107d81be0acc7a116199b4655ad4780f185146946a4104fcb04af35e"
+      }
+    },
+    {
+      "id": "loom-spec-review",
+      "path": ".agents/skills/loom-spec-review",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.0.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/spec-review",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "b4785279188fa3f194b9a4fedeb649aa0e41f85dfa320898b5a5627758c263b8",
+        "contract.json": "312b611895b48e162aa465a20179ed939e282f367078c2f10f6a11c6feecb84e",
+        "loom-package.json": "8172e111610371f06b5843b18c595fae79b92a1211d4896a19882fdc03f86d82"
+      }
+    },
+    {
+      "id": "loom-story",
+      "path": ".agents/skills/loom-story",
+      "source_repository": "https://github.com/MC-and-his-Agents/Loom",
+      "source_revision": "0937e186c08f6f0722b87c5ca621ae5d4134f981",
+      "repo_version": "v0.12.0",
+      "skill_package_version": "1.0.0",
+      "skill_contract_version": "1.0.0",
+      "runtime_core_version": "1.0.0",
+      "runtime_root": ".loom-runtime",
+      "root_entry": false,
+      "role": "scenario/story",
+      "file_count": 160,
+      "sha256": {
+        "SKILL.md": "435b12f29fbb96d3352f0c896b4b5d6f2a097ae7c29281eb454117cb3dc2cf88",
+        "contract.json": "3eb5fd1207ef17afca37f5092a417bf3ea310dc98d442c7349beafdcf44dc51a",
+        "loom-package.json": "bb8145b090242a3ad195207b89ced96c30ed95238f1af064141855812dfbde48"
+      }
+    }
+  ]
+}

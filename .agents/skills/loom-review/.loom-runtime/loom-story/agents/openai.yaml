@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loom Story"
+  short_description: "Story-to-delivery intake entry"
+  default_prompt: "Read product context locators or discussion summary, produce a User Story and a separate Story Readiness result, then map accepted scenarios toward spec.md and plan.md without authoring delivery state inside the story."

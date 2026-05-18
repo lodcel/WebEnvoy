@@ -1,0 +1,59 @@
+{
+  "id": "loom-adopt",
+  "role": "scenario/adopt",
+  "contract_version": "1.4.0",
+  "display_name": "Loom Adopt",
+  "description": "Route initialization and retrofit work to the existing Loom bootstrap, verify, and fact-chain entry points.",
+  "root_entry": false,
+  "entrypoint": {
+    "skill_markdown": "SKILL.md",
+    "adapter_metadata": "agents/openai.yaml",
+    "orchestration_cli": "scripts/loom-adopt.py"
+  },
+  "input_contract": {
+    "reference": "references/input-signals.md",
+    "required_fields": [
+      "task_is_initialization_or_retrofit",
+      "target_repository",
+      "adoption_scope",
+      "write_intent",
+      "repository_mode_guess",
+      "existing_governance_signals",
+      "existing_validation_entry",
+      "companion_boundary_intent",
+      "interop_boundary_intent",
+      "resume_after_adoption_intent"
+    ]
+  },
+  "output_contract": {
+    "reference": "references/output-contract.md",
+    "required_sections": [
+      "read_summary",
+      "decision_prompt",
+      "scenario_judgment",
+      "decision_reason",
+      "enabled_capabilities",
+      "deferred_capabilities",
+      "write_plan",
+      "generated_companion_boundary",
+      "generated_interop_boundary",
+      "first_artifacts",
+      "first_work_items",
+      "runtime_state",
+      "governance_surface",
+      "fact_chain",
+      "validation_entry",
+      "verify_closure",
+      "resume_guidance"
+    ]
+  },
+  "routing": {
+    "reference": "../route-matrix.md",
+    "explicit_name": "loom-adopt"
+  },
+  "installation": {
+    "registry": "../registry.json",
+    "upgrade_contract": "../upgrade-contract.json",
+    "layout_manifest": "../install-layout.json"
+  }
+}

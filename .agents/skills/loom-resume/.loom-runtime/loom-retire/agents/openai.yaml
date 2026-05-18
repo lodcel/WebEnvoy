@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loom Retire"
+  short_description: "清理并退休当前 Loom 现场"
+  default_prompt: "在不丢弃用户改动的前提下，执行 purity-check、cleanup 和 retire 链路。"

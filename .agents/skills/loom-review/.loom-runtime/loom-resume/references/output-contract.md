@@ -1,0 +1,69 @@
+# Loom Resume Output Contract
+
+输出固定为恢复摘要 JSON，至少需要给出：
+
+- `item`
+  - 当前事项编号、目标、范围、执行路径
+- `result`
+  - `pass` 或 `block`
+- `summary`
+  - 对当前恢复状态的单句结论
+- `missing_inputs`
+  - 当前阻断所需补齐的信息；无阻断时为空数组
+- `fallback_to`
+  - 若当前不能继续执行，应回退到哪个 checkpoint；无回退时为 `null`
+- `runtime_state`
+  - 当前 Loom 入口自己的 scene / carrier 判定，以及 fail-closed 原因
+- `governance_surface`
+  - 当前治理承接面的稳定摘要，只回答当前仓库的治理载体与宿主控制面如何落位
+  - 至少固定给出：
+    - `repository_mode`
+      - `new | small-existing | complex-existing`
+    - `loom_state`
+      - `absent | partial | active`
+    - `carrier_summary`
+      - `work_item`
+      - `recovery`
+      - `review`
+      - `status_surface`
+      - `spec_path`
+      - `plan_path`
+      - 每项固定为 `{status, locator, source}`
+    - `execution_entry`
+    - `validation_entry`
+    - `review_merge_surface`
+      - `pr_template`
+      - `validation_surface`
+      - `merge_surface`
+    - `github_control_plane`
+      - `repository`
+      - `default_branch`
+      - `branch_protection`
+      - `required_checks`
+      - `pr_reviews`
+    - `summary`
+    - `missing_inputs`
+  - 这个区块只做 locator + 控制面摘要，不复制实时 authored 状态
+- `workspace`
+  - `workspace_entry`、解析后的现场路径、现场是否存在
+- `recovery`
+  - 恢复入口、当前停点、下一步、阻断项、最近验证摘要
+  - 若上一轮来自 `loom-adopt`，还应给出：
+    - `adoption_source`
+    - `companion_locator`
+    - `interop_locator`
+    - `post_adoption_next_step`
+    - `adoption_verify_summary`
+- `execution_ledger`
+  - 来自 recovery / fact-chain contract 的 ledger completeness、freshness、authoritative carrier 与 locator / evidence 字段
+  - 不得覆盖 `recovery.next_step`、`recovery.blockers` 或 `recovery.latest_validation_summary`
+- `lifecycle_expectations`
+  - 与 workspace lifecycle contract 同源，至少声明 `attach` 仅定位/绑定、`run` / `stop` 仅 execution-boundary 读面、`remove` 不属于 Loom core、默认 worker backend 为无 daemon 的 `local`
+- `checkpoint`
+  - 原始 checkpoint 文本与归一化后的 checkpoint
+- `state_check`
+  - `state-check` 的结果、摘要、阻断项与检查分项
+- `steps`
+  - 固定按 `runtime-state -> fact-chain -> state-check -> workspace-locate` 顺序列出
+
+这个 skill 不回写任何载体；如果恢复链路不可继续，只返回阻断或回退语义。

@@ -1,0 +1,47 @@
+{
+  "id": "loom-resume",
+  "role": "scenario/resume",
+  "contract_version": "1.4.0",
+  "display_name": "Loom Resume",
+  "description": "Rebuild a continuation summary from the fact chain, state check, workspace locate, and the current recovery signals.",
+  "root_entry": false,
+  "entrypoint": {
+    "skill_markdown": "SKILL.md",
+    "adapter_metadata": "agents/openai.yaml",
+    "orchestration_cli": "scripts/loom-resume.py"
+  },
+  "input_contract": {
+    "reference": "references/input-signals.md",
+    "required_fields": [
+      "target_repository",
+      "current_item_or_active_item",
+      "resume_intent"
+    ]
+  },
+  "output_contract": {
+    "reference": "references/output-contract.md",
+    "required_sections": [
+      "item",
+      "result",
+      "summary",
+      "missing_inputs",
+      "fallback_to",
+      "runtime_state",
+      "governance_surface",
+      "workspace",
+      "recovery",
+      "checkpoint",
+      "state_check",
+      "steps"
+    ]
+  },
+  "routing": {
+    "reference": "../route-matrix.md",
+    "explicit_name": "loom-resume"
+  },
+  "installation": {
+    "registry": "../registry.json",
+    "upgrade_contract": "../upgrade-contract.json",
+    "layout_manifest": "../install-layout.json"
+  }
+}

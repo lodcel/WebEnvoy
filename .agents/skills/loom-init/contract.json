@@ -1,0 +1,76 @@
+{
+  "id": "loom-init",
+  "role": "bootstrap/root",
+  "contract_version": "1.3.0",
+  "display_name": "Loom Init",
+  "description": "Bootstrap Loom into a target repository and route operators to the right scenario skill when the task is not a fresh initialization request.",
+  "root_entry": true,
+  "entrypoint": {
+    "skill_markdown": "SKILL.md",
+    "adapter_metadata": "agents/openai.yaml",
+    "bootstrap_cli": "scripts/loom-init.py",
+    "route_cli": "scripts/loom-init.py"
+  },
+  "input_contract": {
+    "reference": "references/input-signals.md",
+    "required_fields": [
+      "repository_type",
+      "root_boundary_docs",
+      "ci_or_basic_tests",
+      "repository_level_validation_entry",
+      "primary_gap_category",
+      "long_running_recovery_pain",
+      "shared_contract_or_high_risk_boundary",
+      "purity_or_scope_signals",
+      "merge_review_semantic_overload"
+    ]
+  },
+  "output_contract": {
+    "reference": "references/output-contract.md",
+    "required_sections": [
+      "project_judgment",
+      "recommended_adoption",
+      "deferred_capabilities",
+      "fact_chain",
+      "initial_artifacts",
+      "initial_work_items",
+      "runtime_state",
+      "validation_and_closing"
+    ]
+  },
+  "routing": {
+    "reference": ".loom-runtime/route-matrix.md",
+    "priority_order": [
+      "explicit skill name",
+      "task signal routing",
+      "fallback to loom-init with missing inputs"
+    ],
+    "fallback_entry": "loom-init"
+  },
+  "artifact_mapping": {
+    "rules": [
+      ".loom-runtime/shared/references/governance",
+      ".loom-runtime/shared/references/harness",
+      ".loom-runtime/shared/references/templates",
+      ".loom-runtime/shared/references/adoption"
+    ],
+    "skill_refs": [
+      "references/input-signals.md",
+      "references/intake-signals.md",
+      "references/output-contract.md"
+    ],
+    "default_targets": [
+      ".loom/bootstrap/init-result.json",
+      ".loom/work-items/INIT-0001.md",
+      ".loom/progress/INIT-0001.md",
+      ".loom/status/current.md",
+      ".loom/specs/INIT-0001/spec.md",
+      ".loom/specs/INIT-0001/plan.md"
+    ]
+  },
+  "installation": {
+    "registry": ".loom-runtime/registry.json",
+    "upgrade_contract": ".loom-runtime/upgrade-contract.json",
+    "layout_manifest": ".loom-runtime/install-layout.json"
+  }
+}
