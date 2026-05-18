@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "summary",
+    "findings"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "block",
+        "fallback"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "summary",
+          "severity",
+          "rebuttal",
+          "disposition",
+          "details",
+          "code_location"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "block"
+            ]
+          },
+          "rebuttal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "disposition": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "status",
+              "summary"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "accepted",
+                  "rejected",
+                  "deferred"
+                ]
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_location": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "path",
+              "line",
+              "end_line"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "end_line": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

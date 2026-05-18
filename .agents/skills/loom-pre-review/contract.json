@@ -1,0 +1,41 @@
+{
+  "id": "loom-pre-review",
+  "role": "scenario/pre-review",
+  "contract_version": "1.3.0",
+  "display_name": "Loom Pre Review",
+  "description": "Run the unified pre-review flow and return a blocking or fallback judgment before semantic review.",
+  "root_entry": false,
+  "entrypoint": {
+    "skill_markdown": "SKILL.md",
+    "adapter_metadata": "agents/openai.yaml",
+    "orchestration_cli": "scripts/loom-pre-review.py"
+  },
+  "input_contract": {
+    "reference": "references/input-signals.md",
+    "required_fields": [
+      "target_repository",
+      "review_intent"
+    ]
+  },
+  "output_contract": {
+    "reference": "references/output-contract.md",
+    "required_sections": [
+      "item",
+      "result",
+      "summary",
+      "missing_inputs",
+      "fallback_to",
+      "runtime_state",
+      "steps"
+    ]
+  },
+  "routing": {
+    "reference": ".loom-runtime/route-matrix.md",
+    "explicit_name": "loom-pre-review"
+  },
+  "installation": {
+    "registry": ".loom-runtime/registry.json",
+    "upgrade_contract": ".loom-runtime/upgrade-contract.json",
+    "layout_manifest": ".loom-runtime/install-layout.json"
+  }
+}

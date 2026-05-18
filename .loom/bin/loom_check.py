@@ -12735,10 +12735,10 @@ def check_live_smoke_foundation_contract(root: Path) -> list[Failure]:
             "target_family": "Syvert-style strong governance adopted repo",
             "smoke_branch": "chore/loom-phase-d-smoke-companion",
             "smoke_commit": "9a7b2923b6ab39631d8a3eafc1be8e5090709b9d",
-            "smoke_worktree": "/Users/mc/dev/syvert-loom-phase-d-smoke",
+            "smoke_worktree": "/example/adopted-repo-smoke",
             "commands": [
-                "test -d /Users/mc/dev/syvert-loom-phase-d-smoke",
-                "python3 <loom_repo_root>/tools/loom_flow.py governance-profile status --target /Users/mc/dev/syvert-loom-phase-d-smoke",
+                "test -d /example/adopted-repo-smoke",
+                "python3 <loom_repo_root>/tools/loom_flow.py governance-profile status --target /example/adopted-repo-smoke",
             ],
         },
     }

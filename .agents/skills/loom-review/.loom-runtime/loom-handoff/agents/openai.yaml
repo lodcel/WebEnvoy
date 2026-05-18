@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loom Handoff"
+  short_description: "生成交接前最小回写清单"
+  default_prompt: "读取当前 Loom 事项状态，只输出 handoff 所需的最小回写清单和定位信息，不直接回写任何 authored 载体。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loom Pre Review"
+  short_description: "统一 review 前机械检查入口"
+  default_prompt: "执行 Loom 的统一 pre-review flow，并输出阻断、回退或通过判断。"

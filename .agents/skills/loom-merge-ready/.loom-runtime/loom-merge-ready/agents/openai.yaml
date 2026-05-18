@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loom Merge Ready"
+  short_description: "merge 前统一放行摘要"
+  default_prompt: "运行 Loom 的 merge-ready 聚合 flow，并输出最终放行前的统一摘要。"

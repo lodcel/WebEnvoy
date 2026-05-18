@@ -1,0 +1,49 @@
+{
+  "id": "loom-merge-ready",
+  "role": "scenario/merge-ready",
+  "contract_version": "1.3.0",
+  "display_name": "Loom Merge Ready",
+  "description": "Run the merge-ready aggregation flow and return a pre-merge release judgment without replacing the host merge action.",
+  "root_entry": false,
+  "entrypoint": {
+    "skill_markdown": "SKILL.md",
+    "adapter_metadata": "agents/openai.yaml",
+    "orchestration_cli": "scripts/loom-merge-ready.py"
+  },
+  "input_contract": {
+    "reference": "references/input-signals.md",
+    "required_fields": [
+      "target_repository",
+      "current_item_or_active_item",
+      "merge_ready_intent"
+    ]
+  },
+  "output_contract": {
+    "reference": "references/output-contract.md",
+    "required_sections": [
+      "item",
+      "result",
+      "summary",
+      "missing_inputs",
+      "fallback_to",
+      "runtime_state",
+      "state_check",
+      "steps",
+      "runtime_evidence",
+      "build_checkpoint",
+      "merge_checkpoint",
+      "current_checkpoint",
+      "current_lane",
+      "latest_validation_summary"
+    ]
+  },
+  "routing": {
+    "reference": "../route-matrix.md",
+    "explicit_name": "loom-merge-ready"
+  },
+  "installation": {
+    "registry": "../registry.json",
+    "upgrade_contract": "../upgrade-contract.json",
+    "layout_manifest": "../install-layout.json"
+  }
+}
