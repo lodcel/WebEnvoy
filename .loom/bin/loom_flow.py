@@ -298,6 +298,7 @@ REVIEW_CONTEXT_PACK_SCHEMA = "loom-review-context-pack/v1"
 REPEATED_BLOCKER_SIGNAL_SCHEMA = "loom-repeated-blocker-signal/v1"
 BUILD_EVIDENCE_SCHEMA = "loom-build-evidence/v1"
 SUBAGENT_OWNERSHIP_SCHEMA = "loom-subagent-ownership/v1"
+ATTACH_ONLY_FACT_CHAIN_MODE = "repo-native attach-only"
 
 ADOPTION_DECISION_QUESTIONS: dict[str, str] = {
     "fr_work_item_layer": "Which host planning object owns the FR layer, and how does each FR point to its Work Item?",
@@ -724,6 +725,47 @@ def emit(payload: dict[str, Any]) -> int:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     result = payload.get("result")
     return 0 if result == "pass" else 1
+
+
+def attach_only_carrier_guard(
+    *,
+    command: str,
+    operation: str,
+    output_path: Path,
+    output_relative: str,
+) -> dict[str, Any] | None:
+    try:
+        init_result = load_json_file(output_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return {
+            "command": command,
+            "operation": operation,
+            "result": "block",
+            "summary": f"{command} command could not inspect init-result before Loom carrier authoring.",
+            "missing_inputs": [f"invalid init-result: {output_relative}: {exc}"],
+            "fallback_to": "admission",
+        }
+
+    fact_chain = init_result.get("fact_chain")
+    mode = fact_chain.get("mode") if isinstance(fact_chain, dict) else None
+    if mode != ATTACH_ONLY_FACT_CHAIN_MODE:
+        return None
+
+    return {
+        "command": command,
+        "operation": operation,
+        "result": "block",
+        "summary": (
+            f"{command} carrier authoring is disabled because the repository is in "
+            f"{ATTACH_ONLY_FACT_CHAIN_MODE} fact-chain mode."
+        ),
+        "missing_inputs": [
+            "repo-native attach-only mode forbids Loom-authored work-item, recovery, review, and status carriers."
+        ],
+        "fallback_to": "repo-native carriers",
+        "fact_chain_mode": ATTACH_ONLY_FACT_CHAIN_MODE,
+        "blocked_writes": [".loom/work-items", ".loom/progress", ".loom/reviews", ".loom/status"],
+    }
 
 
 def runtime_state_payload(target_root: Path) -> dict[str, Any]:
@@ -13203,6 +13245,39 @@ def handle_review(args: argparse.Namespace) -> int:
 
 def handle_recovery(args: argparse.Namespace) -> int:
     target_root = Path(args.target).expanduser().resolve()
+    output_path, output_errors = resolve_repo_relative_path(target_root, args.output, label="init-result locator")
+    if output_errors:
+        return emit(
+            {
+                "command": "recovery",
+                "operation": args.operation,
+                "result": "block",
+                "summary": "recovery command requires a safe init-result fact-chain locator.",
+                "missing_inputs": output_errors,
+                "fallback_to": "admission",
+            }
+        )
+    assert output_path is not None
+    if not output_path.exists():
+        return emit(
+            {
+                "command": "recovery",
+                "operation": args.operation,
+                "result": "block",
+                "summary": "recovery command requires an existing init-result fact-chain locator.",
+                "missing_inputs": [f"missing init-result: {args.output}"],
+                "fallback_to": "admission",
+            }
+        )
+    attach_only_block = attach_only_carrier_guard(
+        command="recovery",
+        operation=args.operation,
+        output_path=output_path,
+        output_relative=args.output,
+    )
+    if attach_only_block is not None:
+        return emit(attach_only_block)
+
     context, errors = load_context(target_root, args.output, args.item)
     if errors:
         return emit(
@@ -13406,6 +13481,14 @@ def handle_work_item(args: argparse.Namespace) -> int:
     assert recovery_path is not None
     assert review_path is not None
     assert status_path is not None
+    attach_only_block = attach_only_carrier_guard(
+        command="work-item",
+        operation=args.operation,
+        output_path=output_path,
+        output_relative=args.output,
+    )
+    if attach_only_block is not None:
+        return emit(attach_only_block)
     runtime_evidence: dict[str, dict[str, Any]] | None = None
 
     if args.operation == "create":
