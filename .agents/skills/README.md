@@ -11,6 +11,7 @@ WebEnvoy vendors these Loom skills so a clean checkout can read and execute the 
 - WebEnvoy does not treat these skills as a second project truth source. They are executable entrypoints only.
 - Clean checkouts must use repo-local launcher commands such as `python3 .agents/skills/loom-init/scripts/loom-init.py verify --target .`, `python3 .agents/skills/loom-review/scripts/loom-review.py flow review --target .`, and `python3 .agents/skills/loom-spec-review/scripts/loom-spec-review.py flow spec-review --target .`.
 - These launchers must not require a global `loom` command, a global Codex skill install, or a local Loom source checkout.
+- In attach-only mode, vendored skills must not auto-divert ordinary WebEnvoy PR review, guardian review, or `code_review.md` driven review into Loom review. `loom-review` requires an explicit Loom review request or an already admitted Loom-authored item/review record.
 
 ## Source
 

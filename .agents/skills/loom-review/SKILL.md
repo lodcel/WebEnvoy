@@ -1,6 +1,6 @@
 ---
 name: loom-review
-description: 负责正式 review 执行层。Use when Codex needs to run semantic review after pre-review and produce a formal review verdict without replacing merge-ready.
+description: 仅在用户显式要求 Loom review，或目标事项已有 Loom-authored item/review record 并已准入 Loom review flow 时使用；不要用于普通 WebEnvoy PR review、guardian review 或仓库现有 review authority。
 ---
 
 # Loom Review
@@ -17,12 +17,20 @@ description: 负责正式 review 执行层。Use when Codex needs to run semanti
 
 ## 1. 使用时机
 
-当任务满足以下任一条件时，进入 `loom-review`：
+WebEnvoy 当前仍处于 attach-only 阶段。`loom-review` 不得自动接管普通 WebEnvoy PR review、guardian review、code_review.md 驱动的仓库审查，或任何未显式准入 Loom review 的请求。
 
-- 明确要求正式 review
-- 明确要求语义审查或审查结论
-- 明确要求输出 findings、风险和是否通过的判断
-- 明确要求在 pre-review 通过后进入审查执行
+只有当任务满足以下任一条件时，才进入 `loom-review`：
+
+- 用户明确写出 `Loom review`、`loom-review`，或要求使用 Loom review engine
+- 当前事项已有 Loom-authored work item、review record，且该 record 明确指向 `loom-review`
+- 已有 Loom pre-review/admission 结果明确允许进入 Loom review flow
+
+以下情况不要进入 `loom-review`，应继续使用 WebEnvoy 现有 authority：
+
+- 普通 PR review、代码审查、guardian review、merge 前仓库审查
+- 只要求“review 这个 PR”或“做语义审查”，但没有显式指定 Loom
+- 只存在 `code_review.md`、PR template、guardian 或 CI 作为审查入口
+- 当前仓库仍缺少 Loom-authored fact-chain / review carriers
 
 如果任务其实是在做初始化、恢复执行、review 前预检、handoff、retire 或 merge-ready，应回到 root route matrix，让 `loom-init` 路由到对应场景：
 

@@ -222,7 +222,7 @@
       "role": "scenario/review",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "96f7e947c2bbe820ad2c429f65ab1a798b34dc12bc118e7e18afb386082531ed",
+        "SKILL.md": "5b6e3174ce5266ef46233eeab295e9448f41f37ad79b590a356b5cd13e7283ee",
         "contract.json": "e015babe4cc9dd69ac6446fb1bc016026c1394e4da3929647850094d1564d3b8",
         "loom-package.json": "ff865d92107d81be0acc7a116199b4655ad4780f185146946a4104fcb04af35e"
       }
