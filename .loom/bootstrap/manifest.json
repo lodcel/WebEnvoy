@@ -35,7 +35,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "b6d757ecfb9c10e5e21ec907327bb2bdd3d86f49e52186e5316fc65358c335c5"
+      "sha256": "b1d3f518c1290b24b778ccb297d85c7cf7f6e63894c2456b657f7efeecf76485"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",

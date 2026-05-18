@@ -1240,10 +1240,14 @@ def render_loom_readme(result: dict[str, object]) -> str:
         "- Bootstrap manifest: `.loom/bootstrap/manifest.json`\n"
         "- Bootstrap result: `.loom/bootstrap/init-result.json`\n"
         f"{path_lines}"
-        "- Runtime-state entry: `.loom/bin/loom_init.py runtime-state --target .`\n"
-        "- Daily execution CLI: `.loom/bin/loom_flow.py`\n"
-        "- Unified status CLI: `.loom/bin/loom_status.py --target .`\n"
-        "- Gate CLI: `.loom/bin/loom_check.py`\n"
+        "- Verify entry: `python3 .loom/bin/loom_init.py verify --target .`\n"
+        "- Runtime-state entry: `python3 .loom/bin/loom_init.py runtime-state --target .`\n"
+        "- Gate entry: `python3 .loom/bin/loom_check.py .`\n"
+        + (
+            "- Fact-chain/status entry: deferred for attach-only adoption; WebEnvoy keeps repo-native carriers until a later Loom handoff/resume phase.\n"
+            if attach_only
+            else "- Unified status CLI: `python3 .loom/bin/loom_status.py --target .`\n"
+        )
     )
 
 
@@ -1762,6 +1766,116 @@ def scaffold_target(
     return written, touched
 
 
+def verify_companion_contracts(target_root: Path) -> list[str]:
+    errors: list[str] = []
+
+    def read_required_json(relative: str) -> dict[str, object] | None:
+        path = target_root / relative
+        try:
+            payload = read_json(path)
+        except FileNotFoundError:
+            errors.append(f"missing companion contract: {relative}")
+            return None
+        except json.JSONDecodeError as exc:
+            errors.append(f"invalid companion contract JSON `{relative}`: {exc.msg}")
+            return None
+        if not isinstance(payload, dict):
+            errors.append(f"companion contract must be an object: {relative}")
+            return None
+        return payload
+
+    manifest = read_required_json(".loom/companion/manifest.json")
+    repo_interface = read_required_json(".loom/companion/repo-interface.json")
+    interop = read_required_json(".loom/companion/interop.json")
+
+    if manifest is not None:
+        expected_manifest = {
+            "schema_version": "loom-repo-companion-manifest/v1",
+            "companion_entry": ".loom/companion/README.md",
+            "repo_interface": ".loom/companion/repo-interface.json",
+        }
+        for field, expected in expected_manifest.items():
+            if manifest.get(field) != expected:
+                errors.append(f"companion manifest `{field}` must be `{expected}`")
+
+    if repo_interface is not None:
+        if repo_interface.get("schema_version") != "loom-repo-interface/v2":
+            errors.append("repo-interface schema_version must be `loom-repo-interface/v2`")
+        if repo_interface.get("companion_entry") != ".loom/companion/README.md":
+            errors.append("repo-interface companion_entry must be `.loom/companion/README.md`")
+
+        requirements = repo_interface.get("repo_specific_requirements")
+        if not isinstance(requirements, dict):
+            errors.append("repo-interface must declare `repo_specific_requirements`")
+        else:
+            for surface in ("review", "merge_ready", "closeout"):
+                entries = requirements.get(surface)
+                if not isinstance(entries, list) or not entries:
+                    errors.append(f"repo-interface repo_specific_requirements.{surface} must be a non-empty list")
+                    continue
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        errors.append(f"repo-interface repo_specific_requirements.{surface} entries must be objects")
+                        continue
+                    for field in ("id", "summary", "locator", "enforcement"):
+                        if not isinstance(entry.get(field), str) or not entry.get(field):
+                            errors.append(f"repo-interface repo_specific_requirements.{surface} entry is missing `{field}`")
+                    locator = entry.get("locator")
+                    if isinstance(locator, str) and locator and not (target_root / locator).exists():
+                        errors.append(f"repo-interface locator is missing on disk: {locator}")
+
+        review_locators = repo_interface.get("review_instruction_locators")
+        if not isinstance(review_locators, dict):
+            errors.append("repo-interface must declare `review_instruction_locators`")
+        else:
+            expected_locators = {
+                "spec_review": "spec_review.md",
+                "implementation_review": "code_review.md",
+            }
+            for key, expected_locator in expected_locators.items():
+                locator_entry = review_locators.get(key)
+                if not isinstance(locator_entry, dict):
+                    errors.append(f"repo-interface review_instruction_locators.{key} must be an object")
+                    continue
+                if locator_entry.get("mode") != "repo_declared":
+                    errors.append(f"repo-interface review_instruction_locators.{key}.mode must be `repo_declared`")
+                if locator_entry.get("locator") != expected_locator:
+                    errors.append(f"repo-interface review_instruction_locators.{key}.locator must be `{expected_locator}`")
+                if not (target_root / expected_locator).exists():
+                    errors.append(f"review instruction locator is missing on disk: {expected_locator}")
+
+        metadata_contract = repo_interface.get("metadata_contract")
+        metadata_fields = metadata_contract.get("fields") if isinstance(metadata_contract, dict) else None
+        field_ids = {field.get("id") for field in metadata_fields if isinstance(field, dict)} if isinstance(metadata_fields, list) else set()
+        for required_field in ("integration_check", "gate_applicability", "live_evidence_record"):
+            if required_field not in field_ids:
+                errors.append(f"repo-interface metadata_contract.fields must include `{required_field}`")
+
+    if interop is not None:
+        if interop.get("schema_version") != "loom-repo-interop/v1":
+            errors.append("interop schema_version must be `loom-repo-interop/v1`")
+        carriers = interop.get("repo_native_carriers")
+        if not isinstance(carriers, list) or not carriers:
+            errors.append("interop must declare non-empty `repo_native_carriers`")
+        shadow_surfaces = interop.get("shadow_surfaces")
+        if not isinstance(shadow_surfaces, dict):
+            errors.append("interop must declare `shadow_surfaces`")
+        else:
+            for surface in ("admission", "review", "merge_ready", "closeout"):
+                surface_payload = shadow_surfaces.get(surface)
+                if not isinstance(surface_payload, dict):
+                    errors.append(f"interop shadow_surfaces.{surface} must be an object")
+                    continue
+                for locator_field in ("loom_locator", "repo_locator"):
+                    locator = surface_payload.get(locator_field)
+                    if not isinstance(locator, str) or not locator:
+                        errors.append(f"interop shadow_surfaces.{surface}.{locator_field} must be a non-empty string")
+                    elif not (target_root / locator).exists():
+                        errors.append(f"interop shadow surface locator is missing on disk: {locator}")
+
+    return errors
+
+
 def verify_target(target_root: Path, output_path: Path) -> list[str]:
     errors: list[str] = []
     runtime_state = runtime_state_payload(target_root)
@@ -1873,6 +1987,7 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
                         errors.append(f"initial work item is missing required field: {field}")
                 validated_work_items.append(work_item)
         if attach_only:
+            errors.extend(verify_companion_contracts(target_root))
             fact_chain = result.get("fact_chain")
             if not isinstance(fact_chain, dict):
                 errors.append("init-result is missing required section: fact_chain")
