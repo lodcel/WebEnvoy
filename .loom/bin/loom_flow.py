@@ -768,6 +768,68 @@ def attach_only_carrier_guard(
     }
 
 
+def attach_only_host_write_guard(
+    *,
+    command: str,
+    operation: str,
+    target_root: Path,
+) -> dict[str, Any] | None:
+    output_relative = ".loom/bootstrap/init-result.json"
+    output_path, output_errors = resolve_repo_relative_path(target_root, output_relative, label="init-result locator")
+    if output_errors:
+        return {
+            "command": command,
+            "operation": operation,
+            "result": "block",
+            "summary": f"{command} sync requires a safe init-result locator before host control-plane writes.",
+            "missing_inputs": output_errors,
+            "fallback_to": "manual-reconciliation",
+        }
+    assert output_path is not None
+    if not output_path.exists():
+        return {
+            "command": command,
+            "operation": operation,
+            "result": "block",
+            "summary": f"{command} sync requires an existing init-result before host control-plane writes.",
+            "missing_inputs": [f"missing init-result: {output_relative}"],
+            "fallback_to": "manual-reconciliation",
+        }
+
+    try:
+        init_result = load_json_file(output_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return {
+            "command": command,
+            "operation": operation,
+            "result": "block",
+            "summary": f"{command} sync could not inspect init-result before host control-plane writes.",
+            "missing_inputs": [f"invalid init-result: {output_relative}: {exc}"],
+            "fallback_to": "manual-reconciliation",
+        }
+
+    fact_chain = init_result.get("fact_chain")
+    mode = fact_chain.get("mode") if isinstance(fact_chain, dict) else None
+    if mode != ATTACH_ONLY_FACT_CHAIN_MODE:
+        return None
+
+    return {
+        "command": command,
+        "operation": operation,
+        "result": "block",
+        "summary": (
+            f"{command} host control-plane writes are disabled because the repository is in "
+            f"{ATTACH_ONLY_FACT_CHAIN_MODE} fact-chain mode."
+        ),
+        "missing_inputs": [
+            "repo-native attach-only mode forbids Loom-authored GitHub issue closing or project status sync."
+        ],
+        "fallback_to": "repo-native-closeout",
+        "fact_chain_mode": ATTACH_ONLY_FACT_CHAIN_MODE,
+        "blocked_writes": ["gh issue comment", "gh issue close", "GitHub Project item status sync"],
+    }
+
+
 def runtime_state_payload(target_root: Path) -> dict[str, Any]:
     return detect_runtime_state(__file__, "loom-flow", target_root=target_root)
 
@@ -12446,6 +12508,15 @@ def handle_closeout(args: argparse.Namespace) -> int:
                 "runtime_state": runtime_state,
             }
         )
+    if args.operation == "sync":
+        attach_only_block = attach_only_host_write_guard(
+            command="closeout",
+            operation="sync",
+            target_root=target_root,
+        )
+        if attach_only_block is not None:
+            attach_only_block["runtime_state"] = runtime_state
+            return emit(attach_only_block)
 
     payload, errors = closeout_payload(
         target_root=target_root,
@@ -12639,6 +12710,15 @@ def handle_reconciliation(args: argparse.Namespace) -> int:
                 "runtime_state": runtime_state,
             }
         )
+    if args.operation == "sync" and not args.dry_run:
+        attach_only_block = attach_only_host_write_guard(
+            command="reconciliation",
+            operation="sync",
+            target_root=target_root,
+        )
+        if attach_only_block is not None:
+            attach_only_block["runtime_state"] = runtime_state
+            return emit(attach_only_block)
 
     payload, errors = reconciliation_audit_payload(
         target_root=target_root,
