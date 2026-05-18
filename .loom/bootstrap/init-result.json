@@ -114,7 +114,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "d71308738d5a1be414099f076aa59fd5eccd4013799c567b91315ac6fc059736"
+      "sha256": "a0fcf563d85df806fe36f90f0a1317c1394440e4e7607aeca3e819714c30a7e7"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
@@ -126,7 +126,7 @@
       "path": ".loom/bin/governance_surface.py",
       "kind": "loom-tool-support",
       "source": "skills/shared/scripts/governance_surface.py",
-      "sha256": "805658641a9144b2b385483354fd82882f768b66b54b5f08841aec11689e1c28"
+      "sha256": "3ec84df51716f601ab550474890fc5ca14d3b335f4ec650d6cdbffae3ccf04c8"
     },
     {
       "path": ".loom/bin/loom_flow.py",
@@ -328,7 +328,7 @@
         "source": "repository scan"
       }
     },
-    "execution_entry": "python3 .loom/bin/loom_flow.py flow resume --target . --item INIT-0001",
+    "execution_entry": "python3 .loom/bin/loom_init.py verify --target .",
     "validation_entry": "python3 .loom/bin/loom_init.py verify --target .",
     "review_merge_surface": {
       "pr_template": ".github/PULL_REQUEST_TEMPLATE.md",
@@ -419,7 +419,7 @@
       }
     },
     "repo_interface": {
-      "availability": "incomplete",
+      "availability": "present",
       "manifest": {
         "status": "present",
         "locator": ".loom/companion/manifest.json",
@@ -587,34 +587,8 @@
         "missing_optional": [],
         "checks": []
       },
-      "summary": "repo companion manifest exists, but the machine-readable interface is incomplete.",
-      "missing_inputs": [
-        "metadata_contract.fields[0] missing `applicability_locator`",
-        "metadata_contract.fields[0] missing `authority_locator`",
-        "metadata_contract.fields[0] enforcement must be `blocking` or `advisory`",
-        "metadata_contract.fields[0] `applicability_locator` must be a non-empty string",
-        "metadata_contract.fields[0] `authority_locator` must be a non-empty string",
-        "metadata_contract.fields[1] missing `applicability_locator`",
-        "metadata_contract.fields[1] missing `authority_locator`",
-        "metadata_contract.fields[1] enforcement must be `blocking` or `advisory`",
-        "metadata_contract.fields[1] `applicability_locator` must be a non-empty string",
-        "metadata_contract.fields[1] `authority_locator` must be a non-empty string",
-        "metadata_contract.fields[2] missing `applicability_locator`",
-        "metadata_contract.fields[2] missing `authority_locator`",
-        "metadata_contract.fields[2] enforcement must be `blocking` or `advisory`",
-        "metadata_contract.fields[2] `applicability_locator` must be a non-empty string",
-        "metadata_contract.fields[2] `authority_locator` must be a non-empty string",
-        "context_schema.fields[0] missing `type`",
-        "context_schema.fields[0] missing `mapping_rule_locator`",
-        "context_schema.fields[0] type must be one of `string`, `integer`, `number`, `boolean`",
-        "context_schema.fields[0] `required` must be a boolean",
-        "context_schema.fields[0] `mapping_rule_locator` must be a non-empty string",
-        "context_schema.fields[1] missing `type`",
-        "context_schema.fields[1] missing `mapping_rule_locator`",
-        "context_schema.fields[1] type must be one of `string`, `integer`, `number`, `boolean`",
-        "context_schema.fields[1] `required` must be a boolean",
-        "context_schema.fields[1] `mapping_rule_locator` must be a non-empty string"
-      ],
+      "summary": "repo companion manifest and machine-readable repo interface are readable.",
+      "missing_inputs": [],
       "missing_optional": []
     },
     "repo_interop": {
@@ -905,8 +879,7 @@
         },
         "default_branch": "main",
         "missing_inputs": [
-          "work_item",
-          "repo interface"
+          "work_item"
         ],
         "result": "block",
         "summary": "host binding surface is readable, but required binding facts are missing or host-managed."
@@ -1171,7 +1144,6 @@
           ],
           "standard": [
             "light",
-            "fr_work_item_layer",
             "spec_path",
             "plan_path",
             "spec_gate",
@@ -1179,7 +1151,6 @@
           ],
           "strong": [
             "standard",
-            "repo_interface",
             "host_enforced_control_plane",
             "controlled_merge_basis",
             "github_controlled_merge"
@@ -1218,13 +1189,6 @@
           ],
           "standard": [
             {
-              "id": "fr_work_item_layer",
-              "layer": "github-profile",
-              "required": true,
-              "defaulting": "profile",
-              "recommended_action": "declare the FR -> Work Item split through the GitHub profile upgrade path"
-            },
-            {
               "id": "spec_path",
               "layer": "core",
               "required": true,
@@ -1254,13 +1218,6 @@
             }
           ],
           "strong": [
-            {
-              "id": "repo_interface",
-              "layer": "repo-owned-residue",
-              "required": true,
-              "defaulting": "scaffold",
-              "recommended_action": "install or repair the repo companion interface"
-            },
             {
               "id": "github_controlled_merge",
               "layer": "github-profile",
@@ -1340,33 +1297,7 @@
     "summary": "resume chain is only partially supported because governance carriers or GitHub control-plane signals are incomplete.",
     "missing_inputs": [
       "no stable Loom carriers are readable yet",
-      "metadata_contract.fields[0] missing `applicability_locator`",
-      "metadata_contract.fields[0] missing `authority_locator`",
-      "metadata_contract.fields[0] enforcement must be `blocking` or `advisory`",
-      "metadata_contract.fields[0] `applicability_locator` must be a non-empty string",
-      "metadata_contract.fields[0] `authority_locator` must be a non-empty string",
-      "metadata_contract.fields[1] missing `applicability_locator`",
-      "metadata_contract.fields[1] missing `authority_locator`",
-      "metadata_contract.fields[1] enforcement must be `blocking` or `advisory`",
-      "metadata_contract.fields[1] `applicability_locator` must be a non-empty string",
-      "metadata_contract.fields[1] `authority_locator` must be a non-empty string",
-      "metadata_contract.fields[2] missing `applicability_locator`",
-      "metadata_contract.fields[2] missing `authority_locator`",
-      "metadata_contract.fields[2] enforcement must be `blocking` or `advisory`",
-      "metadata_contract.fields[2] `applicability_locator` must be a non-empty string",
-      "metadata_contract.fields[2] `authority_locator` must be a non-empty string",
-      "context_schema.fields[0] missing `type`",
-      "context_schema.fields[0] missing `mapping_rule_locator`",
-      "context_schema.fields[0] type must be one of `string`, `integer`, `number`, `boolean`",
-      "context_schema.fields[0] `required` must be a boolean",
-      "context_schema.fields[0] `mapping_rule_locator` must be a non-empty string",
-      "context_schema.fields[1] missing `type`",
-      "context_schema.fields[1] missing `mapping_rule_locator`",
-      "context_schema.fields[1] type must be one of `string`, `integer`, `number`, `boolean`",
-      "context_schema.fields[1] `required` must be a boolean",
-      "context_schema.fields[1] `mapping_rule_locator` must be a non-empty string",
-      "host binding: work_item",
-      "host binding: repo interface"
+      "host binding: work_item"
     ]
   },
   "lifecycle_expectations": {
@@ -1530,7 +1461,6 @@
     "path_placeholders": {
       "target_root": "${TARGET_ROOT}",
       "source_repo_root": "${SOURCE_REPO_ROOT}",
-      "installed_skills_root": "${INSTALLED_SKILLS_ROOT}",
       "current_branch": "${CURRENT_BRANCH}"
     }
   }

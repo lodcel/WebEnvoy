@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from runtime_paths import installed_skill_script
 
 CARRIER_KEYS = (
     "work_item",
@@ -747,10 +746,6 @@ def command_prefix(root: Path, tool_name: str) -> str:
     loom_tool = root / ".loom/bin" / tool_name
     if loom_tool.exists():
         return f"python3 .loom/bin/{tool_name}"
-    if tool_name == "loom_init.py":
-        return f"python3 {installed_skill_script(__file__, 'loom-init')}"
-    if tool_name == "loom_flow.py":
-        return f"python3 {installed_skill_script(__file__, 'loom-resume')}"
     return "unknown"
 
 
@@ -2771,6 +2766,8 @@ def detect_carrier_summary(root: Path, *, repository_mode: str, planning_mode: b
 
 
 def detect_execution_entry(root: Path, loom_state: str, *, bootstrap_mode: bool, active_item_id: str = "INIT-0001") -> str:
+    if bootstrap_mode and loom_state == "partial":
+        return "python3 .loom/bin/loom_init.py verify --target ."
     if bootstrap_mode:
         return f"python3 .loom/bin/loom_flow.py flow resume --target . --item {active_item_id}"
     if loom_state == "active":
@@ -2780,7 +2777,7 @@ def detect_execution_entry(root: Path, loom_state: str, *, bootstrap_mode: bool,
     return "unknown"
 
 
-def detect_validation_entry(loom_state: str, *, bootstrap_mode: bool) -> str:
+def detect_validation_entry(root: Path, loom_state: str, *, bootstrap_mode: bool) -> str:
     if bootstrap_mode:
         return "python3 .loom/bin/loom_init.py verify --target ."
     if loom_state == "active":
@@ -3250,7 +3247,7 @@ def build_governance_surface(
     carrier_summary = detect_carrier_summary(root, repository_mode=repository_mode, planning_mode=planning_mode)
     github_control_plane, github_missing = detect_github_control_plane(root)
     execution_entry = detect_execution_entry(root, loom_state, bootstrap_mode=bootstrap_mode, active_item_id=active_item_id)
-    validation_entry = detect_validation_entry(loom_state, bootstrap_mode=bootstrap_mode)
+    validation_entry = detect_validation_entry(root, loom_state, bootstrap_mode=bootstrap_mode)
     review_merge_surface = detect_review_merge_surface(root, loom_state, bootstrap_mode=bootstrap_mode, active_item_id=active_item_id)
     repo_interface, repo_interface_missing = detect_repo_interface(root)
     repo_interop, repo_interop_missing = detect_repo_interop(root)

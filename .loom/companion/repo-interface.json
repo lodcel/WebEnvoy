@@ -86,20 +86,23 @@
       {
         "id": "integration_check",
         "summary": "WebEnvoy PR metadata block for cross-repo shared contract and integration readiness.",
-        "locator": ".github/PULL_REQUEST_TEMPLATE.md",
-        "surface": "merge_ready"
+        "applicability_locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "authority_locator": "docs/dev/AGENTS.md",
+        "enforcement": "blocking"
       },
       {
         "id": "gate_applicability",
         "summary": "WebEnvoy PR metadata block for formal spec review, governance lanes, and live evidence gate applicability.",
-        "locator": ".github/PULL_REQUEST_TEMPLATE.md",
-        "surface": "review"
+        "applicability_locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "authority_locator": "code_review.md",
+        "enforcement": "blocking"
       },
       {
         "id": "live_evidence_record",
         "summary": "WebEnvoy PR metadata block for latest-head fresh live evidence when the live evidence gate applies.",
-        "locator": ".github/PULL_REQUEST_TEMPLATE.md",
-        "surface": "merge_ready"
+        "applicability_locator": ".github/PULL_REQUEST_TEMPLATE.md",
+        "authority_locator": "code_review.md",
+        "enforcement": "blocking"
       }
     ]
   },
@@ -108,12 +111,16 @@
       {
         "id": "fr_suite",
         "summary": "Formal WebEnvoy FR suites live under docs/dev/specs/FR-XXXX-* and remain repo-owned truth.",
-        "locator": "docs/dev/specs"
+        "type": "string",
+        "required": true,
+        "mapping_rule_locator": "docs/dev/AGENTS.md"
       },
       {
         "id": "github_progress_truth",
         "summary": "GitHub Issues and Projects remain the authoritative progress and backlog truth.",
-        "locator": "AGENTS.md"
+        "type": "string",
+        "required": true,
+        "mapping_rule_locator": "AGENTS.md"
       }
     ]
   },

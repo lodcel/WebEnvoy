@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fact_chain_support import inspect_fact_chain
-from governance_surface import build_governance_surface, workspace_lifecycle_expectations
+from governance_surface import build_governance_surface, detect_repo_interface, workspace_lifecycle_expectations
 from runtime_paths import registry_path, shared_asset
 from runtime_state import detect_runtime_state
 
@@ -1150,7 +1150,6 @@ def portable_bootstrap_result(result: dict[str, object], target_root: Path) -> d
     replacement_inputs = [
         (str(target_root.resolve()), "${TARGET_ROOT}"),
         (os.environ.get("LOOM_SOURCE_REPO_ROOT", ""), "${SOURCE_REPO_ROOT}"),
-        (os.environ.get("LOOM_INSTALLED_SKILLS_ROOT", ""), "${INSTALLED_SKILLS_ROOT}"),
     ]
     replacements = sorted(
         [(source, replacement) for source, replacement in replacement_inputs if source],
@@ -1164,7 +1163,6 @@ def portable_bootstrap_result(result: dict[str, object], target_root: Path) -> d
         "path_placeholders": {
             "target_root": "${TARGET_ROOT}",
             "source_repo_root": "${SOURCE_REPO_ROOT}",
-            "installed_skills_root": "${INSTALLED_SKILLS_ROOT}",
             "current_branch": "${CURRENT_BRANCH}",
         },
     }
@@ -1768,6 +1766,10 @@ def scaffold_target(
 
 def verify_companion_contracts(target_root: Path) -> list[str]:
     errors: list[str] = []
+    repo_interface_surface, repo_interface_missing = detect_repo_interface(target_root)
+    if repo_interface_surface.get("availability") != "present":
+        errors.append("repo-interface must be present according to governance_surface")
+    errors.extend(f"governance_surface: {message}" for message in repo_interface_missing)
 
     def read_required_json(relative: str) -> dict[str, object] | None:
         path = target_root / relative
@@ -1854,12 +1856,15 @@ def verify_companion_contracts(target_root: Path) -> list[str]:
                 if not isinstance(field, dict):
                     errors.append("repo-interface metadata_contract.fields entries must be objects")
                     continue
-                for key in ("id", "summary", "locator", "surface"):
+                for key in ("id", "summary", "applicability_locator", "authority_locator", "enforcement"):
                     if not isinstance(field.get(key), str) or not field.get(key):
                         errors.append(f"repo-interface metadata_contract.fields entry is missing `{key}`")
-                locator = field.get("locator")
-                if isinstance(locator, str) and locator and not (target_root / locator).exists():
-                    errors.append(f"repo-interface metadata locator is missing on disk: {locator}")
+                if field.get("enforcement") not in ("blocking", "advisory"):
+                    errors.append("repo-interface metadata_contract.fields enforcement must be `blocking` or `advisory`")
+                for locator_key in ("applicability_locator", "authority_locator"):
+                    locator = field.get(locator_key)
+                    if isinstance(locator, str) and locator and not (target_root / locator).exists():
+                        errors.append(f"repo-interface metadata {locator_key} is missing on disk: {locator}")
         for required_field in ("integration_check", "gate_applicability", "live_evidence_record"):
             if required_field not in field_ids:
                 errors.append(f"repo-interface metadata_contract.fields must include `{required_field}`")
@@ -1896,12 +1901,16 @@ def verify_companion_contracts(target_root: Path) -> list[str]:
                 if not isinstance(field, dict):
                     errors.append("repo-interface context_schema.fields entries must be objects")
                     continue
-                for key in ("id", "summary", "locator"):
+                for key in ("id", "summary", "type", "mapping_rule_locator"):
                     if not isinstance(field.get(key), str) or not field.get(key):
                         errors.append(f"repo-interface context_schema.fields entry is missing `{key}`")
-                locator = field.get("locator")
+                if field.get("type") not in ("string", "integer", "number", "boolean"):
+                    errors.append("repo-interface context_schema.fields type must be one of `string`, `integer`, `number`, `boolean`")
+                if not isinstance(field.get("required"), bool):
+                    errors.append("repo-interface context_schema.fields required must be a boolean")
+                locator = field.get("mapping_rule_locator")
                 if isinstance(locator, str) and locator and not (target_root / locator).exists():
-                    errors.append(f"repo-interface context locator is missing on disk: {locator}")
+                    errors.append(f"repo-interface context mapping_rule_locator is missing on disk: {locator}")
 
         for optional_locator_list in ("dynamic_tool_locators", "policy_locators", "hook_locators"):
             if not isinstance(repo_interface.get(optional_locator_list), list):
