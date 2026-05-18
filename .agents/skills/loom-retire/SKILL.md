@@ -1,6 +1,6 @@
 ---
 name: loom-retire
-description: 负责清理并退休当前事项现场。Use when Codex needs to clean up Loom-owned residue and retire a workspace without discarding user changes.
+description: 仅在用户显式要求 Loom retire，或当前事项已有 Loom-admitted workspace/recovery entry 时使用；不要用于普通 WebEnvoy worktree 清理、PR closeout 或 merge 收口。
 ---
 
 # Loom Retire

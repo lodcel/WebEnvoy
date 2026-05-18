@@ -1,6 +1,6 @@
 ---
 name: loom-adopt
-description: 负责把仓库接入 Loom 的初始化场景入口。Use when Codex needs to initialize a new repository with Loom or retrofit Loom into an existing repository.
+description: 仅在用户显式要求 Loom adopt/retrofit/init，或当前事项已准入 Loom adoption flow 时使用；不要用于普通 WebEnvoy 初始化、review、merge 或 guardian 流程。
 ---
 
 # Loom Adopt

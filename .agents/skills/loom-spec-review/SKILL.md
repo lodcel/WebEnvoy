@@ -1,6 +1,6 @@
 ---
 name: loom-spec-review
-description: 负责 formal spec review 执行层。Use when Codex needs to review the formal spec path and produce the spec gate consumed by implementation review and merge-ready.
+description: 仅在用户显式要求 Loom spec-review，或当前事项已有 Loom-admitted spec/review record 时使用；不要用于 WebEnvoy spec_review.md 驱动的普通仓库审查。
 ---
 
 # Loom Spec Review

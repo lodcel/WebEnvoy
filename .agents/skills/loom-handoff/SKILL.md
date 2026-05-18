@@ -1,6 +1,6 @@
 ---
 name: loom-handoff
-description: 负责交接当前事项。Use when Codex needs to prepare a handoff package before ending the current execution round.
+description: 仅在用户显式要求 Loom handoff，或当前事项已有 Loom-admitted Work Item/recovery entry 时使用；不要用于普通 WebEnvoy PR、review、merge 或会话交接。
 ---
 
 # Loom Handoff

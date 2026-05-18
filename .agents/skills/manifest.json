@@ -75,7 +75,7 @@
       "role": "scenario/adopt",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "740a264f010a7dbe7f172bbd7aebfc49262ffef57ee0b13a8b07dac8d60c4275",
+        "SKILL.md": "db518cd50d6504d717c6340fe8238dfb51e352dbfc1858a72500e2cf7d29c1ea",
         "contract.json": "c33a9cae352c2e38c108a716493ed8be9063a443daaaa80ec906cb174fe3a698",
         "loom-package.json": "78dafd2bfba5ee28dc75ce3bbe225c68f8f680d72cf158515ebfdc2127fab5f1"
       }
@@ -94,7 +94,7 @@
       "role": "scenario/build",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "aa93e985f2c36b2b026e46f6d93eef155c325ae26083661fb82424c16007314a",
+        "SKILL.md": "0032f64aea17808592b7a12dac4e109452a326591bec179880471d974ceb89f3",
         "contract.json": "76f6a9084071ce6d8a4255e03d41db4df132311bf563fbd8fbd8aed1b3367216",
         "loom-package.json": "21817958388954356a77f40012d01f2cf81b065e1299468fd98d34497e33cf4d"
       }
@@ -113,7 +113,7 @@
       "role": "scenario/handoff",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "e92bcdac19c0bce87d7ee537f6695bb2321c7433801ad58618e4cbb08d1bbf6f",
+        "SKILL.md": "7b7fb560068e04ca5251b9bbd4c046e22d047da6cfae9f22053c3a777966674b",
         "contract.json": "ee9e59e09285e917e676b8a61fabb8f49d46abeda7d7f5cceb4d2cf1a2930b91",
         "loom-package.json": "23c3675f3c27608f450e132f673fe8242ce172018a62dc793e419ccff2da9b4d"
       }
@@ -151,7 +151,7 @@
       "role": "scenario/merge-ready",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "5598c5b82566509f6c4c3d23b99d54e1d558ba103f85d9a147a9063aa66d55a7",
+        "SKILL.md": "d96d28d41ca1e3241ea48bc4b1c196ba36853a033bea58407cacb083d0bf8953",
         "contract.json": "05e1ccff346cf4605d2e261892999d2c84c55f3e53026facad3adafc126a87cf",
         "loom-package.json": "08606a60c62bd3de2e7c98d22d790ab934a9fe8bdb96a1d22986254df9c17243"
       }
@@ -170,7 +170,7 @@
       "role": "scenario/pre-review",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "d07a3503bb277fb5cb2b67a08d61d44f4e7af2ebd61796e5e87a319c896a44f6",
+        "SKILL.md": "331d4ba07fabccde3608ac39ced67bbcc97a1af7c1dcedb2426fba2b7be627a4",
         "contract.json": "3d3952c348f587bc7f451ec315a4ecf1cb158c1ae43cdefd4c8a0db1fc8556cd",
         "loom-package.json": "65f953255eec68490135888deee4f51f66b19c78026d2e390b92a73a84fa86ef"
       }
@@ -189,7 +189,7 @@
       "role": "scenario/resume",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "5e250b6a48fe9cb7f52a4a3fa8db9d21df08f8cec008429db3d9c7169a16cd62",
+        "SKILL.md": "a281321f04bdfda24daed114cec7cf1b8a6f21351db807fa27978ad8257b6212",
         "contract.json": "e2768767222b56e358046bc0059e755b5fcf5fe801c255917a208eb24adc0f41",
         "loom-package.json": "a0f512b76338fc2ba4dec03134fbbab076c244ec2693e3d75c5ca4504a1e7e45"
       }
@@ -208,7 +208,7 @@
       "role": "scenario/retire",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "9326f81ffc3a390dd4a4f1d9859df127b9ba12b81872454658ff0e64e99644ce",
+        "SKILL.md": "515f2adb478facd8cb86b750be0185f272a9bc1f98fcba25ff0d09ba2ac50880",
         "contract.json": "fee2b8765a10739a562df3664e81cf7e72f47a8091a12bdb96df1c9956c52799",
         "loom-package.json": "87bd39936dd740c92ef4b26eed69ddcce5b25e8c4676e5db243f97ecd93e14db"
       }
@@ -246,7 +246,7 @@
       "role": "scenario/spec-review",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "c7b961eebcdf9375a0d3e0e23f288b0d3ee5f1d7825d0d108aee740d00162670",
+        "SKILL.md": "8f24209b43803e6a0a44fe88072549b16aea79c2e913bf21fb6022249d8239db",
         "contract.json": "312b611895b48e162aa465a20179ed939e282f367078c2f10f6a11c6feecb84e",
         "loom-package.json": "8172e111610371f06b5843b18c595fae79b92a1211d4896a19882fdc03f86d82"
       }
@@ -265,7 +265,7 @@
       "role": "scenario/story",
       "file_count": 160,
       "sha256": {
-        "SKILL.md": "9fb3d268940a668452f3a52eea266b72c37b9785bca9fec47a74450392b5d2a9",
+        "SKILL.md": "b204c683647941b23ea9faca34a321fd646cc20dca42a20293689f07a60242c5",
         "contract.json": "3eb5fd1207ef17afca37f5092a417bf3ea310dc98d442c7349beafdcf44dc51a",
         "loom-package.json": "bb8145b090242a3ad195207b89ced96c30ed95238f1af064141855812dfbde48"
       }

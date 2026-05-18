@@ -1,6 +1,6 @@
 ---
 name: loom-pre-review
-description: 负责统一 review 前检查。Use when Codex needs a single pre-review gate before entering semantic review.
+description: 仅在用户显式要求 Loom pre-review，或当前事项已准入 Loom review flow 时使用；不要用于普通 WebEnvoy PR review、guardian review 或 code_review.md 审查。
 ---
 
 # Loom Pre Review

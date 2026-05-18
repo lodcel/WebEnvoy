@@ -1,6 +1,6 @@
 ---
 name: loom-resume
-description: 负责恢复当前事项的执行入口。Use when Codex needs to take over an active Loom item, rebuild context, and continue from the current checkpoint.
+description: 仅在用户显式要求 Loom resume，或当前事项已有 Loom-admitted Work Item/recovery entry 时使用；不要用于普通 WebEnvoy issue/PR 恢复或 guardian 流程。
 ---
 
 # Loom Resume

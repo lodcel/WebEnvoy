@@ -1,6 +1,6 @@
 ---
 name: loom-merge-ready
-description: 负责 merge 前统一放行。Use when Codex needs to confirm whether the current item is ready for merge without replacing the host platform merge action.
+description: 仅在用户显式要求 Loom merge-ready，或当前事项已有 Loom-admitted Work Item/review record 时使用；不要用于 WebEnvoy controlled merge、guardian merge gate 或普通 PR merge readiness。
 ---
 
 # Loom Merge Ready

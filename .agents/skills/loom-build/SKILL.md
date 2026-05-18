@@ -1,6 +1,6 @@
 ---
 name: loom-build
-description: 负责 bounded implementation/build 执行轮。Use when Codex needs to execute or integrate a Loom Work Item after resume and before pre-review, including subagent-driven execution mode.
+description: 仅在用户显式要求 Loom build，或当前事项已有 Loom-admitted Work Item 并进入 Loom build flow 时使用；不要用于普通 WebEnvoy 实现、测试、review 或 guardian 流程。
 ---
 
 # Loom Build

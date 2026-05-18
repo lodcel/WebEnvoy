@@ -1,6 +1,6 @@
 ---
 name: loom-story
-description: Turn product context, vision, roadmap, host issues, notes, or discussion summaries into a Loom-consumable User Story and separate Story Readiness result before formal spec / plan work.
+description: 仅在用户显式要求 Loom story，或当前事项已准入 Loom story/adoption flow 时使用；不要用于普通 WebEnvoy issue triage、产品讨论或 PR review。
 ---
 
 # Loom Story
