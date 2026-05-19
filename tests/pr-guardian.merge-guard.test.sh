@@ -19,6 +19,8 @@ main() {
   assert_fail run_all_checks_pass_when_all_checks_list_is_empty
   assert_fail run_all_checks_pass_when_legacy_status_is_pending
   assert_fail run_all_checks_pass_when_legacy_status_fails
+  test_merge_pr_help_names_loom_merge_ready_authority
+  test_review_result_schema_is_compatibility_renderer_only
   test_load_pr_meta_rest_maps_rest_payload_to_guardian_fields
   test_classify_review_profile_matches_expected_buckets
   test_slim_pr_body_keeps_only_review_relevant_sections

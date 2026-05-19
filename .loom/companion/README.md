@@ -17,12 +17,27 @@ It is a locator and orchestration boundary, not a second project truth source.
 
 - Review surface: `.loom/companion/review.md`
 - Merge-ready surface: `.loom/companion/merge-ready.md`
+- Cleanup inventory: `.loom/companion/cleanup.md`
 - Closeout surface: `.loom/companion/closeout.md`
 - Checkpoints surface: `.loom/companion/checkpoints.md`
 - Handoff/resume recovery entry: `.loom/progress/<issue>.md`
 - Active status surface: `.loom/status/current.md`
 - Machine-readable repo interface: `.loom/companion/repo-interface.json`
 - Read-only interop contract: `.loom/companion/interop.json`
+
+## Authority Boundary
+
+- Loom review records carry the semantic implementation review decision.
+- Loom spec review records carry the semantic formal spec review decision.
+- Loom merge-ready results carry the final merge readiness verdict.
+- Loom handoff/resume carriers carry cross-session recovery state.
+- WebEnvoy remains the repo-specific rule, metadata, live evidence,
+  integration_check, CI, and controlled host merge safety owner.
+
+WebEnvoy guardian outputs are compatibility renderings of Loom records plus
+retained host gate signals. They are not a second semantic review, spec review,
+merge-ready, handoff, checklist, status, backlog, sprint, issue, or project
+authority.
 
 ## Recovery Boundary
 

@@ -1,5 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MC-and-his-Agents/WebEnvoy/schemas/pr-review-result.compatibility-renderer.json",
+  "title": "WebEnvoy Guardian Compatibility Review Result",
+  "description": "Compatibility renderer schema for WebEnvoy guardian host adapter output. Loom review/spec review records are the semantic review authority; this schema preserves legacy PR review rendering and rollback-only ingestion.",
   "type": "object",
   "additionalProperties": false,
   "required": [

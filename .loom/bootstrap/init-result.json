@@ -65,11 +65,11 @@
   "deferred_capabilities": [],
   "fact_chain": {
     "mode": "loom recovery fact-chain",
-    "read_entry": "python3 .loom/bin/loom_flow.py fact-chain --target . --item 706",
+    "read_entry": "python3 .loom/bin/loom_flow.py fact-chain --target . --item 708",
     "entry_points": {
-      "current_item_id": "706",
-      "work_item": ".loom/work-items/706.md",
-      "recovery_entry": ".loom/progress/706.md",
+      "current_item_id": "708",
+      "work_item": ".loom/work-items/708.md",
+      "recovery_entry": ".loom/progress/708.md",
       "status_surface": ".loom/status/current.md"
     }
   },

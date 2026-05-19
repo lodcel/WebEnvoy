@@ -21,11 +21,11 @@ usage() {
 
 说明:
   review         本机执行 Codex 审查并打印结论
-  review-status  输出当前 HEAD 是否存在可复用 guardian review 的机器可读状态
+  review-status  输出当前 HEAD 是否存在可复用 Loom-backed guardian 兼容 review 的机器可读状态
   merge-if-safe  自动回写 review（可兼容传 --post-review）；Loom merge-ready 允许后执行 squash merge
 
 环境变量:
-  PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1  临时回退为 WebEnvoy 兼容 schema verdict authority
+  PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1  rollback-only: 临时回退为 WebEnvoy 兼容 schema verdict authority
 EOF
 }
 

@@ -2,21 +2,21 @@
 
 ## Derived Fact Chain View
 
-- Item ID: 706
-- Goal: Use Loom handoff and Loom resume as the structured cross-session recovery entry for WebEnvoy Phase 6 while preserving GitHub Issues/Projects as progress truth.
-- Scope: Phase 6 only: Loom recovery fact-chain, handoff/resume records, WebEnvoy repo locators, validation coverage for clean resume and fail-closed recovery states; no CI, live evidence, integration_check, product behavior, FR, review, merge-ready, or controlled merge authority changes.
-- Execution Path: issue-scoped branch `work/706-loom-handoff-resume-recovery` with workspace entry `.`; runtime worktree paths are resolved by `flow resume` host binding.
+- Item ID: 708
+- Goal: Clean up or demote duplicate WebEnvoy guardian/status/checklist mechanisms now owned by Loom while preserving repo-specific rules, gates, CI, controlled merge safety, and rollback paths.
+- Scope: Phase 7 only: demote guardian review/status/checklist authority duplicates to compatibility renderer/cache/host adapter/rollback bridge; do not change WebEnvoy product behavior, CI, FR suites, live evidence gate, integration_check, GitHub Issues/Projects progress truth, or controlled merge safety.
+- Execution Path: issue-scoped branch work/708-loom-cleanup-duplicate-guardian; current host worktree is resolved by GitHub/local worktree binding at resume time
 - Workspace Entry: .
-- Recovery Entry: .loom/progress/706.md
-- Review Entry: .loom/reviews/706.json
-- Validation Entry: bash tests/loom-handoff-resume.test.sh && bash tests/pr-guardian.merge-guard.test.sh && bash scripts/docs-guard.sh && python3 .loom/bin/loom_init.py verify --target . && python3 .loom/bin/loom_check.py .
-- Closing Condition: Issue #706 is closed only after the Phase 6 PR is merged to main, main validation is clean, and Loom resume proves a new agent can recover without chat memory.
-- Current Checkpoint: build checkpoint
-- Current Stop: PR #707 is open on branch work/706-loom-handoff-resume-recovery; the current PR head is resolved from GitHub and local git by flow resume host_binding rather than copied into this recovery entry.
-- Next Step: Read PR #707 latest head and checks through GitHub, rerun guardian on that head, then proceed to Loom merge-ready and controlled merge only after allow.
+- Recovery Entry: .loom/progress/708.md
+- Review Entry: .loom/reviews/708.json
+- Validation Entry: bash tests/pr-guardian.merge-guard.test.sh && bash tests/loom-handoff-resume.test.sh && bash scripts/docs-guard.sh && bash scripts/check-pr-purity.sh work/708-loom-cleanup-duplicate-guardian main && python3 .loom/bin/loom_init.py verify --target . && python3 .loom/bin/loom_check.py .
+- Closing Condition: Issue #708 closes only after Phase 7 PR is merged to main, main validation is clean, duplicate WebEnvoy authority surfaces are demoted/cleaned, rollback paths remain explicit, and GitHub Issues/Projects remain progress truth.
+- Current Checkpoint: build
+- Current Stop: Local validation passed for Phase 7 cleanup/demotion surfaces; ready to commit, push, and open PR.
+- Next Step: Commit, push, open PR for issue #708 with cleanup inventory, authority before/after, rollback, and validation evidence.
 - Blockers: None recorded.
-- Latest Validation Summary: Latest-head validation is not duplicated as a static SHA in this recovery entry; use PR #707 GitHub checks plus flow resume recovery_record.host_binding.head_sha and pr.headRefOid as the current-head evidence.
-- Recovery Boundary: Recovery state belongs to this Loom recovery entry; GitHub Issues/Projects remain progress and backlog truth, PR description remains a human-readable evidence summary, and FR TODO files remain local implementation aids only.
+- Latest Validation Summary: Passed: bash tests/pr-guardian.merge-guard.test.sh; bash tests/loom-handoff-resume.test.sh; bash scripts/docs-guard.sh; bash scripts/check-pr-purity.sh work/708-loom-cleanup-duplicate-guardian main; PYTHONDONTWRITEBYTECODE=1 python3 .loom/bin/loom_init.py verify --target .; PYTHONDONTWRITEBYTECODE=1 python3 .loom/bin/loom_check.py .; git diff --check; JSON validation; bash -n for changed shell files.
+- Recovery Boundary: This recovery entry stores only current execution recovery for issue #708. GitHub Issues/Projects remain progress and backlog truth; PR descriptions remain human-readable evidence summaries; FR TODO files remain local implementation aids only.
 - Current Lane: implementation
 
 ## Runtime Evidence
@@ -29,7 +29,7 @@
 
 ## Sources
 
-- Static Truth: .loom/work-items/706.md
-- Dynamic Truth: .loom/progress/706.md
+- Static Truth: .loom/work-items/708.md
+- Dynamic Truth: .loom/progress/708.md
 - Locator Truth: .loom/bootstrap/init-result.json
-- Fact Chain CLI: python3 .loom/bin/loom_flow.py fact-chain --target . --item 706
+- Fact Chain CLI: python3 .loom/bin/loom_flow.py fact-chain --target . --item 708
