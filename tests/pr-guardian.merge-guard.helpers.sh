@@ -401,6 +401,8 @@ seed_local_guardian_proof() {
     --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
     --arg review_body_sha256 "$(hash_normalized_review_body_sha256 "${REVIEW_MD_FILE}")" \
+    --arg source_authority "loom_review_record" \
+    --arg loom_review_record_sha256 "$(loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}")" \
     --arg verdict "$(jq -r '.verdict' "${RESULT_FILE}")" \
     --argjson safe_to_merge "$(jq -r '.safe_to_merge' "${RESULT_FILE}")" \
     '
@@ -418,6 +420,8 @@ seed_local_guardian_proof() {
           guardian_runtime_sha256: $guardian_runtime_sha256,
           prompt_digest: $prompt_digest,
           review_body_sha256: $review_body_sha256,
+          source_authority: $source_authority,
+          loom_review_record_sha256: $loom_review_record_sha256,
           verdict: $verdict,
           safe_to_merge: $safe_to_merge,
           review_state: $review_state,

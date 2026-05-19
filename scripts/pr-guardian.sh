@@ -23,6 +23,9 @@ usage() {
   review         本机执行 Codex 审查并打印结论
   review-status  输出当前 HEAD 是否存在可复用 guardian review 的机器可读状态
   merge-if-safe  自动回写 review（可兼容传 --post-review）；审查通过且必需检查通过时，执行 squash merge
+
+环境变量:
+  PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1  临时回退为 WebEnvoy 兼容 schema verdict authority
 EOF
 }
 
@@ -705,6 +708,10 @@ compute_review_basis_digest() {
 guardian_metadata_json() {
   local result_file="$1"
   local review_file="$2"
+  local record_file
+
+  ensure_loom_review_record_for_result "${result_file}"
+  record_file="${LOOM_REVIEW_RECORD_FILE}"
 
   jq -cn \
     --arg head_sha "${HEAD_SHA:-}" \
@@ -715,10 +722,16 @@ guardian_metadata_json() {
     --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
     --arg review_body_sha256 "$(hash_normalized_review_body_sha256 "${review_file}")" \
+    --arg source_authority "loom_review_record" \
+    --arg authority_role "compatibility_rendering_mirror" \
+    --arg loom_review_record_sha256 "$(loom_review_record_sha256 "${record_file}")" \
     --arg verdict "$(jq -r '.verdict' "${result_file}")" \
     --argjson safe_to_merge "$(jq -r '.safe_to_merge' "${result_file}")" \
+    --slurpfile loom_review_record "${record_file}" \
     '
       {
+        source_authority: $source_authority,
+        authority_role: $authority_role,
         head_sha: $head_sha,
         base_ref: $base_ref,
         merge_base_sha: $merge_base_sha,
@@ -726,8 +739,12 @@ guardian_metadata_json() {
         review_basis_digest: $review_basis_digest,
         guardian_runtime_sha256: $guardian_runtime_sha256,
         prompt_digest: $prompt_digest,
+        compatibility_verdict: $verdict,
+        compatibility_safe_to_merge: $safe_to_merge,
         verdict: $verdict,
         safe_to_merge: $safe_to_merge,
+        loom_review_record_sha256: $loom_review_record_sha256,
+        loom_review_record: $loom_review_record[0],
         review_body_sha256: $review_body_sha256
       }
     '
@@ -737,8 +754,10 @@ append_guardian_metadata_comment() {
   local result_file="$1"
   local review_file="$2"
   local metadata_b64=""
+  local metadata_json=""
 
-  metadata_b64="$(guardian_metadata_json "${result_file}" "${review_file}" | base64 | tr -d '\n')"
+  metadata_json="$(guardian_metadata_json "${result_file}" "${review_file}")" || return 1
+  metadata_b64="$(printf '%s' "${metadata_json}" | base64 | tr -d '\n')"
   printf '\n<!-- webenvoy-guardian-meta:v1 %s -->\n' "${metadata_b64}" >> "${review_file}"
 }
 
@@ -779,6 +798,7 @@ build_markdown_review() {
         (.required_actions | map("- " + .) | join("\n"))
       end;
     "## PR Review 结论\n\n" +
+    "**Source authority**: Loom review record\n\n" +
     "**结论**: " + .verdict + "\n\n" +
     "**允许合并**: " + (if .safe_to_merge then "是" else "否" end) + "\n\n" +
     "**摘要**: " + .summary + "\n\n" +
@@ -796,6 +816,7 @@ prepare_pr_workspace() {
   META_FILE="${TMP_DIR}/pr.json"
   RAW_RESULT_FILE="${TMP_DIR}/review.raw.json"
   RESULT_FILE="${TMP_DIR}/review.json"
+  LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-review-record.json"
   REVIEW_MD_FILE="${TMP_DIR}/review.md"
   PROMPT_RUN_FILE="${TMP_DIR}/prompt.md"
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
@@ -814,6 +835,9 @@ prepare_pr_workspace() {
   PR_TITLE="$(jq -r '.title' "${META_FILE}")"
   PR_BODY="$(jq -r '.body // ""' "${META_FILE}")"
   PR_AUTHOR="$(jq -r '.author.login // ""' "${META_FILE}")"
+  PR_NUMBER="${pr_number}"
+
+  export PR_NUMBER LOOM_REVIEW_RECORD_FILE
 
   fetch_origin_tracking_ref "refs/heads/${BASE_REF}" "refs/remotes/origin/${BASE_REF}"
   fetch_origin_tracking_ref "pull/${pr_number}/head" "refs/remotes/origin/pr/${pr_number}"
@@ -874,6 +898,201 @@ prepare_review_status_context() {
   slim_pr_body > "${SLIM_PR_FILE}"
   compute_review_basis_digest
   PROMPT_DIGEST=""
+}
+
+guardian_review_item_id() {
+  if [[ -n "${PR_NUMBER:-}" ]]; then
+    printf 'github-pr-%s\n' "${PR_NUMBER}"
+  else
+    printf 'github-pr-unknown\n'
+  fi
+}
+
+guardian_loom_record_file() {
+  if [[ -n "${LOOM_REVIEW_RECORD_FILE:-}" ]]; then
+    printf '%s\n' "${LOOM_REVIEW_RECORD_FILE}"
+  elif [[ -n "${TMP_DIR:-}" ]]; then
+    printf '%s\n' "${TMP_DIR}/loom-review-record.json"
+  else
+    mktemp "${TMPDIR:-/tmp}/webenvoy-loom-review-record.XXXXXX.json"
+  fi
+}
+
+write_loom_review_record_from_guardian_result() {
+  local result_file="$1"
+  local record_file="$2"
+  local item_id
+
+  item_id="$(guardian_review_item_id)"
+  jq -c \
+    --arg item_id "${item_id}" \
+    --arg reviewed_head "${HEAD_SHA:-}" \
+    --arg reviewed_validation_summary "WebEnvoy guardian compatibility review context; GitHub checks remain a separate merge gate." \
+    --arg review_basis_digest "${REVIEW_BASIS_DIGEST:-}" \
+    --arg prompt_digest "${PROMPT_DIGEST:-}" \
+    --arg base_ref "${BASE_REF:-}" \
+    --arg merge_base_sha "${MERGE_BASE_SHA:-}" \
+    --arg review_profile "${REVIEW_PROFILE:-}" \
+    --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
+    '
+      def trim_text:
+        tostring | gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
+      def loom_severity:
+        if . == "critical" or . == "high" then "block" else "warn" end;
+      (.verdict == "APPROVE" and .safe_to_merge == true) as $approved
+      | {
+          schema_version: "loom-review/v1",
+          item_id: $item_id,
+          decision: (if $approved then "allow" else "block" end),
+          kind: "code_review",
+          summary: (.summary | trim_text),
+          reviewer: "webenvoy-guardian",
+          reviewed_head: $reviewed_head,
+          reviewed_validation_summary: $reviewed_validation_summary,
+          fallback_to: null,
+          findings: ((.findings // []) | to_entries | map(
+            {
+              id: ("guardian-finding-" + ((.key + 1) | tostring)),
+              summary: ((.value.title // .value.details // "Guardian review finding") | trim_text),
+              severity: ((.value.severity // "high") | loom_severity),
+              rebuttal: null,
+              disposition: {
+                status: "accepted",
+                summary: ((.value.details // .value.title // "Projected from WebEnvoy compatibility review output.") | trim_text)
+              },
+              code_location: (.value.code_location // null)
+            }
+          )),
+          blocking_issues: (if $approved then [] else ((.required_actions // []) | map(trim_text)) end),
+          follow_ups: (if $approved then ((.required_actions // []) | map(trim_text)) else [] end),
+          consumed_inputs: {
+            source: "webenvoy-guardian-compatibility-review",
+            compatibility_schema: "scripts/pr-review-result.schema.json",
+            review_basis_digest: $review_basis_digest,
+            prompt_digest: $prompt_digest,
+            base_ref: $base_ref,
+            merge_base_sha: $merge_base_sha,
+            review_profile: $review_profile,
+            guardian_runtime_sha256: $guardian_runtime_sha256
+          }
+        }
+    ' "${result_file}" > "${record_file}" \
+    || die "无法从 guardian 兼容结果生成 Loom review record。"
+}
+
+loom_review_record_sha256() {
+  local record_file="$1"
+  hash_string_sha256 "$(jq -cS . "${record_file}")"
+}
+
+validate_loom_review_record_for_current_head() {
+  local record_file="$1"
+  local item_id
+
+  item_id="$(guardian_review_item_id)"
+  jq -e \
+    --arg item_id "${item_id}" \
+    --arg reviewed_head "${HEAD_SHA:-}" \
+    '
+      type == "object"
+      and .schema_version == "loom-review/v1"
+      and .item_id == $item_id
+      and (.decision | IN("allow", "block", "fallback"))
+      and (.kind | IN("general_review", "code_review"))
+      and (.summary | type == "string" and length > 0)
+      and (.reviewer | type == "string" and length > 0)
+      and .reviewed_head == $reviewed_head
+      and (.reviewed_validation_summary | type == "string" and length > 0)
+      and (
+        ((.decision == "fallback") and (.fallback_to | IN("admission", "build", "merge")))
+        or ((.decision != "fallback") and (.fallback_to == null))
+      )
+      and (.findings | type == "array")
+      and (.blocking_issues | type == "array")
+      and (.follow_ups | type == "array")
+      and all(.findings[]?;
+        type == "object"
+        and (.id | type == "string" and length > 0)
+        and (.summary | type == "string" and length > 0)
+        and (.severity | IN("warn", "block"))
+        and ((.rebuttal == null) or (.rebuttal | type == "string" and length > 0))
+        and ((.disposition == null) or (
+          (.disposition | type == "object")
+          and (.disposition.status | IN("accepted", "rejected", "deferred"))
+          and (.disposition.summary | type == "string" and length > 0)
+        ))
+      )
+    ' "${record_file}" >/dev/null 2>&1
+}
+
+ensure_loom_review_record_for_result() {
+  local result_file="$1"
+  local record_file
+
+  record_file="$(guardian_loom_record_file)"
+  LOOM_REVIEW_RECORD_FILE="${record_file}"
+  export LOOM_REVIEW_RECORD_FILE
+
+  if [[ ! -s "${record_file}" ]]; then
+    write_loom_review_record_from_guardian_result "${result_file}" "${record_file}"
+  fi
+  validate_loom_review_record_for_current_head "${record_file}" \
+    || die "Loom review record 缺失、过期或格式错误，拒绝生成兼容 verdict。"
+  jq -e --slurpfile result "${result_file}" '
+    def record_safe_to_merge($record):
+      (($record.decision // "") == "allow")
+      and all(($record.findings // [])[]?; (.severity // "") != "block");
+    def record_verdict($record):
+      if record_safe_to_merge($record) then "APPROVE" else "REQUEST_CHANGES" end;
+    (($result[0].verdict // "") == record_verdict(.))
+    and (($result[0].safe_to_merge | type) == "boolean")
+    and ($result[0].safe_to_merge == record_safe_to_merge(.))
+  ' "${record_file}" >/dev/null 2>&1 \
+    || die "Loom review record 与兼容 verdict 矛盾，拒绝生成第二个审查权威。"
+}
+
+loom_review_record_to_guardian_result() {
+  local record_file="$1"
+  local result_file="$2"
+
+  jq -c \
+    '
+      def trim_text:
+        tostring | gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
+      def guardian_severity($severity):
+        if $severity == "block" then "high" else "low" end;
+      def guardian_priority($severity):
+        if $severity == "block" then 1 else 3 end;
+      def fallback_location:
+        {
+          absolute_file_path: "Loom review record",
+          line_range: {start: 1, end: 1}
+        };
+      (.decision == "allow" and all((.findings // [])[]?; .severity != "block")) as $approved
+      | ((.findings // []) | map(
+          {
+            severity: guardian_severity(.severity),
+            title: ((.summary // "Loom review finding") | trim_text)[0:120],
+            details: (((.disposition.summary // .summary // "Loom review finding") | trim_text)),
+            code_location: ((.code_location // null) as $loc | if ($loc | type) == "object" then $loc else fallback_location end),
+            confidence_score: 0.8,
+            priority: guardian_priority(.severity)
+          }
+        )) as $findings
+      | {
+          verdict: (if $approved then "APPROVE" else "REQUEST_CHANGES" end),
+          safe_to_merge: $approved,
+          summary: (.summary | trim_text),
+          findings: $findings,
+          required_actions: (
+            if $approved then []
+            elif ($findings | length) > 0 then ($findings | map("修复：" + .title))
+            else ["修复 Loom review record 指出的阻断原因。"]
+            end
+          )
+        }
+    ' "${record_file}" > "${result_file}" \
+    || die "无法将 Loom review record 转换为 guardian 兼容输出。"
 }
 
 hydrate_worktree_dependencies() {
@@ -3053,6 +3272,14 @@ run_codex_review() {
   add_fallback_finding_for_unstructured_rejection "${RESULT_FILE}"
   coerce_review_result_shape "${RESULT_FILE}"
   validate_review_result_shape "${RESULT_FILE}"
+  LOOM_REVIEW_RECORD_FILE="$(guardian_loom_record_file)"
+  export LOOM_REVIEW_RECORD_FILE
+  write_loom_review_record_from_guardian_result "${RESULT_FILE}" "${LOOM_REVIEW_RECORD_FILE}"
+  validate_loom_review_record_for_current_head "${LOOM_REVIEW_RECORD_FILE}" \
+    || die "Loom review record 缺失、过期或格式错误，拒绝使用兼容输出。"
+  loom_review_record_to_guardian_result "${LOOM_REVIEW_RECORD_FILE}" "${RESULT_FILE}"
+  coerce_review_result_shape "${RESULT_FILE}"
+  validate_review_result_shape "${RESULT_FILE}"
 
   build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
 }
@@ -3177,6 +3404,7 @@ persist_guardian_review_proof() {
   local review_id
   local safe_to_merge
   local verdict
+  local loom_review_record_sha256=""
   local recorded_at
 
   proof_file="$(guardian_proof_store_file)"
@@ -3186,6 +3414,9 @@ persist_guardian_review_proof() {
   [[ -n "${review_id}" ]] || return 1
   safe_to_merge="$(jq -r '.safe_to_merge' "${RESULT_FILE}")"
   verdict="$(jq -r '.verdict' "${RESULT_FILE}")"
+  if [[ -n "${LOOM_REVIEW_RECORD_FILE:-}" && -s "${LOOM_REVIEW_RECORD_FILE}" ]]; then
+    loom_review_record_sha256="$(loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}")"
+  fi
   recorded_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   tmp_file="$(mktemp "${TMPDIR:-/tmp}/webenvoy-pr-guardian-proof.XXXXXX")"
 
@@ -3203,6 +3434,8 @@ persist_guardian_review_proof() {
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
     --arg review_body_sha256 "$(jq -r '.cleaned_body_sha256 // ""' "${review_file}")" \
     --arg verdict "${verdict}" \
+    --arg source_authority "loom_review_record" \
+    --arg loom_review_record_sha256 "${loom_review_record_sha256}" \
     --arg review_state "$(jq -r '.state // ""' "${review_file}")" \
     --arg submitted_at "$(jq -r '.submitted_at // ""' "${review_file}")" \
     --arg recorded_at "${recorded_at}" \
@@ -3222,6 +3455,8 @@ persist_guardian_review_proof() {
           guardian_runtime_sha256: $guardian_runtime_sha256,
           prompt_digest: $prompt_digest,
           review_body_sha256: $review_body_sha256,
+          source_authority: $source_authority,
+          loom_review_record_sha256: $loom_review_record_sha256,
           verdict: $verdict,
           safe_to_merge: $safe_to_merge,
           review_state: $review_state,
@@ -3306,6 +3541,7 @@ write_review_status_json_common() {
   local proof_store_available="1"
   local repo_slug
   local trusted_reviewers_json
+  local review_item_id
 
   load_pull_reviews "${pr_number}" "${raw_reviews_file}" || return 1
   annotate_pull_reviews_for_reuse "${raw_reviews_file}" "${reviews_file}" || return 1
@@ -3315,6 +3551,8 @@ write_review_status_json_common() {
   fi
   repo_slug="$(repository_slug)"
   trusted_reviewers_json="$(trusted_guardian_reviewers_json "${requesting_user}" "${include_requesting_user}")"
+  PR_NUMBER="${pr_number}"
+  review_item_id="$(guardian_review_item_id)"
 
   jq -c \
     --slurpfile proof_store "${proof_store_file}" \
@@ -3332,6 +3570,8 @@ write_review_status_json_common() {
     --arg review_basis_digest "${REVIEW_BASIS_DIGEST:-}" \
     --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
+    --arg review_item_id "${review_item_id}" \
+    --arg allow_legacy_schema_authority "${PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY:-0}" \
     '
       ($proof_store[0].proofs // {}) as $proofs |
       def completed_state:
@@ -3358,6 +3598,95 @@ write_review_status_json_common() {
       def meta_safe_to_merge($entry):
         if (($entry.meta | type) == "object") and ($entry.meta | has("safe_to_merge")) then
           $entry.meta.safe_to_merge
+        else
+          null
+        end;
+      def record_safe_to_merge($record):
+        (($record.decision // "") == "allow")
+        and all(($record.findings // [])[]?; (.severity // "") != "block");
+      def record_verdict($record):
+        if record_safe_to_merge($record) then "APPROVE" else "REQUEST_CHANGES" end;
+      def record_is_valid($record):
+        ($record | type) == "object"
+        and ($record.schema_version // "") == "loom-review/v1"
+        and ($record.item_id // "") == $review_item_id
+        and (($record.decision // "") | IN("allow", "block", "fallback"))
+        and (($record.kind // "") | IN("general_review", "code_review"))
+        and (($record.summary // "") | type == "string")
+        and (($record.summary // "") | length > 0)
+        and (($record.reviewer // "") | type == "string")
+        and (($record.reviewer // "") | length > 0)
+        and (($record.reviewed_head // "") == $head_sha)
+        and (($record.reviewed_validation_summary // "") | type == "string")
+        and (($record.reviewed_validation_summary // "") | length > 0)
+        and (
+          ((($record.decision // "") == "fallback") and (($record.fallback_to // "") | IN("admission", "build", "merge")))
+          or ((($record.decision // "") != "fallback") and (($record.fallback_to // null) == null))
+        )
+        and (($record.findings // null) | type == "array")
+        and (($record.blocking_issues // null) | type == "array")
+        and (($record.follow_ups // null) | type == "array")
+        and all(($record.findings // [])[]?;
+          type == "object"
+          and ((.id // "") | type == "string")
+          and ((.id // "") | length > 0)
+          and ((.summary // "") | type == "string")
+          and ((.summary // "") | length > 0)
+          and ((.severity // "") | IN("warn", "block"))
+          and (((.rebuttal // null) == null) or (((.rebuttal // "") | type == "string") and ((.rebuttal // "") | length > 0)))
+          and (((.disposition // null) == null) or (
+            (.disposition | type) == "object"
+            and ((.disposition.status // "") | IN("accepted", "rejected", "deferred"))
+            and ((.disposition.summary // "") | type == "string")
+            and ((.disposition.summary // "") | length > 0)
+          ))
+        );
+      def legacy_meta_is_valid($meta):
+        ($allow_legacy_schema_authority == "1")
+        and (($meta.verdict // "") | IN("APPROVE", "REQUEST_CHANGES"))
+        and (($meta.safe_to_merge | type) == "boolean")
+        and (($meta.guardian_runtime_sha256 // "") | length) > 0
+        and (
+          ($meta | has("result") | not)
+          or (
+            (($meta.result | type) == "object")
+            and (($meta.result.verdict // "") == ($meta.verdict // ""))
+            and (($meta.result.safe_to_merge // null) == ($meta.safe_to_merge // null))
+          )
+        );
+      def authority_meta($meta):
+        if (($meta.source_authority // "") == "loom_review_record") then
+          ($meta.loom_review_record // null) as $record
+          | if (record_is_valid($record) | not) then
+              null
+            else
+              (record_verdict($record)) as $record_verdict
+              | (record_safe_to_merge($record)) as $record_safe
+              | if (($meta.loom_review_record_sha256 // "") | length) == 0
+                  or (($meta.verdict // $record_verdict) != $record_verdict)
+                  or (($meta.safe_to_merge | type) != "boolean")
+                  or ($meta.safe_to_merge != $record_safe)
+                  or (($meta.compatibility_verdict // $record_verdict) != $record_verdict)
+                  or (($meta.compatibility_safe_to_merge | type) != "boolean")
+                  or ($meta.compatibility_safe_to_merge != $record_safe)
+                then
+                  null
+                else
+                  $meta + {
+                    verdict: $record_verdict,
+                    safe_to_merge: $record_safe,
+                    result: {
+                      verdict: $record_verdict,
+                      safe_to_merge: $record_safe,
+                      summary: ($record.summary // ""),
+                      findings: [],
+                      required_actions: []
+                    }
+                  }
+                end
+            end
+        elif legacy_meta_is_valid($meta) then
+          $meta
         else
           null
         end;
@@ -3399,6 +3728,8 @@ write_review_status_json_common() {
         and (($proof.guardian_runtime_sha256 // "") == (.meta.guardian_runtime_sha256 // ""))
         and (($proof.prompt_digest // "") == (.meta.prompt_digest // ""))
         and (($proof.review_body_sha256 // "") == (.cleaned_body_sha256 // ""))
+        and (($proof.source_authority // "") == (.meta.source_authority // ""))
+        and (($proof.loom_review_record_sha256 // "") == (.meta.loom_review_record_sha256 // ""))
         and (($proof.verdict // "") == (.meta.verdict // ""))
         and (($proof.safe_to_merge // null) == meta_safe_to_merge(.))
         and (($proof.review_state // "") == (.state // ""))
@@ -3450,19 +3781,11 @@ write_review_status_json_common() {
             }
           else
             ((try ($meta_b64 | @base64d | fromjson) catch null)) as $meta
+            | (if $meta == null then null else authority_meta($meta) end) as $authority_meta
             | if $meta == null
-                or (($meta.verdict // "") | IN("APPROVE", "REQUEST_CHANGES") | not)
-                or (($meta.safe_to_merge | type) != "boolean")
-                or (($meta.guardian_runtime_sha256 // "") | length) == 0
-                or (
-                  ($meta | has("result"))
-                  and (
-                    (($meta.result | type) != "object")
-                    or (($meta.result.verdict // "") != ($meta.verdict // ""))
-                    or (($meta.result.safe_to_merge // null) != ($meta.safe_to_merge // null))
-                  )
-                )
-                or (($meta.review_body_sha256 // "") != (.cleaned_body_sha256 // "")) then
+                or $authority_meta == null
+                or (($authority_meta.guardian_runtime_sha256 // "") | length) == 0
+                or (($authority_meta.review_body_sha256 // "") != (.cleaned_body_sha256 // "")) then
                 . + {
                   meta_status: "invalid_metadata",
                   meta: $meta,
@@ -3471,9 +3794,9 @@ write_review_status_json_common() {
               else
                 . + {
                   meta_status: "ok",
-                  meta: $meta,
+                  meta: $authority_meta,
                   cleaned_body: $cleaned_body,
-                  expected_state: expected_state(($meta.verdict // ""); (.user.login // ""))
+                  expected_state: expected_state(($authority_meta.verdict // ""); (.user.login // ""))
                 }
               end
           end;
