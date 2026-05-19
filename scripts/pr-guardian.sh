@@ -2144,6 +2144,68 @@ normalize_native_review_result() {
 
   if jq -e '
     type == "object"
+    and ((.decision // "") | IN("allow", "block", "fallback"))
+    and (.summary? | type == "string")
+    and (.findings? | type == "array")
+  ' "${json_source_file}" >/dev/null 2>&1; then
+    jq -c -e --arg fallback_path "${fallback_path}" '
+      def trim_text:
+        gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
+      def to_int_or($default):
+        if . == null then $default
+        elif type == "number" then floor
+        elif type == "string" and test("^[0-9]+$") then tonumber
+        else $default
+        end;
+      def severity_for($loom_severity):
+        if $loom_severity == "block" then "high" else "low" end;
+      def priority_for($loom_severity):
+        if $loom_severity == "block" then 1 else 3 end;
+      ((.findings // [])
+        | map(
+            (.severity // "block") as $loom_severity
+            | ((.code_location.line // 1) | to_int_or(1)) as $line_start
+            | {
+                severity: severity_for($loom_severity),
+                title: (((.summary // .id // "Loom review finding") | tostring) | trim_text)[0:120],
+                details: (((.details // .summary // .id // "Loom review finding") | tostring) | trim_text),
+                code_location: {
+                  absolute_file_path: (
+                    if ((.code_location // null) != null and ((.code_location.path // "") | tostring | length) > 0)
+                    then (.code_location.path | tostring)
+                    else $fallback_path
+                    end
+                  ),
+                  line_range: {
+                    start: $line_start,
+                    end: ((.code_location.end_line // .code_location.line // $line_start) | to_int_or($line_start))
+                  }
+                },
+                confidence_score: 0.8,
+                priority: priority_for($loom_severity)
+              }
+          )) as $findings
+      | ((.decision // "fallback") | tostring) as $decision
+      | (($decision == "allow") and all($findings[]?; .severity != "high")) as $can_approve
+      | {
+          verdict: (if $can_approve then "APPROVE" else "REQUEST_CHANGES" end),
+          safe_to_merge: $can_approve,
+          summary: (((.summary // "") | tostring) | trim_text),
+          findings: $findings,
+          required_actions: (
+            if $can_approve then []
+            elif ($findings | length) > 0 then ($findings | map("修复：" + (.title // "Loom review finding")))
+            else ["补齐或修复 Loom review engine 指出的阻断原因。"]
+            end
+          )
+        }
+    ' "${json_source_file}" > "${normalized_result_file}" \
+      || die "Loom review engine JSON 输出无法转换为 guardian 结果。"
+    return
+  fi
+
+  if jq -e '
+    type == "object"
     and ((.verdict // "") | IN("APPROVE", "REQUEST_CHANGES"))
     and (.safe_to_merge? != null)
     and (.summary? != null)
@@ -2949,35 +3011,48 @@ validate_review_result_shape() {
 run_codex_review() {
   local pr_number="$1"
   local native_error_file
-  local formatted_result_file=""
-  local normalization_source_file=""
+  local loom_payload_file
+  local loom_flow_file
 
-  require_cmd codex
+  require_cmd python3
   ensure_review_prompt_prepared "${pr_number}"
-  native_error_file="${TMP_DIR}/codex-native-review.err"
+  native_error_file="${TMP_DIR}/loom-guardian-review.err"
+  loom_payload_file="${TMP_DIR}/loom-guardian-review.json"
+  loom_flow_file="${REPO_ROOT}/.loom/bin/loom_flow.py"
 
-  if codex exec \
-    -C "${WORKTREE_DIR}" \
-    -s read-only \
-    --add-dir "${TMP_DIR}" \
-    -o "${RAW_RESULT_FILE}" \
-    review \
-    - < "${PROMPT_RUN_FILE}" >/dev/null 2>"${native_error_file}"; then
-    normalization_source_file="${RAW_RESULT_FILE}"
-    if ! review_result_contains_extractable_json "${RAW_RESULT_FILE}"; then
-      formatted_result_file="${TMP_DIR}/codex-native-review.formatted.json"
-      format_native_review_result_to_schema "${RAW_RESULT_FILE}" "${formatted_result_file}"
-      normalization_source_file="${formatted_result_file}"
-    fi
-    normalize_native_review_result "${normalization_source_file}" "${RESULT_FILE}"
-    coerce_review_result_shape "${RESULT_FILE}"
-    add_fallback_finding_for_unstructured_rejection "${RESULT_FILE}"
-    coerce_review_result_shape "${RESULT_FILE}"
-    validate_review_result_shape "${RESULT_FILE}"
-  else
+  [[ -f "${loom_flow_file}" ]] || die "缺少 repo-local Loom runtime: ${loom_flow_file}"
+
+  if ! python3 "${loom_flow_file}" review guardian-run \
+    --target "${WORKTREE_DIR}" \
+    --guardian-prompt-file "${PROMPT_RUN_FILE}" \
+    --guardian-output-file "${RAW_RESULT_FILE}" \
+    --guardian-expected-head "${HEAD_SHA}" \
+    --guardian-tmp-dir "${TMP_DIR}" \
+    > "${loom_payload_file}" 2>"${native_error_file}"; then
     sed 's/^/  /' "${native_error_file}" >&2 || true
-    die "Codex 审查执行失败。"
+    if [[ -s "${loom_payload_file}" ]]; then
+      jq -r '.summary? // empty, .engine.failure_reason? // empty, (.missing_inputs[]? // empty)' "${loom_payload_file}" 2>/dev/null | sed 's/^/  /' >&2 || true
+    fi
+    die "Loom guardian review engine 执行失败。"
   fi
+
+  if ! jq -e --arg head_sha "${HEAD_SHA}" '
+    .result == "pass"
+    and .engine.result == "pass"
+    and (.engine.failure_reason == null)
+    and (.engine.adapter | IN("loom/codex-app-review", "loom/default-codex-exec"))
+    and (.engine.reviewed_head == $head_sha)
+  ' "${loom_payload_file}" >/dev/null 2>&1; then
+    jq -r '.summary? // empty, .engine.failure_reason? // empty, (.missing_inputs[]? // empty)' "${loom_payload_file}" 2>/dev/null | sed 's/^/  /' >&2 || true
+    die "Loom guardian review engine 未产生可信 pass 结果。"
+  fi
+
+  [[ -s "${RAW_RESULT_FILE}" ]] || die "Loom guardian review engine 未产生审查输出。"
+  normalize_native_review_result "${RAW_RESULT_FILE}" "${RESULT_FILE}"
+  coerce_review_result_shape "${RESULT_FILE}"
+  add_fallback_finding_for_unstructured_rejection "${RESULT_FILE}"
+  coerce_review_result_shape "${RESULT_FILE}"
+  validate_review_result_shape "${RESULT_FILE}"
 
   build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
 }

@@ -930,6 +930,140 @@ EOF
   assert_file_contains "${result_file}" '"required_actions":["澄清并修复 native review 拒绝原因：Native review returned a negative freeform summary."]'
 }
 
+prepare_loom_guardian_review_worktree() {
+  mkdir -p "${WORKTREE_DIR}/.loom/companion"
+  cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
+  git -C "${WORKTREE_DIR}" init -q
+  git -C "${WORKTREE_DIR}" config user.email "guardian-test@example.test"
+  git -C "${WORKTREE_DIR}" config user.name "Guardian Test"
+  git -C "${WORKTREE_DIR}" add .
+  git -C "${WORKTREE_DIR}" commit -qm "initial"
+  HEAD_SHA="$(git -C "${WORKTREE_DIR}" rev-parse HEAD)"
+  export HEAD_SHA
+}
+
+test_run_codex_review_prefers_codex_app_proof_raw_file() {
+  setup_case_dir "run-codex-app-proof-review"
+
+  BASE_REF="main"
+  PR_TITLE="app proof review"
+  PR_URL="https://example.test/pr/7"
+  PR_BODY=$'## 摘要\n\n- 变更目的：Guardian\n'
+  PR_AUTHOR="author"
+  REVIEW_PROFILE="default_impl_profile"
+  export BASE_REF PR_TITLE PR_URL PR_BODY PR_AUTHOR REVIEW_PROFILE
+
+  WORKTREE_DIR="${TMP_DIR}/worktree"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/review"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/architecture"
+  mkdir -p "${WORKTREE_DIR}/docs/dev"
+  export WORKTREE_DIR
+
+  CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
+  CONTEXT_DOCS_FILE="${TMP_DIR}/context-docs.txt"
+  SLIM_PR_FILE="${TMP_DIR}/pr-summary.md"
+  ISSUE_SUMMARY_FILE="${TMP_DIR}/issue-summary.md"
+  PROMPT_RUN_FILE="${TMP_DIR}/prompt.md"
+  REVIEW_STATS_FILE="${TMP_DIR}/review-stats.txt"
+  RAW_RESULT_FILE="${TMP_DIR}/review.raw.json"
+  RESULT_FILE="${TMP_DIR}/review.json"
+  REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  export CHANGED_FILES_FILE CONTEXT_DOCS_FILE SLIM_PR_FILE ISSUE_SUMMARY_FILE PROMPT_RUN_FILE REVIEW_STATS_FILE RAW_RESULT_FILE RESULT_FILE REVIEW_MD_FILE
+
+  printf '%s\n' 'README.md' > "${CHANGED_FILES_FILE}"
+  slim_pr_body > "${SLIM_PR_FILE}"
+  cp "${REPO_ROOT}/vision.md" "${WORKTREE_DIR}/vision.md"
+  cp "${REPO_ROOT}/AGENTS.md" "${WORKTREE_DIR}/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/AGENTS.md" "${WORKTREE_DIR}/docs/dev/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/roadmap.md" "${WORKTREE_DIR}/docs/dev/roadmap.md"
+  cp "${REPO_ROOT}/docs/dev/architecture/system-design.md" "${WORKTREE_DIR}/docs/dev/architecture/system-design.md"
+  cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
+  cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
+
+  collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
+  prepare_loom_guardian_review_worktree
+
+  mkdir -p "${WORKTREE_DIR}/.loom/runtime/mock"
+  cat > "${WORKTREE_DIR}/.loom/runtime/mock/codex-app-review.json" <<'EOF'
+{"decision":"allow","summary":"No blocking issues found.","findings":[]}
+EOF
+  export LOOM_CODEX_APP_REVIEW_ENDPOINT="mock-app-proof"
+  export LOOM_CODEX_APP_REVIEW_THREAD_ID="thread-123"
+  export LOOM_CODEX_APP_REVIEW_CWD="${WORKTREE_DIR}"
+  export LOOM_CODEX_APP_REVIEW_RAW_FILE=".loom/runtime/mock/codex-app-review.json"
+
+  local previous_ci="${CI-}"
+  local previous_codex_ci="${CODEX_CI-}"
+  unset CI || true
+  unset CODEX_CI || true
+  assert_pass run_codex_review 7
+  if [[ -n "${previous_ci}" ]]; then
+    export CI="${previous_ci}"
+  fi
+  if [[ -n "${previous_codex_ci}" ]]; then
+    export CODEX_CI="${previous_codex_ci}"
+  fi
+  assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "0"
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"adapter": "loom/codex-app-review"'
+  assert_file_contains "${RESULT_FILE}" '"verdict":"APPROVE"'
+}
+
+test_run_codex_review_fails_closed_on_head_mismatch() {
+  setup_case_dir "run-head-binding-review"
+
+  BASE_REF="main"
+  PR_TITLE="head mismatch review"
+  PR_URL="https://example.test/pr/8"
+  PR_BODY=$'## 摘要\n\n- 变更目的：Guardian\n'
+  PR_AUTHOR="author"
+  REVIEW_PROFILE="default_impl_profile"
+  export BASE_REF PR_TITLE PR_URL PR_BODY PR_AUTHOR REVIEW_PROFILE
+
+  WORKTREE_DIR="${TMP_DIR}/worktree"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/review"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/architecture"
+  mkdir -p "${WORKTREE_DIR}/docs/dev"
+  export WORKTREE_DIR
+
+  CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
+  CONTEXT_DOCS_FILE="${TMP_DIR}/context-docs.txt"
+  SLIM_PR_FILE="${TMP_DIR}/pr-summary.md"
+  ISSUE_SUMMARY_FILE="${TMP_DIR}/issue-summary.md"
+  PROMPT_RUN_FILE="${TMP_DIR}/prompt.md"
+  REVIEW_STATS_FILE="${TMP_DIR}/review-stats.txt"
+  RAW_RESULT_FILE="${TMP_DIR}/review.raw.json"
+  RESULT_FILE="${TMP_DIR}/review.json"
+  REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  export CHANGED_FILES_FILE CONTEXT_DOCS_FILE SLIM_PR_FILE ISSUE_SUMMARY_FILE PROMPT_RUN_FILE REVIEW_STATS_FILE RAW_RESULT_FILE RESULT_FILE REVIEW_MD_FILE
+
+  printf '%s\n' 'README.md' > "${CHANGED_FILES_FILE}"
+  slim_pr_body > "${SLIM_PR_FILE}"
+  cp "${REPO_ROOT}/vision.md" "${WORKTREE_DIR}/vision.md"
+  cp "${REPO_ROOT}/AGENTS.md" "${WORKTREE_DIR}/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/AGENTS.md" "${WORKTREE_DIR}/docs/dev/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/roadmap.md" "${WORKTREE_DIR}/docs/dev/roadmap.md"
+  cp "${REPO_ROOT}/docs/dev/architecture/system-design.md" "${WORKTREE_DIR}/docs/dev/architecture/system-design.md"
+  cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
+  cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
+
+  collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
+  prepare_loom_guardian_review_worktree
+  HEAD_SHA="deadbeef"
+  export HEAD_SHA
+
+  MOCK_CODEX_REVIEW_RESULT_JSON="${TMP_DIR}/unused-review.json"
+  cat > "${MOCK_CODEX_REVIEW_RESULT_JSON}" <<'EOF'
+{"decision":"allow","summary":"No blocking issues found.","findings":[]}
+EOF
+  export MOCK_CODEX_REVIEW_RESULT_JSON
+
+  local err_file="${TMP_DIR}/run.err"
+  assert_fail run_codex_review 8 2>"${err_file}"
+  assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "0"
+  assert_file_contains "${err_file}" "target HEAD mismatch"
+  assert_file_contains "${err_file}" "runtime_conflict"
+}
+
 test_run_codex_review_uses_context_budget_prompt_and_native_review_engine() {
   setup_case_dir "run-budget-review"
 
@@ -981,19 +1115,22 @@ test_run_codex_review_uses_context_budget_prompt_and_native_review_engine() {
 
   collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
 
+  prepare_loom_guardian_review_worktree
+
   MOCK_CODEX_REVIEW_RESULT_JSON="${TMP_DIR}/native-review.json"
   cat > "${MOCK_CODEX_REVIEW_RESULT_JSON}" <<'EOF'
-{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"No blocking issues found.","overall_confidence_score":0.42}
+{"decision":"allow","summary":"No blocking issues found.","findings":[]}
 EOF
   export MOCK_CODEX_REVIEW_RESULT_JSON
 
   assert_pass run_codex_review 1
   assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "exec -C"
-  assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "--add-dir ${TMP_DIR}"
-  assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "review -"
-  assert_file_not_contains "${MOCK_CODEX_CALLS_LOG}" "review --base"
-  assert_file_not_contains "${MOCK_CODEX_CALLS_LOG}" "--output-schema"
+  assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "--add-dir"
+  assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "run-budget-review/tmp"
+  assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "--output-schema"
+  assert_file_not_contains "${MOCK_CODEX_CALLS_LOG}" " review "
   assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" "Guardian 常驻审查摘要"
+  assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" "Loom guardian compatibility review engine"
   assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" "vision.md"
   assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" "AGENTS.md"
   assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" "docs/dev/roadmap.md"
@@ -1009,8 +1146,8 @@ EOF
   assert_file_contains "${RESULT_FILE}" '"verdict":"APPROVE"'
 }
 
-test_run_codex_review_formats_plain_text_native_review_output_to_schema() {
-  setup_case_dir "run-plain-text-review-to-schema"
+test_run_codex_review_uses_loom_schema_without_formatter() {
+  setup_case_dir "run-loom-schema-review"
 
   BASE_REF="main"
   HEAD_SHA="head-sha-321"
@@ -1050,23 +1187,21 @@ test_run_codex_review_formats_plain_text_native_review_output_to_schema() {
 
   collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
 
-  local native_review_text="${TMP_DIR}/native-review.txt"
-  local formatted_schema_json="${TMP_DIR}/formatted-review.json"
-  local output_sequence_file="${TMP_DIR}/codex-output-sequence.txt"
-  cat > "${native_review_text}" <<'EOF'
-基于 merge-base `bc253d2f2dee41827a41a516d572eb38d97bb387` 的 diff 审查，这个 PR 主要是在 `background`、`loopback` 和 `xhs-search` 之间收敛重复的 XHS gate 逻辑到共享模块，未发现当前改动明确引入、且足以阻止合并的离散缺陷。已重点检查高风险执行路径与共享契约变更，未定位到可证实的行为回归。
+  prepare_loom_guardian_review_worktree
+
+  MOCK_CODEX_REVIEW_RESULT_JSON="${TMP_DIR}/loom-review.json"
+  cat > "${MOCK_CODEX_REVIEW_RESULT_JSON}" <<'EOF'
+{"decision":"allow","summary":"未发现新的阻断性问题。","findings":[]}
 EOF
-  cat > "${formatted_schema_json}" <<'EOF'
-{"verdict":"APPROVE","safe_to_merge":true,"summary":"未发现新的阻断性问题。","findings":[],"required_actions":[]}
-EOF
-  printf '%s\n%s\n' "${native_review_text}" "${formatted_schema_json}" > "${output_sequence_file}"
-  export MOCK_CODEX_OUTPUT_SEQUENCE_FILE="${output_sequence_file}"
-  unset MOCK_CODEX_REVIEW_RESULT_JSON
+  export MOCK_CODEX_REVIEW_RESULT_JSON
 
   assert_pass run_codex_review 4
-  assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "2"
+  assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "1"
   assert_file_contains "${PROMPT_RUN_FILE}" "请保持结构化 JSON 输出"
-  assert_file_contains "${TMP_DIR}/codex-native-review-format.prompt.md" "你将收到一段来自 native reviewer 的自由文本审查结果"
+  if [[ -e "${TMP_DIR}/codex-native-review-format.prompt.md" ]]; then
+    echo "formatter prompt should not be created when Loom returns schema output" >&2
+    exit 1
+  fi
   assert_file_contains "${RESULT_FILE}" '"verdict":"APPROVE"'
   assert_file_contains "${REVIEW_MD_FILE}" "**结论**: APPROVE"
 }
@@ -1109,11 +1244,12 @@ test_run_codex_review_fails_closed_when_native_review_command_fails() {
   cp "${REPO_ROOT}/docs/dev/architecture/system-design.md" "${WORKTREE_DIR}/docs/dev/architecture/system-design.md"
   cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
   cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
-
   collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
 
   MOCK_CODEX_FORCE_FAIL=1
   export MOCK_CODEX_FORCE_FAIL
+  prepare_loom_guardian_review_worktree
+
   MOCK_CODEX_REVIEW_RESULT_JSON="${TMP_DIR}/unused-review.json"
   cat > "${MOCK_CODEX_REVIEW_RESULT_JSON}" <<'EOF'
 {"findings":[],"overall_correctness":"patch is correct","overall_explanation":"No blocking issues found.","overall_confidence_score":0.42}
@@ -1122,14 +1258,13 @@ EOF
 
   local err_file="${TMP_DIR}/run.err"
   assert_fail run_codex_review 3 2>"${err_file}"
-  assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "review -"
-  assert_file_not_contains "${MOCK_CODEX_CALLS_LOG}" "--output-schema"
+  assert_file_contains "${MOCK_CODEX_CALLS_LOG}" "--output-schema"
   assert_file_contains "${err_file}" "mock codex failure"
-  assert_file_contains "${err_file}" "Codex 审查执行失败"
+  assert_file_contains "${err_file}" "Loom guardian review engine 执行失败"
 }
 
-test_run_codex_review_fails_closed_when_formatter_command_fails() {
-  setup_case_dir "run-review-formatter-failure"
+test_run_codex_review_fails_closed_on_loom_schema_drift() {
+  setup_case_dir "run-review-schema-drift"
 
   BASE_REF="main"
   HEAD_SHA="head-sha-987"
@@ -1169,26 +1304,23 @@ test_run_codex_review_fails_closed_when_formatter_command_fails() {
 
   collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
 
-  local native_review_text="${TMP_DIR}/native-review.txt"
-  local output_sequence_file="${TMP_DIR}/codex-output-sequence.txt"
-  cat > "${native_review_text}" <<'EOF'
-The patch only adds a small wording tweak to README.md and does not affect code paths, tests, or runtime behavior. I did not identify any actionable bugs introduced by this change.
+  prepare_loom_guardian_review_worktree
+
+  MOCK_CODEX_REVIEW_RESULT_JSON="${TMP_DIR}/invalid-loom-review.json"
+  cat > "${MOCK_CODEX_REVIEW_RESULT_JSON}" <<'EOF'
+{"decision":"allow","summary":"missing findings"}
 EOF
-  printf '%s\n' "${native_review_text}" > "${output_sequence_file}"
-  export MOCK_CODEX_OUTPUT_SEQUENCE_FILE="${output_sequence_file}"
-  export MOCK_CODEX_FAIL_CALL="2"
-  unset MOCK_CODEX_REVIEW_RESULT_JSON
+  export MOCK_CODEX_REVIEW_RESULT_JSON
 
   local err_file="${TMP_DIR}/run.err"
   assert_fail run_codex_review 5 2>"${err_file}"
-  assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "2"
-  assert_file_contains "${TMP_DIR}/codex-native-review-format.prompt.md" "你将收到一段来自 native reviewer 的自由文本审查结果"
-  assert_file_contains "${err_file}" "mock codex failure on call 2"
-  assert_file_contains "${err_file}" "Codex 审查结果格式化失败"
+  assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "1"
+  assert_file_contains "${err_file}" "schema_drift"
+  assert_file_contains "${err_file}" "Loom guardian review engine 执行失败"
 }
 
-test_run_codex_review_coerces_sparse_formatter_schema_output() {
-  setup_case_dir "run-review-sparse-formatter-schema"
+test_run_codex_review_fails_closed_when_engine_mutates_tracked_file() {
+  setup_case_dir "run-review-tracked-mutation"
 
   BASE_REF="main"
   HEAD_SHA="head-sha-654"
@@ -1225,27 +1357,23 @@ test_run_codex_review_coerces_sparse_formatter_schema_output() {
   cp "${REPO_ROOT}/docs/dev/architecture/system-design.md" "${WORKTREE_DIR}/docs/dev/architecture/system-design.md"
   cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
   cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
+  printf '%s\n' "tracked mutation target" > "${WORKTREE_DIR}/README.md"
 
   collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
 
-  local native_review_text="${TMP_DIR}/native-review.txt"
-  local formatted_schema_json="${TMP_DIR}/formatted-review.json"
-  local output_sequence_file="${TMP_DIR}/codex-output-sequence.txt"
-  cat > "${native_review_text}" <<'EOF'
-The patch only adds a small wording tweak to README.md and does not affect code paths, tests, or runtime behavior. I did not identify any actionable bugs introduced by this change.
-EOF
-  cat > "${formatted_schema_json}" <<'EOF'
-{"verdict":"REQUEST_CHANGES","safe_to_merge":false,"summary":"Need follow-up before merge.","findings":[{"details":"Missing explicit title and location."}],"required_actions":[]}
-EOF
-  printf '%s\n%s\n' "${native_review_text}" "${formatted_schema_json}" > "${output_sequence_file}"
-  export MOCK_CODEX_OUTPUT_SEQUENCE_FILE="${output_sequence_file}"
-  unset MOCK_CODEX_REVIEW_RESULT_JSON
+  prepare_loom_guardian_review_worktree
 
-  assert_pass run_codex_review 6
-  assert_pass validate_review_result_shape "${RESULT_FILE}"
-  assert_file_contains "${RESULT_FILE}" '"verdict":"REQUEST_CHANGES"'
-  assert_file_contains "${RESULT_FILE}" '"title":"Native review finding"'
-  assert_file_contains "${REVIEW_MD_FILE}" "**结论**: REQUEST_CHANGES"
+  MOCK_CODEX_REVIEW_RESULT_JSON="${TMP_DIR}/loom-review.json"
+  cat > "${MOCK_CODEX_REVIEW_RESULT_JSON}" <<'EOF'
+{"decision":"allow","summary":"No blocking issues found.","findings":[]}
+EOF
+  export MOCK_CODEX_REVIEW_RESULT_JSON
+  export MOCK_CODEX_MUTATE_TRACKED_FILE="${WORKTREE_DIR}/README.md"
+
+  local err_file="${TMP_DIR}/run.err"
+  assert_fail run_codex_review 6 2>"${err_file}"
+  assert_file_contains "${err_file}" "repo_diff_detected"
+  assert_file_contains "${err_file}" "Loom guardian review engine 执行失败"
 }
 
 test_main_review_mode_does_not_fail_on_mode_expansion_after_summary() {
