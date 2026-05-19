@@ -153,6 +153,18 @@ main() {
   run_resume "${fixture}.missing-review" "${fixture}.missing-review.resume.json" && die "missing review record should block"
   assert_jq "${fixture}.missing-review.resume.json" '.recovery_record.authority_records.missing_inputs | map(tostring) | any(test("missing implementation review"))' "missing review record was not reported"
 
+  cp -R "${fixture}" "${fixture}.partial-spec"
+  mkdir -p "${fixture}.partial-spec/.loom/specs/706"
+  printf '# Partial Spec\n' >"${fixture}.partial-spec/.loom/specs/706/spec.md"
+  set_recovery_field "${fixture}.partial-spec" "Current Checkpoint" "merge checkpoint"
+  set_recovery_field "${fixture}.partial-spec" "Current Lane" "merge-ready"
+  commit_fixture_state "${fixture}.partial-spec"
+  set_review_decision "${fixture}.partial-spec" "allow" "$(git -C "${fixture}.partial-spec" rev-parse HEAD)"
+  commit_fixture_state "${fixture}.partial-spec"
+  run_resume "${fixture}.partial-spec" "${fixture}.partial-spec.resume.json" && die "partial formal spec suite should block at merge-ready checkpoint"
+  assert_jq "${fixture}.partial-spec.resume.json" '.recovery_record.authority_records.spec_review.result == "block"' "partial formal spec suite was not blocked"
+  assert_jq "${fixture}.partial-spec.resume.json" '.recovery_record.authority_records.spec_review.missing_inputs | map(tostring) | any(test("missing formal spec suite file"))' "partial formal spec suite missing files were not reported"
+
   cp -R "${fixture}" "${fixture}.stale-head"
   set_recovery_field "${fixture}.stale-head" "Current Checkpoint" "merge checkpoint"
   set_recovery_field "${fixture}.stale-head" "Current Lane" "merge-ready"

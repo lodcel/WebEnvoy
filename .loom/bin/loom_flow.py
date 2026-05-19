@@ -5994,15 +5994,31 @@ def recovery_host_binding_payload(context: dict[str, Any], *, require_pr: bool) 
 def recovery_spec_review_status_payload(context: dict[str, Any], *, require_merge_authority: bool) -> dict[str, Any]:
     suite, missing_suite_paths = formal_spec_suite_status(context)
     if missing_suite_paths:
-        return {
-            "path": default_spec_review_path(context["item_id"]),
-            "required": False,
-            "result": "not_required",
-            "summary": "formal spec review record is not required because this item does not carry a formal spec suite.",
-            "missing_inputs": [],
-            "fallback_to": None,
-            "formal_spec_suite": suite,
-        }
+        present_suite_paths = [
+            path
+            for path in (suite["spec"], suite["plan"], suite["implementation_contract"])
+            if (context["target_root"] / path).is_file()
+        ]
+        if not present_suite_paths:
+            return {
+                "path": default_spec_review_path(context["item_id"]),
+                "required": False,
+                "result": "not_required",
+                "summary": "formal spec review record is not required because this item does not carry a formal spec suite.",
+                "missing_inputs": [],
+                "fallback_to": None,
+                "formal_spec_suite": suite,
+            }
+        payload = spec_review_gate_payload(context)
+        payload["required"] = True
+        if not require_merge_authority:
+            return {
+                **payload,
+                "result": "pending",
+                "summary": "formal spec suite is incomplete; spec review is required before merge-ready, but not before the current checkpoint.",
+                "fallback_to": None,
+            }
+        return payload
     payload = spec_review_gate_payload(context)
     if payload.get("result") in {"block", "fallback"} and not require_merge_authority:
         return {
