@@ -5911,6 +5911,8 @@ def recovery_host_binding_payload(context: dict[str, Any], *, require_pr: bool) 
         missing_inputs.append("worktree")
     if require_pr and pr_payload is None:
         missing_inputs.extend(f"pr: {message}" for message in pr_errors or ["missing PR for current branch"])
+    if require_pr and pr_payload is not None and head_sha and pr_payload.get("headRefOid") != head_sha:
+        missing_inputs.append("pr headRefOid does not match current HEAD")
 
     result = "pass" if not missing_inputs else "block"
     return {

@@ -78,7 +78,7 @@ make_fixture() {
   cp "${REPO_ROOT}/docs/dev/AGENTS.md" "${target}/docs/dev/AGENTS.md"
   cp "${REPO_ROOT}/scripts/pr-guardian.sh" "${target}/scripts/pr-guardian.sh"
   cp "${REPO_ROOT}/scripts/merge-pr.sh" "${target}/scripts/merge-pr.sh"
-  git -C "${target}" init -q -b work/706-loom-handoff-resume-recovery
+  git -C "${target}" init -q -b work/706-loom-handoff-resume-test
   git -C "${target}" config user.email "loom-test@example.invalid"
   git -C "${target}" config user.name "loom test"
   git -C "${target}" remote add origin "https://github.com/MC-and-his-Agents/WebEnvoy.git"
