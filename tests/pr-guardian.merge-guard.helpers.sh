@@ -102,10 +102,10 @@ if [[ "${1:-}" == "api" ]]; then
         {
           number: (.number // 274),
           title: (.title // "Mock PR"),
-          body: (.body // ""),
+          body: (.body // "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n\ncloseout_control:\n  issue_type: implementation\n  readiness_admission_status: static_and_gate_ready\n  readiness_matrix: N/A\n  live_validation_ladder: static tests\n  closeout_evidence: local validation\n  fallback_limitations: N/A\n  blocker_split_handling: N/A\n"),
           html_url: (.url // "https://example.test/pr/274"),
           draft: (.isDraft // false),
-          base: { ref: (.baseRefName // "main") },
+          base: { ref: (.baseRefName // "main"), sha: (.baseRefOid // "base-sha-123") },
           head: {
             ref: (.headRefName // "feat/mock"),
             sha: (.headRefOid // ""),
@@ -312,6 +312,7 @@ setup_case_dir() {
   TMP_DIR="${case_dir}/tmp"
   mkdir -p "${TMP_DIR}"
   export TMP_DIR
+  unset WORKTREE_DIR
 
   MOCK_GH_CALLS_LOG="${case_dir}/gh.calls.log"
   MOCK_GH_MERGE_LOG="${case_dir}/gh.merge.log"

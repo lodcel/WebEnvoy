@@ -22,7 +22,7 @@ usage() {
 说明:
   review         本机执行 Codex 审查并打印结论
   review-status  输出当前 HEAD 是否存在可复用 guardian review 的机器可读状态
-  merge-if-safe  自动回写 review（可兼容传 --post-review）；审查通过且必需检查通过时，执行 squash merge
+  merge-if-safe  自动回写 review（可兼容传 --post-review）；Loom merge-ready 允许后执行 squash merge
 
 环境变量:
   PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1  临时回退为 WebEnvoy 兼容 schema verdict authority
@@ -4257,7 +4257,12 @@ write_review_status_json_common() {
               review_state: ($reused.state // ""),
               review_id: ($reused.id // null),
               review_body: ($reused.cleaned_body // ""),
-              reviewer_login: ($reused.user.login // "")
+              reviewer_login: ($reused.user.login // ""),
+              source_authority: ($reused.meta.source_authority // ""),
+              loom_review_record_sha256: ($reused.meta.loom_review_record_sha256 // ""),
+              loom_review_record: ($reused.meta.loom_review_record // null),
+              loom_spec_review_record_sha256: ($reused.meta.loom_spec_review_record_sha256 // ""),
+              loom_spec_review_record: ($reused.meta.loom_spec_review_record // null)
             }
         else
           (
@@ -4371,6 +4376,13 @@ hydrate_reused_review_result() {
       }
     end
   ' "${review_status_file}" > "${RESULT_FILE}"
+
+  if jq -e '(.loom_review_record | type) == "object"' "${review_status_file}" >/dev/null 2>&1; then
+    jq '.loom_review_record' "${review_status_file}" > "${LOOM_REVIEW_RECORD_FILE}"
+  fi
+  if jq -e '(.loom_spec_review_record | type) == "object"' "${review_status_file}" >/dev/null 2>&1; then
+    jq '.loom_spec_review_record' "${review_status_file}" > "${SPEC_LOOM_REVIEW_RECORD_FILE}"
+  fi
 
   if [[ "$(jq -r '.review_body // ""' "${review_status_file}")" != "" ]]; then
     jq -r '.review_body' "${review_status_file}" > "${REVIEW_MD_FILE}"
@@ -4675,11 +4687,184 @@ delete_same_repo_head_ref_rest() {
     "repos/${repo_slug}/git/refs/heads/${head_ref_name}" >/dev/null
 }
 
+loom_merge_ready_runtime_script() {
+  local target_root="${WORKTREE_DIR:-${REPO_ROOT}}"
+  if [[ -x "${target_root}/.loom/bin/loom_flow.py" || -f "${target_root}/.loom/bin/loom_flow.py" ]]; then
+    printf '%s\n' "${target_root}/.loom/bin/loom_flow.py"
+    return 0
+  fi
+  if [[ -f "${REPO_ROOT}/.loom/bin/loom_flow.py" ]]; then
+    printf '%s\n' "${REPO_ROOT}/.loom/bin/loom_flow.py"
+    return 0
+  fi
+  return 1
+}
+
+merge_ready_record_file_or_null() {
+  local candidate="$1"
+  local null_file="$2"
+  if [[ -n "${candidate}" && -s "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+  else
+    printf '%s\n' "${null_file}"
+  fi
+}
+
+write_loom_merge_ready_input() {
+  local pr_number="$1"
+  local current_meta_file="$2"
+  local checks_file="$3"
+  local checks_load_result="$4"
+  local checks_all_pass="$5"
+  local reviewer_for_gate="$6"
+  local expected_review_state="$7"
+  local review_state_visible="$8"
+  local output_file="$9"
+  local null_file="${TMP_DIR}/merge-ready-null.json"
+  local changed_files_json="${TMP_DIR}/merge-ready-changed-files.json"
+  local impl_record_file
+  local spec_record_file
+  local source_authority="loom_review_record"
+
+  printf '%s\n' 'null' > "${null_file}"
+  if [[ -n "${CHANGED_FILES_FILE:-}" && -s "${CHANGED_FILES_FILE}" ]]; then
+    jq -R -s 'split("\n") | map(select(length > 0))' "${CHANGED_FILES_FILE}" > "${changed_files_json}"
+  else
+    printf '%s\n' '[]' > "${changed_files_json}"
+  fi
+  impl_record_file="$(merge_ready_record_file_or_null "${LOOM_REVIEW_RECORD_FILE:-}" "${null_file}")"
+  spec_record_file="$(merge_ready_record_file_or_null "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" "${null_file}")"
+
+  if guardian_spec_review_only; then
+    source_authority="loom_spec_review_record"
+  elif guardian_spec_review_required; then
+    source_authority="loom_review_record_with_loom_spec_review_gate"
+  fi
+
+  jq -n \
+    --slurpfile pr_meta "${current_meta_file}" \
+    --slurpfile checks "${checks_file}" \
+    --slurpfile implementation_record "${impl_record_file}" \
+    --slurpfile spec_review_record "${spec_record_file}" \
+    --slurpfile changed_files "${changed_files_json}" \
+    --arg pr_number "${pr_number}" \
+    --arg review_profile "${REVIEW_PROFILE:-}" \
+    --arg checked_commit "${HEAD_SHA:-}" \
+    --arg snapshot_head_sha "${HEAD_SHA:-}" \
+    --arg base_sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
+    --arg source_authority "${source_authority}" \
+    --arg impl_record_locator "${LOOM_REVIEW_RECORD_FILE:-}" \
+    --arg spec_record_locator "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" \
+    --arg impl_record_sha256 "$(if [[ -n "${LOOM_REVIEW_RECORD_FILE:-}" && -s "${LOOM_REVIEW_RECORD_FILE}" ]]; then loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}"; fi)" \
+    --arg spec_record_sha256 "$(if [[ -n "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" && -s "${SPEC_LOOM_REVIEW_RECORD_FILE}" ]]; then loom_review_record_sha256 "${SPEC_LOOM_REVIEW_RECORD_FILE}"; fi)" \
+    --arg checks_load_result "${checks_load_result}" \
+    --argjson checks_all_pass "${checks_all_pass}" \
+    --arg reviewer_for_gate "${reviewer_for_gate}" \
+    --arg expected_review_state "${expected_review_state}" \
+    --argjson review_state_visible "${review_state_visible}" \
+    --arg spec_review_required "$(if guardian_spec_review_required; then printf 'true'; else printf 'false'; fi)" \
+    '($pr_meta[0] // {}) as $pr
+      | {
+          schema_version: "webenvoy-merge-ready-signals/v1",
+          pr_number: $pr_number,
+          checked_commit: $checked_commit,
+          review_profile: $review_profile,
+          changed_files: ($changed_files[0] // []),
+          pr: {
+            number: ($pr.number // ($pr_number | tonumber? // $pr_number)),
+            title: ($pr.title // ""),
+            body: ($pr.body // ""),
+            url: ($pr.url // ""),
+            base_ref: ($pr.baseRefName // ""),
+            base_sha: (($pr.baseRefOid // "") as $base_ref_oid | if ($base_ref_oid | length) > 0 then $base_ref_oid else $base_sha end),
+            head_ref: ($pr.headRefName // ""),
+            head_sha: ($pr.headRefOid // ""),
+            snapshot_head_sha: $snapshot_head_sha,
+            head_repo_full_name: ($pr.headRepoFullName // ""),
+            is_draft: ($pr.isDraft // null),
+            mergeable: ($pr.mergeable // ""),
+            merge_state_status: ($pr.mergeStateStatus // "")
+          },
+          review: {
+            source_authority: $source_authority,
+            implementation_record_locator: $impl_record_locator,
+            implementation_record_sha256: $impl_record_sha256,
+            implementation_record: $implementation_record[0],
+            spec_review_record_locator: $spec_record_locator,
+            spec_review_record_sha256: $spec_record_sha256,
+            spec_review_record: $spec_review_record[0]
+          },
+          github_checks: {
+            load_result: $checks_load_result,
+            all_pass: $checks_all_pass,
+            snapshot: ($checks[0] // [])
+          },
+          gates: {
+            spec_review_required: ($spec_review_required == "true"),
+            live_evidence_locator: "code_review.md",
+            integration_check_locator: ".github/PULL_REQUEST_TEMPLATE.md"
+          },
+          retained_host_action_results: {
+            github_review_state: {
+              reviewer: $reviewer_for_gate,
+              expected_state: $expected_review_state,
+              visible: $review_state_visible,
+              head_sha: $snapshot_head_sha
+            },
+            controlled_merge_wrapper: {
+              script: "scripts/merge-pr.sh",
+              adapter: "scripts/pr-guardian.sh",
+              action: "host_merge_after_loom_allow"
+            }
+          }
+        }' > "${output_file}"
+}
+
+run_loom_merge_ready() {
+  local input_file="$1"
+  local output_file="$2"
+  local target_root="${WORKTREE_DIR:-${REPO_ROOT}}"
+  local runtime_script
+
+  runtime_script="$(loom_merge_ready_runtime_script)" || die "缺少 repo-local Loom merge-ready runtime。"
+
+  python3 "${runtime_script}" review guardian-merge-ready \
+    --target "${target_root}" \
+    --merge-ready-input-file "${input_file}" \
+    --merge-ready-output-file "${output_file}" >/dev/null || true
+
+  [[ -s "${output_file}" ]] || die "Loom merge-ready 未产生结果，拒绝合并。"
+}
+
+assert_loom_merge_ready_allows_current_head() {
+  local output_file="$1"
+  local missing_summary
+
+  if jq -e \
+    --arg head_sha "${HEAD_SHA:-}" \
+    --arg pr_number "${PR_NUMBER:-}" \
+    '
+      (.schema_version == "loom-merge-ready-result/v1")
+      and (.result == "pass")
+      and (.decision == "allow")
+      and ((.pr.number | tostring) == $pr_number)
+      and (.pr.head_sha == $head_sha)
+      and (.pr.checked_commit == $head_sha)
+      and (.provenance.authority == "loom_merge_ready")
+    ' "${output_file}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  missing_summary="$(jq -r '(.missing_inputs // []) | join("; ")' "${output_file}" 2>/dev/null || true)"
+  if [[ -z "${missing_summary}" ]]; then
+    missing_summary="Loom merge-ready result 缺失、过期或格式错误"
+  fi
+  die "Loom merge-ready 未允许合并，拒绝合并：${missing_summary}"
+}
+
 merge_if_safe() {
   local pr_number="$1"
   local delete_branch="$2"
-  local safe_to_merge
-  local verdict
   local mergeable
   local merge_state_status
   local is_draft
@@ -4689,12 +4874,24 @@ merge_if_safe() {
   local current_head_sha
   local current_base_ref
   local current_meta_file
+  local checks_file
+  local checks_load_result="pass"
+  local checks_all_pass="false"
+  local review_state_visible="false"
+  local merge_ready_input_file
+  local merge_ready_output_file
+  local verdict
+
+  PR_NUMBER="${pr_number}"
+  export PR_NUMBER
 
   verdict="$(jq -r '.verdict' "${RESULT_FILE}")"
-  safe_to_merge="$(jq -r '.safe_to_merge' "${RESULT_FILE}")"
   current_user="$(gh api user --jq '.login')"
   reviewer_for_gate="${REUSED_REVIEWER_LOGIN:-${current_user}}"
   current_meta_file="${TMP_DIR}/merge-meta.json"
+  checks_file="${TMP_DIR}/merge-checks.json"
+  merge_ready_input_file="${TMP_DIR}/loom-merge-ready-input.json"
+  merge_ready_output_file="${TMP_DIR}/loom-merge-ready-result.json"
 
   wait_for_merge_gate_ready "${pr_number}" "${current_meta_file}" || true
   current_base_ref="$(jq -r '.baseRefName' "${current_meta_file}")"
@@ -4704,33 +4901,32 @@ merge_if_safe() {
   is_draft="$(jq -r '.isDraft' "${current_meta_file}")"
   expected_review_state="$(expected_review_state_for_verdict "${verdict}" "${reviewer_for_gate}")"
 
-  if [[ "${current_head_sha}" != "${HEAD_SHA}" ]]; then
-    die "合并前检测到 PR HEAD 已变化：审查快照=${HEAD_SHA}，当前=${current_head_sha}。请重跑 guardian。"
+  if ! load_pr_checks_rest "${pr_number}" "${checks_file}"; then
+    checks_load_result="block"
+    printf '%s\n' '[]' > "${checks_file}"
+  fi
+  if [[ "$(jq 'length' "${checks_file}")" -gt 0 ]] && jq -e 'all(.[]; .bucket == "pass")' "${checks_file}" >/dev/null 2>&1; then
+    checks_all_pass="true"
   fi
 
-  [[ "${current_base_ref}" == "main" ]] || die "仅允许合并到 main，当前 base: ${current_base_ref}"
-  [[ "${is_draft}" == "false" ]] || die "PR 仍是 Draft，拒绝合并。"
-  [[ "${verdict}" == "APPROVE" ]] || die "Codex 审查未批准，拒绝合并。"
-  [[ "${safe_to_merge}" == "true" ]] || die "审查结果认为当前 PR 不安全，拒绝合并。"
-  [[ "${mergeable}" == "MERGEABLE" ]] || die "GitHub 判定当前 PR 不可合并，状态为: ${mergeable}"
-  case "${merge_state_status}" in
-    CLEAN|HAS_HOOKS|UNSTABLE)
-      ;;
-    BEHIND|UNKNOWN)
-      die "GitHub mergeStateStatus=${merge_state_status}，当前属于暂不可合并状态（可重跑/等待后重试），请稍后重跑 guardian。"
-      ;;
-    *)
-      die "GitHub mergeStateStatus 阻断合并，状态为: ${merge_state_status}"
-      ;;
-  esac
-
-  if ! wait_for_expected_review_state "${pr_number}" "${HEAD_SHA}" "${reviewer_for_gate}" "${expected_review_state}"; then
-    die "当前 HEAD (${HEAD_SHA}) 缺少 ${reviewer_for_gate} 的已完成 GitHub review（期望状态: ${expected_review_state}，已重试 ${PR_GUARDIAN_REVIEW_STATE_MAX_ATTEMPTS:-3} 次），拒绝合并。"
+  if wait_for_expected_review_state "${pr_number}" "${HEAD_SHA}" "${reviewer_for_gate}" "${expected_review_state}"; then
+    review_state_visible="true"
   fi
 
-  if ! all_required_checks_pass "${pr_number}"; then
-    die "GitHub checks 未全部通过，拒绝合并。"
-  fi
+  write_loom_merge_ready_input \
+    "${pr_number}" \
+    "${current_meta_file}" \
+    "${checks_file}" \
+    "${checks_load_result}" \
+    "${checks_all_pass}" \
+    "${reviewer_for_gate}" \
+    "${expected_review_state}" \
+    "${review_state_visible}" \
+    "${merge_ready_input_file}"
+
+  run_loom_merge_ready "${merge_ready_input_file}" "${merge_ready_output_file}"
+  assert_loom_merge_ready_allows_current_head "${merge_ready_output_file}"
+  assert_pr_head_matches_snapshot "${pr_number}" "合并前检测到 PR HEAD 已变化"
 
   if [[ "${delete_branch}" == "1" ]]; then
     merge_pull_rest "${pr_number}"
