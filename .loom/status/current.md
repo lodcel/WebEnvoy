@@ -12,10 +12,10 @@
 - Validation Entry: bash tests/loom-handoff-resume.test.sh && bash tests/pr-guardian.merge-guard.test.sh && bash scripts/docs-guard.sh && python3 .loom/bin/loom_init.py verify --target . && python3 .loom/bin/loom_check.py .
 - Closing Condition: Issue #706 is closed only after the Phase 6 PR is merged to main, main validation is clean, and Loom resume proves a new agent can recover without chat memory.
 - Current Checkpoint: build checkpoint
-- Current Stop: Phase 6 handoff/resume implementation and local validation are complete in the issue worktree before commit and PR creation.
-- Next Step: Commit the Phase 6 recovery changes, push branch, open PR with authority boundaries and validation evidence, then run GitHub checks and guardian.
+- Current Stop: PR #707 is open on branch work/706-loom-handoff-resume-recovery; GitHub checks passed for head c105709d4ce749e43766e29dcc7498b834a6d7a6, and guardian requested recovery/status freshness fixes that are being applied in this worktree.
+- Next Step: Commit and push the recovery/status freshness fix, wait for GitHub checks on the new head, rerun guardian, then proceed to Loom merge-ready and controlled merge only after allow.
 - Blockers: None recorded.
-- Latest Validation Summary: Passed locally: bash tests/loom-handoff-resume.test.sh; bash tests/pr-guardian.merge-guard.test.sh; bash scripts/docs-guard.sh; bash scripts/check-pr-purity.sh work/706-loom-handoff-resume-recovery main; git diff --check; JSON validation; python3 -m py_compile .loom/bin/loom_flow.py; python3 .loom/bin/loom_init.py verify --target .; python3 .loom/bin/loom_check.py .
+- Latest Validation Summary: Before this freshness fix, local validation passed and PR #707 checks passed on head c105709d4ce749e43766e29dcc7498b834a6d7a6; guardian requested updates to recovery/status current stop and next step before merge.
 - Recovery Boundary: Recovery state belongs to this Loom recovery entry; GitHub Issues/Projects remain progress and backlog truth, PR description remains a human-readable evidence summary, and FR TODO files remain local implementation aids only.
 - Current Lane: implementation
 
