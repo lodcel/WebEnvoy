@@ -982,7 +982,7 @@ write_loom_review_record_from_guardian_result() {
 
 loom_review_record_sha256() {
   local record_file="$1"
-  jq -cS . "${record_file}" | shasum -a 256 | awk '{ print $1 }'
+  hash_string_sha256 "$(jq -cS . "${record_file}")"
 }
 
 validate_loom_review_record_for_current_head() {

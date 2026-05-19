@@ -761,6 +761,37 @@ test_build_markdown_review_rejects_malformed_existing_loom_record() {
   assert_file_contains "${err_file}" "Loom review record 缺失、过期或格式错误"
 }
 
+test_loom_review_record_sha256_uses_hash_string_fallbacks() {
+  setup_review_status_fixture \
+    "review-status-record-hash-fallback" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local hash_bin="${TMP_DIR}/hash-bin"
+  local original_path="${PATH}"
+  mkdir -p "${hash_bin}"
+  cat > "${hash_bin}/sha256sum" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '%s  -\n' "mock-record-hash"
+EOF
+  cat > "${hash_bin}/shasum" <<'EOF'
+#!/usr/bin/env bash
+echo "shasum must not be used when sha256sum is available" >&2
+exit 72
+EOF
+  chmod +x "${hash_bin}/sha256sum" "${hash_bin}/shasum"
+
+  PATH="${hash_bin}:${PATH}"
+  assert_equal "$(loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}")" "mock-record-hash"
+  PATH="${original_path}"
+}
+
 test_review_status_rejects_contradictory_compatibility_verdict() {
   setup_review_status_fixture \
     "review-status-contradictory-compatibility-verdict" \
