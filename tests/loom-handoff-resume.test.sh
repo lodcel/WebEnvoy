@@ -27,16 +27,29 @@ assert_jq() {
   jq -e "${filter}" "${file}" >/dev/null || die "${message}"
 }
 
-require_github_access() {
-  command -v gh >/dev/null 2>&1 || die "需要 gh CLI 读取 GitHub issue/PR binding"
-  local attempt
-  for attempt in 1 2 3; do
-    if gh api repos/MC-and-his-Agents/WebEnvoy/issues/706 --jq .number >/dev/null; then
-      return 0
-    fi
-    sleep 2
-  done
-  die "需要 gh CLI 鉴权并能读取 MC-and-his-Agents/WebEnvoy#706"
+setup_mock_gh() {
+  local bin_dir="$1"
+  mkdir -p "${bin_dir}"
+  cat >"${bin_dir}/gh" <<'MOCK_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/MC-and-his-Agents/WebEnvoy/issues/706" ]]; then
+  cat <<'JSON'
+{"id":706,"node_id":"I_706","number":706,"state":"open","title":"Phase 6 Loom handoff/resume recovery","body":"fixture issue","html_url":"https://github.com/MC-and-his-Agents/WebEnvoy/issues/706"}
+JSON
+  exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+  echo "no pull requests found for branch ${3:-unknown}" >&2
+  exit 1
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+MOCK_GH
+  chmod +x "${bin_dir}/gh"
 }
 
 set_recovery_field() {
@@ -100,8 +113,11 @@ make_fixture() {
 }
 
 main() {
-  local fixture output head stale_head
-  require_github_access
+  local fixture output head stale_head mock_bin
+  mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/webenvoy-loom-gh.XXXXXX")"
+  setup_mock_gh "${mock_bin}"
+  PATH="${mock_bin}:${PATH}"
+  export PATH
   fixture="$(make_fixture)"
   output="${fixture}.resume.json"
   head="$(git -C "${fixture}" rev-parse HEAD)"
