@@ -49,6 +49,20 @@
         "locator": "docs/dev/AGENTS.md",
         "enforcement": "blocking"
       }
+    ],
+    "handoff_resume": [
+      {
+        "id": "webenvoy-progress-truth-boundary",
+        "summary": "Loom recovery carriers store cross-session execution recovery only; GitHub Issues and Projects remain progress and backlog truth.",
+        "locator": "AGENTS.md",
+        "enforcement": "blocking"
+      },
+      {
+        "id": "webenvoy-recovery-surfaces",
+        "summary": "Loom resume must consume GitHub issue/PR/worktree binding, Loom records, and WebEnvoy repo locators without creating a second project state plane.",
+        "locator": ".loom/companion/README.md",
+        "enforcement": "blocking"
+      }
     ]
   },
   "specialized_gates": [

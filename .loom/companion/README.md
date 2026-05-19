@@ -19,12 +19,23 @@ It is a locator and orchestration boundary, not a second project truth source.
 - Merge-ready surface: `.loom/companion/merge-ready.md`
 - Closeout surface: `.loom/companion/closeout.md`
 - Checkpoints surface: `.loom/companion/checkpoints.md`
+- Handoff/resume recovery entry: `.loom/progress/<issue>.md`
+- Active status surface: `.loom/status/current.md`
 - Machine-readable repo interface: `.loom/companion/repo-interface.json`
 - Read-only interop contract: `.loom/companion/interop.json`
 
-## First Adoption Boundary
+## Recovery Boundary
 
-This first phase uses the `deep-existing-repo` attach path. Loom should read
-WebEnvoy's repo-specific rules and later replace selected execution engines,
-but this phase must not generate Loom-owned recovery/status carriers or rewrite
-WebEnvoy's root governance rules.
+Only Loom-admitted Work Items may use the repository recovery carriers. The
+repo default for ordinary long-session handoff remains local handoff. For the
+current Loom recovery flow, handoff/resume may author the active recovery entry
+and derived status surface for the current work item. Those carriers store
+execution recovery state only: checkpoint, stop, blockers, validation summary,
+authority-record locators, and next step. They do not create a second backlog,
+sprint, project status, issue state, review verdict, spec verdict, merge-ready
+verdict, or host merge action.
+
+GitHub Issues and Projects remain the progress and backlog truth. WebEnvoy PR
+descriptions remain human-readable evidence summaries, not recovery authority.
+FR `TODO.md` files may continue to support local implementation stops but do
+not become project-state truth.

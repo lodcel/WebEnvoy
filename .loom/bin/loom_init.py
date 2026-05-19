@@ -2245,16 +2245,28 @@ def verify_target(target_root: Path, output_path: Path) -> list[str]:
             if not isinstance(fact_chain, dict):
                 errors.append("init-result is missing required section: fact_chain")
             else:
-                if fact_chain.get("mode") != "repo-native attach-only":
-                    errors.append("deep-existing-repo init-result must keep `fact_chain.mode = repo-native attach-only`")
-                if fact_chain.get("read_entry") != "not_applicable":
+                mode = fact_chain.get("mode")
+                recovery_fact_chain = mode == "loom recovery fact-chain"
+                if mode not in {"repo-native attach-only", "loom recovery fact-chain"}:
+                    errors.append("deep-existing-repo init-result must keep `fact_chain.mode = repo-native attach-only` or declare `loom recovery fact-chain` after recovery adoption")
+                if recovery_fact_chain:
+                    read_entry = fact_chain.get("read_entry")
+                    if not isinstance(read_entry, str) or not read_entry.strip() or read_entry == "not_applicable":
+                        errors.append("loom recovery fact-chain must declare a concrete `fact_chain.read_entry`")
+                elif fact_chain.get("read_entry") != "not_applicable":
                     errors.append("deep-existing-repo init-result must keep `fact_chain.read_entry = not_applicable`")
                 entry_points = fact_chain.get("entry_points")
                 if not isinstance(entry_points, dict):
                     errors.append("deep-existing-repo init-result must include fact_chain.entry_points")
                 else:
                     for field in ("work_item", "recovery_entry", "status_surface"):
-                        if entry_points.get(field) != "not_applicable":
+                        value = entry_points.get(field)
+                        if recovery_fact_chain:
+                            if not isinstance(value, str) or not value.strip() or value == "not_applicable":
+                                errors.append(f"loom recovery fact-chain must declare `fact_chain.entry_points.{field}`")
+                            elif not (target_root / value).exists():
+                                errors.append(f"loom recovery fact-chain entry point is missing on disk: {value}")
+                        elif value != "not_applicable":
                             errors.append(f"deep-existing-repo init-result must keep `fact_chain.entry_points.{field} = not_applicable`")
             declared_generated = {
                 artifact.get("path")

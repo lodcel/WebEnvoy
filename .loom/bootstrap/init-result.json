@@ -30,7 +30,7 @@
     "scenario": "复杂既有仓库",
     "intensity": "强化",
     "primary_structural_problem": "the repo already has a mature governance stack, so Loom must attach to the existing root rules and retained host actions",
-    "why_this_path": "the repo already has stable root rules and validation entry, so Loom should recognize and attach instead of materializing replacement recovery and status carriers"
+    "why_this_path": "the repo already has stable root rules and validation entry, so Loom first recognized and attached to retained host governance; Phase 6 now upgrades only the active cross-session recovery fact-chain while keeping GitHub Issues/Projects, review, spec, merge-ready, and host merge authority repo-owned"
   },
   "recommended_adoption": {
     "path": "deep-existing-repo",
@@ -62,21 +62,15 @@
       }
     ]
   },
-  "deferred_capabilities": [
-    {
-      "name": "loom-owned-recovery-carriers",
-      "reason": "the first attach-only round must preserve repo-native carriers instead of generating Loom-owned recovery/status placeholders",
-      "upgrade_trigger": "the repo needs Loom-owned recovery or status carriers to stabilize multi-round execution"
-    }
-  ],
+  "deferred_capabilities": [],
   "fact_chain": {
-    "mode": "repo-native attach-only",
-    "read_entry": "not_applicable",
+    "mode": "loom recovery fact-chain",
+    "read_entry": "python3 .loom/bin/loom_flow.py fact-chain --target . --item 706",
     "entry_points": {
-      "current_item_id": "INIT-0001",
-      "work_item": "not_applicable",
-      "recovery_entry": "not_applicable",
-      "status_surface": "not_applicable"
+      "current_item_id": "706",
+      "work_item": ".loom/work-items/706.md",
+      "recovery_entry": ".loom/progress/706.md",
+      "status_surface": ".loom/status/current.md"
     }
   },
   "initial_artifacts": [
@@ -109,7 +103,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "373481d53e1cec6ec8038b6d7690c523072509f42109c3fa6efe59f7960f10c2"
+      "sha256": "5f1beec71120dcaac5a7daf63c59a769a8bd689206237702e3bdf359af78d0e5"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
@@ -127,7 +121,7 @@
       "path": ".loom/bin/loom_flow.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_flow.py",
-      "sha256": "e9752c53a083a82828ca3325222567d47c2f04fae27d7b7ed8ce196784f15e56"
+      "sha256": "c219328d4dc1f0ee5a1b10b750ee1cf15d0d5838579151cd9d95c09659835f69"
     },
     {
       "path": ".loom/bin/loom_status.py",
@@ -1627,5 +1621,13 @@
       "source_repo_root": "${SOURCE_REPO_ROOT}",
       "current_branch": "${CURRENT_BRANCH}"
     }
-  }
+  },
+  "completed_capabilities": [
+    {
+      "name": "loom-owned-recovery-carriers",
+      "completed_in": "Phase 6 / Issue #706",
+      "scope": "active recovery fact-chain carriers only: work item, recovery entry, and derived status surface",
+      "authority_boundary": "GitHub Issues/Projects remain progress and backlog truth; Loom review/spec/merge-ready records remain verdict authority; host controlled merge remains repo-owned"
+    }
+  ]
 }
