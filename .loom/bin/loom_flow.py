@@ -699,7 +699,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     live_smoke.add_argument("--target", help="Adopted repository root for live smoke run")
-    live_smoke.add_argument("--item", default="INIT-0001", help="Expected current item id for the optional resume smoke")
+    live_smoke.add_argument("--item", help="Expected current item id for the optional resume smoke; defaults to the active fact-chain item")
     live_smoke.add_argument("--prior-evidence", help="Versioned prior-pass evidence to replay without running adopted-repo commands")
     live_smoke.add_argument("--dry-run", action="store_true", help="Preview the live smoke command plan without running adopted-repo commands")
     live_smoke.add_argument(
@@ -3045,10 +3045,11 @@ def live_smoke_replay_payload(prior_evidence_path: Path, *, runtime_state: dict[
 def live_smoke_run_payload(
     target_root: Path,
     *,
-    item: str,
+    item: str | None,
     dry_run: bool,
     include_blocking_shadow: bool,
 ) -> dict[str, Any]:
+    item = item or current_fact_chain_item_id(target_root)
     runtime_state = runtime_state_payload(target_root)
     command_plan = live_smoke_command_plan(target_root, item=item, include_blocking_shadow=include_blocking_shadow)
     target = live_smoke_target_metadata(target_root)
@@ -5853,10 +5854,19 @@ def item_issue_number(item_id: object) -> int | None:
     item_text = str(item_id).strip()
     if item_text.isdigit():
         return int(item_text)
-    match = re.search(r"(?<!\d)(\d+)(?!\d)", item_text)
-    if not match:
-        return None
-    return int(match.group(1))
+    return None
+
+
+def current_fact_chain_item_id(target_root: Path) -> str:
+    output_path = target_root / ".loom/bootstrap/init-result.json"
+    try:
+        payload = load_json_file(output_path)
+    except (OSError, json.JSONDecodeError):
+        return "INIT-0001"
+    fact_chain = payload.get("fact_chain")
+    entry_points = fact_chain.get("entry_points") if isinstance(fact_chain, dict) else None
+    item_id = entry_points.get("current_item_id") if isinstance(entry_points, dict) else None
+    return item_id if isinstance(item_id, str) and item_id.strip() else "INIT-0001"
 
 
 def gh_pr_payload_for_branch(root: Path, branch: str | None) -> tuple[dict[str, Any] | None, list[str]]:
@@ -5887,8 +5897,6 @@ def recovery_host_binding_payload(context: dict[str, Any], *, require_pr: bool) 
     issue_errors: list[str] = []
     if owner and repo_name and issue_number is not None:
         issue_payload, issue_errors = github_issue_payload(target_root, owner, repo_name, issue_number)
-    elif issue_number is None:
-        issue_errors.append("work item id does not expose a GitHub issue number")
 
     pr_payload: dict[str, Any] | None = None
     pr_errors: list[str] = []
@@ -5901,7 +5909,7 @@ def recovery_host_binding_payload(context: dict[str, Any], *, require_pr: bool) 
     missing_inputs: list[str] = []
     if not owner or not repo_name:
         missing_inputs.append("owner/repo")
-    if issue_payload is None:
+    if issue_number is not None and issue_payload is None:
         missing_inputs.extend(f"issue: {message}" for message in issue_errors)
     if not branch:
         missing_inputs.append("branch")
@@ -5928,7 +5936,7 @@ def recovery_host_binding_payload(context: dict[str, Any], *, require_pr: bool) 
         "repository": {"owner": owner, "name": repo_name},
         "issue": {
             "number": issue_number,
-            "status": "present" if issue_payload is not None else "missing",
+            "status": "not_applicable" if issue_number is None else "present" if issue_payload is not None else "missing",
             "state": issue_payload.get("state") if issue_payload else None,
             "url": issue_payload.get("url") if issue_payload else None,
             "errors": issue_errors,
