@@ -121,6 +121,7 @@ SHADOW_REVIEW_ADAPTERS = {CODEX_APP_REVIEW_SHADOW_ADAPTER}
 CODEX_APP_REVIEW_ENDPOINT_ENV = "LOOM_CODEX_APP_REVIEW_ENDPOINT"
 CODEX_APP_REVIEW_THREAD_ID_ENV = "LOOM_CODEX_APP_REVIEW_THREAD_ID"
 CODEX_APP_REVIEW_CWD_ENV = "LOOM_CODEX_APP_REVIEW_CWD"
+CODEX_APP_REVIEW_RAW_FILE_ENV = "LOOM_CODEX_APP_REVIEW_RAW_FILE"
 CODEX_THREAD_ID_ENV = "CODEX_THREAD_ID"
 DEFAULT_REVIEW_ENGINE_TIMEOUT_SECONDS: int | None = None
 REVIEW_ENGINE_PROFILE_SCHEMA = "loom-review-engine-profile/v1"
@@ -477,7 +478,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
 
     review = subparsers.add_parser("review", help="Read, run, or record a Loom formal review artifact")
-    review.add_argument("operation", choices=("read", "run", "record"))
+    review.add_argument("operation", choices=("read", "run", "record", "guardian-run"))
     review.add_argument("--target", required=True, help="Target repository root")
     review.add_argument("--item", help="Expected current item id")
     review.add_argument(
@@ -522,6 +523,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     review.add_argument("--engine-model", help="Optional review engine model override for review run")
     review.add_argument("--engine-reasoning", choices=tuple(sorted(REVIEW_ENGINE_REASONING_EFFORTS)), help="Optional review engine reasoning effort override for review run")
     review.add_argument("--engine-override-reason", help="Required reason when overriding review engine profile, model, or reasoning")
+    review.add_argument("--guardian-prompt-file", help="Guardian compatibility mode prompt file; may be outside the target repository")
+    review.add_argument("--guardian-output-file", help="Guardian compatibility mode raw review output file; may be outside the target repository")
+    review.add_argument("--guardian-expected-head", help="Guardian compatibility mode expected target HEAD SHA")
+    review.add_argument("--guardian-tmp-dir", help="Guardian compatibility mode scratch dir for engine subprocesses")
     review.add_argument(
         "--shadow-engine-adapter",
         choices=tuple(sorted(SHADOW_REVIEW_ADAPTERS)),
@@ -7333,6 +7338,20 @@ def review_engine_schema_path() -> Path:
     return shared_asset(__file__, "review/loom-review-result-schema.json")
 
 
+def guardian_review_engine_schema_path(target_root: Path) -> Path:
+    candidate_paths = [
+        target_root / ".agents/skills/loom-review/.loom-runtime/shared/assets/review/loom-review-result-schema.json",
+        target_root / ".agents/skills/shared/assets/review/loom-review-result-schema.json",
+        Path(__file__).resolve().parents[2]
+        / ".agents/skills/loom-review/.loom-runtime/shared/assets/review/loom-review-result-schema.json",
+        Path(__file__).resolve().parents[2] / ".agents/skills/shared/assets/review/loom-review-result-schema.json",
+    ]
+    for schema_path in candidate_paths:
+        if schema_path.exists():
+            return schema_path
+    return review_engine_schema_path()
+
+
 def normalize_engine_review_result(payload: Any, *, relative: str) -> tuple[dict[str, Any] | None, list[str]]:
     if not isinstance(payload, dict):
         return None, [f"engine result `{relative}` must be a JSON object"]
@@ -7434,7 +7453,7 @@ def codex_app_review_bindings_from_args_env(args: argparse.Namespace) -> dict[st
         or (non_empty_str(os.environ.get(CODEX_THREAD_ID_ENV)) if app_server else None)
     )
     thread_cwd = non_empty_str(args.codex_app_review_cwd) or non_empty_str(os.environ.get(CODEX_APP_REVIEW_CWD_ENV))
-    raw_file = non_empty_str(args.codex_app_review_raw_file)
+    raw_file = non_empty_str(args.codex_app_review_raw_file) or non_empty_str(os.environ.get(CODEX_APP_REVIEW_RAW_FILE_ENV))
     return {
         "app_server": app_server,
         "thread_id": thread_id,
@@ -12925,8 +12944,389 @@ def handle_reconciliation(args: argparse.Namespace) -> int:
     )
 
 
+def guardian_repo_review_requirements(target_root: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    interface_path = target_root / ".loom/companion/repo-interface.json"
+    try:
+        payload = json.loads(interface_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], [f"repo-interface: {exc}"]
+
+    requirements = (
+        payload.get("repo_specific_requirements", {}).get("review")
+        if isinstance(payload, dict)
+        else None
+    )
+    if not isinstance(requirements, list) or not requirements:
+        return [], ["repo-interface: missing review requirements"]
+
+    normalized: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for index, requirement in enumerate(requirements, start=1):
+        if not isinstance(requirement, dict):
+            errors.append(f"repo-interface review[{index}] must be an object")
+            continue
+        locator = requirement.get("locator")
+        if not isinstance(locator, str) or not locator.strip():
+            errors.append(f"repo-interface review[{index}] must include locator")
+            continue
+        if not (target_root / locator).exists():
+            errors.append(f"repo-interface review locator is missing: {locator}")
+        normalized.append(requirement)
+    return normalized, errors
+
+
+def build_guardian_engine_prompt(guardian_prompt: str, requirements: list[dict[str, Any]]) -> str:
+    requirement_lines = [
+        f"- {entry.get('id', 'requirement')}: {entry.get('summary', '')} locator=`{entry.get('locator', '')}` enforcement=`{entry.get('enforcement', '')}`"
+        for entry in requirements
+    ]
+    return "\n".join(
+        [
+            "你是 Loom guardian compatibility review engine。",
+            "你只负责为 WebEnvoy guardian 生成语义审查 evidence；最终兼容 verdict、PR review comment、review-status authority 与 merge blocker 仍由 WebEnvoy guardian 持有。",
+            "必须遵守 .loom/companion/repo-interface.json 中声明的 WebEnvoy review locators：",
+            *requirement_lines,
+            "",
+            "输出必须符合 Loom review engine schema：decision、summary、findings。",
+            "- decision=allow 仅表示未发现阻断当前 PR 合并的语义问题。",
+            "- decision=block 表示发现阻断项。",
+            "- decision=fallback 表示输入、证据或环境不足以形成正式语义审查结论。",
+            "",
+            "以下是 WebEnvoy guardian 已构建的审查上下文与任务提示：",
+            guardian_prompt,
+        ]
+    )
+
+
+def write_guardian_engine_metadata(
+    metadata_path: Path,
+    *,
+    adapter_selection: dict[str, Any],
+    reviewed_head: str,
+    expected_head: str | None,
+    target_root: Path,
+    result: str,
+    failure_reason: str | None,
+    summary: str,
+    requirements: list[dict[str, Any]],
+    missing_inputs: list[str],
+) -> None:
+    write_json_file(
+        metadata_path,
+        {
+            "schema_version": "loom-guardian-review-engine-metadata/v1",
+            "selected_adapter": adapter_selection.get("adapter"),
+            "selection_source": adapter_selection.get("selection_source"),
+            "fallback_reason": adapter_selection.get("fallback_reason"),
+            "reviewed_head": reviewed_head,
+            "expected_head": expected_head,
+            "target_root": str(target_root),
+            "result": result,
+            "failure_reason": failure_reason,
+            "summary": summary,
+            "repo_interface_review_requirements": requirements,
+            "missing_inputs": missing_inputs,
+            "thread_target_binding": adapter_selection.get("binding_summary"),
+        },
+    )
+
+
+def run_guardian_compat_review(args: argparse.Namespace) -> int:
+    target_root = Path(args.target).expanduser().resolve()
+    prompt_file = Path(args.guardian_prompt_file).expanduser() if args.guardian_prompt_file else None
+    output_file = Path(args.guardian_output_file).expanduser() if args.guardian_output_file else None
+    expected_head = non_empty_str(args.guardian_expected_head)
+    current_head = git_head_sha(target_root) or "unknown-head"
+    runtime_root = target_root / ".loom/runtime/review/guardian-compat" / current_head
+    metadata_path = runtime_root / "engine-metadata.json"
+    prompt_copy_path = runtime_root / "prompt.txt"
+    raw_result_path = output_file or (runtime_root / "engine-result.json")
+
+    adapter_selection = select_review_adapter(args, target_root, reviewed_head=current_head)
+    selected_adapter = str(adapter_selection["adapter"])
+    requirements, requirement_errors = guardian_repo_review_requirements(target_root)
+    missing_inputs: list[str] = []
+    if prompt_file is None:
+        missing_inputs.append("--guardian-prompt-file")
+    elif not prompt_file.exists():
+        missing_inputs.append(f"missing guardian prompt file: {prompt_file}")
+    if output_file is None:
+        missing_inputs.append("--guardian-output-file")
+    if expected_head and current_head != expected_head:
+        missing_inputs.append(f"target HEAD mismatch: expected {expected_head}, got {current_head}")
+    missing_inputs.extend(requirement_errors)
+
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    if missing_inputs:
+        write_guardian_engine_metadata(
+            metadata_path,
+            adapter_selection=adapter_selection,
+            reviewed_head=current_head,
+            expected_head=expected_head,
+            target_root=target_root,
+            result="block",
+            failure_reason="runtime_conflict",
+            summary="guardian compatibility review engine preflight failed closed.",
+            requirements=requirements,
+            missing_inputs=missing_inputs,
+        )
+        return emit(
+            {
+                "command": "review",
+                "operation": "guardian-run",
+                "result": "block",
+                "summary": "guardian compatibility review engine preflight failed closed.",
+                "missing_inputs": missing_inputs,
+                "fallback_to": None,
+                "engine": {
+                    "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
+                    "adapter": selected_adapter,
+                    "result": "block",
+                    "failure_reason": "runtime_conflict",
+                    "reviewed_head": current_head,
+                    "evidence": {
+                        "metadata": relative_to_root(metadata_path, target_root),
+                        "raw_result": str(raw_result_path),
+                    },
+                },
+                "engine_metadata": review_adapter_selection_metadata(adapter_selection, reviewed_head=current_head),
+            }
+        )
+
+    assert prompt_file is not None
+    guardian_prompt = prompt_file.read_text(encoding="utf-8")
+    engine_prompt = build_guardian_engine_prompt(guardian_prompt, requirements)
+    prompt_copy_path.write_text(engine_prompt, encoding="utf-8")
+
+    before_fingerprint, before_errors = git_tracked_diff_fingerprint(target_root)
+    failure_reason: str | None = None
+    failure_detail: str | None = None
+    normalized: dict[str, Any] | None = None
+    raw_payload: Any = None
+
+    if before_errors:
+        failure_reason = "runtime_conflict"
+        failure_detail = before_errors[0]
+    elif selected_adapter == CODEX_APP_REVIEW_ADAPTER:
+        app_server = adapter_selection.get("app_server") if isinstance(adapter_selection.get("app_server"), str) else None
+        thread_id = adapter_selection.get("thread_id") if isinstance(adapter_selection.get("thread_id"), str) else None
+        thread_cwd = adapter_selection.get("thread_cwd") if isinstance(adapter_selection.get("thread_cwd"), str) else None
+        raw_file = adapter_selection.get("raw_file") if isinstance(adapter_selection.get("raw_file"), str) else None
+        app_missing: list[str] = []
+        if not app_server:
+            app_missing.append("--codex-app-review-app-server")
+        if not thread_id:
+            app_missing.append("--codex-app-review-thread-id")
+        if not thread_cwd:
+            app_missing.append("--codex-app-review-cwd")
+        else:
+            try:
+                if Path(thread_cwd).expanduser().resolve() != target_root:
+                    app_missing.append(f"Codex App review cwd `{thread_cwd}` does not match target root `{target_root}`")
+            except OSError as exc:
+                app_missing.append(f"Codex App review cwd could not be resolved: {exc}")
+        source_path: Path | None = None
+        if raw_file:
+            source_path, raw_errors = resolve_repo_relative_path(target_root, raw_file, label="Codex App guardian review raw file")
+            app_missing.extend(raw_errors)
+        elif not codex_app_endpoint_is_live_capable(app_server):
+            app_missing.append("--codex-app-review-raw-file or live app-server endpoint")
+
+        if app_missing:
+            failure_reason = "runtime_conflict"
+            failure_detail = "; ".join(app_missing)
+        elif source_path is not None:
+            try:
+                raw_text = source_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                failure_reason = "schema_drift"
+                failure_detail = f"Codex App guardian raw file could not be read: {exc}"
+            else:
+                raw_result_path.write_text(raw_text, encoding="utf-8")
+                normalized, normalization_errors = normalize_authoritative_codex_app_review_text(
+                    raw_text,
+                    relative=relative_to_root(source_path, target_root),
+                )
+                if normalization_errors or normalized is None:
+                    failure_reason = "schema_drift"
+                    failure_detail = "; ".join(normalization_errors)
+        else:
+            raw_text, _live_metadata, normalization_errors = run_codex_app_live_review(
+                app_server=str(app_server),
+                thread_id=str(thread_id),
+                reviewed_head=current_head,
+                thread_cwd=str(thread_cwd),
+                prompt_text=engine_prompt,
+            )
+            if raw_text:
+                raw_result_path.write_text(raw_text, encoding="utf-8")
+            normalized = _live_metadata.get("normalized") if isinstance(_live_metadata.get("normalized"), dict) else None
+            if normalization_errors or normalized is None:
+                failure_reason = "schema_drift"
+                failure_detail = "; ".join(normalization_errors)
+    else:
+        env = dict(os.environ)
+        scratch_dir = Path(args.guardian_tmp_dir).expanduser() if args.guardian_tmp_dir else runtime_root / "tmp"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        env["TMPDIR"] = str(scratch_dir.resolve())
+        env["TMP"] = str(scratch_dir.resolve())
+        env["TEMP"] = str(scratch_dir.resolve())
+        schema_path = guardian_review_engine_schema_path(target_root)
+        try:
+            completed = subprocess.run(
+                [
+                    DEFAULT_REVIEW_ENGINE,
+                    "exec",
+                    "-C",
+                    str(target_root),
+                    "-m",
+                    REVIEW_ENGINE_PROFILES["high-risk"]["model"],
+                    "-c",
+                    f"model_reasoning_effort={json.dumps(REVIEW_ENGINE_PROFILES['high-risk']['reasoning_effort'])}",
+                    "-s",
+                    "read-only",
+                    "--add-dir",
+                    str(prompt_file.parent),
+                    "--output-schema",
+                    str(schema_path),
+                    "-o",
+                    str(raw_result_path),
+                    "-",
+                ],
+                cwd=target_root,
+                env=env,
+                input=engine_prompt,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            failure_reason = "engine_unavailable"
+            failure_detail = f"default review engine `{DEFAULT_REVIEW_ENGINE}` is unavailable in PATH"
+        else:
+            if completed.returncode != 0:
+                failure_reason = "runtime_conflict"
+                failure_detail = completed.stderr.strip() or completed.stdout.strip() or "default review engine returned a non-zero exit status"
+            else:
+                try:
+                    if raw_result_path.exists():
+                        raw_payload = load_json_file(raw_result_path)
+                    elif completed.stdout.strip():
+                        raw_payload = json.loads(completed.stdout)
+                        write_json_file(raw_result_path, raw_payload)
+                    else:
+                        failure_reason = "schema_drift"
+                        failure_detail = "default review engine did not emit a structured result"
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    failure_reason = "schema_drift"
+                    failure_detail = f"default review engine returned invalid JSON: {exc}"
+                if failure_reason is None:
+                    normalized, normalization_errors = normalize_engine_review_result(
+                        raw_payload,
+                        relative=str(raw_result_path),
+                    )
+                    if normalization_errors or normalized is None:
+                        failure_reason = "schema_drift"
+                        failure_detail = "; ".join(normalization_errors)
+
+    after_head = git_head_sha(target_root) or "unknown-head"
+    after_fingerprint, after_errors = git_tracked_diff_fingerprint(target_root)
+    if failure_reason is None and after_head != current_head:
+        failure_reason = "runtime_conflict"
+        failure_detail = f"target HEAD changed during review: before {current_head}, after {after_head}"
+    elif failure_reason is None and expected_head and after_head != expected_head:
+        failure_reason = "runtime_conflict"
+        failure_detail = f"target HEAD mismatch after review: expected {expected_head}, got {after_head}"
+    elif failure_reason is None and after_errors:
+        failure_reason = "runtime_conflict"
+        failure_detail = after_errors[0]
+    elif failure_reason is None and before_fingerprint != after_fingerprint:
+        failure_reason = "repo_diff_detected"
+        failure_detail = "guardian compatibility review engine modified tracked repository content"
+
+    if failure_reason is not None:
+        write_guardian_engine_metadata(
+            metadata_path,
+            adapter_selection=adapter_selection,
+            reviewed_head=current_head,
+            expected_head=expected_head,
+            target_root=target_root,
+            result="block",
+            failure_reason=failure_reason,
+            summary=failure_detail or failure_reason,
+            requirements=requirements,
+            missing_inputs=[failure_detail or failure_reason],
+        )
+        return emit(
+            {
+                "command": "review",
+                "operation": "guardian-run",
+                "result": "block",
+                "summary": "guardian compatibility review engine failed closed.",
+                "missing_inputs": [failure_detail or failure_reason],
+                "fallback_to": None,
+                "engine": {
+                    "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
+                    "adapter": selected_adapter,
+                    "result": "block",
+                    "failure_reason": failure_reason,
+                    "reviewed_head": current_head,
+                    "evidence": {
+                        "metadata": relative_to_root(metadata_path, target_root),
+                        "prompt": relative_to_root(prompt_copy_path, target_root),
+                        "raw_result": str(raw_result_path),
+                    },
+                },
+                "engine_metadata": review_adapter_selection_metadata(adapter_selection, reviewed_head=current_head),
+            }
+        )
+
+    assert normalized is not None
+    if not raw_result_path.exists():
+        write_json_file(raw_result_path, normalized)
+    write_guardian_engine_metadata(
+        metadata_path,
+        adapter_selection=adapter_selection,
+        reviewed_head=current_head,
+        expected_head=expected_head,
+        target_root=target_root,
+        result="pass",
+        failure_reason=None,
+        summary=normalized["summary"],
+        requirements=requirements,
+        missing_inputs=[],
+    )
+    return emit(
+        {
+            "command": "review",
+            "operation": "guardian-run",
+            "result": "pass",
+            "summary": "guardian compatibility review engine produced Loom-normalized review evidence.",
+            "missing_inputs": [],
+            "fallback_to": None,
+            "engine": {
+                "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
+                "adapter": selected_adapter,
+                "result": "pass",
+                "failure_reason": None,
+                "reviewed_head": current_head,
+                "evidence": {
+                    "metadata": relative_to_root(metadata_path, target_root),
+                    "prompt": relative_to_root(prompt_copy_path, target_root),
+                    "raw_result": str(raw_result_path),
+                },
+            },
+            "engine_metadata": review_adapter_selection_metadata(adapter_selection, reviewed_head=current_head),
+            "review_result": normalized,
+        }
+    )
+
+
 def handle_review(args: argparse.Namespace) -> int:
     target_root = Path(args.target).expanduser().resolve()
+    if args.operation == "guardian-run":
+        return run_guardian_compat_review(args)
+
     context, errors = load_context(target_root, args.output, args.item)
     if errors:
         return emit(

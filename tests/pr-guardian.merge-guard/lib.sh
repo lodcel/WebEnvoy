@@ -243,6 +243,11 @@ setup_case_dir() {
   unset MOCK_CODEX_OUTPUT_SEQUENCE_FILE || true
   unset MOCK_CODEX_PROMPT_CAPTURE_DIR || true
   unset MOCK_CODEX_FAIL_CALL || true
+  unset MOCK_CODEX_MUTATE_TRACKED_FILE || true
+  unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true
+  unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true
+  unset LOOM_CODEX_APP_REVIEW_CWD || true
+  unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true
   export MOCK_GH_REVIEWS_REQUIRE_PAGINATE
 }
 
@@ -418,6 +423,9 @@ if [[ "${1:-}" == "exec" ]]; then
   result_file="${result_file:?missing MOCK_CODEX_REVIEW_RESULT_JSON or MOCK_CODEX_OUTPUT_SEQUENCE_FILE}"
 
   cat "${result_file}" > "${output_file}"
+  if [[ -n "${MOCK_CODEX_MUTATE_TRACKED_FILE:-}" ]]; then
+    printf '%s\n' "mutated by mock codex" >> "${MOCK_CODEX_MUTATE_TRACKED_FILE}"
+  fi
   exit 0
 fi
 
