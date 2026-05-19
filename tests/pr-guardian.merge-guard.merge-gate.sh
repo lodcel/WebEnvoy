@@ -21,6 +21,9 @@ setup_review_status_fixture() {
 
   RESULT_FILE="${TMP_DIR}/review.json"
   REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-review-record.json"
+  PR_NUMBER="274"
+  export LOOM_REVIEW_RECORD_FILE PR_NUMBER
   printf '{"verdict":"%s","safe_to_merge":%s,"summary":"summary","findings":[],"required_actions":[]}\n' "${verdict}" "${safe_to_merge}" > "${RESULT_FILE}"
   build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
 
@@ -56,6 +59,38 @@ setup_review_status_fixture() {
   MOCK_GH_REVIEWS_JSON="${TEST_TMP_DIR}/${case_name}/mock/reviews.json"
   printf '[[{"id":41,"user":{"login":"%s"},"commit_id":"%s","state":"%s","submitted_at":"2026-04-07T10:00:00Z","body":%s}]]\n' "${reviewer}" "${HEAD_SHA}" "${review_state}" "${review_body_json}" > "${MOCK_GH_REVIEWS_JSON}"
   export MOCK_GH_REVIEWS_JSON
+}
+
+rewrite_guardian_metadata() {
+  local source_file="$1"
+  local target_file="$2"
+  local jq_filter="$3"
+  local metadata_file="${TMP_DIR}/guardian-meta.json"
+  local rewritten_metadata_file="${TMP_DIR}/guardian-meta.rewritten.json"
+  local encoded_metadata
+
+  perl -MMIME::Base64=decode_base64 -0ne '
+    if (/<!-- webenvoy-guardian-meta:v1 ([A-Za-z0-9+\/=]+) -->/) {
+      print decode_base64($1);
+    }
+  ' "${source_file}" > "${metadata_file}"
+
+  jq -cS "${jq_filter}" "${metadata_file}" > "${rewritten_metadata_file}"
+  encoded_metadata="$(perl -MMIME::Base64=encode_base64 -0777 -ne 'print encode_base64($_, q{})' "${rewritten_metadata_file}")"
+
+  GUARDIAN_META_B64="${encoded_metadata}" perl -0pe '
+    s/<!-- webenvoy-guardian-meta:v1 [A-Za-z0-9+\/=]+ -->/"<!-- webenvoy-guardian-meta:v1 " . $ENV{GUARDIAN_META_B64} . " -->"/eg
+  ' "${source_file}" > "${target_file}"
+}
+
+replace_mock_review_body() {
+  local review_file="$1"
+  local reviewer="${2:-github-actions[bot]}"
+  local review_state="${3:-APPROVED}"
+  local review_body_json
+
+  review_body_json="$(jq -Rs . < "${review_file}")"
+  printf '[[{"id":41,"user":{"login":"%s"},"commit_id":"%s","state":"%s","submitted_at":"2026-04-07T10:00:00Z","body":%s}]]\n' "${reviewer}" "${HEAD_SHA}" "${review_state}" "${review_body_json}" > "${MOCK_GH_REVIEWS_JSON}"
 }
 
 test_review_status_reports_reusable_review_for_matching_metadata() {
@@ -432,6 +467,8 @@ test_review_status_prefers_latest_trusted_review_over_older_approval() {
   printf '%s\n' '{"verdict":"REQUEST_CHANGES","safe_to_merge":false,"summary":"blocked","findings":[],"required_actions":[]}' > "${latest_result_file}"
   RESULT_FILE="${latest_result_file}"
   REVIEW_MD_FILE="${latest_review_file}"
+  LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/latest-loom-review-record.json"
+  export LOOM_REVIEW_RECORD_FILE
   build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
   latest_review_body_json="$(jq -Rs . < "${REVIEW_MD_FILE}")"
 
@@ -467,6 +504,8 @@ test_review_status_rejects_older_bot_approval_when_newer_other_human_blocks() {
   printf '%s\n' '{"verdict":"REQUEST_CHANGES","safe_to_merge":false,"summary":"blocked","findings":[],"required_actions":[]}' > "${latest_result_file}"
   RESULT_FILE="${latest_result_file}"
   REVIEW_MD_FILE="${latest_review_file}"
+  LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/other-human-loom-review-record.json"
+  export LOOM_REVIEW_RECORD_FILE
   build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
   latest_review_body_json="$(jq -Rs . < "${REVIEW_MD_FILE}")"
 
@@ -597,6 +636,186 @@ test_review_status_rejects_invalid_metadata() {
   assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
 }
 
+test_review_status_rejects_missing_loom_review_record() {
+  setup_review_status_fixture \
+    "review-status-missing-loom-record" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/missing-loom-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" 'del(.loom_review_record)'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_review_status_rejects_stale_loom_review_record_head() {
+  setup_review_status_fixture \
+    "review-status-stale-loom-record-head" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/stale-loom-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" '.loom_review_record.reviewed_head = "old-head-sha"'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_review_status_rejects_malformed_loom_review_record() {
+  setup_review_status_fixture \
+    "review-status-malformed-loom-record" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/malformed-loom-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" '.loom_review_record.schema_version = "loom-review/v2"'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_review_status_rejects_loom_record_fallback_on_allow() {
+  setup_review_status_fixture \
+    "review-status-loom-record-fallback-on-allow" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/fallback-on-allow-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" '.loom_review_record.fallback_to = "merge"'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_review_status_rejects_loom_record_missing_minimum_arrays() {
+  setup_review_status_fixture \
+    "review-status-loom-record-missing-arrays" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/missing-arrays-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" 'del(.loom_review_record.blocking_issues, .loom_review_record.follow_ups)'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_build_markdown_review_rejects_malformed_existing_loom_record() {
+  setup_review_status_fixture \
+    "review-status-build-rejects-malformed-record" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local review_file="${TMP_DIR}/malformed-existing-record.md"
+  local err_file="${TMP_DIR}/malformed-existing-record.err"
+  jq '.fallback_to = "merge" | del(.blocking_issues, .follow_ups)' "${LOOM_REVIEW_RECORD_FILE}" > "${LOOM_REVIEW_RECORD_FILE}.tmp"
+  mv "${LOOM_REVIEW_RECORD_FILE}.tmp" "${LOOM_REVIEW_RECORD_FILE}"
+
+  assert_fail build_markdown_review "${RESULT_FILE}" "${review_file}" 2>"${err_file}"
+  assert_file_contains "${err_file}" "Loom review record 缺失、过期或格式错误"
+}
+
+test_review_status_rejects_contradictory_compatibility_verdict() {
+  setup_review_status_fixture \
+    "review-status-contradictory-compatibility-verdict" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/contradictory-loom-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" \
+    '.loom_review_record.decision = "block"
+      | .verdict = "APPROVE"
+      | .safe_to_merge = true
+      | .compatibility_verdict = "APPROVE"
+      | .compatibility_safe_to_merge = true'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_review_status_legacy_schema_authority_requires_explicit_rollback_flag() {
+  setup_review_status_fixture \
+    "review-status-legacy-schema-rollback" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local legacy_review_file="${TMP_DIR}/legacy-schema-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${legacy_review_file}" \
+    'del(.source_authority, .authority_role, .compatibility_verdict, .compatibility_safe_to_merge, .loom_review_record_sha256, .loom_review_record)'
+  replace_mock_review_body "${legacy_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+
+  PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1
+  export PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "true"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "matching_metadata"
+  unset PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY
+}
+
 test_build_markdown_review_metadata_omits_embedded_result() {
   setup_review_status_fixture \
     "review-status-metadata-omits-result" \
@@ -615,13 +834,37 @@ test_build_markdown_review_metadata_omits_embedded_result() {
     }
   ' "${REVIEW_MD_FILE}" > "${metadata_file}"
 
-  assert_equal "$(jq -r 'has(\"result\")' "${metadata_file}")" "false"
+  assert_equal "$(jq -r 'has("result")' "${metadata_file}")" "false"
+  assert_equal "$(jq -r '.source_authority' "${metadata_file}")" "loom_review_record"
+  assert_equal "$(jq -r '.authority_role' "${metadata_file}")" "compatibility_rendering_mirror"
+  assert_equal "$(jq -r '.loom_review_record.schema_version' "${metadata_file}")" "loom-review/v1"
+  assert_file_contains "${REVIEW_MD_FILE}" "**Source authority**: Loom review record"
   assert_equal "$(jq -r '.verdict' "${metadata_file}")" "APPROVE"
   assert_equal "$(jq -r '.safe_to_merge' "${metadata_file}")" "true"
   if [[ -z "$(jq -r '.guardian_runtime_sha256 // ""' "${metadata_file}")" ]]; then
     echo "expected guardian metadata to include guardian_runtime_sha256" >&2
     exit 1
   fi
+}
+
+test_build_markdown_review_rejects_contradictory_existing_loom_record() {
+  setup_review_status_fixture \
+    "review-status-build-rejects-contradictory-record" \
+    "pr-author" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "APPROVE" \
+    "true" \
+    "1" \
+    "valid"
+
+  local rejected_result_file="${TMP_DIR}/rejected-review.json"
+  local rejected_review_file="${TMP_DIR}/rejected-review.md"
+  local err_file="${TMP_DIR}/rejected-review.err"
+
+  printf '%s\n' '{"verdict":"REQUEST_CHANGES","safe_to_merge":false,"summary":"blocked","findings":[],"required_actions":["fix"]}' > "${rejected_result_file}"
+  assert_fail build_markdown_review "${rejected_result_file}" "${rejected_review_file}" 2>"${err_file}"
+  assert_file_contains "${err_file}" "Loom review record 与兼容 verdict 矛盾"
 }
 
 test_review_status_rejects_guardian_runtime_sha256_mismatch() {
