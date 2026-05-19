@@ -5840,6 +5840,355 @@ def implementation_review_status_payload(context: dict[str, Any]) -> dict[str, A
     }
 
 
+def checkpoint_requires_merge_authority(context: dict[str, Any]) -> bool:
+    current_rank = checkpoint_rank(context["current_checkpoint"])
+    merge_rank = checkpoint_rank("merge")
+    lane = str(context.get("current_lane") or "").strip().lower()
+    if current_rank >= merge_rank:
+        return True
+    return lane in {"review", "merge", "merge-ready", "merge_ready", "closeout"}
+
+
+def item_issue_number(item_id: object) -> int | None:
+    item_text = str(item_id).strip()
+    if item_text.isdigit():
+        return int(item_text)
+    match = re.search(r"(?<!\d)(\d+)(?!\d)", item_text)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def gh_pr_payload_for_branch(root: Path, branch: str | None) -> tuple[dict[str, Any] | None, list[str]]:
+    if not isinstance(branch, str) or not branch.strip() or branch.strip() == "HEAD":
+        return None, ["branch is unavailable"]
+    payload, errors = gh_json(
+        root,
+        [
+            "pr",
+            "view",
+            branch.strip(),
+            "--json",
+            "number,state,title,url,headRefName,headRefOid,baseRefName,isDraft,mergeCommit,mergedAt,mergeStateStatus",
+        ],
+    )
+    if errors or payload is None:
+        return None, errors
+    return payload, []
+
+
+def recovery_host_binding_payload(context: dict[str, Any], *, require_pr: bool) -> dict[str, Any]:
+    target_root = context["target_root"]
+    owner, repo_name = detect_github_repo(target_root)
+    branch = git_branch(target_root)
+    head_sha = git_head_sha(target_root)
+    issue_number = item_issue_number(context["item_id"])
+    issue_payload: dict[str, Any] | None = None
+    issue_errors: list[str] = []
+    if owner and repo_name and issue_number is not None:
+        issue_payload, issue_errors = github_issue_payload(target_root, owner, repo_name, issue_number)
+    elif issue_number is None:
+        issue_errors.append("work item id does not expose a GitHub issue number")
+
+    pr_payload: dict[str, Any] | None = None
+    pr_errors: list[str] = []
+    if branch:
+        pr_payload, pr_errors = gh_pr_payload_for_branch(target_root, branch)
+    else:
+        pr_errors.append("branch is unavailable")
+
+    worktree_path = context["workspace_path"]
+    missing_inputs: list[str] = []
+    if not owner or not repo_name:
+        missing_inputs.append("owner/repo")
+    if issue_payload is None:
+        missing_inputs.extend(f"issue: {message}" for message in issue_errors)
+    if not branch:
+        missing_inputs.append("branch")
+    if not head_sha:
+        missing_inputs.append("head_sha")
+    if not worktree_path.exists():
+        missing_inputs.append("worktree")
+    if require_pr and pr_payload is None:
+        missing_inputs.extend(f"pr: {message}" for message in pr_errors or ["missing PR for current branch"])
+
+    result = "pass" if not missing_inputs else "block"
+    return {
+        "schema_version": "loom-recovery-host-binding/v1",
+        "result": result,
+        "summary": (
+            "issue, workspace, branch, and head binding are readable."
+            if result == "pass"
+            else "host binding is incomplete for the current recovery checkpoint."
+        ),
+        "missing_inputs": list(dict.fromkeys(missing_inputs)),
+        "fallback_to": None if result == "pass" else "binding_repair",
+        "repository": {"owner": owner, "name": repo_name},
+        "issue": {
+            "number": issue_number,
+            "status": "present" if issue_payload is not None else "missing",
+            "state": issue_payload.get("state") if issue_payload else None,
+            "url": issue_payload.get("url") if issue_payload else None,
+            "errors": issue_errors,
+        },
+        "pr": {
+            "number": pr_payload.get("number") if pr_payload else None,
+            "status": "present" if pr_payload is not None else ("required_missing" if require_pr else "not_yet_required"),
+            "state": pr_payload.get("state") if pr_payload else None,
+            "url": pr_payload.get("url") if pr_payload else None,
+            "headRefName": pr_payload.get("headRefName") if pr_payload else None,
+            "headRefOid": pr_payload.get("headRefOid") if pr_payload else None,
+            "baseRefName": pr_payload.get("baseRefName") if pr_payload else None,
+            "errors": pr_errors,
+        },
+        "worktree": {
+            "entry": context["workspace_entry"],
+            "path": str(worktree_path),
+            "exists": worktree_path.exists(),
+        },
+        "branch": branch,
+        "head_sha": head_sha,
+        "require_pr": require_pr,
+    }
+
+
+def recovery_spec_review_status_payload(context: dict[str, Any], *, require_merge_authority: bool) -> dict[str, Any]:
+    suite, missing_suite_paths = formal_spec_suite_status(context)
+    if missing_suite_paths:
+        return {
+            "path": default_spec_review_path(context["item_id"]),
+            "required": False,
+            "result": "not_required",
+            "summary": "formal spec review record is not required because this item does not carry a formal spec suite.",
+            "missing_inputs": [],
+            "fallback_to": None,
+            "formal_spec_suite": suite,
+        }
+    payload = spec_review_gate_payload(context)
+    if payload.get("result") in {"block", "fallback"} and not require_merge_authority:
+        return {
+            **payload,
+            "required": True,
+            "result": "pending",
+            "summary": "formal spec review record is required before merge-ready, but not before the current checkpoint.",
+        }
+    payload["required"] = True
+    return payload
+
+
+def recovery_merge_ready_record_payload(context: dict[str, Any], *, required: bool) -> dict[str, Any]:
+    head = git_head_sha(context["target_root"]) or "unknown-head"
+    safe_head = re.sub(r"[^A-Za-z0-9_.-]", "-", head).strip("-") or "unknown-head"
+    relative = f".loom/runtime/merge-ready/{context['item_id']}/{safe_head}/result.json"
+    path, path_errors = resolve_repo_relative_path(
+        context["target_root"],
+        relative,
+        label="merge-ready record locator",
+    )
+    missing_inputs: list[str] = list(path_errors)
+    record: dict[str, Any] | None = None
+    status = "missing"
+    if path is not None and path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            missing_inputs.append(f"invalid merge-ready record `{relative}`: {exc}")
+            status = "invalid"
+        else:
+            if not isinstance(payload, dict):
+                missing_inputs.append(f"merge-ready record `{relative}` must be a JSON object")
+                status = "invalid"
+            else:
+                record = payload
+                status = "present"
+                if payload.get("schema_version") != "loom-merge-ready-result/v1":
+                    missing_inputs.append("merge-ready record schema_version must be loom-merge-ready-result/v1")
+                if payload.get("item_id") not in {None, context["item_id"]}:
+                    missing_inputs.append("merge-ready record item_id does not match current item")
+                record_head = payload.get("head_sha") or payload.get("latest_head_sha")
+                if isinstance(record_head, str) and record_head and record_head != head:
+                    missing_inputs.append("merge-ready record head does not match current HEAD")
+                    status = "stale"
+    elif required:
+        missing_inputs.append(f"missing merge-ready record: {relative}")
+    result = "pass"
+    if required and missing_inputs:
+        result = "block"
+    elif not required and status == "missing":
+        result = "not_yet_required"
+    elif missing_inputs:
+        result = "pending"
+    return {
+        "path": relative,
+        "required": required,
+        "status": status,
+        "result": result,
+        "summary": (
+            "merge-ready record is present and current."
+            if result == "pass"
+            else "merge-ready record is missing, stale, invalid, or not yet required."
+        ),
+        "missing_inputs": list(dict.fromkeys(missing_inputs)),
+        "fallback_to": "merge_ready" if result == "block" else None,
+        "record": record,
+    }
+
+
+def recovery_authority_records_payload(context: dict[str, Any], *, require_merge_authority: bool) -> dict[str, Any]:
+    implementation_review = implementation_review_status_payload(context)
+    if implementation_review.get("result") in {"block", "fallback"} and not require_merge_authority:
+        implementation_review = {
+            **implementation_review,
+            "required": False,
+            "result": "pending",
+            "summary": "implementation review record is required before merge-ready, but not before the current checkpoint.",
+            "missing_inputs": [],
+            "fallback_to": None,
+        }
+    else:
+        implementation_review["required"] = True
+    spec_review = recovery_spec_review_status_payload(
+        context,
+        require_merge_authority=require_merge_authority,
+    )
+    merge_ready = recovery_merge_ready_record_payload(
+        context,
+        required=require_merge_authority,
+    )
+    records = {
+        "implementation_review": implementation_review,
+        "spec_review": spec_review,
+        "merge_ready": merge_ready,
+    }
+    missing_inputs: list[str] = []
+    for name, payload in records.items():
+        if payload.get("result") in {"block", "fallback"}:
+            for message in payload.get("missing_inputs", []):
+                missing_inputs.append(f"{name}: {message}")
+    result = "pass" if not missing_inputs else "block"
+    return {
+        "schema_version": "loom-recovery-authority-records/v1",
+        "result": result,
+        "summary": (
+            "required authority records are readable for the current checkpoint."
+            if result == "pass"
+            else "one or more required authority records are missing, stale, or blocking."
+        ),
+        "missing_inputs": list(dict.fromkeys(missing_inputs)),
+        "fallback_to": None if result == "pass" else "authority_record_repair",
+        **records,
+    }
+
+
+def recovery_validation_state_payload(context: dict[str, Any]) -> dict[str, Any]:
+    runtime_evidence, runtime_missing = runtime_evidence_from_report(context["report"])
+    return {
+        "schema_version": "loom-recovery-validation-state/v1",
+        "result": "pass" if not runtime_missing else "block",
+        "latest_validation_summary": context["latest_validation_summary"],
+        "runtime_evidence": runtime_evidence,
+        "missing_inputs": runtime_missing,
+        "fallback_to": None if not runtime_missing else "validation",
+    }
+
+
+def recovery_blocker_state_payload(context: dict[str, Any]) -> dict[str, Any]:
+    blockers = str(context.get("blockers") or "").strip()
+    normalized = blockers.lower()
+    active = normalized not in {"", "none", "none recorded", "none recorded."}
+    return {
+        "schema_version": "loom-recovery-blocker-state/v1",
+        "result": "block" if active else "pass",
+        "summary": (
+            "recovery entry has active blockers that must be resolved before resume can continue."
+            if active
+            else "recovery entry does not record active blockers."
+        ),
+        "blockers": blockers,
+        "missing_inputs": [f"blockers: {blockers}"] if active else [],
+        "fallback_to": "blocked_state_resolution" if active else None,
+    }
+
+
+def recovery_rollback_basis_payload(context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "loom-recovery-rollback-basis/v1",
+        "branch": git_branch(context["target_root"]),
+        "head_sha": git_head_sha(context["target_root"]),
+        "recovery_entry": str(context["report"]["fact_chain"]["entry_points"]["recovery_entry"]),
+        "status_surface": str(context["report"]["fact_chain"]["entry_points"]["status_surface"]),
+        "rollback_action": "revert this PR or restore the previous .loom fact-chain carriers from main.",
+    }
+
+
+def recovery_record_payload(context: dict[str, Any]) -> dict[str, Any]:
+    require_merge_authority = checkpoint_requires_merge_authority(context)
+    host_binding = recovery_host_binding_payload(context, require_pr=require_merge_authority)
+    authority_records = recovery_authority_records_payload(
+        context,
+        require_merge_authority=require_merge_authority,
+    )
+    validation_state = recovery_validation_state_payload(context)
+    blocker_state = recovery_blocker_state_payload(context)
+    missing_inputs: list[str] = []
+    for name, payload in (
+        ("host_binding", host_binding),
+        ("authority_records", authority_records),
+        ("validation_state", validation_state),
+        ("blocker_state", blocker_state),
+    ):
+        if payload.get("result") == "block":
+            for message in payload.get("missing_inputs", []):
+                missing_inputs.append(f"{name}: {message}")
+    result = "pass" if not missing_inputs else "block"
+    return {
+        "schema_version": "loom-handoff-resume-record/v1",
+        "result": result,
+        "summary": (
+            "Loom recovery record can restore the current work item without chat memory."
+            if result == "pass"
+            else "Loom recovery record is blocked until required bindings or authority records are repaired."
+        ),
+        "missing_inputs": list(dict.fromkeys(missing_inputs)),
+        "fallback_to": None if result == "pass" else "recovery_repair",
+        "item": {
+            "id": context["item_id"],
+            "goal": context["goal"],
+            "scope": context["scope"],
+            "execution_path": context["execution_path"],
+        },
+        "checkpoint": {
+            "raw": context["current_checkpoint_raw"],
+            "normalized": context["current_checkpoint"],
+        },
+        "recovery": {
+            "entry": str(context["report"]["fact_chain"]["entry_points"]["recovery_entry"]),
+            "current_stop": context["current_stop"],
+            "next_step": context["next_step"],
+            "blockers": context["blockers"],
+            "latest_validation_summary": context["latest_validation_summary"],
+            "current_lane": context["current_lane"],
+            "recovery_boundary": context["recovery_boundary"],
+        },
+        "host_binding": host_binding,
+        "authority_records": authority_records,
+        "validation_state": validation_state,
+        "blocker_state": blocker_state,
+        "rollback_basis": recovery_rollback_basis_payload(context),
+        "repo_locators": {
+            "repo_interface": ".loom/companion/repo-interface.json",
+            "interop": ".loom/companion/interop.json",
+            "pr_template": ".github/PULL_REQUEST_TEMPLATE.md",
+            "review_rules": "code_review.md",
+            "spec_review_rules": "spec_review.md",
+        },
+        "progress_authority": "GitHub Issues/Projects",
+        "recovery_authority": "Loom recovery entry",
+        "pr_description_role": "human-readable evidence summary only",
+        "todo_role": "local implementation aid only",
+    }
+
+
 def compat_findings_from_lists(
     *,
     decision: str | None,
@@ -6833,7 +7182,16 @@ def check_pr_template(target_root: Path) -> tuple[dict[str, Any], list[str]]:
         return {"exists": False, "path": ".github/PULL_REQUEST_TEMPLATE.md", "sections": {}}, ["missing PR template"]
 
     text = path.read_text(encoding="utf-8")
-    sections = {section: (section in text) for section in PR_TEMPLATE_SECTIONS}
+    section_aliases = {
+        "## Summary": ("## Summary", "## 摘要"),
+        "## Validation": ("## Validation", "## 验证"),
+        "## Risks And Follow-ups": ("## Risks And Follow-ups", "## 风险级别", "## 回滚"),
+        "## Related Work": ("## Related Work", "## 关联事项"),
+    }
+    sections = {
+        section: any(alias in text for alias in aliases)
+        for section, aliases in section_aliases.items()
+    }
     missing = [f"PR template missing section: {section}" for section, present in sections.items() if not present]
     return {
         "exists": True,
@@ -16210,6 +16568,22 @@ def handle_flow(args: argparse.Namespace) -> int:
     recovery_readiness = report_recovery_readiness(context["report"])
     execution_ledger = report_execution_ledger(context["report"])
     blocking_failures = report_blocking_failures(context["report"])
+    recovery_record = recovery_record_payload(context) if args.operation in {"resume", "handoff"} else None
+    if (
+        isinstance(recovery_record, dict)
+        and recovery_record.get("result") == "block"
+        and result == "pass"
+    ):
+        result = "block"
+        fallback_to = recovery_record.get("fallback_to") or "recovery_repair"
+        summary = (
+            "resume flow rebuilt context but recovery bindings or authority records are blocking."
+            if args.operation == "resume"
+            else "handoff flow found blocking recovery bindings or authority records before transfer."
+        )
+        for message in recovery_record.get("missing_inputs", []):
+            if message not in missing_inputs:
+                missing_inputs.append(message)
     if recovery_readiness.get("result") == "block" and result == "pass":
         result = "block"
         fallback_to = fallback_to or recovery_readiness.get("fallback_to") or "admission"
@@ -16234,6 +16608,7 @@ def handle_flow(args: argparse.Namespace) -> int:
             "recovery_readiness": recovery_readiness,
             "execution_ledger": execution_ledger,
             "blocking_failures": blocking_failures,
+            **({"recovery_record": recovery_record} if isinstance(recovery_record, dict) else {}),
             **({"governance_surface": governance_surface} if args.operation == "resume" else {}),
             **({"maturity_upgrade_path": upgrade_path} if args.operation == "resume" else {}),
             **({"adoption_guidance": adoption_guidance} if args.operation == "resume" else {}),
@@ -16268,6 +16643,10 @@ def handle_flow(args: argparse.Namespace) -> int:
                         "next_step": context["next_step"],
                         "blockers": context["blockers"],
                         "latest_validation_summary": context["latest_validation_summary"],
+                        "host_binding": recovery_record.get("host_binding") if isinstance(recovery_record, dict) else None,
+                        "authority_records": recovery_record.get("authority_records") if isinstance(recovery_record, dict) else None,
+                        "validation_state": recovery_record.get("validation_state") if isinstance(recovery_record, dict) else None,
+                        "rollback_basis": recovery_record.get("rollback_basis") if isinstance(recovery_record, dict) else None,
                         "adoption_source": "maturity_upgrade_path",
                         "companion_locator": ".loom/companion/repo-interface.json",
                         "interop_locator": ".loom/companion/interop.json",
@@ -16288,6 +16667,10 @@ def handle_flow(args: argparse.Namespace) -> int:
                     "next_step": context["next_step"],
                     "blockers": context["blockers"],
                     "latest_validation_summary": context["latest_validation_summary"],
+                    "host_binding": recovery_record.get("host_binding") if isinstance(recovery_record, dict) else None,
+                    "authority_records": recovery_record.get("authority_records") if isinstance(recovery_record, dict) else None,
+                    "validation_state": recovery_record.get("validation_state") if isinstance(recovery_record, dict) else None,
+                    "rollback_basis": recovery_record.get("rollback_basis") if isinstance(recovery_record, dict) else None,
                     "fallback_target": fallback_to,
                     "writeback_fields": [
                         "current_stop",

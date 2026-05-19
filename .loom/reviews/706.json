@@ -1,0 +1,27 @@
+{
+  "schema_version": "loom-review/v1",
+  "item_id": "706",
+  "decision": "fallback",
+  "kind": "general_review",
+  "summary": "Formal implementation review has not been recorded yet.",
+  "reviewer": "not yet assigned",
+  "reviewed_head": "03f2d241f84b1d5d9a8c14ae6b2e61a158161406",
+  "reviewed_validation_summary": "Phase 6 setup complete: issue #706, branch `work/706-loom-handoff-resume-recovery`, worktree `/Users/mc/dev/WebEnvoy-worktrees/issue-706-loom-handoff-resume-recovery`, hooks enabled; validation not yet complete.",
+  "fallback_to": "build",
+  "findings": [
+    {
+      "id": "implementation-review-not-yet-run",
+      "summary": "Run guardian implementation review before merge-ready.",
+      "severity": "block",
+      "rebuttal": null,
+      "disposition": {
+        "status": "rejected",
+        "summary": "Placeholder remains blocking until guardian records a real Loom review result."
+      }
+    }
+  ],
+  "blocking_issues": [
+    "Run guardian implementation review before merge-ready."
+  ],
+  "follow_ups": []
+}

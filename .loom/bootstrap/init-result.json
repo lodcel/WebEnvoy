@@ -70,13 +70,13 @@
     }
   ],
   "fact_chain": {
-    "mode": "repo-native attach-only",
-    "read_entry": "not_applicable",
+    "mode": "loom recovery fact-chain",
+    "read_entry": "python3 .loom/bin/loom_flow.py fact-chain --target . --item 706",
     "entry_points": {
-      "current_item_id": "INIT-0001",
-      "work_item": "not_applicable",
-      "recovery_entry": "not_applicable",
-      "status_surface": "not_applicable"
+      "current_item_id": "706",
+      "work_item": ".loom/work-items/706.md",
+      "recovery_entry": ".loom/progress/706.md",
+      "status_surface": ".loom/status/current.md"
     }
   },
   "initial_artifacts": [
@@ -109,7 +109,7 @@
       "path": ".loom/bin/loom_init.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_init.py",
-      "sha256": "373481d53e1cec6ec8038b6d7690c523072509f42109c3fa6efe59f7960f10c2"
+      "sha256": "5f1beec71120dcaac5a7daf63c59a769a8bd689206237702e3bdf359af78d0e5"
     },
     {
       "path": ".loom/bin/fact_chain_support.py",
@@ -127,7 +127,7 @@
       "path": ".loom/bin/loom_flow.py",
       "kind": "loom-tool",
       "source": "skills/shared/scripts/loom_flow.py",
-      "sha256": "e9752c53a083a82828ca3325222567d47c2f04fae27d7b7ed8ce196784f15e56"
+      "sha256": "47e9f95be4510e7852848cbe74912d1802a32522ffa202f86b2671054df2aff6"
     },
     {
       "path": ".loom/bin/loom_status.py",
