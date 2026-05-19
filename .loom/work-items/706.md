@@ -5,7 +5,7 @@
 - Item ID: 706
 - Goal: Use Loom handoff and Loom resume as the structured cross-session recovery entry for WebEnvoy Phase 6 while preserving GitHub Issues/Projects as progress truth.
 - Scope: Phase 6 only: Loom recovery fact-chain, handoff/resume records, WebEnvoy repo locators, validation coverage for clean resume and fail-closed recovery states; no CI, live evidence, integration_check, product behavior, FR, review, merge-ready, or controlled merge authority changes.
-- Execution Path: issue-scoped branch `work/706-loom-handoff-resume-recovery` in `/Users/mc/dev/WebEnvoy-worktrees/issue-706-loom-handoff-resume-recovery`
+- Execution Path: issue-scoped branch `work/706-loom-handoff-resume-recovery` with workspace entry `.`; runtime worktree paths are resolved by `flow resume` host binding.
 - Workspace Entry: .
 - Recovery Entry: .loom/progress/706.md
 - Review Entry: .loom/reviews/706.json

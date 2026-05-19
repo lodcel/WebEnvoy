@@ -6,7 +6,7 @@
   "summary": "Formal implementation review has not been recorded yet.",
   "reviewer": "not yet assigned",
   "reviewed_head": "03f2d241f84b1d5d9a8c14ae6b2e61a158161406",
-  "reviewed_validation_summary": "Phase 6 setup complete: issue #706, branch `work/706-loom-handoff-resume-recovery`, worktree `/Users/mc/dev/WebEnvoy-worktrees/issue-706-loom-handoff-resume-recovery`, hooks enabled; validation not yet complete.",
+  "reviewed_validation_summary": "Phase 6 setup complete: issue #706, branch `work/706-loom-handoff-resume-recovery`, workspace entry `.`, hooks enabled; validation not yet complete.",
   "fallback_to": "build",
   "findings": [
     {

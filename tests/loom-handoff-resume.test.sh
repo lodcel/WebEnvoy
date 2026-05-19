@@ -27,6 +27,12 @@ assert_jq() {
   jq -e "${filter}" "${file}" >/dev/null || die "${message}"
 }
 
+require_github_access() {
+  command -v gh >/dev/null 2>&1 || die "需要 gh CLI 读取 GitHub issue/PR binding"
+  gh api repos/MC-and-his-Agents/WebEnvoy/issues/706 --jq .number >/dev/null \
+    || die "需要 gh CLI 鉴权并能读取 MC-and-his-Agents/WebEnvoy#706"
+}
+
 set_recovery_field() {
   local target="$1"
   local label="$2"
@@ -89,6 +95,7 @@ make_fixture() {
 
 main() {
   local fixture output head stale_head
+  require_github_access
   fixture="$(make_fixture)"
   output="${fixture}.resume.json"
   head="$(git -C "${fixture}" rev-parse HEAD)"
