@@ -340,6 +340,10 @@ setup_case_dir() {
   export MOCK_CODEX_PROMPT_CAPTURE
   unset CHANGED_FILES_FILE || true
   unset BASELINE_SNAPSHOT_ROOT || true
+  unset WORKTREE_DIR || true
+  unset BASE_SHA || true
+  unset LOOM_REVIEW_RECORD_FILE || true
+  unset SPEC_LOOM_REVIEW_RECORD_FILE || true
 
   MOCK_GH_REVIEWS_REQUIRE_PAGINATE=0
   unset MOCK_GH_REVIEWS_FIRST_PAGE_JSON || true
@@ -381,10 +385,25 @@ seed_local_guardian_proof() {
   local submitted_at="$4"
   local proof_file
   local tmp_file
+  local source_authority="loom_review_record"
+  local loom_review_record_sha256=""
+  local loom_spec_review_record_sha256=""
 
   proof_file="$(guardian_proof_store_file)"
   ensure_guardian_proof_store_file
   tmp_file="$(mktemp "${TMPDIR:-/tmp}/guardian-proof-test.XXXXXX")"
+  if [[ -n "${LOOM_REVIEW_RECORD_FILE:-}" && -s "${LOOM_REVIEW_RECORD_FILE}" ]]; then
+    loom_review_record_sha256="$(loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}")"
+  fi
+  if [[ -n "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" && -s "${SPEC_LOOM_REVIEW_RECORD_FILE}" ]]; then
+    loom_spec_review_record_sha256="$(loom_review_record_sha256 "${SPEC_LOOM_REVIEW_RECORD_FILE}")"
+  fi
+  if guardian_spec_review_only; then
+    source_authority="loom_spec_review_record"
+    loom_review_record_sha256="${loom_spec_review_record_sha256}"
+  elif guardian_spec_review_required; then
+    source_authority="loom_review_record_with_loom_spec_review_gate"
+  fi
 
   jq \
     --arg review_id "${review_id}" \
@@ -401,8 +420,9 @@ seed_local_guardian_proof() {
     --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
     --arg review_body_sha256 "$(hash_normalized_review_body_sha256 "${REVIEW_MD_FILE}")" \
-    --arg source_authority "loom_review_record" \
-    --arg loom_review_record_sha256 "$(loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}")" \
+    --arg source_authority "${source_authority}" \
+    --arg loom_review_record_sha256 "${loom_review_record_sha256}" \
+    --arg loom_spec_review_record_sha256 "${loom_spec_review_record_sha256}" \
     --arg verdict "$(jq -r '.verdict' "${RESULT_FILE}")" \
     --argjson safe_to_merge "$(jq -r '.safe_to_merge' "${RESULT_FILE}")" \
     '
@@ -422,6 +442,7 @@ seed_local_guardian_proof() {
           review_body_sha256: $review_body_sha256,
           source_authority: $source_authority,
           loom_review_record_sha256: $loom_review_record_sha256,
+          loom_spec_review_record_sha256: $loom_spec_review_record_sha256,
           verdict: $verdict,
           safe_to_merge: $safe_to_merge,
           review_state: $review_state,
