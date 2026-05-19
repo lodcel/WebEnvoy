@@ -29,8 +29,14 @@ assert_jq() {
 
 require_github_access() {
   command -v gh >/dev/null 2>&1 || die "需要 gh CLI 读取 GitHub issue/PR binding"
-  gh api repos/MC-and-his-Agents/WebEnvoy/issues/706 --jq .number >/dev/null \
-    || die "需要 gh CLI 鉴权并能读取 MC-and-his-Agents/WebEnvoy#706"
+  local attempt
+  for attempt in 1 2 3; do
+    if gh api repos/MC-and-his-Agents/WebEnvoy/issues/706 --jq .number >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  die "需要 gh CLI 鉴权并能读取 MC-and-his-Agents/WebEnvoy#706"
 }
 
 set_recovery_field() {

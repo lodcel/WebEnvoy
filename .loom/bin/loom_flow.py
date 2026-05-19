@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -5049,7 +5050,7 @@ def cleanup_scratch_tree(target_root: Path, scratch_dir: Path) -> None:
             pass
 
 
-def gh_json(root: Path, args: list[str]) -> tuple[dict[str, Any] | None, list[str]]:
+def gh_json_once(root: Path, args: list[str]) -> tuple[dict[str, Any] | None, list[str]]:
     try:
         result = run_process(["gh", *args], root, timeout_seconds=20)
     except FileNotFoundError:
@@ -5068,6 +5069,27 @@ def gh_json(root: Path, args: list[str]) -> tuple[dict[str, Any] | None, list[st
     return payload, []
 
 
+def retry_json_call(call: Any) -> tuple[Any | None, list[str]]:
+    errors: list[str] = []
+    for attempt in range(3):
+        payload, call_errors = call()
+        if payload is not None:
+            return payload, []
+        errors = call_errors
+        if not any("EOF" in str(error) or "timed out" in str(error) for error in call_errors):
+            break
+        if attempt < 2:
+            time.sleep(2)
+    return None, errors
+
+
+def gh_json(root: Path, args: list[str]) -> tuple[dict[str, Any] | None, list[str]]:
+    payload, errors = retry_json_call(lambda: gh_json_once(root, args))
+    if payload is not None and not isinstance(payload, dict):
+        return None, [f"gh {' '.join(args)} did not return a JSON object"]
+    return payload, errors
+
+
 def gh_rest_json(root: Path, path: str) -> tuple[dict[str, Any] | None, list[str]]:
     payload, errors = gh_json(root, ["api", path])
     if payload is not None or not errors:
@@ -5078,7 +5100,7 @@ def gh_rest_json(root: Path, path: str) -> tuple[dict[str, Any] | None, list[str
     return None, errors + [f"public REST fallback: {message}" for message in fallback_errors]
 
 
-def github_public_rest_json(path: str) -> tuple[dict[str, Any] | None, list[str]]:
+def github_public_rest_json_once(path: str) -> tuple[dict[str, Any] | None, list[str]]:
     url = f"https://api.github.com/{path.lstrip('/')}"
     headers = {
         "Accept": "application/vnd.github+json",
@@ -5105,6 +5127,13 @@ def github_public_rest_json(path: str) -> tuple[dict[str, Any] | None, list[str]
     if not isinstance(payload, dict):
         return None, ["public REST endpoint did not return a JSON object"]
     return payload, []
+
+
+def github_public_rest_json(path: str) -> tuple[dict[str, Any] | None, list[str]]:
+    payload, errors = retry_json_call(lambda: github_public_rest_json_once(path))
+    if payload is not None and not isinstance(payload, dict):
+        return None, ["public REST endpoint did not return a JSON object"]
+    return payload, errors
 
 
 def github_public_rest_list(path: str) -> tuple[list[dict[str, Any]], list[str]]:
