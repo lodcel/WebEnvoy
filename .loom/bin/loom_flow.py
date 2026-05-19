@@ -478,7 +478,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
 
     review = subparsers.add_parser("review", help="Read, run, or record a Loom formal review artifact")
-    review.add_argument("operation", choices=("read", "run", "record", "guardian-run"))
+    review.add_argument("operation", choices=("read", "run", "record", "guardian-run", "guardian-spec-run"))
     review.add_argument("--target", required=True, help="Target repository root")
     review.add_argument("--item", help="Expected current item id")
     review.add_argument(
@@ -527,6 +527,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     review.add_argument("--guardian-output-file", help="Guardian compatibility mode raw review output file; may be outside the target repository")
     review.add_argument("--guardian-expected-head", help="Guardian compatibility mode expected target HEAD SHA")
     review.add_argument("--guardian-tmp-dir", help="Guardian compatibility mode scratch dir for engine subprocesses")
+    review.add_argument("--guardian-pr-number", help="Guardian compatibility mode pull request number")
+    review.add_argument("--guardian-base-sha", help="Guardian compatibility mode base or merge-base SHA")
+    review.add_argument("--guardian-reviewed-scope-file", help="Guardian compatibility mode newline-delimited reviewed scope file")
     review.add_argument(
         "--shadow-engine-adapter",
         choices=tuple(sorted(SHADOW_REVIEW_ADAPTERS)),
@@ -538,6 +541,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     review.add_argument("--blocking-issue", action="append", default=[], help="Blocking review finding")
     review.add_argument("--follow-up", action="append", default=[], help="Follow-up item recorded by the review")
+    review.add_argument("--pr-number", help="Pull request number bound to a spec review record")
+    review.add_argument("--base-sha", help="Base SHA bound to a spec review record")
+    review.add_argument("--spec-locator", help="Repository-owned spec review instruction locator")
+    review.add_argument("--reviewed-path", action="append", default=[], help="Repo-relative path covered by this spec review record")
 
     recovery = subparsers.add_parser("recovery", help="Write the authored Loom recovery entry")
     recovery.add_argument("operation", choices=("writeback",))
@@ -3860,6 +3867,73 @@ def repo_specific_requirements_payload(
     }
 
 
+def repo_review_instruction_payload(
+    target_root: Path,
+    *,
+    key: str,
+) -> dict[str, Any]:
+    interface_relative = ".loom/companion/repo-interface.json"
+    payload: dict[str, Any] = {
+        "key": key,
+        "mode": None,
+        "locator": None,
+        "content": None,
+        "sha256": None,
+        "source": interface_relative,
+        "result": "pass",
+        "missing_inputs": [],
+    }
+    interface_path = target_root / interface_relative
+    try:
+        interface = load_json_file(interface_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        payload["result"] = "block"
+        payload["missing_inputs"] = [f"repo-interface could not be read: {exc}"]
+        return payload
+    if not isinstance(interface, dict):
+        payload["result"] = "block"
+        payload["missing_inputs"] = ["repo-interface must be a JSON object"]
+        return payload
+    locators = interface.get("review_instruction_locators")
+    if not isinstance(locators, dict):
+        payload["result"] = "block"
+        payload["missing_inputs"] = ["repo-interface is missing review_instruction_locators"]
+        return payload
+    entry = locators.get(key)
+    if not isinstance(entry, dict):
+        payload["result"] = "block"
+        payload["missing_inputs"] = [f"repo-interface is missing review_instruction_locators.{key}"]
+        return payload
+    mode = entry.get("mode")
+    locator = entry.get("locator")
+    payload["mode"] = mode
+    payload["locator"] = locator
+    if mode == "loom_default":
+        payload["content"] = ""
+        return payload
+    if mode != "repo_declared":
+        payload["result"] = "block"
+        payload["missing_inputs"] = [f"review_instruction_locators.{key}.mode must be repo_declared or loom_default"]
+        return payload
+    if not isinstance(locator, str) or not locator.strip():
+        payload["result"] = "block"
+        payload["missing_inputs"] = [f"review_instruction_locators.{key}.locator is missing"]
+        return payload
+    content, errors = read_repo_relative_text_file(
+        target_root,
+        locator,
+        label=f"review_instruction_locators.{key}.locator",
+    )
+    if errors:
+        payload["result"] = "block"
+        payload["missing_inputs"] = errors
+        return payload
+    assert content is not None
+    payload["content"] = content
+    payload["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return payload
+
+
 def load_repo_interop_contract(repo_interop: object, *, target_root: Path) -> tuple[dict[str, Any] | None, list[str]]:
     if not isinstance(repo_interop, dict):
         return None, ["governance_surface.repo_interop"]
@@ -6069,6 +6143,49 @@ def load_review_record(
     fallback_to = payload.get("fallback_to")
     if fallback_to not in {None, "admission", "build", "merge"}:
         errors.append(f"review artifact `{relative}` fallback_to must be null, admission, build, or merge")
+    if payload.get("decision") == "fallback" and fallback_to is None:
+        errors.append(f"review artifact `{relative}` fallback decisions must include fallback_to")
+    if payload.get("decision") != "fallback" and fallback_to is not None:
+        errors.append(f"review artifact `{relative}` non-fallback decisions must not include fallback_to")
+    if payload.get("kind") == "spec_review":
+        expected_locator = None
+        spec_instruction = repo_review_instruction_payload(target_root, key="spec_review")
+        if spec_instruction.get("result") != "pass":
+            errors.extend(
+                f"review artifact `{relative}` could not resolve repo spec review locator: {message}"
+                for message in spec_instruction.get("missing_inputs", [])
+            )
+        else:
+            expected_locator = spec_instruction.get("locator")
+        subject = payload.get("review_subject")
+        provenance = payload.get("review_provenance")
+        if not isinstance(subject, dict):
+            errors.append(f"review artifact `{relative}` spec_review is missing review_subject")
+        else:
+            for field in ("pr_number", "head_sha", "base_sha", "spec_locator"):
+                value = subject.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    errors.append(f"review artifact `{relative}` review_subject is missing `{field}`")
+            if subject.get("head_sha") != payload.get("reviewed_head"):
+                errors.append(f"review artifact `{relative}` review_subject.head_sha must match reviewed_head")
+            reviewed_scope = subject.get("reviewed_scope")
+            if not isinstance(reviewed_scope, list) or not reviewed_scope:
+                errors.append(f"review artifact `{relative}` review_subject.reviewed_scope must be a non-empty list")
+            else:
+                for index, entry in enumerate(reviewed_scope, start=1):
+                    if not isinstance(entry, str) or not entry.strip():
+                        errors.append(f"review artifact `{relative}` review_subject.reviewed_scope[{index}] must be a non-empty string")
+            if isinstance(expected_locator, str) and expected_locator.strip() and subject.get("spec_locator") != expected_locator:
+                errors.append(f"review artifact `{relative}` review_subject.spec_locator must match repo locator `{expected_locator}`")
+        if not isinstance(provenance, dict):
+            errors.append(f"review artifact `{relative}` spec_review is missing review_provenance")
+        else:
+            for field in ("reviewer", "engine_adapter"):
+                value = provenance.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    errors.append(f"review artifact `{relative}` review_provenance is missing `{field}`")
+            if "fail_closed_reason" not in provenance:
+                errors.append(f"review artifact `{relative}` review_provenance is missing `fail_closed_reason`")
     compatibility_lists: dict[str, list[str]] = {}
     for list_field in ("blocking_issues", "follow_ups"):
         value = payload.get(list_field)
@@ -8240,6 +8357,25 @@ def build_default_review_prompt(
     focus_paths = review_focus_paths(context)
     is_spec_review = review_path == default_spec_review_path(context["item_id"])
     spec_path = formal_spec_path(context) if is_spec_review else None
+    spec_instruction = repo_review_instruction_payload(context["target_root"], key="spec_review") if is_spec_review else None
+    spec_instruction_lines: list[str] = []
+    if is_spec_review:
+        if not isinstance(spec_instruction, dict) or spec_instruction.get("result") != "pass":
+            missing = []
+            if isinstance(spec_instruction, dict):
+                missing = [str(message) for message in spec_instruction.get("missing_inputs", [])]
+            spec_instruction_lines = [
+                "- Repo-owned spec review instruction locator could not be consumed; this must be treated as fail-closed.",
+                *[f"- Missing: {message}" for message in missing],
+            ]
+        else:
+            spec_instruction_lines = [
+                f"- Repo-owned spec review instruction locator: `{spec_instruction.get('locator')}`",
+                f"- Repo-owned spec review instruction sha256: `{spec_instruction.get('sha256')}`",
+                "",
+                "Repo-owned spec review instructions:",
+                str(spec_instruction.get("content") or ""),
+            ]
     if spec_path and spec_path not in focus_paths:
         focus_paths = [spec_path, *focus_paths]
     workspace_path = relative_to_root(context["workspace_path"], context["target_root"])
@@ -8283,6 +8419,7 @@ def build_default_review_prompt(
                 [
                     "- 当前任务是 spec review；必须优先判断 formal spec 是否完整、边界是否清晰、接受条件是否足以支撑后续实现 review。",
                     f"- Formal Spec Path: {spec_path}",
+                    *spec_instruction_lines,
                 ]
                 if spec_path
                 else []
@@ -12998,6 +13135,168 @@ def build_guardian_engine_prompt(guardian_prompt: str, requirements: list[dict[s
     )
 
 
+def read_newline_scope_file(path: Path | None) -> tuple[list[str], list[str]]:
+    if path is None:
+        return [], []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [], [f"reviewed scope file could not be read: {exc}"]
+    scope: list[str] = []
+    seen: set[str] = set()
+    for raw in lines:
+        entry = raw.strip()
+        if not entry or entry in seen:
+            continue
+        seen.add(entry)
+        scope.append(entry)
+    return scope, []
+
+
+def spec_record_reviewed_scope(
+    target_root: Path,
+    *,
+    scope_file: Path | None,
+    fallback_prompt: str,
+) -> tuple[list[str], list[str]]:
+    scope, errors = read_newline_scope_file(scope_file)
+    if errors:
+        return [], errors
+    if scope:
+        return scope, []
+    prompt_paths = [
+        path
+        for path in re.findall(r"`([^`]+)`", fallback_prompt)
+        if isinstance(path, str) and (path.startswith("docs/dev/specs/") or path.startswith("docs/dev/architecture/"))
+    ]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for path in prompt_paths:
+        if path not in seen:
+            seen.add(path)
+            deduped.append(path)
+    if deduped:
+        return deduped, []
+    result = run_git(target_root, ["diff", "--name-only", "--no-renames", "HEAD", "--"])
+    if result is not None and result.returncode == 0:
+        changed = [
+            line.strip()
+            for line in result.stdout.splitlines()
+            if line.strip() and (line.startswith("docs/dev/specs/") or line.startswith("docs/dev/architecture/"))
+        ]
+        if changed:
+            return changed, []
+    return [], ["spec review record requires a non-empty reviewed scope"]
+
+
+def spec_review_record_payload(
+    *,
+    item_id: str,
+    decision: str,
+    summary: str,
+    reviewer: str,
+    reviewed_head: str,
+    validation_summary: str,
+    findings: list[dict[str, Any]],
+    pr_number: str,
+    base_sha: str,
+    spec_locator: str,
+    reviewed_scope: list[str],
+    engine_adapter: str,
+    engine_profile: dict[str, Any] | None,
+    engine_evidence: dict[str, Any] | None,
+    normalized_findings: str | None,
+    fail_closed_reason: str | None,
+) -> dict[str, Any]:
+    blocking_issues, follow_ups = compat_lists_from_findings(findings)
+    fallback_to = "build" if decision == "fallback" else None
+    return {
+        "schema_version": "loom-review/v1",
+        "item_id": item_id,
+        "decision": decision,
+        "kind": "spec_review",
+        "summary": summary,
+        "reviewer": reviewer,
+        "reviewed_head": reviewed_head,
+        "reviewed_validation_summary": validation_summary,
+        "fallback_to": fallback_to,
+        "findings": findings,
+        "blocking_issues": blocking_issues,
+        "follow_ups": follow_ups,
+        "review_subject": {
+            "pr_number": pr_number,
+            "head_sha": reviewed_head,
+            "base_sha": base_sha,
+            "spec_locator": spec_locator,
+            "reviewed_scope": reviewed_scope,
+        },
+        "review_provenance": {
+            "reviewer": reviewer,
+            "engine_adapter": engine_adapter,
+            "engine_profile": engine_profile,
+            "engine_evidence": engine_evidence,
+            "normalized_findings": normalized_findings,
+            "fail_closed_reason": fail_closed_reason,
+        },
+        "consumed_inputs": {
+            "source": "webenvoy-guardian-spec-review",
+            "spec_locator": spec_locator,
+            "reviewed_scope": reviewed_scope,
+            "engine_adapter": engine_adapter,
+            "engine_evidence": engine_evidence,
+            "normalized_findings": normalized_findings,
+        },
+    }
+
+
+def write_guardian_spec_review_record(
+    *,
+    target_root: Path,
+    record_path: Path,
+    item_id: str,
+    decision: str,
+    summary: str,
+    reviewer: str,
+    reviewed_head: str,
+    validation_summary: str,
+    findings: list[dict[str, Any]],
+    pr_number: str,
+    base_sha: str,
+    spec_locator: str,
+    reviewed_scope: list[str],
+    engine_adapter: str,
+    engine_profile: dict[str, Any] | None,
+    engine_evidence: dict[str, Any] | None,
+    normalized_findings: str | None,
+    fail_closed_reason: str | None,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    record = spec_review_record_payload(
+        item_id=item_id,
+        decision=decision,
+        summary=summary,
+        reviewer=reviewer,
+        reviewed_head=reviewed_head,
+        validation_summary=validation_summary,
+        findings=findings,
+        pr_number=pr_number,
+        base_sha=base_sha,
+        spec_locator=spec_locator,
+        reviewed_scope=reviewed_scope,
+        engine_adapter=engine_adapter,
+        engine_profile=engine_profile,
+        engine_evidence=engine_evidence,
+        normalized_findings=normalized_findings,
+        fail_closed_reason=fail_closed_reason,
+    )
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_file(record_path, record)
+    relative = relative_to_root(record_path, target_root)
+    verified, _, errors = load_review_record(target_root, item_id, relative)
+    if errors or verified is None:
+        return None, errors or [f"missing spec review artifact: {relative}"]
+    return verified, []
+
+
 def write_guardian_engine_metadata(
     metadata_path: Path,
     *,
@@ -13028,6 +13327,323 @@ def write_guardian_engine_metadata(
             "missing_inputs": missing_inputs,
             "thread_target_binding": adapter_selection.get("binding_summary"),
         },
+    )
+
+
+def run_guardian_spec_review(args: argparse.Namespace) -> int:
+    target_root = Path(args.target).expanduser().resolve()
+    prompt_file = Path(args.guardian_prompt_file).expanduser() if args.guardian_prompt_file else None
+    output_file = Path(args.guardian_output_file).expanduser() if args.guardian_output_file else None
+    expected_head = non_empty_str(args.guardian_expected_head)
+    current_head = git_head_sha(target_root) or "unknown-head"
+    item_id = f"github-pr-{args.guardian_pr_number or args.pr_number or 'unknown'}"
+    runtime_root = target_root / ".loom/runtime/review/guardian-spec" / current_head
+    metadata_path = runtime_root / "engine-metadata.json"
+    prompt_copy_path = runtime_root / "prompt.txt"
+    raw_result_path = output_file or (runtime_root / "engine-result.json")
+    findings_path = runtime_root / "normalized-findings.json"
+    record_relative = args.review_file or f".loom/reviews/{item_id}.spec.json"
+    record_path, record_path_errors = resolve_repo_relative_path(target_root, record_relative, label="spec review record path")
+    adapter_selection = select_review_adapter(args, target_root, reviewed_head=current_head)
+    selected_adapter = str(adapter_selection["adapter"])
+    spec_instruction = repo_review_instruction_payload(target_root, key="spec_review")
+    missing_inputs: list[str] = []
+    if prompt_file is None:
+        missing_inputs.append("--guardian-prompt-file")
+    elif not prompt_file.exists():
+        missing_inputs.append(f"missing guardian prompt file: {prompt_file}")
+    if output_file is None:
+        missing_inputs.append("--guardian-output-file")
+    if expected_head and current_head != expected_head:
+        missing_inputs.append(f"target HEAD mismatch: expected {expected_head}, got {current_head}")
+    missing_inputs.extend(record_path_errors)
+    if spec_instruction.get("result") != "pass":
+        missing_inputs.extend(str(message) for message in spec_instruction.get("missing_inputs", []))
+    if not isinstance(args.guardian_pr_number or args.pr_number, str) or not str(args.guardian_pr_number or args.pr_number).strip():
+        missing_inputs.append("--guardian-pr-number")
+    if not isinstance(args.guardian_base_sha or args.base_sha, str) or not str(args.guardian_base_sha or args.base_sha).strip():
+        missing_inputs.append("--guardian-base-sha")
+
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    guardian_prompt = prompt_file.read_text(encoding="utf-8") if prompt_file and prompt_file.exists() else ""
+    scope_file = Path(args.guardian_reviewed_scope_file).expanduser() if args.guardian_reviewed_scope_file else None
+    reviewed_scope, scope_errors = spec_record_reviewed_scope(
+        target_root,
+        scope_file=scope_file,
+        fallback_prompt=guardian_prompt,
+    )
+    missing_inputs.extend(scope_errors)
+    assert record_path is not None or record_path_errors
+
+    spec_locator = str(spec_instruction.get("locator") or args.spec_locator or "")
+    if not spec_locator.strip():
+        missing_inputs.append("spec review locator is missing from repo-interface")
+    engine_profile, engine_profile_errors = resolve_review_engine_profile(
+        {
+            "goal": "WebEnvoy guardian formal spec review",
+            "scope": "\n".join(f"`{path}`" for path in reviewed_scope),
+            "execution_path": "guardian-spec-review",
+            "current_stop": "",
+            "next_step": "",
+            "blockers": "",
+            "latest_validation_summary": "WebEnvoy guardian spec review context; GitHub checks remain a separate merge gate.",
+        },
+        "spec_review",
+        adapter=selected_adapter,
+    )
+    missing_inputs.extend(engine_profile_errors)
+
+    def emit_block_record(reason: str, details: list[str]) -> int:
+        fallback_finding = {
+            "id": "spec-review-fail-closed",
+            "summary": reason,
+            "severity": "block",
+            "rebuttal": None,
+            "disposition": {"status": "accepted", "summary": "; ".join(details) or reason},
+        }
+        record = None
+        record_errors: list[str] = []
+        if record_path is not None:
+            record, record_errors = write_guardian_spec_review_record(
+                target_root=target_root,
+                record_path=record_path,
+                item_id=item_id,
+                decision="block",
+                summary=reason,
+                reviewer="webenvoy-guardian-spec-review",
+                reviewed_head=current_head,
+                validation_summary="WebEnvoy guardian spec review failed closed.",
+                findings=[fallback_finding],
+                pr_number=str(args.guardian_pr_number or args.pr_number or ""),
+                base_sha=str(args.guardian_base_sha or args.base_sha or ""),
+                spec_locator=spec_locator,
+                reviewed_scope=reviewed_scope or ["spec_review.md"],
+                engine_adapter=selected_adapter,
+                engine_profile=engine_profile if isinstance(engine_profile, dict) else None,
+                engine_evidence={"metadata": relative_to_root(metadata_path, target_root), "raw_result": str(raw_result_path)},
+                normalized_findings=None,
+                fail_closed_reason=reason,
+            )
+        write_json_file(
+            metadata_path,
+            {
+                "schema_version": "loom-spec-review-engine-metadata/v1",
+                "selected_adapter": selected_adapter,
+                "reviewed_head": current_head,
+                "result": "block",
+                "failure_reason": reason,
+                "missing_inputs": details + record_errors,
+                "repo_spec_instruction": {key: value for key, value in spec_instruction.items() if key != "content"},
+                "review_record": relative_to_root(record_path, target_root) if record_path is not None else None,
+            },
+        )
+        return emit(
+            {
+                "command": "review",
+                "operation": "guardian-spec-run",
+                "result": "block",
+                "summary": "guardian spec review failed closed.",
+                "missing_inputs": details + record_errors,
+                "fallback_to": None,
+                "spec_review": {"path": relative_to_root(record_path, target_root) if record_path is not None else record_relative, "record": record},
+                "engine": {
+                    "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
+                    "adapter": selected_adapter,
+                    "result": "block",
+                    "failure_reason": reason,
+                    "reviewed_head": current_head,
+                    "evidence": {"metadata": relative_to_root(metadata_path, target_root), "raw_result": str(raw_result_path)},
+                },
+            }
+        )
+
+    if missing_inputs:
+        return emit_block_record("preflight_failed", missing_inputs)
+
+    instruction_content = str(spec_instruction.get("content") or "")
+    engine_prompt = "\n".join(
+        [
+            "你是 Loom spec review engine。",
+            "你必须通过 WebEnvoy repo-interface locator 消费仓库持有的 formal spec review 规则。",
+            f"Spec review instruction locator: `{spec_locator}`",
+            "",
+            "以下是 locator 指向的 WebEnvoy spec review 规则全文：",
+            instruction_content,
+            "",
+            "输出必须符合 Loom review engine schema：decision、summary、findings。",
+            "- decision=allow 仅表示 formal spec review 规则下未发现阻断项。",
+            "- decision=block 表示发现 formal spec 阻断项。",
+            "- decision=fallback 表示输入、证据或环境不足以形成正式 spec review 结论。",
+            "",
+            "WebEnvoy guardian 构建的 formal spec review 上下文：",
+            guardian_prompt,
+        ]
+    )
+    prompt_copy_path.write_text(engine_prompt, encoding="utf-8")
+
+    before_fingerprint, before_errors = git_tracked_diff_fingerprint(target_root)
+    failure_reason: str | None = None
+    failure_detail: str | None = None
+    normalized: dict[str, Any] | None = None
+    raw_payload: Any = None
+    if before_errors:
+        failure_reason = "runtime_conflict"
+        failure_detail = before_errors[0]
+    elif selected_adapter == CODEX_APP_REVIEW_ADAPTER:
+        raw_file = adapter_selection.get("raw_file") if isinstance(adapter_selection.get("raw_file"), str) else None
+        source_path: Path | None = None
+        if raw_file:
+            source_path, raw_errors = resolve_repo_relative_path(target_root, raw_file, label="Codex App spec review raw file")
+            if raw_errors:
+                failure_reason = "runtime_conflict"
+                failure_detail = "; ".join(raw_errors)
+        else:
+            failure_reason = "runtime_conflict"
+            failure_detail = "Codex App spec review requires --codex-app-review-raw-file in guardian compatibility mode"
+        if failure_reason is None and source_path is not None:
+            try:
+                raw_text = source_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                failure_reason = "schema_drift"
+                failure_detail = f"Codex App spec review raw file could not be read: {exc}"
+            else:
+                raw_result_path.write_text(raw_text, encoding="utf-8")
+                normalized, normalization_errors = normalize_authoritative_codex_app_review_text(
+                    raw_text,
+                    relative=relative_to_root(source_path, target_root),
+                )
+                if normalization_errors or normalized is None:
+                    failure_reason = "schema_drift"
+                    failure_detail = "; ".join(normalization_errors)
+    else:
+        env = dict(os.environ)
+        scratch_dir = Path(args.guardian_tmp_dir).expanduser() if args.guardian_tmp_dir else runtime_root / "tmp"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        env["TMPDIR"] = str(scratch_dir.resolve())
+        env["TMP"] = str(scratch_dir.resolve())
+        env["TEMP"] = str(scratch_dir.resolve())
+        try:
+            completed = subprocess.run(
+                [
+                    DEFAULT_REVIEW_ENGINE,
+                    "exec",
+                    "-C",
+                    str(target_root),
+                    "-m",
+                    REVIEW_ENGINE_PROFILES["spec-review"]["model"],
+                    "-c",
+                    f"model_reasoning_effort={json.dumps(REVIEW_ENGINE_PROFILES['spec-review']['reasoning_effort'])}",
+                    "-s",
+                    "read-only",
+                    "--add-dir",
+                    str(prompt_file.parent),
+                    "--output-schema",
+                    str(review_engine_schema_path()),
+                    "-o",
+                    str(raw_result_path),
+                    "-",
+                ],
+                cwd=target_root,
+                env=env,
+                input=engine_prompt,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            failure_reason = "engine_unavailable"
+            failure_detail = f"default review engine `{DEFAULT_REVIEW_ENGINE}` is unavailable in PATH"
+        else:
+            if completed.returncode != 0:
+                failure_reason = "runtime_conflict"
+                failure_detail = completed.stderr.strip() or completed.stdout.strip() or "default review engine returned a non-zero exit status"
+            else:
+                try:
+                    raw_payload = load_json_file(raw_result_path) if raw_result_path.exists() else json.loads(completed.stdout)
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    failure_reason = "schema_drift"
+                    failure_detail = f"default review engine returned invalid JSON: {exc}"
+                else:
+                    normalized, normalization_errors = normalize_engine_review_result(raw_payload, relative=str(raw_result_path))
+                    if normalization_errors or normalized is None:
+                        failure_reason = "schema_drift"
+                        failure_detail = "; ".join(normalization_errors)
+
+    after_head = git_head_sha(target_root) or "unknown-head"
+    after_fingerprint, after_errors = git_tracked_diff_fingerprint(target_root)
+    if failure_reason is None and after_head != current_head:
+        failure_reason = "runtime_conflict"
+        failure_detail = f"target HEAD changed during spec review: before {current_head}, after {after_head}"
+    elif failure_reason is None and after_errors:
+        failure_reason = "runtime_conflict"
+        failure_detail = after_errors[0]
+    elif failure_reason is None and before_fingerprint != after_fingerprint:
+        failure_reason = "repo_diff_detected"
+        failure_detail = "guardian spec review engine modified tracked repository content"
+    if failure_reason is not None:
+        return emit_block_record(failure_reason, [failure_detail or failure_reason])
+
+    assert normalized is not None
+    write_json_file(findings_path, {"findings": normalized["findings"]})
+    engine_evidence = {
+        "metadata": relative_to_root(metadata_path, target_root),
+        "prompt": relative_to_root(prompt_copy_path, target_root),
+        "raw_result": str(raw_result_path),
+        "normalized_findings": relative_to_root(findings_path, target_root),
+    }
+    record, record_errors = write_guardian_spec_review_record(
+        target_root=target_root,
+        record_path=record_path,
+        item_id=item_id,
+        decision=normalized["decision"],
+        summary=normalized["summary"],
+        reviewer=selected_adapter,
+        reviewed_head=current_head,
+        validation_summary="WebEnvoy guardian spec review context; GitHub checks remain a separate merge gate.",
+        findings=normalized["findings"],
+        pr_number=str(args.guardian_pr_number or args.pr_number or ""),
+        base_sha=str(args.guardian_base_sha or args.base_sha or ""),
+        spec_locator=spec_locator,
+        reviewed_scope=reviewed_scope,
+        engine_adapter=selected_adapter,
+        engine_profile=engine_profile if isinstance(engine_profile, dict) else None,
+        engine_evidence=engine_evidence,
+        normalized_findings=relative_to_root(findings_path, target_root),
+        fail_closed_reason=None,
+    )
+    if record_errors or record is None:
+        return emit_block_record("record_validation_failed", record_errors)
+    write_json_file(
+        metadata_path,
+        {
+            "schema_version": "loom-spec-review-engine-metadata/v1",
+            "selected_adapter": selected_adapter,
+            "reviewed_head": current_head,
+            "result": "pass",
+            "failure_reason": None,
+            "repo_spec_instruction": {key: value for key, value in spec_instruction.items() if key != "content"},
+            "review_record": relative_to_root(record_path, target_root),
+            "reviewed_scope": reviewed_scope,
+        },
+    )
+    return emit(
+        {
+            "command": "review",
+            "operation": "guardian-spec-run",
+            "result": "pass",
+            "summary": "guardian spec review produced a Loom spec review record.",
+            "missing_inputs": [],
+            "fallback_to": None,
+            "spec_review": {"path": relative_to_root(record_path, target_root), "record": record},
+            "engine": {
+                "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
+                "adapter": selected_adapter,
+                "result": "pass",
+                "failure_reason": None,
+                "reviewed_head": current_head,
+                "evidence": engine_evidence,
+            },
+        }
     )
 
 
@@ -13326,6 +13942,8 @@ def handle_review(args: argparse.Namespace) -> int:
     target_root = Path(args.target).expanduser().resolve()
     if args.operation == "guardian-run":
         return run_guardian_compat_review(args)
+    if args.operation == "guardian-spec-run":
+        return run_guardian_spec_review(args)
 
     context, errors = load_context(target_root, args.output, args.item)
     if errors:
@@ -13635,6 +14253,47 @@ def handle_review(args: argparse.Namespace) -> int:
         )
 
     blocking_issues, follow_ups = compat_lists_from_findings(findings)
+    spec_instruction = repo_review_instruction_payload(target_root, key="spec_review") if args.kind == "spec_review" else None
+    spec_locator = args.spec_locator or (str(spec_instruction.get("locator")) if isinstance(spec_instruction, dict) and spec_instruction.get("locator") else None)
+    reviewed_scope = [entry.strip() for entry in args.reviewed_path if isinstance(entry, str) and entry.strip()]
+    if args.kind == "spec_review":
+        if isinstance(spec_instruction, dict) and spec_instruction.get("result") != "pass":
+            missing_inputs = [str(message) for message in spec_instruction.get("missing_inputs", [])]
+            return emit(
+                {
+                    "command": "review",
+                    "operation": "record",
+                    "result": "block",
+                    "summary": "spec review record could not consume the repo-owned spec review locator.",
+                    "missing_inputs": missing_inputs,
+                    "fallback_to": "build",
+                }
+            )
+        if not reviewed_scope:
+            suite, _ = formal_spec_suite_status(context)
+            reviewed_scope = [suite["spec"], suite["plan"], suite["implementation_contract"]]
+        if not isinstance(args.pr_number, str) or not args.pr_number.strip():
+            return emit(
+                {
+                    "command": "review",
+                    "operation": "record",
+                    "result": "block",
+                    "summary": "spec review record requires --pr-number.",
+                    "missing_inputs": ["--pr-number"],
+                    "fallback_to": "build",
+                }
+            )
+        if not isinstance(args.base_sha, str) or not args.base_sha.strip():
+            return emit(
+                {
+                    "command": "review",
+                    "operation": "record",
+                    "result": "block",
+                    "summary": "spec review record requires --base-sha.",
+                    "missing_inputs": ["--base-sha"],
+                    "fallback_to": "build",
+                }
+            )
     governance_surface = build_governance_surface(target_root)
     github_control_plane = (
         governance_surface.get("github_control_plane")
@@ -13671,6 +14330,22 @@ def handle_review(args: argparse.Namespace) -> int:
             "normalized_findings": args.normalized_findings,
         },
     }
+    if args.kind == "spec_review":
+        review_payload["review_subject"] = {
+            "pr_number": args.pr_number.strip(),
+            "head_sha": review_payload["reviewed_head"],
+            "base_sha": args.base_sha.strip(),
+            "spec_locator": spec_locator or "",
+            "reviewed_scope": reviewed_scope,
+        }
+        review_payload["review_provenance"] = {
+            "reviewer": args.reviewer,
+            "engine_adapter": args.engine_adapter or "manual",
+            "engine_profile": None,
+            "engine_evidence": args.engine_evidence,
+            "normalized_findings": args.normalized_findings,
+            "fail_closed_reason": None,
+        }
     review_abs, review_path_errors = resolve_repo_relative_path(target_root, review_path, label="review artifact path")
     if review_path_errors:
         return emit(

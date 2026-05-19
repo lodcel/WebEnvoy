@@ -9,9 +9,11 @@ setup_review_status_fixture() {
   local metadata_mode="${8:-valid}"
 
   setup_case_dir "${case_name}"
+  restore_test_repo_root
 
   HEAD_SHA="head-sha-123"
   BASE_REF="main"
+  BASE_SHA="base-sha-123"
   MERGE_BASE_SHA="merge-base-sha-123"
   REVIEW_PROFILE="high_risk_impl_profile"
   REVIEW_BASIS_DIGEST="review-basis-digest-123"
@@ -41,6 +43,195 @@ setup_review_status_fixture() {
       exit 1
       ;;
   esac
+
+  local review_body_json
+  review_body_json="$(jq -Rs . < "${REVIEW_MD_FILE}")"
+
+  MOCK_GH_USER_LOGIN="${reviewer}"
+  export MOCK_GH_USER_LOGIN
+
+  MOCK_GH_PR_VIEW_JSON="${TEST_TMP_DIR}/${case_name}/mock/pr-view.json"
+  printf '%s\n' '{"baseRefName":"main","headRefOid":"head-sha-123","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","isDraft":false}' > "${MOCK_GH_PR_VIEW_JSON}"
+  export MOCK_GH_PR_VIEW_JSON
+
+  MOCK_GH_CHECKS_JSON="${TEST_TMP_DIR}/${case_name}/mock/checks.json"
+  printf '%s\n' '[{"name":"Run Tests","bucket":"pass","state":"SUCCESS","link":"https://example.test/tests"}]' > "${MOCK_GH_CHECKS_JSON}"
+  export MOCK_GH_CHECKS_JSON
+
+  MOCK_GH_REVIEWS_JSON="${TEST_TMP_DIR}/${case_name}/mock/reviews.json"
+  printf '[[{"id":41,"user":{"login":"%s"},"commit_id":"%s","state":"%s","submitted_at":"2026-04-07T10:00:00Z","body":%s}]]\n' "${reviewer}" "${HEAD_SHA}" "${review_state}" "${review_body_json}" > "${MOCK_GH_REVIEWS_JSON}"
+  export MOCK_GH_REVIEWS_JSON
+}
+
+setup_spec_review_status_fixture() {
+  local case_name="$1"
+  local reviewer="$2"
+  local review_state="$3"
+  local decision="$4"
+  local finding_severity="${5:-}"
+
+  setup_case_dir "${case_name}"
+
+  HEAD_SHA="head-sha-123"
+  BASE_REF="main"
+  BASE_SHA="base-sha-123"
+  MERGE_BASE_SHA="merge-base-sha-123"
+  REVIEW_PROFILE="spec_review_profile"
+  REVIEW_BASIS_DIGEST="review-basis-digest-123"
+  PROMPT_DIGEST="prompt-digest-123"
+  PR_AUTHOR="pr-author"
+  PR_NUMBER="274"
+  export HEAD_SHA BASE_REF BASE_SHA MERGE_BASE_SHA REVIEW_PROFILE REVIEW_BASIS_DIGEST PROMPT_DIGEST PR_AUTHOR PR_NUMBER
+
+  RESULT_FILE="${TMP_DIR}/review.json"
+  REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
+  SPEC_LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-spec-review-record.json"
+  export CHANGED_FILES_FILE SPEC_LOOM_REVIEW_RECORD_FILE
+  printf '%s\n' "docs/dev/specs/FR-0001-demo/spec.md" > "${CHANGED_FILES_FILE}"
+
+  jq -n \
+    --arg decision "${decision}" \
+    --arg finding_severity "${finding_severity}" \
+    --arg pr_number "${PR_NUMBER}" \
+    --arg head_sha "${HEAD_SHA}" \
+    --arg base_sha "${BASE_SHA}" \
+    '
+      ($finding_severity | length > 0) as $has_finding
+      | {
+          schema_version: "loom-review/v1",
+          item_id: ("github-pr-" + $pr_number),
+          decision: $decision,
+          kind: "spec_review",
+          summary: (if $decision == "allow" then "spec review approved" elif $decision == "fallback" then "spec review fallback" else "spec review blocked" end),
+          reviewer: "loom/default-codex-exec",
+          reviewed_head: $head_sha,
+          reviewed_validation_summary: "spec validation summary",
+          fallback_to: (if $decision == "fallback" then "build" else null end),
+          findings: (
+            if $has_finding then
+              [{
+                id: "spec-finding-1",
+                summary: "spec finding",
+                severity: $finding_severity,
+                rebuttal: null,
+                disposition: {status: "accepted", summary: "spec review finding accepted"}
+              }]
+            else
+              []
+            end
+          ),
+          blocking_issues: (if $finding_severity == "block" then ["spec finding"] else [] end),
+          follow_ups: (if $finding_severity == "warn" then ["spec finding"] else [] end),
+          review_subject: {
+            pr_number: $pr_number,
+            head_sha: $head_sha,
+            base_sha: $base_sha,
+            spec_locator: "spec_review.md",
+            reviewed_scope: ["docs/dev/specs/FR-0001-demo/spec.md"]
+          },
+          review_provenance: {
+            reviewer: "loom/default-codex-exec",
+            engine_adapter: "loom/default-codex-exec",
+            engine_profile: {profile_id: "spec-review"},
+            engine_evidence: {raw_result: "mock"},
+            normalized_findings: "mock-findings.json",
+            fail_closed_reason: (if $decision == "fallback" then "fallback requested" else null end)
+          },
+          consumed_inputs: {
+            source: "webenvoy-guardian-spec-review",
+            spec_locator: "spec_review.md",
+            reviewed_scope: ["docs/dev/specs/FR-0001-demo/spec.md"]
+          }
+        }
+    ' > "${SPEC_LOOM_REVIEW_RECORD_FILE}"
+
+  loom_spec_review_record_to_guardian_result "${SPEC_LOOM_REVIEW_RECORD_FILE}" "${RESULT_FILE}"
+  build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
+
+  local review_body_json
+  review_body_json="$(jq -Rs . < "${REVIEW_MD_FILE}")"
+
+  MOCK_GH_USER_LOGIN="${reviewer}"
+  export MOCK_GH_USER_LOGIN
+
+  MOCK_GH_PR_VIEW_JSON="${TEST_TMP_DIR}/${case_name}/mock/pr-view.json"
+  printf '%s\n' '{"baseRefName":"main","headRefOid":"head-sha-123","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","isDraft":false}' > "${MOCK_GH_PR_VIEW_JSON}"
+  export MOCK_GH_PR_VIEW_JSON
+
+  MOCK_GH_CHECKS_JSON="${TEST_TMP_DIR}/${case_name}/mock/checks.json"
+  printf '%s\n' '[{"name":"Run Tests","bucket":"pass","state":"SUCCESS","link":"https://example.test/tests"}]' > "${MOCK_GH_CHECKS_JSON}"
+  export MOCK_GH_CHECKS_JSON
+
+  MOCK_GH_REVIEWS_JSON="${TEST_TMP_DIR}/${case_name}/mock/reviews.json"
+  printf '[[{"id":41,"user":{"login":"%s"},"commit_id":"%s","state":"%s","submitted_at":"2026-04-07T10:00:00Z","body":%s}]]\n' "${reviewer}" "${HEAD_SHA}" "${review_state}" "${review_body_json}" > "${MOCK_GH_REVIEWS_JSON}"
+  export MOCK_GH_REVIEWS_JSON
+}
+
+setup_mixed_review_status_fixture() {
+  local case_name="$1"
+  local reviewer="$2"
+  local review_state="$3"
+
+  setup_case_dir "${case_name}"
+  restore_test_repo_root
+
+  HEAD_SHA="head-sha-123"
+  BASE_REF="main"
+  BASE_SHA="base-sha-123"
+  MERGE_BASE_SHA="merge-base-sha-123"
+  REVIEW_PROFILE="mixed_high_risk_spec_profile"
+  REVIEW_BASIS_DIGEST="review-basis-digest-123"
+  PROMPT_DIGEST="prompt-digest-123"
+  PR_AUTHOR="pr-author"
+  PR_NUMBER="274"
+  export HEAD_SHA BASE_REF BASE_SHA MERGE_BASE_SHA REVIEW_PROFILE REVIEW_BASIS_DIGEST PROMPT_DIGEST PR_AUTHOR PR_NUMBER
+
+  RESULT_FILE="${TMP_DIR}/review.json"
+  REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
+  LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-review-record.json"
+  SPEC_LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-spec-review-record.json"
+  export RESULT_FILE REVIEW_MD_FILE CHANGED_FILES_FILE LOOM_REVIEW_RECORD_FILE SPEC_LOOM_REVIEW_RECORD_FILE
+  printf '%s\n' "docs/dev/specs/FR-0001-demo/spec.md" "scripts/pr-guardian.sh" > "${CHANGED_FILES_FILE}"
+  printf '%s\n' '{"verdict":"APPROVE","safe_to_merge":true,"summary":"summary","findings":[],"required_actions":[]}' > "${RESULT_FILE}"
+  write_loom_review_record_from_guardian_result "${RESULT_FILE}" "${LOOM_REVIEW_RECORD_FILE}"
+
+  jq -n \
+    --arg pr_number "${PR_NUMBER}" \
+    --arg head_sha "${HEAD_SHA}" \
+    --arg base_sha "${BASE_SHA}" \
+    '{
+      schema_version: "loom-review/v1",
+      item_id: ("github-pr-" + $pr_number),
+      decision: "allow",
+      kind: "spec_review",
+      summary: "spec review approved",
+      reviewer: "loom/default-codex-exec",
+      reviewed_head: $head_sha,
+      reviewed_validation_summary: "spec validation summary",
+      fallback_to: null,
+      findings: [],
+      blocking_issues: [],
+      follow_ups: [],
+      review_subject: {
+        pr_number: $pr_number,
+        head_sha: $head_sha,
+        base_sha: $base_sha,
+        spec_locator: "spec_review.md",
+        reviewed_scope: ["docs/dev/specs/FR-0001-demo/spec.md"]
+      },
+      review_provenance: {
+        reviewer: "loom/default-codex-exec",
+        engine_adapter: "loom/default-codex-exec",
+        engine_profile: {profile_id: "spec-review"},
+        engine_evidence: {raw_result: "mock"},
+        normalized_findings: "mock-findings.json",
+        fail_closed_reason: null
+      }
+    }' > "${SPEC_LOOM_REVIEW_RECORD_FILE}"
+
+  build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
 
   local review_body_json
   review_body_json="$(jq -Rs . < "${REVIEW_MD_FILE}")"
@@ -131,6 +322,153 @@ test_review_status_reports_reusable_review_from_other_reviewer() {
   assert_equal "$(jq -r '.reason' "${status_file}")" "matching_metadata"
   assert_equal "$(jq -r '.reviewer_login' "${status_file}")" "poller[bot]"
   assert_file_not_contains "${MOCK_GH_CALLS_LOG}" "collaborators/"
+}
+
+test_spec_review_status_reports_reusable_allow_record() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-allow" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "allow"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "true"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "matching_metadata"
+  assert_equal "$(jq -r '.verdict' "${status_file}")" "APPROVE"
+  assert_equal "$(jq -r '.safe_to_merge' "${status_file}")" "true"
+  assert_file_contains "${REVIEW_MD_FILE}" "**Source authority**: Loom spec review record"
+}
+
+test_spec_review_status_reports_reusable_block_record() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-block" \
+    "github-actions[bot]" \
+    "CHANGES_REQUESTED" \
+    "block" \
+    "block"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "true"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "matching_metadata"
+  assert_equal "$(jq -r '.verdict' "${status_file}")" "REQUEST_CHANGES"
+  assert_equal "$(jq -r '.safe_to_merge' "${status_file}")" "false"
+}
+
+test_spec_review_status_reports_reusable_fallback_record() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-fallback" \
+    "github-actions[bot]" \
+    "CHANGES_REQUESTED" \
+    "fallback" \
+    "block"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "true"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "matching_metadata"
+  assert_equal "$(jq -r '.safe_to_merge' "${status_file}")" "false"
+}
+
+test_spec_review_status_rejects_missing_record() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-missing-record" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "allow"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/missing-spec-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" 'del(.loom_review_record)'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_spec_review_status_rejects_stale_head() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-stale-head" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "allow"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/stale-spec-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" '.loom_review_record.reviewed_head = "old-head-sha" | .loom_review_record.review_subject.head_sha = "old-head-sha"'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_spec_review_status_rejects_malformed_record() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-malformed" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "allow"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/malformed-spec-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" '.loom_review_record.schema_version = "loom-review/v2"'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_spec_review_status_rejects_spec_locator_mismatch() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-locator-mismatch" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "allow"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/locator-mismatch-spec-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" '.loom_review_record.review_subject.spec_locator = "code_review.md"'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_spec_review_status_rejects_target_scope_mismatch() {
+  setup_spec_review_status_fixture \
+    "spec-review-status-target-mismatch" \
+    "github-actions[bot]" \
+    "APPROVED" \
+    "allow"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  local tampered_review_file="${TMP_DIR}/target-mismatch-spec-record-review.md"
+  rewrite_guardian_metadata "${REVIEW_MD_FILE}" "${tampered_review_file}" '.loom_review_record.review_subject.reviewed_scope = ["docs/dev/specs/FR-9999-wrong/spec.md"]'
+  replace_mock_review_body "${tampered_review_file}"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "invalid_metadata"
+}
+
+test_mixed_review_status_rejects_human_proof_when_spec_record_sha_mismatches() {
+  setup_mixed_review_status_fixture \
+    "mixed-review-status-human-proof-spec-sha-mismatch" \
+    "human-reviewer" \
+    "APPROVED"
+
+  local status_file="${TMP_DIR}/review-status.json"
+  seed_local_guardian_proof "41" "human-reviewer" "APPROVED" "2026-04-07T10:00:00Z"
+  override_local_guardian_proof_field "41" "loom_spec_review_record_sha256" "tampered-spec-sha"
+
+  assert_pass write_review_status_json 274 human-reviewer "${status_file}"
+  assert_equal "$(jq -r '.reusable' "${status_file}")" "false"
+  assert_equal "$(jq -r '.reason' "${status_file}")" "missing_review"
 }
 
 test_review_status_rejects_untrusted_bot_reviewer() {

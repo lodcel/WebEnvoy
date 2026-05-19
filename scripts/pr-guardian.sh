@@ -138,6 +138,7 @@ load_pr_meta_rest() {
       url: (.html_url // ""),
       isDraft: (.draft // false),
       baseRefName: (.base.ref // ""),
+      baseRefOid: (.base.sha // ""),
       headRefName: (.head.ref // ""),
       headRefOid: (.head.sha // ""),
       headRepoFullName: (.head.repo.full_name // ""),
@@ -709,9 +710,27 @@ guardian_metadata_json() {
   local result_file="$1"
   local review_file="$2"
   local record_file
+  local source_authority
+  local authority_role="compatibility_rendering_mirror"
+  local spec_record_file=""
 
-  ensure_loom_review_record_for_result "${result_file}"
-  record_file="${LOOM_REVIEW_RECORD_FILE}"
+  if guardian_spec_review_only; then
+    spec_record_file="$(guardian_spec_loom_record_file)"
+    validate_loom_spec_review_record_for_current_head "${spec_record_file}" \
+      || die "Loom spec review record 缺失、过期或格式错误，拒绝生成兼容 verdict。"
+    record_file="${spec_record_file}"
+    source_authority="loom_spec_review_record"
+  else
+    ensure_loom_review_record_for_result "${result_file}"
+    record_file="${LOOM_REVIEW_RECORD_FILE}"
+    source_authority="loom_review_record"
+    if guardian_spec_review_required; then
+      spec_record_file="$(guardian_spec_loom_record_file)"
+      validate_loom_spec_review_record_for_current_head "${spec_record_file}" \
+        || die "Loom spec review record 缺失、过期或格式错误，拒绝生成兼容 verdict。"
+      source_authority="loom_review_record_with_loom_spec_review_gate"
+    fi
+  fi
 
   jq -cn \
     --arg head_sha "${HEAD_SHA:-}" \
@@ -722,12 +741,14 @@ guardian_metadata_json() {
     --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
     --arg review_body_sha256 "$(hash_normalized_review_body_sha256 "${review_file}")" \
-    --arg source_authority "loom_review_record" \
-    --arg authority_role "compatibility_rendering_mirror" \
+    --arg source_authority "${source_authority}" \
+    --arg authority_role "${authority_role}" \
     --arg loom_review_record_sha256 "$(loom_review_record_sha256 "${record_file}")" \
+    --arg loom_spec_review_record_sha256 "$(if [[ -n "${spec_record_file}" && -s "${spec_record_file}" ]]; then loom_review_record_sha256 "${spec_record_file}"; fi)" \
     --arg verdict "$(jq -r '.verdict' "${result_file}")" \
     --argjson safe_to_merge "$(jq -r '.safe_to_merge' "${result_file}")" \
     --slurpfile loom_review_record "${record_file}" \
+    --slurpfile loom_spec_review_record "$(if [[ -n "${spec_record_file}" && -s "${spec_record_file}" ]]; then printf '%s' "${spec_record_file}"; else printf '%s' "${record_file}"; fi)" \
     '
       {
         source_authority: $source_authority,
@@ -745,6 +766,8 @@ guardian_metadata_json() {
         safe_to_merge: $safe_to_merge,
         loom_review_record_sha256: $loom_review_record_sha256,
         loom_review_record: $loom_review_record[0],
+        loom_spec_review_record_sha256: $loom_spec_review_record_sha256,
+        loom_spec_review_record: (if $loom_spec_review_record_sha256 == "" then null else $loom_spec_review_record[0] end),
         review_body_sha256: $review_body_sha256
       }
     '
@@ -764,8 +787,15 @@ append_guardian_metadata_comment() {
 build_markdown_review() {
   local result_file="$1"
   local review_file="$2"
+  local source_label="Loom review record"
 
-  jq -r '
+  if guardian_spec_review_only; then
+    source_label="Loom spec review record"
+  elif guardian_spec_review_required; then
+    source_label="Loom review record + Loom spec review record"
+  fi
+
+  jq -r --arg source_label "${source_label}" '
     def severity_label:
       if . == "critical" then "P0 / critical"
       elif . == "high" then "P1 / high"
@@ -798,7 +828,7 @@ build_markdown_review() {
         (.required_actions | map("- " + .) | join("\n"))
       end;
     "## PR Review 结论\n\n" +
-    "**Source authority**: Loom review record\n\n" +
+    "**Source authority**: " + $source_label + "\n\n" +
     "**结论**: " + .verdict + "\n\n" +
     "**允许合并**: " + (if .safe_to_merge then "是" else "否" end) + "\n\n" +
     "**摘要**: " + .summary + "\n\n" +
@@ -817,6 +847,7 @@ prepare_pr_workspace() {
   RAW_RESULT_FILE="${TMP_DIR}/review.raw.json"
   RESULT_FILE="${TMP_DIR}/review.json"
   LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-review-record.json"
+  SPEC_LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-spec-review-record.json"
   REVIEW_MD_FILE="${TMP_DIR}/review.md"
   PROMPT_RUN_FILE="${TMP_DIR}/prompt.md"
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
@@ -830,6 +861,7 @@ prepare_pr_workspace() {
   load_pr_meta_rest "${pr_number}" "${META_FILE}"
 
   BASE_REF="$(jq -r '.baseRefName' "${META_FILE}")"
+  BASE_SHA="$(jq -r '.baseRefOid' "${META_FILE}")"
   HEAD_SHA="$(jq -r '.headRefOid' "${META_FILE}")"
   PR_URL="$(jq -r '.url' "${META_FILE}")"
   PR_TITLE="$(jq -r '.title' "${META_FILE}")"
@@ -837,7 +869,7 @@ prepare_pr_workspace() {
   PR_AUTHOR="$(jq -r '.author.login // ""' "${META_FILE}")"
   PR_NUMBER="${pr_number}"
 
-  export PR_NUMBER LOOM_REVIEW_RECORD_FILE
+  export PR_NUMBER BASE_SHA LOOM_REVIEW_RECORD_FILE SPEC_LOOM_REVIEW_RECORD_FILE
 
   fetch_origin_tracking_ref "refs/heads/${BASE_REF}" "refs/remotes/origin/${BASE_REF}"
   fetch_origin_tracking_ref "pull/${pr_number}/head" "refs/remotes/origin/pr/${pr_number}"
@@ -880,8 +912,11 @@ prepare_review_status_context() {
   PR_TITLE="$(jq -r '.title // ""' "${META_FILE}")"
   PR_BODY="$(jq -r '.body // ""' "${META_FILE}")"
   BASE_REF="$(jq -r '.baseRefName' "${META_FILE}")"
+  BASE_SHA="$(jq -r '.baseRefOid' "${META_FILE}")"
   HEAD_SHA="$(jq -r '.headRefOid' "${META_FILE}")"
   PR_AUTHOR="$(jq -r '.author.login // ""' "${META_FILE}")"
+  PR_NUMBER="${pr_number}"
+  export PR_NUMBER BASE_SHA
 
   fetch_origin_tracking_ref "refs/heads/${BASE_REF}" "refs/remotes/origin/${BASE_REF}"
   fetch_origin_tracking_ref "pull/${pr_number}/head" "refs/remotes/origin/pr/${pr_number}"
@@ -916,6 +951,52 @@ guardian_loom_record_file() {
   else
     mktemp "${TMPDIR:-/tmp}/webenvoy-loom-review-record.XXXXXX.json"
   fi
+}
+
+guardian_spec_review_required() {
+  [[ "${REVIEW_PROFILE:-}" == "spec_review_profile" || "${REVIEW_PROFILE:-}" == "mixed_high_risk_spec_profile" ]]
+}
+
+guardian_spec_review_only() {
+  [[ "${REVIEW_PROFILE:-}" == "spec_review_profile" ]]
+}
+
+guardian_spec_loom_record_file() {
+  if [[ -n "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" ]]; then
+    printf '%s\n' "${SPEC_LOOM_REVIEW_RECORD_FILE}"
+  elif [[ -n "${TMP_DIR:-}" ]]; then
+    printf '%s\n' "${TMP_DIR}/loom-spec-review-record.json"
+  else
+    mktemp "${TMPDIR:-/tmp}/webenvoy-loom-spec-review-record.XXXXXX.json"
+  fi
+}
+
+expected_spec_review_locator() {
+  local interface_root="${WORKTREE_DIR:-}"
+  local interface_file
+
+  if [[ -z "${interface_root}" || ! -f "${interface_root}/.loom/companion/repo-interface.json" ]]; then
+    interface_root="${REPO_ROOT}"
+  fi
+  interface_file="${interface_root}/.loom/companion/repo-interface.json"
+
+  jq -er '.review_instruction_locators.spec_review.locator | select(type == "string" and length > 0)' "${interface_file}" 2>/dev/null
+}
+
+expected_spec_review_scope_json() {
+  local spec_locator="$1"
+
+  if [[ -n "${CHANGED_FILES_FILE:-}" && -s "${CHANGED_FILES_FILE}" ]]; then
+    jq -Rsc --arg spec_locator "${spec_locator}" '
+      split("\n")
+      | map(select(test("^(docs/dev/specs/|docs/dev/architecture/|docs/dev/review/guardian-spec-review-summary\\.md$|vision\\.md$|AGENTS\\.md$|docs/dev/AGENTS\\.md$|code_review\\.md$|spec_review\\.md$)")))
+      | unique
+      | if length > 0 then . else [$spec_locator] end
+    ' "${CHANGED_FILES_FILE}"
+    return
+  fi
+
+  jq -cn --arg spec_locator "${spec_locator}" '[$spec_locator]'
 }
 
 write_loom_review_record_from_guardian_result() {
@@ -1025,6 +1106,67 @@ validate_loom_review_record_for_current_head() {
     ' "${record_file}" >/dev/null 2>&1
 }
 
+validate_loom_spec_review_record_for_current_head() {
+  local record_file="$1"
+  local item_id
+  local expected_locator
+  local expected_scope_json
+
+  item_id="$(guardian_review_item_id)"
+  expected_locator="$(expected_spec_review_locator)" || return 1
+  expected_scope_json="$(expected_spec_review_scope_json "${expected_locator}")" || return 1
+  jq -e \
+    --arg item_id "${item_id}" \
+    --arg reviewed_head "${HEAD_SHA:-}" \
+    --arg pr_number "${PR_NUMBER:-}" \
+    --arg base_sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
+    --arg spec_locator "${expected_locator}" \
+    --argjson expected_scope "${expected_scope_json}" \
+    '
+      def sorted_strings($value): $value | map(select(type == "string")) | sort;
+      type == "object"
+      and .schema_version == "loom-review/v1"
+      and .item_id == $item_id
+      and (.decision | IN("allow", "block", "fallback"))
+      and .kind == "spec_review"
+      and (.summary | type == "string" and length > 0)
+      and (.reviewer | type == "string" and length > 0)
+      and .reviewed_head == $reviewed_head
+      and (.reviewed_validation_summary | type == "string" and length > 0)
+      and (
+        ((.decision == "fallback") and (.fallback_to | IN("admission", "build", "merge")))
+        or ((.decision != "fallback") and (.fallback_to == null))
+      )
+      and (.findings | type == "array")
+      and (.blocking_issues | type == "array")
+      and (.follow_ups | type == "array")
+      and (.review_subject | type == "object")
+      and (.review_subject.pr_number == $pr_number)
+      and (.review_subject.head_sha == $reviewed_head)
+      and (.review_subject.base_sha == $base_sha)
+      and (.review_subject.spec_locator == $spec_locator)
+      and (.review_subject.reviewed_scope | type == "array" and length > 0)
+      and all(.review_subject.reviewed_scope[]?; type == "string" and length > 0)
+      and (sorted_strings(.review_subject.reviewed_scope) == sorted_strings($expected_scope))
+      and (.review_provenance | type == "object")
+      and (.review_provenance.reviewer | type == "string" and length > 0)
+      and (.review_provenance.engine_adapter | type == "string" and length > 0)
+      and (.review_provenance | has("fail_closed_reason"))
+      and all(.findings[]?;
+        type == "object"
+        and (.id | type == "string" and length > 0)
+        and (.summary | type == "string" and length > 0)
+        and (.severity | IN("warn", "block"))
+        and ((.rebuttal == null) or (.rebuttal | type == "string" and length > 0))
+        and ((.disposition == null) or (
+          (.disposition | type == "object")
+          and (.disposition.status | IN("accepted", "rejected", "deferred"))
+          and (.disposition.summary | type == "string" and length > 0)
+        ))
+      )
+    ' "${record_file}" >/dev/null 2>&1
+}
+
 ensure_loom_review_record_for_result() {
   local result_file="$1"
   local record_file
@@ -1093,6 +1235,53 @@ loom_review_record_to_guardian_result() {
         }
     ' "${record_file}" > "${result_file}" \
     || die "无法将 Loom review record 转换为 guardian 兼容输出。"
+}
+
+loom_spec_review_record_to_guardian_result() {
+  local record_file="$1"
+  local result_file="$2"
+
+  jq -c \
+    '
+      def trim_text:
+        tostring | gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
+      def guardian_severity($severity):
+        if $severity == "block" then "high" else "low" end;
+      def guardian_priority($severity):
+        if $severity == "block" then 1 else 3 end;
+      def fallback_location:
+        {
+          absolute_file_path: "Loom spec review record",
+          line_range: {start: 1, end: 1}
+        };
+      (.decision == "allow" and all((.findings // [])[]?; .severity != "block")) as $approved
+      | ((.findings // []) | map(
+          {
+            severity: guardian_severity(.severity),
+            title: ((.summary // "Loom spec review finding") | trim_text)[0:120],
+            details: (((.disposition.summary // .summary // "Loom spec review finding") | trim_text)),
+            code_location: ((.code_location // null) as $loc | if ($loc | type) == "object" then {
+              absolute_file_path: ($loc.path // "Loom spec review record"),
+              line_range: {start: ($loc.line // 1), end: ($loc.end_line // $loc.line // 1)}
+            } else fallback_location end),
+            confidence_score: 0.85,
+            priority: guardian_priority(.severity)
+          }
+        )) as $findings
+      | {
+          verdict: (if $approved then "APPROVE" else "REQUEST_CHANGES" end),
+          safe_to_merge: $approved,
+          summary: ("Spec review authority: " + (.summary | trim_text)),
+          findings: $findings,
+          required_actions: (
+            if $approved then []
+            elif ($findings | length) > 0 then ($findings | map("修复 spec review 阻断：" + .title))
+            else ["修复 Loom spec review record 指出的阻断原因。"]
+            end
+          )
+        }
+    ' "${record_file}" > "${result_file}" \
+    || die "无法将 Loom spec review record 转换为 guardian 兼容输出。"
 }
 
 hydrate_worktree_dependencies() {
@@ -3227,6 +3416,60 @@ validate_review_result_shape() {
   die "guardian 审查结果不符合 ${SCHEMA_FILE} 约束。"
 }
 
+run_loom_spec_review() {
+  local pr_number="$1"
+  local spec_error_file
+  local spec_payload_file
+  local spec_raw_file
+  local spec_scope_file
+  local launcher_file
+
+  require_cmd python3
+  ensure_review_prompt_prepared "${pr_number}"
+  spec_error_file="${TMP_DIR}/loom-spec-review.err"
+  spec_payload_file="${TMP_DIR}/loom-spec-review.json"
+  spec_raw_file="${TMP_DIR}/loom-spec-review.raw.json"
+  spec_scope_file="${TMP_DIR}/loom-spec-review-scope.txt"
+  launcher_file="${REPO_ROOT}/.agents/skills/loom-spec-review/scripts/loom-spec-review.py"
+  SPEC_LOOM_REVIEW_RECORD_FILE="${WORKTREE_DIR}/.loom/runtime/review/guardian-spec/${HEAD_SHA}/spec-review-record.json"
+  export SPEC_LOOM_REVIEW_RECORD_FILE
+
+  [[ -f "${launcher_file}" ]] || die "缺少 repo-local Loom spec review launcher: ${launcher_file}"
+  if [[ -s "${CHANGED_FILES_FILE}" ]]; then
+    grep -E '^(docs/dev/specs/|docs/dev/architecture/|docs/dev/review/guardian-spec-review-summary\.md$|vision\.md$|AGENTS\.md$|docs/dev/AGENTS\.md$|code_review\.md$|spec_review\.md$)' "${CHANGED_FILES_FILE}" > "${spec_scope_file}" || true
+  fi
+  if [[ ! -s "${spec_scope_file}" ]]; then
+    printf '%s\n' "spec_review.md" > "${spec_scope_file}"
+  fi
+
+  if ! python3 "${launcher_file}" review guardian-spec-run \
+    --target "${WORKTREE_DIR}" \
+    --review-file "${SPEC_LOOM_REVIEW_RECORD_FILE#${WORKTREE_DIR}/}" \
+    --guardian-prompt-file "${PROMPT_RUN_FILE}" \
+    --guardian-output-file "${spec_raw_file}" \
+    --guardian-expected-head "${HEAD_SHA}" \
+    --guardian-tmp-dir "${TMP_DIR}" \
+    --guardian-pr-number "${pr_number}" \
+    --guardian-base-sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
+    --guardian-reviewed-scope-file "${spec_scope_file}" \
+    > "${spec_payload_file}" 2>"${spec_error_file}"; then
+    sed 's/^/  /' "${spec_error_file}" >&2 || true
+    jq -r '.summary? // empty, .engine.failure_reason? // empty, (.missing_inputs[]? // empty)' "${spec_payload_file}" 2>/dev/null | sed 's/^/  /' >&2 || true
+  fi
+
+  if ! jq -e --arg head_sha "${HEAD_SHA}" --arg record_file "${SPEC_LOOM_REVIEW_RECORD_FILE}" '
+    (.spec_review.record | type) == "object"
+    and (.spec_review.record.kind == "spec_review")
+    and (.spec_review.record.reviewed_head == $head_sha)
+  ' "${spec_payload_file}" >/dev/null 2>&1; then
+    jq -r '.summary? // empty, .engine.failure_reason? // empty, (.missing_inputs[]? // empty)' "${spec_payload_file}" 2>/dev/null | sed 's/^/  /' >&2 || true
+    die "Loom spec review 未产生当前 HEAD 的可信 spec review record。"
+  fi
+
+  validate_loom_spec_review_record_for_current_head "${SPEC_LOOM_REVIEW_RECORD_FILE}" \
+    || die "Loom spec review record 缺失、过期或格式错误，拒绝使用兼容输出。"
+}
+
 run_codex_review() {
   local pr_number="$1"
   local native_error_file
@@ -3240,6 +3483,28 @@ run_codex_review() {
   loom_flow_file="${REPO_ROOT}/.loom/bin/loom_flow.py"
 
   [[ -f "${loom_flow_file}" ]] || die "缺少 repo-local Loom runtime: ${loom_flow_file}"
+
+  if guardian_spec_review_required; then
+    run_loom_spec_review "${pr_number}"
+    if ! jq -e '
+      .decision == "allow"
+      and all((.findings // [])[]?; .severity != "block")
+    ' "${SPEC_LOOM_REVIEW_RECORD_FILE}" >/dev/null 2>&1; then
+      loom_spec_review_record_to_guardian_result "${SPEC_LOOM_REVIEW_RECORD_FILE}" "${RESULT_FILE}"
+      coerce_review_result_shape "${RESULT_FILE}"
+      validate_review_result_shape "${RESULT_FILE}"
+      build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
+      return
+    fi
+  fi
+
+  if guardian_spec_review_only; then
+    loom_spec_review_record_to_guardian_result "${SPEC_LOOM_REVIEW_RECORD_FILE}" "${RESULT_FILE}"
+    coerce_review_result_shape "${RESULT_FILE}"
+    validate_review_result_shape "${RESULT_FILE}"
+    build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
+    return
+  fi
 
   if ! python3 "${loom_flow_file}" review guardian-run \
     --target "${WORKTREE_DIR}" \
@@ -3405,6 +3670,7 @@ persist_guardian_review_proof() {
   local safe_to_merge
   local verdict
   local loom_review_record_sha256=""
+  local loom_spec_review_record_sha256=""
   local recorded_at
 
   proof_file="$(guardian_proof_store_file)"
@@ -3417,6 +3683,16 @@ persist_guardian_review_proof() {
   if [[ -n "${LOOM_REVIEW_RECORD_FILE:-}" && -s "${LOOM_REVIEW_RECORD_FILE}" ]]; then
     loom_review_record_sha256="$(loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}")"
   fi
+  if [[ -n "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" && -s "${SPEC_LOOM_REVIEW_RECORD_FILE}" ]]; then
+    loom_spec_review_record_sha256="$(loom_review_record_sha256 "${SPEC_LOOM_REVIEW_RECORD_FILE}")"
+  fi
+  local source_authority="loom_review_record"
+  if guardian_spec_review_only; then
+    source_authority="loom_spec_review_record"
+    loom_review_record_sha256="${loom_spec_review_record_sha256}"
+  elif guardian_spec_review_required; then
+    source_authority="loom_review_record_with_loom_spec_review_gate"
+  fi
   recorded_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   tmp_file="$(mktemp "${TMPDIR:-/tmp}/webenvoy-pr-guardian-proof.XXXXXX")"
 
@@ -3427,6 +3703,7 @@ persist_guardian_review_proof() {
     --arg reviewer_login "${reviewer}" \
     --arg head_sha "${HEAD_SHA:-}" \
     --arg base_ref "${BASE_REF:-}" \
+    --arg base_sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
     --arg merge_base_sha "${MERGE_BASE_SHA:-}" \
     --arg review_profile "${REVIEW_PROFILE:-}" \
     --arg review_basis_digest "${REVIEW_BASIS_DIGEST:-}" \
@@ -3434,8 +3711,9 @@ persist_guardian_review_proof() {
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
     --arg review_body_sha256 "$(jq -r '.cleaned_body_sha256 // ""' "${review_file}")" \
     --arg verdict "${verdict}" \
-    --arg source_authority "loom_review_record" \
+    --arg source_authority "${source_authority}" \
     --arg loom_review_record_sha256 "${loom_review_record_sha256}" \
+    --arg loom_spec_review_record_sha256 "${loom_spec_review_record_sha256}" \
     --arg review_state "$(jq -r '.state // ""' "${review_file}")" \
     --arg submitted_at "$(jq -r '.submitted_at // ""' "${review_file}")" \
     --arg recorded_at "${recorded_at}" \
@@ -3457,6 +3735,7 @@ persist_guardian_review_proof() {
           review_body_sha256: $review_body_sha256,
           source_authority: $source_authority,
           loom_review_record_sha256: $loom_review_record_sha256,
+          loom_spec_review_record_sha256: $loom_spec_review_record_sha256,
           verdict: $verdict,
           safe_to_merge: $safe_to_merge,
           review_state: $review_state,
@@ -3542,6 +3821,8 @@ write_review_status_json_common() {
   local repo_slug
   local trusted_reviewers_json
   local review_item_id
+  local expected_spec_locator=""
+  local expected_spec_scope_json="[]"
 
   load_pull_reviews "${pr_number}" "${raw_reviews_file}" || return 1
   annotate_pull_reviews_for_reuse "${raw_reviews_file}" "${reviews_file}" || return 1
@@ -3553,6 +3834,10 @@ write_review_status_json_common() {
   trusted_reviewers_json="$(trusted_guardian_reviewers_json "${requesting_user}" "${include_requesting_user}")"
   PR_NUMBER="${pr_number}"
   review_item_id="$(guardian_review_item_id)"
+  if guardian_spec_review_required; then
+    expected_spec_locator="$(expected_spec_review_locator)" || expected_spec_locator=""
+    expected_spec_scope_json="$(expected_spec_review_scope_json "${expected_spec_locator}")" || expected_spec_scope_json="[]"
+  fi
 
   jq -c \
     --slurpfile proof_store "${proof_store_file}" \
@@ -3565,15 +3850,19 @@ write_review_status_json_common() {
     --arg pr_author "${PR_AUTHOR:-}" \
     --arg head_sha "${HEAD_SHA:-}" \
     --arg base_ref "${BASE_REF:-}" \
+    --arg base_sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
     --arg merge_base_sha "${MERGE_BASE_SHA:-}" \
     --arg review_profile "${REVIEW_PROFILE:-}" \
     --arg review_basis_digest "${REVIEW_BASIS_DIGEST:-}" \
     --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
     --arg prompt_digest "${PROMPT_DIGEST:-}" \
     --arg review_item_id "${review_item_id}" \
+    --arg expected_spec_locator "${expected_spec_locator}" \
+    --argjson expected_spec_scope "${expected_spec_scope_json}" \
     --arg allow_legacy_schema_authority "${PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY:-0}" \
     '
       ($proof_store[0].proofs // {}) as $proofs |
+      def sorted_strings($value): $value | map(select(type == "string")) | sort;
       def completed_state:
         . == "APPROVED" or . == "CHANGES_REQUESTED" or . == "COMMENTED" or . == "DISMISSED";
       def trusted_bot_reviewer($login):
@@ -3606,12 +3895,11 @@ write_review_status_json_common() {
         and all(($record.findings // [])[]?; (.severity // "") != "block");
       def record_verdict($record):
         if record_safe_to_merge($record) then "APPROVE" else "REQUEST_CHANGES" end;
-      def record_is_valid($record):
+      def record_common_is_valid($record):
         ($record | type) == "object"
         and ($record.schema_version // "") == "loom-review/v1"
         and ($record.item_id // "") == $review_item_id
         and (($record.decision // "") | IN("allow", "block", "fallback"))
-        and (($record.kind // "") | IN("general_review", "code_review"))
         and (($record.summary // "") | type == "string")
         and (($record.summary // "") | length > 0)
         and (($record.reviewer // "") | type == "string")
@@ -3641,6 +3929,27 @@ write_review_status_json_common() {
             and ((.disposition.summary // "") | length > 0)
           ))
         );
+      def implementation_record_is_valid($record):
+        record_common_is_valid($record)
+        and (($record.kind // "") | IN("general_review", "code_review"));
+      def spec_record_is_valid($record):
+        record_common_is_valid($record)
+        and (($record.kind // "") == "spec_review")
+        and (($record.review_subject | type) == "object")
+        and (($record.review_subject.pr_number // "") == $pr_number)
+        and (($record.review_subject.head_sha // "") == $head_sha)
+        and (($record.review_subject.base_sha // "") == $base_sha)
+        and (($record.review_subject.spec_locator // "") == $expected_spec_locator)
+        and (($record.review_subject.reviewed_scope // null) | type == "array")
+        and (($record.review_subject.reviewed_scope // []) | length > 0)
+        and all(($record.review_subject.reviewed_scope // [])[]?; type == "string" and length > 0)
+        and (sorted_strings($record.review_subject.reviewed_scope // []) == sorted_strings($expected_spec_scope))
+        and (($record.review_provenance | type) == "object")
+        and (($record.review_provenance.reviewer // "") | type == "string")
+        and (($record.review_provenance.reviewer // "") | length > 0)
+        and (($record.review_provenance.engine_adapter // "") | type == "string")
+        and (($record.review_provenance.engine_adapter // "") | length > 0)
+        and ($record.review_provenance | has("fail_closed_reason"));
       def legacy_meta_is_valid($meta):
         ($allow_legacy_schema_authority == "1")
         and (($meta.verdict // "") | IN("APPROVE", "REQUEST_CHANGES"))
@@ -3657,7 +3966,7 @@ write_review_status_json_common() {
       def authority_meta($meta):
         if (($meta.source_authority // "") == "loom_review_record") then
           ($meta.loom_review_record // null) as $record
-          | if (record_is_valid($record) | not) then
+          | if (implementation_record_is_valid($record) | not) then
               null
             else
               (record_verdict($record)) as $record_verdict
@@ -3678,6 +3987,69 @@ write_review_status_json_common() {
                     result: {
                       verdict: $record_verdict,
                       safe_to_merge: $record_safe,
+                      summary: ($record.summary // ""),
+                      findings: [],
+                      required_actions: []
+                    }
+                  }
+                end
+            end
+        elif (($meta.source_authority // "") == "loom_spec_review_record") then
+          ($meta.loom_review_record // null) as $record
+          | if (spec_record_is_valid($record) | not) then
+              null
+            else
+              (record_verdict($record)) as $record_verdict
+              | (record_safe_to_merge($record)) as $record_safe
+              | if (($meta.loom_review_record_sha256 // "") | length) == 0
+                  or (($meta.verdict // $record_verdict) != $record_verdict)
+                  or (($meta.safe_to_merge | type) != "boolean")
+                  or ($meta.safe_to_merge != $record_safe)
+                  or (($meta.compatibility_verdict // $record_verdict) != $record_verdict)
+                  or (($meta.compatibility_safe_to_merge | type) != "boolean")
+                  or ($meta.compatibility_safe_to_merge != $record_safe)
+                then
+                  null
+                else
+                  $meta + {
+                    verdict: $record_verdict,
+                    safe_to_merge: $record_safe,
+                    result: {
+                      verdict: $record_verdict,
+                      safe_to_merge: $record_safe,
+                      summary: ($record.summary // ""),
+                      findings: [],
+                      required_actions: []
+                    }
+                  }
+                end
+            end
+        elif (($meta.source_authority // "") == "loom_review_record_with_loom_spec_review_gate") then
+          ($meta.loom_review_record // null) as $record
+          | ($meta.loom_spec_review_record // null) as $spec_record
+          | if (implementation_record_is_valid($record) | not) or (spec_record_is_valid($spec_record) | not) then
+              null
+            else
+              (record_verdict($record)) as $record_verdict
+              | (record_safe_to_merge($record) and record_safe_to_merge($spec_record)) as $combined_safe
+              | (if $combined_safe then $record_verdict else "REQUEST_CHANGES" end) as $combined_verdict
+              | if (($meta.loom_review_record_sha256 // "") | length) == 0
+                  or (($meta.loom_spec_review_record_sha256 // "") | length) == 0
+                  or (($meta.verdict // $combined_verdict) != $combined_verdict)
+                  or (($meta.safe_to_merge | type) != "boolean")
+                  or ($meta.safe_to_merge != $combined_safe)
+                  or (($meta.compatibility_verdict // $combined_verdict) != $combined_verdict)
+                  or (($meta.compatibility_safe_to_merge | type) != "boolean")
+                  or ($meta.compatibility_safe_to_merge != $combined_safe)
+                then
+                  null
+                else
+                  $meta + {
+                    verdict: $combined_verdict,
+                    safe_to_merge: $combined_safe,
+                    result: {
+                      verdict: $combined_verdict,
+                      safe_to_merge: $combined_safe,
                       summary: ($record.summary // ""),
                       findings: [],
                       required_actions: []
@@ -3730,6 +4102,7 @@ write_review_status_json_common() {
         and (($proof.review_body_sha256 // "") == (.cleaned_body_sha256 // ""))
         and (($proof.source_authority // "") == (.meta.source_authority // ""))
         and (($proof.loom_review_record_sha256 // "") == (.meta.loom_review_record_sha256 // ""))
+        and (($proof.loom_spec_review_record_sha256 // "") == (.meta.loom_spec_review_record_sha256 // ""))
         and (($proof.verdict // "") == (.meta.verdict // ""))
         and (($proof.safe_to_merge // null) == meta_safe_to_merge(.))
         and (($proof.review_state // "") == (.state // ""))

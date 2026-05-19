@@ -968,7 +968,8 @@ test_run_codex_review_prefers_codex_app_proof_raw_file() {
   RAW_RESULT_FILE="${TMP_DIR}/review.raw.json"
   RESULT_FILE="${TMP_DIR}/review.json"
   REVIEW_MD_FILE="${TMP_DIR}/review.md"
-  export CHANGED_FILES_FILE CONTEXT_DOCS_FILE SLIM_PR_FILE ISSUE_SUMMARY_FILE PROMPT_RUN_FILE REVIEW_STATS_FILE RAW_RESULT_FILE RESULT_FILE REVIEW_MD_FILE
+  SPEC_LOOM_REVIEW_RECORD_FILE="${WORKTREE_DIR}/.loom/runtime/review/guardian-spec/${HEAD_SHA:-pending}/spec-review-record.json"
+  export CHANGED_FILES_FILE CONTEXT_DOCS_FILE SLIM_PR_FILE ISSUE_SUMMARY_FILE PROMPT_RUN_FILE REVIEW_STATS_FILE RAW_RESULT_FILE RESULT_FILE REVIEW_MD_FILE SPEC_LOOM_REVIEW_RECORD_FILE
 
   printf '%s\n' 'README.md' > "${CHANGED_FILES_FILE}"
   slim_pr_body > "${SLIM_PR_FILE}"
@@ -1062,6 +1063,85 @@ EOF
   assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "0"
   assert_file_contains "${err_file}" "target HEAD mismatch"
   assert_file_contains "${err_file}" "runtime_conflict"
+}
+
+test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
+  setup_case_dir "run-loom-spec-review"
+
+  BASE_REF="main"
+  PR_TITLE="spec review"
+  PR_URL="https://example.test/pr/9"
+  PR_BODY=$'## 摘要\n\n- 变更目的：Spec review\n'
+  PR_AUTHOR="author"
+  REVIEW_PROFILE="spec_review_profile"
+  MERGE_BASE_SHA="merge-base-sha-123"
+  BASE_SHA="base-sha-123"
+  PR_NUMBER="9"
+  export BASE_REF PR_TITLE PR_URL PR_BODY PR_AUTHOR REVIEW_PROFILE MERGE_BASE_SHA BASE_SHA PR_NUMBER
+
+  WORKTREE_DIR="${TMP_DIR}/worktree"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/review"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/architecture"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo"
+  mkdir -p "${WORKTREE_DIR}/docs/dev"
+  mkdir -p "${WORKTREE_DIR}/.loom/bin"
+  mkdir -p "${WORKTREE_DIR}/.loom/companion"
+  export WORKTREE_DIR
+
+  CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
+  CONTEXT_DOCS_FILE="${TMP_DIR}/context-docs.txt"
+  SLIM_PR_FILE="${TMP_DIR}/pr-summary.md"
+  ISSUE_SUMMARY_FILE="${TMP_DIR}/issue-summary.md"
+  PROMPT_RUN_FILE="${TMP_DIR}/prompt.md"
+  REVIEW_STATS_FILE="${TMP_DIR}/review-stats.txt"
+  RAW_RESULT_FILE="${TMP_DIR}/review.raw.json"
+  RESULT_FILE="${TMP_DIR}/review.json"
+  REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  export CHANGED_FILES_FILE CONTEXT_DOCS_FILE SLIM_PR_FILE ISSUE_SUMMARY_FILE PROMPT_RUN_FILE REVIEW_STATS_FILE RAW_RESULT_FILE RESULT_FILE REVIEW_MD_FILE
+
+  printf '%s\n' 'docs/dev/specs/FR-0001-demo/spec.md' > "${CHANGED_FILES_FILE}"
+  slim_pr_body > "${SLIM_PR_FILE}"
+  cp "${REPO_ROOT}/vision.md" "${WORKTREE_DIR}/vision.md"
+  cp "${REPO_ROOT}/AGENTS.md" "${WORKTREE_DIR}/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/AGENTS.md" "${WORKTREE_DIR}/docs/dev/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/roadmap.md" "${WORKTREE_DIR}/docs/dev/roadmap.md"
+  cp "${REPO_ROOT}/docs/dev/architecture/system-design.md" "${WORKTREE_DIR}/docs/dev/architecture/system-design.md"
+  cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
+  cp "${REPO_ROOT}/spec_review.md" "${WORKTREE_DIR}/spec_review.md"
+  cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
+  cp "${REPO_ROOT}/.loom/bin/"*.py "${WORKTREE_DIR}/.loom/bin/"
+  cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
+  cp "${SPEC_REVIEW_SUMMARY_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-spec-review-summary.md"
+  printf '%s\n' "# Spec" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/spec.md"
+  printf '%s\n' "# TODO" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/TODO.md"
+  printf '%s\n' "# Plan" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/plan.md"
+
+  collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
+  git -C "${WORKTREE_DIR}" init -q
+  git -C "${WORKTREE_DIR}" config user.email "guardian-test@example.test"
+  git -C "${WORKTREE_DIR}" config user.name "Guardian Test"
+  git -C "${WORKTREE_DIR}" add .
+  git -C "${WORKTREE_DIR}" commit -qm "initial"
+  HEAD_SHA="$(git -C "${WORKTREE_DIR}" rev-parse HEAD)"
+  SPEC_LOOM_REVIEW_RECORD_FILE="${WORKTREE_DIR}/.loom/runtime/review/guardian-spec/${HEAD_SHA}/spec-review-record.json"
+  export HEAD_SHA SPEC_LOOM_REVIEW_RECORD_FILE
+
+  MOCK_CODEX_REVIEW_RESULT_JSON="${TMP_DIR}/spec-review.json"
+  cat > "${MOCK_CODEX_REVIEW_RESULT_JSON}" <<'EOF'
+{"decision":"allow","summary":"Spec review approved.","findings":[]}
+EOF
+  export MOCK_CODEX_REVIEW_RESULT_JSON
+
+  assert_pass run_codex_review 9
+  assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" "你是 Loom spec review engine"
+  assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" 'Spec review instruction locator: `spec_review.md`'
+  assert_file_contains "${MOCK_CODEX_PROMPT_CAPTURE}" "WebEnvoy spec review"
+  assert_file_contains "${RESULT_FILE}" '"verdict":"APPROVE"'
+  assert_file_contains "${REVIEW_MD_FILE}" "**Source authority**: Loom spec review record"
+  assert_equal "$(jq -r '.kind' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "spec_review"
+  assert_equal "$(jq -r '.review_subject.pr_number' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "9"
+  assert_equal "$(jq -r '.review_subject.base_sha' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "base-sha-123"
+  assert_equal "$(jq -r '.review_subject.spec_locator' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "spec_review.md"
 }
 
 test_run_codex_review_uses_context_budget_prompt_and_native_review_engine() {
