@@ -1,6 +1,21 @@
 {
   "schema_version": "loom-repo-interop/v1",
-  "host_adapters": [],
+  "host_adapters": [
+    {
+      "id": "webenvoy-controlled-merge-wrapper",
+      "summary": "WebEnvoy host adapter that gathers retained GitHub and guardian signals, consumes Loom merge-ready, and performs the controlled host merge action.",
+      "surfaces": [
+        "merge_ready"
+      ],
+      "locators": [
+        "scripts/pr-guardian.sh",
+        "scripts/merge-pr.sh"
+      ],
+      "owner": "repo",
+      "requirement": "required",
+      "fallback_to": "merge"
+    }
+  ],
   "repo_native_carriers": [
     {
       "id": "generated-companion-residue",

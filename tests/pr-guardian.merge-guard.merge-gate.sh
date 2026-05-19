@@ -1309,7 +1309,7 @@ test_reused_request_changes_does_not_become_mergeable() {
     exit 1
   }
   assert_fail merge_if_safe 274 0 2>"${err_file}"
-  assert_file_contains "${err_file}" "Codex 审查未批准，拒绝合并。"
+  assert_file_contains "${err_file}" "implementation review decision is block"
   assert_file_empty "${MOCK_GH_MERGE_LOG}"
 }
 
@@ -1376,7 +1376,7 @@ test_merge_if_safe_rejects_review_from_old_head() {
 
   local err_file="${TMP_DIR}/merge.err"
   assert_fail merge_if_safe 274 0 2>"${err_file}"
-  assert_file_contains "${err_file}" "期望状态: APPROVED"
+  assert_file_contains "${err_file}" "expected GitHub review state is not visible"
   assert_file_empty "${MOCK_GH_MERGE_LOG}"
 }
 
@@ -1395,7 +1395,7 @@ test_merge_if_safe_blocks_when_required_checks_fail() {
 
   local err_file="${TMP_DIR}/merge.err"
   assert_fail merge_if_safe 274 0 2>"${err_file}"
-  assert_file_contains "${err_file}" "GitHub checks 未全部通过，拒绝合并。"
+  assert_file_contains "${err_file}" "Run Tests"
   assert_file_contains "${MOCK_GH_CALLS_LOG}" "commits/head-sha-123/check-runs"
   assert_file_empty "${MOCK_GH_MERGE_LOG}"
 }
@@ -1415,7 +1415,7 @@ test_merge_if_safe_blocks_when_review_completed_check_fails() {
 
   local err_file="${TMP_DIR}/merge.err"
   assert_fail merge_if_safe 274 0 2>"${err_file}"
-  assert_file_contains "${err_file}" "GitHub checks 未全部通过，拒绝合并。"
+  assert_file_contains "${err_file}" "review-completed"
   assert_file_contains "${MOCK_GH_CALLS_LOG}" "commits/head-sha-123/check-runs"
   assert_file_empty "${MOCK_GH_MERGE_LOG}"
 }
@@ -1517,8 +1517,7 @@ test_merge_if_safe_fails_when_merge_state_unknown_never_recovers() {
 
   local err_file="${TMP_DIR}/merge.err"
   assert_fail merge_if_safe 274 0 2>"${err_file}"
-  assert_file_contains "${err_file}" "mergeStateStatus=UNKNOWN"
-  assert_file_contains "${err_file}" "可重跑/等待后重试"
+  assert_file_contains "${err_file}" "GitHub mergeStateStatus is not merge-ready"
   assert_file_empty "${MOCK_GH_MERGE_LOG}"
 }
 
@@ -1567,7 +1566,7 @@ test_merge_if_safe_rejects_when_latest_review_state_regresses_on_same_head() {
 
   local err_file="${TMP_DIR}/merge.err"
   assert_fail merge_if_safe 274 0 2>"${err_file}"
-  assert_file_contains "${err_file}" "期望状态: APPROVED"
+  assert_file_contains "${err_file}" "expected GitHub review state is not visible"
   assert_file_empty "${MOCK_GH_MERGE_LOG}"
 }
 
@@ -1717,6 +1716,299 @@ test_merge_if_safe_rejects_comment_marker_without_formal_review() {
 
   local err_file="${TMP_DIR}/merge.err"
   assert_fail merge_if_safe 274 0 2>"${err_file}"
-  assert_file_contains "${err_file}" "缺少 review-bot 的已完成 GitHub review"
+  assert_file_contains "${err_file}" "expected GitHub review state is not visible"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_loom_review_record_missing() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-missing-review-record" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  rm -f "${LOOM_REVIEW_RECORD_FILE}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "review record must be an object"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_loom_review_record_stale() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-stale-review-record" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.reviewed_head = "old-head-sha"' "${LOOM_REVIEW_RECORD_FILE}" > "${LOOM_REVIEW_RECORD_FILE}.tmp"
+  mv "${LOOM_REVIEW_RECORD_FILE}.tmp" "${LOOM_REVIEW_RECORD_FILE}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "reviewed_head mismatch"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_loom_review_record_malformed() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-malformed-review-record" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.schema_version = "loom-review/v2"' "${LOOM_REVIEW_RECORD_FILE}" > "${LOOM_REVIEW_RECORD_FILE}.tmp"
+  mv "${LOOM_REVIEW_RECORD_FILE}.tmp" "${LOOM_REVIEW_RECORD_FILE}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "schema_version"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_spec_review_record_missing() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-missing-spec-record" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  REVIEW_PROFILE="mixed_high_risk_spec_profile"
+  export REVIEW_PROFILE
+  rm -f "${SPEC_LOOM_REVIEW_RECORD_FILE}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "spec review record"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_checks_missing() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-missing-checks" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  printf '%s\n' '[]' > "${MOCK_GH_CHECKS_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "GitHub checks snapshot is missing"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_live_evidence_required_but_missing() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-missing-live-evidence" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: true\n  trigger_reasons: live\n  n_a_allowed: false\n\nlive_evidence_record: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "live evidence"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_allows_live_evidence_required_success_record() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-live-evidence-success" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: true\n  trigger_reasons: live\n  n_a_allowed: false\n\nlive_evidence_record:\n  latest_head_sha: head-sha-123\n  profile: live-profile\n  browser_channel: stable\n  execution_surface: real_browser\n  page_url: https://example.test\n  target_tab_id: tab-1\n  run_id: run-1\n  evidence_collected_at: 2026-05-19T00:00:00Z\n  artifact_identity: artifact-1\n  relay_path: relay-1\n  interaction_locator: button#submit\n  success_signals: completed\n  minimum_replay: replay command\n  artifact_log_ref: artifact-log-1\n  failure_reason: N/A\n  blocker_level: N/A\n\ncloseout_control:\n  issue_type: implementation\n  readiness_admission_status: static_and_gate_ready\n  readiness_matrix: N/A\n  live_validation_ladder: static tests\n  closeout_evidence: local validation\n  fallback_limitations: N/A\n  blocker_split_handling: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  assert_pass merge_if_safe 274 0
+  assert_file_contains "${MOCK_GH_MERGE_LOG}" "head-sha-123"
+}
+
+test_merge_if_safe_blocks_when_live_evidence_surface_is_not_real_browser() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-live-evidence-stub" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: true\n  trigger_reasons: live\n  n_a_allowed: false\n\nlive_evidence_record:\n  latest_head_sha: head-sha-123\n  profile: live-profile\n  browser_channel: stable\n  execution_surface: stub\n  page_url: https://example.test\n  target_tab_id: tab-1\n  run_id: run-1\n  evidence_collected_at: 2026-05-19T00:00:00Z\n  artifact_identity: artifact-1\n  relay_path: relay-1\n  success_signals: completed\n  minimum_replay: replay command\n  artifact_log_ref: artifact-log-1\n  failure_reason: N/A\n  blocker_level: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "live_evidence_record.execution_surface must be real_browser"
+  assert_file_contains "${err_file}" "live_evidence_record.interaction_locator is missing"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_live_evidence_head_mismatches() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-live-evidence-head-mismatch" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: true\n  trigger_reasons: live\n  n_a_allowed: false\n\nlive_evidence_record:\n  latest_head_sha: old-head-sha\n  profile: live-profile\n  browser_channel: stable\n  execution_surface: real_browser\n  page_url: https://example.test\n  target_tab_id: tab-1\n  run_id: run-1\n  evidence_collected_at: 2026-05-19T00:00:00Z\n  artifact_identity: artifact-1\n  relay_path: relay-1\n  interaction_locator: button#submit\n  success_signals: completed\n  minimum_replay: replay command\n  artifact_log_ref: artifact-log-1\n  failure_reason: N/A\n  blocker_level: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "live_evidence_record.latest_head_sha must match PR head"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_integration_check_missing() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-missing-integration-check" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "gate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "integration_check"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_integration_check_relationships_are_inconsistent() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-inconsistent-integration-check" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: yes\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: integration_governance\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: no\n  integration_status_checked_before_merge: no\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "integration_check.integration_applicable must be yes when integration gate inputs are present"
+  assert_file_contains "${err_file}" "integration_check.merge_gate must be integration_check_required when integration gate inputs are present"
+  assert_file_contains "${err_file}" "integration_check.integration_status_checked_before_merge must be yes when integration gate is required"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_integration_check_incomplete() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-incomplete-integration-check" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "integration_check.integration_ref is missing"
+  assert_file_contains "${err_file}" "integration_check.merge_gate is missing"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_closeout_control_missing() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-missing-closeout-control" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "PR metadata is missing closeout_control"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_closeout_control_incomplete() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-incomplete-closeout-control" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n\ncloseout_control:\n  issue_type: implementation\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "closeout_control.readiness_admission_status is missing"
+  assert_file_contains "${err_file}" "closeout_control.closeout_evidence is missing"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_gate_applicability_review_lane_invalid() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-invalid-review-lane" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.body |= sub("review_lane: general_pr"; "review_lane: implementation_pr")' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" 'gate_applicability.review_lane has invalid value `implementation_pr`'
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
+test_merge_if_safe_blocks_when_governance_lane_scope_mismatches() {
+  setup_merge_if_safe_fixture \
+    "merge-ready-governance-scope-mismatch" \
+    "pr-author" \
+    "review-bot" \
+    "APPROVED" \
+    "head-sha-123" \
+    "0"
+
+  CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
+  printf '%s\n' "AGENTS.md" "code_review.md" > "${CHANGED_FILES_FILE}"
+  export CHANGED_FILES_FILE
+  jq '.body = "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: governance_landing_pr\n  governance_context_issue_ref: #310\n  governance_scope_targets: [AGENTS.md, docs/dev/AGENTS.md, code_review.md, docs/dev/review/guardian-review-addendum.md, .github/PULL_REQUEST_TEMPLATE.md]\n  in_scope: false\n  trigger_reasons: []\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n\ncloseout_control:\n  issue_type: governance\n  readiness_admission_status: static_and_gate_ready\n  readiness_matrix: N/A\n  live_validation_ladder: static tests\n  closeout_evidence: local validation\n  fallback_limitations: N/A\n  blocker_split_handling: N/A\n"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "gate_applicability governance lane must exactly match frozen governance target files"
   assert_file_empty "${MOCK_GH_MERGE_LOG}"
 }

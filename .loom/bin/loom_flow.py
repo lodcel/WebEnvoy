@@ -478,7 +478,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
 
     review = subparsers.add_parser("review", help="Read, run, or record a Loom formal review artifact")
-    review.add_argument("operation", choices=("read", "run", "record", "guardian-run", "guardian-spec-run"))
+    review.add_argument("operation", choices=("read", "run", "record", "guardian-run", "guardian-spec-run", "guardian-merge-ready"))
     review.add_argument("--target", required=True, help="Target repository root")
     review.add_argument("--item", help="Expected current item id")
     review.add_argument(
@@ -530,6 +530,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     review.add_argument("--guardian-pr-number", help="Guardian compatibility mode pull request number")
     review.add_argument("--guardian-base-sha", help="Guardian compatibility mode base or merge-base SHA")
     review.add_argument("--guardian-reviewed-scope-file", help="Guardian compatibility mode newline-delimited reviewed scope file")
+    review.add_argument("--merge-ready-input-file", help="Guardian compatibility mode merge-ready signal input JSON file")
+    review.add_argument("--merge-ready-output-file", help="Guardian compatibility mode merge-ready result JSON file")
     review.add_argument(
         "--shadow-engine-adapter",
         choices=tuple(sorted(SHADOW_REVIEW_ADAPTERS)),
@@ -13938,12 +13940,665 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
     )
 
 
+def guardian_repo_merge_ready_requirements(target_root: Path) -> tuple[dict[str, Any], list[str]]:
+    interface_path = target_root / ".loom/companion/repo-interface.json"
+    interop_path = target_root / ".loom/companion/interop.json"
+    errors: list[str] = []
+    payload: dict[str, Any] = {
+        "repo_interface_locator": ".loom/companion/repo-interface.json",
+        "interop_locator": ".loom/companion/interop.json",
+        "merge_ready_requirements": [],
+        "specialized_gates": [],
+        "metadata_contract": [],
+        "host_adapters": [],
+    }
+
+    try:
+        interface = json.loads(interface_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        interface = None
+        errors.append(f"repo-interface: {exc}")
+    if isinstance(interface, dict):
+        merge_ready = interface.get("repo_specific_requirements", {}).get("merge_ready")
+        if not isinstance(merge_ready, list) or not merge_ready:
+            errors.append("repo-interface: missing merge_ready requirements")
+        else:
+            payload["merge_ready_requirements"] = merge_ready
+            for index, requirement in enumerate(merge_ready, start=1):
+                locator = requirement.get("locator") if isinstance(requirement, dict) else None
+                if not isinstance(locator, str) or not locator.strip():
+                    errors.append(f"repo-interface merge_ready[{index}] must include locator")
+                elif not (target_root / locator).exists():
+                    errors.append(f"repo-interface merge_ready locator is missing: {locator}")
+        gates = interface.get("specialized_gates")
+        if isinstance(gates, list):
+            payload["specialized_gates"] = gates
+            for index, gate in enumerate(gates, start=1):
+                locator = gate.get("locator") if isinstance(gate, dict) else None
+                if isinstance(locator, str) and locator.strip() and not (target_root / locator).exists():
+                    errors.append(f"repo-interface specialized_gates[{index}] locator is missing: {locator}")
+        fields = interface.get("metadata_contract", {}).get("fields")
+        if isinstance(fields, list):
+            payload["metadata_contract"] = fields
+
+    try:
+        interop = json.loads(interop_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        interop = None
+        errors.append(f"interop: {exc}")
+    if isinstance(interop, dict):
+        adapters = interop.get("host_adapters")
+        if not isinstance(adapters, list):
+            errors.append("interop: host_adapters must be an array")
+        else:
+            payload["host_adapters"] = adapters
+            merge_adapters = [
+                adapter
+                for adapter in adapters
+                if isinstance(adapter, dict) and "merge_ready" in (adapter.get("surfaces") or [])
+            ]
+            if not merge_adapters:
+                errors.append("interop: missing merge_ready host adapter")
+            for adapter in merge_adapters:
+                locators = adapter.get("locators")
+                if not isinstance(locators, list) or not locators:
+                    errors.append(f"interop host adapter `{adapter.get('id', '<unknown>')}` must declare locators")
+                    continue
+                for locator in locators:
+                    if not isinstance(locator, str) or not locator.strip():
+                        errors.append(f"interop host adapter `{adapter.get('id', '<unknown>')}` has empty locator")
+                    elif not (target_root / locator).exists():
+                        errors.append(f"interop host adapter locator is missing: {locator}")
+
+    return payload, errors
+
+
+def guardian_merge_ready_record_decision(record: Any) -> tuple[str | None, list[str]]:
+    errors: list[str] = []
+    if not isinstance(record, dict):
+        return None, ["review record must be an object"]
+    if record.get("schema_version") != "loom-review/v1":
+        errors.append("review record schema_version must be loom-review/v1")
+    decision = record.get("decision")
+    if decision not in {"allow", "block", "fallback"}:
+        errors.append("review record decision must be allow, block, or fallback")
+    if not isinstance(record.get("findings"), list):
+        errors.append("review record findings must be an array")
+    if not isinstance(record.get("blocking_issues"), list):
+        errors.append("review record blocking_issues must be an array")
+    if not isinstance(record.get("follow_ups"), list):
+        errors.append("review record follow_ups must be an array")
+    for finding in record.get("findings") or []:
+        if isinstance(finding, dict) and finding.get("severity") == "block":
+            errors.append("review record contains block finding")
+    return decision if isinstance(decision, str) else None, errors
+
+
+def guardian_merge_ready_validate_impl_record(record: Any, *, item_id: str, head_sha: str) -> list[str]:
+    decision, errors = guardian_merge_ready_record_decision(record)
+    if not isinstance(record, dict):
+        return errors
+    if record.get("item_id") != item_id:
+        errors.append("implementation review record item_id mismatch")
+    if record.get("kind") not in {"general_review", "code_review"}:
+        errors.append("implementation review record kind mismatch")
+    if record.get("reviewed_head") != head_sha:
+        errors.append("implementation review record reviewed_head mismatch")
+    if decision != "allow":
+        errors.append(f"implementation review decision is {decision or '<missing>'}")
+    if record.get("fallback_to") is not None:
+        errors.append("implementation review record fallback_to must be null for allow")
+    return errors
+
+
+def guardian_merge_ready_validate_spec_record(record: Any, *, item_id: str, pr_number: str, head_sha: str, base_sha: str) -> list[str]:
+    decision, errors = guardian_merge_ready_record_decision(record)
+    if not isinstance(record, dict):
+        return errors
+    if record.get("item_id") != item_id:
+        errors.append("spec review record item_id mismatch")
+    if record.get("kind") != "spec_review":
+        errors.append("spec review record kind mismatch")
+    if record.get("reviewed_head") != head_sha:
+        errors.append("spec review record reviewed_head mismatch")
+    subject = record.get("review_subject")
+    if not isinstance(subject, dict):
+        errors.append("spec review record is missing review_subject")
+    else:
+        if str(subject.get("pr_number")) != pr_number:
+            errors.append("spec review record PR number mismatch")
+        if subject.get("head_sha") != head_sha:
+            errors.append("spec review record subject head mismatch")
+        if subject.get("base_sha") != base_sha:
+            errors.append("spec review record subject base mismatch")
+        if subject.get("spec_locator") != "spec_review.md":
+            errors.append("spec review locator mismatch")
+        reviewed_scope = subject.get("reviewed_scope")
+        if not isinstance(reviewed_scope, list) or not reviewed_scope:
+            errors.append("spec review record reviewed_scope is missing")
+    provenance = record.get("review_provenance")
+    if not isinstance(provenance, dict) or "fail_closed_reason" not in provenance:
+        errors.append("spec review record provenance is missing fail_closed_reason")
+    if decision != "allow":
+        errors.append(f"spec review decision is {decision or '<missing>'}")
+    if record.get("fallback_to") is not None:
+        errors.append("spec review record fallback_to must be null for allow")
+    return errors
+
+
+def guardian_merge_ready_extract_metadata_block(body: str, block_name: str) -> str:
+    lines = body.splitlines()
+    start: int | None = None
+    block_heading = block_name.lower()
+    for index, line in enumerate(lines):
+        normalized = line.strip().strip("#").strip().rstrip(":").lower()
+        if normalized == block_heading:
+            start = index + 1
+            break
+    if start is None:
+        return ""
+    collected: list[str] = []
+    for line in lines[start:]:
+        stripped = line.strip()
+        normalized = stripped.strip("#").strip().rstrip(":").lower()
+        if normalized in {"integration_check", "gate_applicability", "live_evidence_record", "closeout_control"}:
+            break
+        if stripped.startswith("#"):
+            break
+        collected.append(line)
+    return "\n".join(collected).strip()
+
+
+def guardian_merge_ready_key_values(block: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in block.splitlines():
+        match = re.match(r"^\s*(?:[-*]\s*)?([A-Za-z][A-Za-z0-9_]*)\s*[:=]\s*(.*?)\s*$", line)
+        if not match:
+            continue
+        key = match.group(1).strip().lower()
+        value = match.group(2).strip().strip("`").strip()
+        values[key] = value
+    return values
+
+
+def guardian_merge_ready_value_is_empty(value: str | None) -> bool:
+    return value is None or value.strip().lower() in {"", "n/a", "na", "none", "null"}
+
+
+def guardian_merge_ready_expect_enum(values: dict[str, str], key: str, allowed: set[str], errors: list[str], *, block: str) -> str | None:
+    raw = values.get(key)
+    if raw is None or raw.strip() == "":
+        errors.append(f"{block}.{key} is missing")
+        return None
+    normalized = str(raw).strip().lower()
+    if normalized not in allowed:
+        errors.append(f"{block}.{key} has invalid value `{raw}`")
+    return normalized
+
+
+def guardian_merge_ready_metadata_flags(body: str, *, changed_files: list[str] | None = None) -> dict[str, Any]:
+    errors: list[str] = []
+    changed_file_set = set(changed_files or [])
+    governance_targets = {
+        "AGENTS.md",
+        "docs/dev/AGENTS.md",
+        "code_review.md",
+        "docs/dev/review/guardian-review-addendum.md",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+    }
+    integration_block = guardian_merge_ready_extract_metadata_block(body, "integration_check")
+    gate_block = guardian_merge_ready_extract_metadata_block(body, "gate_applicability")
+    live_block = guardian_merge_ready_extract_metadata_block(body, "live_evidence_record")
+    closeout_block = guardian_merge_ready_extract_metadata_block(body, "closeout_control")
+    integration_values = guardian_merge_ready_key_values(integration_block)
+    gate_values = guardian_merge_ready_key_values(gate_block)
+    live_values = guardian_merge_ready_key_values(live_block)
+    closeout_values = guardian_merge_ready_key_values(closeout_block)
+
+    if not integration_block:
+        errors.append("PR metadata is missing integration_check")
+    integration_applicable = guardian_merge_ready_expect_enum(
+        integration_values,
+        "integration_applicable",
+        {"yes", "no"},
+        errors,
+        block="integration_check",
+    )
+    integration_touchpoint = guardian_merge_ready_expect_enum(
+        integration_values,
+        "integration_touchpoint",
+        {"none", "check_required", "active", "blocked", "resolved"},
+        errors,
+        block="integration_check",
+    )
+    integration_ref = integration_values.get("integration_ref")
+    if integration_ref is None or integration_ref.strip() == "":
+        errors.append("integration_check.integration_ref is missing")
+    shared_contract_changed = guardian_merge_ready_expect_enum(
+        integration_values,
+        "shared_contract_changed",
+        {"yes", "no"},
+        errors,
+        block="integration_check",
+    )
+    external_dependency = guardian_merge_ready_expect_enum(
+        integration_values,
+        "external_dependency",
+        {"none", "syvert", "webenvoy", "both"},
+        errors,
+        block="integration_check",
+    )
+    merge_gate = guardian_merge_ready_expect_enum(
+        integration_values,
+        "merge_gate",
+        {"local_only", "integration_check_required"},
+        errors,
+        block="integration_check",
+    )
+    contract_surface = guardian_merge_ready_expect_enum(
+        integration_values,
+        "contract_surface",
+        {
+            "none",
+            "execution_provider",
+            "ids_trace",
+            "errors",
+            "raw_normalized",
+            "diagnostics_observability",
+            "runtime_modes",
+            "integration_governance",
+        },
+        errors,
+        block="integration_check",
+    )
+    joint_acceptance_needed = guardian_merge_ready_expect_enum(
+        integration_values,
+        "joint_acceptance_needed",
+        {"yes", "no"},
+        errors,
+        block="integration_check",
+    )
+    integration_status_checked_before_pr = guardian_merge_ready_expect_enum(
+        integration_values,
+        "integration_status_checked_before_pr",
+        {"yes", "no"},
+        errors,
+        block="integration_check",
+    )
+    integration_status_checked_before_merge = guardian_merge_ready_expect_enum(
+        integration_values,
+        "integration_status_checked_before_merge",
+        {"yes", "no"},
+        errors,
+        block="integration_check",
+    )
+    if integration_applicable == "no" and str(integration_ref or "").strip().lower() != "none":
+        errors.append("integration_check.integration_ref must be none when integration_applicable is no")
+    if integration_applicable == "yes":
+        ref = str(integration_ref or "").strip().lower()
+        if ref in {"", "none", "n/a", "na", "null"}:
+            errors.append("integration_check.integration_ref is required when integration_applicable is yes")
+        elif not re.search(r"(#\d+|issues/\d+|projects/\d+)", ref):
+            errors.append("integration_check.integration_ref must point to a concrete integration issue or project item")
+        if integration_touchpoint == "none":
+            errors.append("integration_check.integration_touchpoint cannot be none when integration_applicable is yes")
+        if merge_gate != "integration_check_required":
+            errors.append("integration_check.merge_gate must be integration_check_required when integration_applicable is yes")
+    if joint_acceptance_needed == "yes" and merge_gate != "integration_check_required":
+        errors.append("integration_check.merge_gate must be integration_check_required when joint_acceptance_needed is yes")
+    if shared_contract_changed == "yes" and contract_surface == "none":
+        errors.append("integration_check.contract_surface cannot be none when shared_contract_changed is yes")
+    integration_gate_required = (
+        integration_applicable == "yes"
+        or integration_touchpoint in {"check_required", "active", "blocked"}
+        or shared_contract_changed == "yes"
+        or (external_dependency is not None and external_dependency != "none")
+        or joint_acceptance_needed == "yes"
+        or (contract_surface is not None and contract_surface != "none")
+    )
+    if integration_gate_required:
+        if integration_applicable != "yes":
+            errors.append("integration_check.integration_applicable must be yes when integration gate inputs are present")
+        if merge_gate != "integration_check_required":
+            errors.append("integration_check.merge_gate must be integration_check_required when integration gate inputs are present")
+        if integration_status_checked_before_pr != "yes":
+            errors.append("integration_check.integration_status_checked_before_pr must be yes when integration gate is required")
+        if integration_status_checked_before_merge != "yes":
+            errors.append("integration_check.integration_status_checked_before_merge must be yes when integration gate is required")
+    elif merge_gate == "integration_check_required":
+        if integration_status_checked_before_pr != "yes":
+            errors.append("integration_check.integration_status_checked_before_pr must be yes when merge_gate is integration_check_required")
+        if integration_status_checked_before_merge != "yes":
+            errors.append("integration_check.integration_status_checked_before_merge must be yes when merge_gate is integration_check_required")
+    if external_dependency is not None and external_dependency != "none" and integration_applicable == "no":
+        errors.append("integration_check.integration_applicable must be yes when external_dependency is set")
+
+    if not gate_block:
+        errors.append("PR metadata is missing gate_applicability")
+    review_lane = guardian_merge_ready_expect_enum(
+        gate_values,
+        "review_lane",
+        {"general_pr", "formal_spec_review_pr", "governance_landing_pr", "governance_maintenance_pr"},
+        errors,
+        block="gate_applicability",
+    )
+    for key in ("governance_context_issue_ref", "governance_scope_targets", "trigger_reasons"):
+        raw_value = gate_values.get(key)
+        if raw_value is None or raw_value.strip() == "":
+            errors.append(f"gate_applicability.{key} is missing")
+    in_scope = guardian_merge_ready_expect_enum(
+        gate_values,
+        "in_scope",
+        {"true", "false"},
+        errors,
+        block="gate_applicability",
+    )
+    n_a_allowed = guardian_merge_ready_expect_enum(
+        gate_values,
+        "n_a_allowed",
+        {"true", "false"},
+        errors,
+        block="gate_applicability",
+    )
+    if in_scope == "false" and n_a_allowed != "true":
+        errors.append("gate_applicability.n_a_allowed must be true when in_scope is false")
+    governance_context_issue_ref = str(gate_values.get("governance_context_issue_ref") or "").strip()
+    governance_scope_targets = str(gate_values.get("governance_scope_targets") or "").strip()
+    governance_lane = review_lane in {"governance_landing_pr", "governance_maintenance_pr"}
+    if review_lane == "governance_landing_pr" and governance_context_issue_ref != "#310":
+        errors.append("gate_applicability.governance_context_issue_ref must be #310 for governance_landing_pr")
+    if review_lane == "governance_maintenance_pr" and (
+        guardian_merge_ready_value_is_empty(governance_context_issue_ref)
+        or governance_context_issue_ref == "#310"
+    ):
+        errors.append("gate_applicability.governance_context_issue_ref must be a non-#310 issue for governance_maintenance_pr")
+    if review_lane in {"general_pr", "formal_spec_review_pr"}:
+        if governance_context_issue_ref not in {"", "N/A", "n/a", "null", "[]"}:
+            errors.append("gate_applicability.governance_context_issue_ref must be null or N/A outside governance lanes")
+    if governance_lane:
+        if not changed_file_set:
+            errors.append("gate_applicability governance lane requires changed file snapshot")
+        elif changed_file_set != governance_targets:
+            errors.append("gate_applicability governance lane must exactly match frozen governance target files")
+        for target in sorted(governance_targets):
+            if target not in governance_scope_targets:
+                errors.append(f"gate_applicability.governance_scope_targets is missing {target}")
+        if any(path.startswith("docs/dev/specs/FR-0016-live-evidence-governance-gate/") for path in changed_file_set):
+            errors.append("gate_applicability governance lane cannot mix FR-0016 formal spec scope")
+    elif changed_file_set == governance_targets:
+        errors.append("gate_applicability.review_lane must be a governance lane for exact governance target changes")
+    live_required = in_scope == "true"
+    if live_required:
+        required_live_fields = {
+            "latest_head_sha",
+            "profile",
+            "browser_channel",
+            "execution_surface",
+            "page_url",
+            "target_tab_id",
+            "run_id",
+            "evidence_collected_at",
+            "artifact_identity",
+            "relay_path",
+            "interaction_locator",
+            "success_signals",
+            "minimum_replay",
+            "artifact_log_ref",
+            "failure_reason",
+            "blocker_level",
+        }
+        if not live_block or live_block.strip().lower() in {"n/a", "na", "none", "null"}:
+            errors.append("live evidence gate applies but live_evidence_record is missing")
+        for key in sorted(required_live_fields):
+            raw_live_value = live_values.get(key)
+            if key in {"failure_reason", "blocker_level"}:
+                if raw_live_value is None or raw_live_value.strip() == "":
+                    errors.append(f"live_evidence_record.{key} is missing")
+                continue
+            if guardian_merge_ready_value_is_empty(raw_live_value):
+                errors.append(f"live_evidence_record.{key} is missing")
+        if str(live_values.get("execution_surface") or "").strip().lower() != "real_browser":
+            errors.append("live_evidence_record.execution_surface must be real_browser")
+
+    if not closeout_block:
+        errors.append("PR metadata is missing closeout_control")
+    issue_type = guardian_merge_ready_expect_enum(
+        closeout_values,
+        "issue_type",
+        {"implementation", "spike", "spec", "closeout", "governance", "other"},
+        errors,
+        block="closeout_control",
+    )
+    for key in (
+        "readiness_admission_status",
+        "readiness_matrix",
+        "live_validation_ladder",
+        "closeout_evidence",
+        "fallback_limitations",
+        "blocker_split_handling",
+    ):
+        raw_value = closeout_values.get(key)
+        if raw_value is None or raw_value.strip() == "":
+            errors.append(f"closeout_control.{key} is missing")
+    if issue_type == "closeout":
+        for key in ("readiness_matrix", "live_validation_ladder", "closeout_evidence"):
+            if guardian_merge_ready_value_is_empty(closeout_values.get(key)):
+                errors.append(f"closeout_control.{key} is required for closeout issues")
+
+    return {
+        "integration_check": {
+            "present": bool(integration_block),
+            "applicable": integration_applicable == "yes",
+            "values": integration_values,
+        },
+        "gate_applicability": {
+            "present": bool(gate_block),
+            "live_evidence_required": live_required,
+            "review_lane": review_lane,
+            "values": gate_values,
+        },
+        "live_evidence_record": {
+            "present": bool(live_block),
+            "required": live_required,
+            "values": live_values,
+        },
+        "closeout_control": {
+            "present": bool(closeout_block),
+            "issue_type": issue_type,
+            "values": closeout_values,
+        },
+        "errors": errors,
+    }
+
+
+def run_guardian_merge_ready(args: argparse.Namespace) -> int:
+    target_root = Path(args.target).expanduser().resolve()
+    input_file = Path(args.merge_ready_input_file or "").expanduser()
+    output_file = Path(args.merge_ready_output_file).expanduser() if args.merge_ready_output_file else None
+    missing_inputs: list[str] = []
+
+    runtime_state = runtime_state_payload(target_root)
+    if runtime_state["result"] != "pass":
+        missing_inputs.extend(str(message) for message in runtime_state.get("missing_inputs", []))
+    requirements, requirement_errors = guardian_repo_merge_ready_requirements(target_root)
+    missing_inputs.extend(requirement_errors)
+
+    try:
+        input_payload = json.loads(input_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        input_payload = None
+        missing_inputs.append(f"merge-ready input is unreadable: {exc}")
+
+    if not isinstance(input_payload, dict):
+        input_payload = {}
+        missing_inputs.append("merge-ready input must be a JSON object")
+    if input_payload.get("schema_version") != "webenvoy-merge-ready-signals/v1":
+        missing_inputs.append("merge-ready input schema drift")
+
+    pr = input_payload.get("pr") if isinstance(input_payload.get("pr"), dict) else {}
+    review = input_payload.get("review") if isinstance(input_payload.get("review"), dict) else {}
+    checks = input_payload.get("github_checks") if isinstance(input_payload.get("github_checks"), dict) else {}
+    gates = input_payload.get("gates") if isinstance(input_payload.get("gates"), dict) else {}
+    host_actions = input_payload.get("retained_host_action_results") if isinstance(input_payload.get("retained_host_action_results"), dict) else {}
+    changed_files = input_payload.get("changed_files") if isinstance(input_payload.get("changed_files"), list) else []
+    pr_number = str(pr.get("number") or input_payload.get("pr_number") or "")
+    item_id = f"github-pr-{pr_number}" if pr_number else ""
+    head_sha = str(pr.get("head_sha") or "")
+    base_sha = str(pr.get("base_sha") or "")
+    checked_commit = str(input_payload.get("checked_commit") or "")
+    review_profile = str(input_payload.get("review_profile") or "")
+
+    if not pr_number:
+        missing_inputs.append("PR number is missing")
+    if not head_sha:
+        missing_inputs.append("PR head SHA is missing")
+    if checked_commit != head_sha:
+        missing_inputs.append("checked commit does not match PR head")
+    if str(pr.get("snapshot_head_sha") or "") != head_sha:
+        missing_inputs.append("PR head does not match guardian snapshot")
+    if str(pr.get("base_ref") or "") != "main":
+        missing_inputs.append("PR base ref must be main")
+    if not base_sha:
+        missing_inputs.append("PR base SHA is missing")
+    if pr.get("is_draft") is True:
+        missing_inputs.append("PR is draft")
+    if str(pr.get("mergeable") or "") != "MERGEABLE":
+        missing_inputs.append("GitHub mergeable state is not MERGEABLE")
+    if str(pr.get("merge_state_status") or "") not in {"CLEAN", "HAS_HOOKS", "UNSTABLE"}:
+        missing_inputs.append("GitHub mergeStateStatus is not merge-ready")
+
+    metadata_flags = guardian_merge_ready_metadata_flags(
+        str(pr.get("body") or ""),
+        changed_files=[str(path) for path in changed_files],
+    )
+    missing_inputs.extend(str(message) for message in metadata_flags.get("errors", []))
+    live_metadata = metadata_flags.get("live_evidence_record") if isinstance(metadata_flags.get("live_evidence_record"), dict) else {}
+    live_values = live_metadata.get("values") if isinstance(live_metadata.get("values"), dict) else {}
+    if live_metadata.get("required") is True:
+        live_head_sha = str(live_values.get("latest_head_sha") or "").strip()
+        if live_head_sha != head_sha:
+            missing_inputs.append("live_evidence_record.latest_head_sha must match PR head")
+
+    check_snapshot = checks.get("snapshot")
+    if not isinstance(check_snapshot, list) or not check_snapshot:
+        missing_inputs.append("GitHub checks snapshot is missing")
+        check_snapshot = []
+    else:
+        for check in check_snapshot:
+            if not isinstance(check, dict):
+                missing_inputs.append("GitHub checks snapshot contains malformed entry")
+                continue
+            if check.get("bucket") != "pass":
+                missing_inputs.append(f"GitHub check `{check.get('name', '<unknown>')}` is not passing")
+    if checks.get("load_result") != "pass":
+        missing_inputs.append("GitHub checks could not be loaded")
+    if checks.get("all_pass") is not True:
+        missing_inputs.append("GitHub checks are not all passing")
+
+    source_authority = str(review.get("source_authority") or "")
+    impl_required = review_profile != "spec_review_profile"
+    spec_required = bool(gates.get("spec_review_required"))
+    impl_record = review.get("implementation_record")
+    spec_record = review.get("spec_review_record")
+    if impl_required:
+        missing_inputs.extend(
+            f"implementation review record: {message}"
+            for message in guardian_merge_ready_validate_impl_record(
+                impl_record,
+                item_id=item_id,
+                head_sha=head_sha,
+            )
+        )
+    if spec_required:
+        missing_inputs.extend(
+            f"spec review record: {message}"
+            for message in guardian_merge_ready_validate_spec_record(
+                spec_record,
+                item_id=item_id,
+                pr_number=pr_number,
+                head_sha=head_sha,
+                base_sha=base_sha,
+            )
+        )
+    if source_authority not in {
+        "loom_review_record",
+        "loom_spec_review_record",
+        "loom_review_record_with_loom_spec_review_gate",
+    }:
+        missing_inputs.append("review source authority is not a Loom review record")
+    if spec_required and source_authority not in {"loom_spec_review_record", "loom_review_record_with_loom_spec_review_gate"}:
+        missing_inputs.append("applicable spec review is not represented in source authority")
+
+    review_state = host_actions.get("github_review_state") if isinstance(host_actions.get("github_review_state"), dict) else {}
+    if review_state.get("visible") is not True:
+        missing_inputs.append("expected GitHub review state is not visible")
+    if review_state.get("head_sha") != head_sha:
+        missing_inputs.append("GitHub review state head binding mismatch")
+
+    result = "pass" if not missing_inputs else "block"
+    decision = "allow" if result == "pass" else "block"
+    payload = {
+        "command": "review",
+        "operation": "guardian-merge-ready",
+        "schema_version": "loom-merge-ready-result/v1",
+        "result": result,
+        "decision": decision,
+        "summary": (
+            "Loom merge-ready consumed WebEnvoy retained host signals and allows controlled host merge."
+            if result == "pass"
+            else "Loom merge-ready failed closed before controlled host merge."
+        ),
+        "missing_inputs": sorted(set(str(message) for message in missing_inputs)),
+        "fallback_to": None if result == "pass" else "merge",
+        "pr": {
+            "number": pr_number,
+            "base_ref": pr.get("base_ref"),
+            "base_sha": base_sha,
+            "head_ref": pr.get("head_ref"),
+            "head_sha": head_sha,
+            "checked_commit": checked_commit,
+        },
+        "required_checks_snapshot": check_snapshot,
+        "review_record_locators": {
+            "implementation": review.get("implementation_record_locator"),
+            "implementation_sha256": review.get("implementation_record_sha256"),
+            "spec": review.get("spec_review_record_locator"),
+            "spec_sha256": review.get("spec_review_record_sha256"),
+            "source_authority": source_authority,
+        },
+        "gate_applicability": {
+            "review_profile": review_profile,
+            "implementation_review_required": impl_required,
+            "spec_review_required": spec_required,
+            "live_evidence_required": metadata_flags["live_evidence_record"]["required"],
+            "integration_check_required": True,
+            "metadata": metadata_flags,
+        },
+        "provenance": {
+            "authority": "loom_merge_ready",
+            "engine_adapter": "webenvoy/repo-local-loom-merge-ready",
+            "repo_interface_locator": requirements["repo_interface_locator"],
+            "interop_locator": requirements["interop_locator"],
+            "input_sha256": hashlib.sha256(json.dumps(input_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
+            "generated_at": utc_now_iso(),
+        },
+        "repo_requirements": requirements,
+        "retained_host_action_results": host_actions,
+        "runtime_state": runtime_state,
+    }
+    if output_file is not None:
+        write_json_file(output_file, payload)
+    return emit(payload)
+
+
 def handle_review(args: argparse.Namespace) -> int:
     target_root = Path(args.target).expanduser().resolve()
     if args.operation == "guardian-run":
         return run_guardian_compat_review(args)
     if args.operation == "guardian-spec-run":
         return run_guardian_spec_review(args)
+    if args.operation == "guardian-merge-ready":
+        return run_guardian_merge_ready(args)
 
     context, errors = load_context(target_root, args.output, args.item)
     if errors:

@@ -129,11 +129,22 @@ setup_merge_if_safe_fixture() {
   setup_case_dir "${case_name}"
 
   HEAD_SHA="head-sha-123"
-  export HEAD_SHA
+  BASE_REF="main"
+  BASE_SHA="base-sha-123"
+  MERGE_BASE_SHA="merge-base-sha-123"
+  REVIEW_PROFILE="high_risk_impl_profile"
+  REVIEW_BASIS_DIGEST="review-basis-digest-123"
+  PROMPT_DIGEST="prompt-digest-123"
+  PR_NUMBER="274"
+  export HEAD_SHA BASE_REF BASE_SHA MERGE_BASE_SHA REVIEW_PROFILE REVIEW_BASIS_DIGEST PROMPT_DIGEST PR_NUMBER
 
   RESULT_FILE="${TMP_DIR}/review.json"
-  printf '%s\n' '{"verdict":"APPROVE","safe_to_merge":true}' > "${RESULT_FILE}"
-  export RESULT_FILE
+  LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-review-record.json"
+  SPEC_LOOM_REVIEW_RECORD_FILE="${TMP_DIR}/loom-spec-review-record.json"
+  REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  printf '%s\n' '{"verdict":"APPROVE","safe_to_merge":true,"summary":"summary","findings":[],"required_actions":[]}' > "${RESULT_FILE}"
+  write_loom_review_record_from_guardian_result "${RESULT_FILE}" "${LOOM_REVIEW_RECORD_FILE}"
+  export RESULT_FILE LOOM_REVIEW_RECORD_FILE SPEC_LOOM_REVIEW_RECORD_FILE REVIEW_MD_FILE
 
   MOCK_GH_USER_LOGIN="${reviewer}"
   export MOCK_GH_USER_LOGIN
@@ -142,7 +153,18 @@ setup_merge_if_safe_fixture() {
   export PR_AUTHOR
 
   MOCK_GH_PR_VIEW_JSON="${TEST_TMP_DIR}/${case_name}/mock/pr-view.json"
-  printf '%s\n' '{"baseRefName":"main","headRefOid":"head-sha-123","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","isDraft":false}' > "${MOCK_GH_PR_VIEW_JSON}"
+  cat > "${MOCK_GH_PR_VIEW_JSON}" <<'EOF'
+{
+  "baseRefName": "main",
+  "baseRefOid": "base-sha-123",
+  "headRefName": "work/mock",
+  "headRefOid": "head-sha-123",
+  "mergeable": "MERGEABLE",
+  "mergeStateStatus": "CLEAN",
+  "isDraft": false,
+  "body": "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n\ncloseout_control:\n  issue_type: implementation\n  readiness_admission_status: static_and_gate_ready\n  readiness_matrix: N/A\n  live_validation_ladder: static tests\n  closeout_evidence: local validation\n  fallback_limitations: N/A\n  blocker_split_handling: N/A\n"
+}
+EOF
   export MOCK_GH_PR_VIEW_JSON
 
   MOCK_GH_CHECKS_JSON="${TEST_TMP_DIR}/${case_name}/mock/checks.json"
@@ -162,4 +184,3 @@ setup_merge_if_safe_fixture() {
     export MOCK_GH_REVIEWS_FIRST_PAGE_JSON
   fi
 }
-
