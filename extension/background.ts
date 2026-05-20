@@ -5,6 +5,7 @@ import {
   type ContentToBackgroundMessage
 } from "./content-script-handler.js";
 import { BackgroundRelay as ExtractedBackgroundRelay } from "./background-relay.js";
+import { dispatchBackgroundBridgeCommand } from "./background-command-dispatch.js";
 import { BackgroundRuntimeTrustState } from "./background-runtime-trust-state.js";
 import { NativeBridgePendingForwardState } from "./native-bridge-pending-forward-state.js";
 import { NativeBridgeRecoveryState } from "./native-bridge-recovery-state.js";
@@ -3299,99 +3300,31 @@ class ChromeBackgroundBridge {
       return;
     }
 
-    const command = String(request.params.command ?? "");
-    if (command === "runtime.bootstrap") {
-      await this.#handleRuntimeBootstrap(request);
-      return;
-    }
-    if (command === "runtime.tabs") {
-      await this.#handleRuntimeTabs(request);
-      return;
-    }
-    if (command === "runtime.restore_xhs_target") {
-      await this.#handleRuntimeRestoreXhsTarget(request);
-      return;
-    }
-    if (command === "runtime.reload_tab") {
-      await this.#handleRuntimeReloadTab(request);
-      return;
-    }
-    if (command === "runtime.xhs_debug_page_state") {
-      await this.#handleRuntimeXhsDebugPageState(request);
-      return;
-    }
-    if (command === "runtime.xhs_capture_user_home_context") {
-      await this.#handleRuntimeXhsCaptureUserHomeContext(request);
-      return;
-    }
-    if (command === "runtime.xhs_debug_main_world_roundtrip") {
-      await this.#handleRuntimeXhsDebugMainWorldRoundtrip(request);
-      return;
-    }
-    if (command === "runtime.xhs_open_result_card") {
-      await this.#handleRuntimeXhsOpenResultCard(request);
-      return;
-    }
-    if (command === "runtime.xhs_debug_result_targets") {
-      await this.#handleRuntimeXhsDebugResultTargets(request);
-      return;
-    }
-    if (command === "runtime.main_world_probe") {
-      await this.#handleRuntimeMainWorldProbe(request);
-      return;
-    }
-    if (command === "runtime.trusted_fingerprint_probe") {
-      this.#handleRuntimeTrustedFingerprintProbe(request);
-      return;
-    }
-    if (command === "runtime.readiness") {
-      await this.#handleRuntimeReadiness(request);
-      return;
-    }
-
-    try {
-      await this.#dispatchForward(request);
-    } catch (error) {
-      const failureMessage = error instanceof Error ? error.message : String(error);
-      const failureName =
-        error instanceof Error && typeof error.name === "string" && error.name.length > 0
-          ? error.name
-          : "Error";
-      const xhsCommand = XHS_GATE_COMMANDS.has(command);
-      this.#emit({
-        id: request.id,
-        status: "error",
-        summary: {
-          relay_path: "host>background>content-script>background>host"
-        },
-        payload: xhsCommand
-          ? {
-              details: {
-                stage: "execution",
-                reason: "BACKGROUND_FORWARD_EXCEPTION",
-                forward_failure_stage: "background_dispatch_exception",
-                error_name: failureName
-              },
-              diagnosis: {
-                category: "runtime_unavailable",
-                stage: "runtime",
-                component: "background",
-                failure_site: {
-                  stage: "runtime",
-                  component: "background",
-                  target: command,
-                  summary: failureMessage
-                },
-                evidence: [`background_forward_exception=${failureName}`]
-              }
-            }
-          : undefined,
-        error: {
-          code: xhsCommand ? "ERR_EXECUTION_FAILED" : "ERR_TRANSPORT_FORWARD_FAILED",
-          message: failureMessage
-        }
-      });
-    }
+    await dispatchBackgroundBridgeCommand(request, {
+      emit: (message) => this.#emit(message),
+      dispatchForward: (forwardRequest) => this.#dispatchForward(forwardRequest),
+      isXhsGateCommand: (command) => XHS_GATE_COMMANDS.has(command),
+      handleRuntimeBootstrap: (runtimeRequest) => this.#handleRuntimeBootstrap(runtimeRequest),
+      handleRuntimeTabs: (runtimeRequest) => this.#handleRuntimeTabs(runtimeRequest),
+      handleRuntimeRestoreXhsTarget: (runtimeRequest) =>
+        this.#handleRuntimeRestoreXhsTarget(runtimeRequest),
+      handleRuntimeReloadTab: (runtimeRequest) => this.#handleRuntimeReloadTab(runtimeRequest),
+      handleRuntimeXhsDebugPageState: (runtimeRequest) =>
+        this.#handleRuntimeXhsDebugPageState(runtimeRequest),
+      handleRuntimeXhsCaptureUserHomeContext: (runtimeRequest) =>
+        this.#handleRuntimeXhsCaptureUserHomeContext(runtimeRequest),
+      handleRuntimeXhsDebugMainWorldRoundtrip: (runtimeRequest) =>
+        this.#handleRuntimeXhsDebugMainWorldRoundtrip(runtimeRequest),
+      handleRuntimeXhsOpenResultCard: (runtimeRequest) =>
+        this.#handleRuntimeXhsOpenResultCard(runtimeRequest),
+      handleRuntimeXhsDebugResultTargets: (runtimeRequest) =>
+        this.#handleRuntimeXhsDebugResultTargets(runtimeRequest),
+      handleRuntimeMainWorldProbe: (runtimeRequest) =>
+        this.#handleRuntimeMainWorldProbe(runtimeRequest),
+      handleRuntimeTrustedFingerprintProbe: (runtimeRequest) =>
+        this.#handleRuntimeTrustedFingerprintProbe(runtimeRequest),
+      handleRuntimeReadiness: (runtimeRequest) => this.#handleRuntimeReadiness(runtimeRequest)
+    });
   }
 
   async #handleRuntimeBootstrap(request: BridgeRequest): Promise<void> {
