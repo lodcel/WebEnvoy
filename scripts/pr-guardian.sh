@@ -48,6 +48,11 @@ guardian_compat_renderer() {
   python3 "${REPO_ROOT}/scripts/pr_guardian/compatibility_renderer.py" "$@"
 }
 
+guardian_merge_ready_signals() {
+  require_cmd python3
+  python3 "${REPO_ROOT}/scripts/pr_guardian/merge_ready_signals.py" "$@"
+}
+
 guardian_env_truthy() {
   local name="$1"
   local value="${!name:-}"
@@ -4559,16 +4564,6 @@ loom_merge_ready_runtime_script() {
   return 1
 }
 
-merge_ready_record_file_or_null() {
-  local candidate="$1"
-  local null_file="$2"
-  if [[ -n "${candidate}" && -s "${candidate}" ]]; then
-    printf '%s\n' "${candidate}"
-  else
-    printf '%s\n' "${null_file}"
-  fi
-}
-
 write_loom_merge_ready_input() {
   local pr_number="$1"
   local current_meta_file="$2"
@@ -4579,104 +4574,38 @@ write_loom_merge_ready_input() {
   local expected_review_state="$7"
   local review_state_visible="$8"
   local output_file="$9"
-  local null_file="${TMP_DIR}/merge-ready-null.json"
-  local changed_files_json="${TMP_DIR}/merge-ready-changed-files.json"
-  local impl_record_file
-  local spec_record_file
   local source_authority="loom_review_record"
-
-  printf '%s\n' 'null' > "${null_file}"
-  if [[ -n "${CHANGED_FILES_FILE:-}" && -s "${CHANGED_FILES_FILE}" ]]; then
-    jq -R -s 'split("\n") | map(select(length > 0))' "${CHANGED_FILES_FILE}" > "${changed_files_json}"
-  else
-    printf '%s\n' '[]' > "${changed_files_json}"
-  fi
-  impl_record_file="$(merge_ready_record_file_or_null "${LOOM_REVIEW_RECORD_FILE:-}" "${null_file}")"
-  spec_record_file="$(merge_ready_record_file_or_null "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" "${null_file}")"
+  local spec_review_required="false"
 
   if guardian_spec_review_only; then
     source_authority="loom_spec_review_record"
   elif guardian_spec_review_required; then
     source_authority="loom_review_record_with_loom_spec_review_gate"
+    spec_review_required="true"
   fi
 
-  jq -n \
-    --slurpfile pr_meta "${current_meta_file}" \
-    --slurpfile checks "${checks_file}" \
-    --slurpfile implementation_record "${impl_record_file}" \
-    --slurpfile spec_review_record "${spec_record_file}" \
-    --slurpfile changed_files "${changed_files_json}" \
-    --arg pr_number "${pr_number}" \
-    --arg review_profile "${REVIEW_PROFILE:-}" \
-    --arg checked_commit "${HEAD_SHA:-}" \
-    --arg snapshot_head_sha "${HEAD_SHA:-}" \
-    --arg base_sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
-    --arg source_authority "${source_authority}" \
-    --arg impl_record_locator "${LOOM_REVIEW_RECORD_FILE:-}" \
-    --arg spec_record_locator "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" \
-    --arg impl_record_sha256 "$(if [[ -n "${LOOM_REVIEW_RECORD_FILE:-}" && -s "${LOOM_REVIEW_RECORD_FILE}" ]]; then loom_review_record_sha256 "${LOOM_REVIEW_RECORD_FILE}"; fi)" \
-    --arg spec_record_sha256 "$(if [[ -n "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" && -s "${SPEC_LOOM_REVIEW_RECORD_FILE}" ]]; then loom_review_record_sha256 "${SPEC_LOOM_REVIEW_RECORD_FILE}"; fi)" \
-    --arg checks_load_result "${checks_load_result}" \
-    --argjson checks_all_pass "${checks_all_pass}" \
-    --arg reviewer_for_gate "${reviewer_for_gate}" \
-    --arg expected_review_state "${expected_review_state}" \
-    --argjson review_state_visible "${review_state_visible}" \
-    --arg spec_review_required "$(if guardian_spec_review_required; then printf 'true'; else printf 'false'; fi)" \
-    '($pr_meta[0] // {}) as $pr
-      | {
-          schema_version: "webenvoy-merge-ready-signals/v1",
-          pr_number: $pr_number,
-          checked_commit: $checked_commit,
-          review_profile: $review_profile,
-          changed_files: ($changed_files[0] // []),
-          pr: {
-            number: ($pr.number // ($pr_number | tonumber? // $pr_number)),
-            title: ($pr.title // ""),
-            body: ($pr.body // ""),
-            url: ($pr.url // ""),
-            base_ref: ($pr.baseRefName // ""),
-            base_sha: (($pr.baseRefOid // "") as $base_ref_oid | if ($base_ref_oid | length) > 0 then $base_ref_oid else $base_sha end),
-            head_ref: ($pr.headRefName // ""),
-            head_sha: ($pr.headRefOid // ""),
-            snapshot_head_sha: $snapshot_head_sha,
-            head_repo_full_name: ($pr.headRepoFullName // ""),
-            is_draft: ($pr.isDraft // null),
-            mergeable: ($pr.mergeable // ""),
-            merge_state_status: ($pr.mergeStateStatus // "")
-          },
-          review: {
-            source_authority: $source_authority,
-            implementation_record_locator: $impl_record_locator,
-            implementation_record_sha256: $impl_record_sha256,
-            implementation_record: $implementation_record[0],
-            spec_review_record_locator: $spec_record_locator,
-            spec_review_record_sha256: $spec_record_sha256,
-            spec_review_record: $spec_review_record[0]
-          },
-          github_checks: {
-            load_result: $checks_load_result,
-            all_pass: $checks_all_pass,
-            snapshot: ($checks[0] // [])
-          },
-          gates: {
-            spec_review_required: ($spec_review_required == "true"),
-            live_evidence_locator: "code_review.md",
-            integration_check_locator: ".github/PULL_REQUEST_TEMPLATE.md"
-          },
-          retained_host_action_results: {
-            github_review_state: {
-              reviewer: $reviewer_for_gate,
-              expected_state: $expected_review_state,
-              visible: $review_state_visible,
-              head_sha: $snapshot_head_sha
-            },
-            controlled_merge_wrapper: {
-              script: "scripts/merge-pr.sh",
-              adapter: "scripts/pr-guardian.sh",
-              action: "host_merge_after_loom_allow"
-            }
-          }
-        }' > "${output_file}"
+  guardian_merge_ready_signals build-input \
+    --pr-number "${pr_number}" \
+    --pr-meta-file "${current_meta_file}" \
+    --checks-file "${checks_file}" \
+    --checks-load-result "${checks_load_result}" \
+    --checks-all-pass "${checks_all_pass}" \
+    --reviewer-for-gate "${reviewer_for_gate}" \
+    --expected-review-state "${expected_review_state}" \
+    --review-state-visible "${review_state_visible}" \
+    --review-profile "${REVIEW_PROFILE:-}" \
+    --checked-commit "${HEAD_SHA:-}" \
+    --snapshot-head-sha "${HEAD_SHA:-}" \
+    --base-sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
+    --source-authority "${source_authority}" \
+    --implementation-record-locator "${LOOM_REVIEW_RECORD_FILE:-}" \
+    --implementation-record-file "${LOOM_REVIEW_RECORD_FILE:-}" \
+    --spec-review-record-locator "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" \
+    --spec-review-record-file "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" \
+    --changed-files-file "${CHANGED_FILES_FILE:-}" \
+    --spec-review-required "${spec_review_required}" \
+    --output "${output_file}" \
+    || die "无法生成 Loom merge-ready 输入。"
 }
 
 run_loom_merge_ready() {
@@ -4699,18 +4628,10 @@ assert_loom_merge_ready_allows_current_head() {
   local output_file="$1"
   local missing_summary
 
-  if jq -e \
-    --arg head_sha "${HEAD_SHA:-}" \
-    --arg pr_number "${PR_NUMBER:-}" \
-    '
-      (.schema_version == "loom-merge-ready-result/v1")
-      and (.result == "pass")
-      and (.decision == "allow")
-      and ((.pr.number | tostring) == $pr_number)
-      and (.pr.head_sha == $head_sha)
-      and (.pr.checked_commit == $head_sha)
-      and (.provenance.authority == "loom_merge_ready")
-    ' "${output_file}" >/dev/null 2>&1; then
+  if guardian_merge_ready_signals validate-result \
+    --input "${output_file}" \
+    --pr-number "${PR_NUMBER:-}" \
+    --head-sha "${HEAD_SHA:-}" >/dev/null 2>&1; then
     return 0
   fi
 
