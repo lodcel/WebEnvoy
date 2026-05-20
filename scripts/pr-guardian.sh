@@ -44,6 +44,7 @@ require_cmd() {
 }
 
 guardian_compat_renderer() {
+  require_cmd python3
   python3 "${REPO_ROOT}/scripts/pr_guardian/compatibility_renderer.py" "$@"
 }
 
