@@ -25,7 +25,7 @@
     "merge_ready": [
       {
         "id": "webenvoy-merge-gate-rules",
-        "summary": "Merge-ready must consume WebEnvoy's guardian, GitHub checks, PR metadata, live evidence, and integration gate rules.",
+        "summary": "Merge-ready must consume WebEnvoy's guardian compatibility signals, GitHub checks, PR metadata, live evidence, and integration gate rules.",
         "locator": "code_review.md",
         "enforcement": "blocking"
       },

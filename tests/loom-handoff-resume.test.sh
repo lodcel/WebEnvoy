@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ITEM_ID="${LOOM_HANDOFF_RESUME_TEST_ITEM_ID:-708}"
 
 die() {
   echo "错误: $*" >&2
@@ -14,7 +15,7 @@ run_resume() {
   local target="$1"
   local output="$2"
   set +e
-  PYTHONDONTWRITEBYTECODE=1 python3 "${target}/.loom/bin/loom_flow.py" flow resume --target "${target}" --item 706 >"${output}"
+  PYTHONDONTWRITEBYTECODE=1 python3 "${target}/.loom/bin/loom_flow.py" flow resume --target "${target}" --item "${ITEM_ID}" >"${output}"
   local status=$?
   set -e
   return "${status}"
@@ -34,9 +35,9 @@ setup_mock_gh() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "api" && "${2:-}" == "repos/MC-and-his-Agents/WebEnvoy/issues/706" ]]; then
+  if [[ "${1:-}" == "api" && "${2:-}" == "repos/MC-and-his-Agents/WebEnvoy/issues/${ITEM_ID}" ]]; then
   cat <<'JSON'
-{"id":706,"node_id":"I_706","number":706,"state":"open","title":"Phase 6 Loom handoff/resume recovery","body":"fixture issue","html_url":"https://github.com/MC-and-his-Agents/WebEnvoy/issues/706"}
+{"id":708,"node_id":"I_708","number":708,"state":"open","title":"Phase 7 Loom cleanup recovery","body":"fixture issue","html_url":"https://github.com/MC-and-his-Agents/WebEnvoy/issues/708"}
 JSON
   exit 0
 fi
@@ -56,7 +57,7 @@ set_recovery_field() {
   local target="$1"
   local label="$2"
   local value="$3"
-  perl -0pi -e "s/^- \Q${label}\E: .*$/- ${label}: ${value}/m" "${target}/.loom/progress/706.md"
+  perl -0pi -e "s/^- \Q${label}\E: .*$/- ${label}: ${value}/m" "${target}/.loom/progress/${ITEM_ID}.md"
   perl -0pi -e "s/^- \Q${label}\E: .*$/- ${label}: ${value}/m" "${target}/.loom/status/current.md"
 }
 
@@ -65,7 +66,7 @@ set_review_decision() {
   local decision="$2"
   local head="$3"
   local validation
-  validation="$(awk -F': ' '/^- Latest Validation Summary:/ {print $2; exit}' "${target}/.loom/progress/706.md")"
+  validation="$(awk -F': ' '/^- Latest Validation Summary:/ {print $2; exit}' "${target}/.loom/progress/${ITEM_ID}.md")"
   jq \
     --arg decision "${decision}" \
     --arg head "${head}" \
@@ -79,8 +80,8 @@ set_review_decision() {
       | .findings=[]
       | .blocking_issues=[]
       | .follow_ups=[]' \
-    "${target}/.loom/reviews/706.json" >"${target}/.loom/reviews/706.json.tmp"
-  mv "${target}/.loom/reviews/706.json.tmp" "${target}/.loom/reviews/706.json"
+    "${target}/.loom/reviews/${ITEM_ID}.json" >"${target}/.loom/reviews/${ITEM_ID}.json.tmp"
+  mv "${target}/.loom/reviews/${ITEM_ID}.json.tmp" "${target}/.loom/reviews/${ITEM_ID}.json"
 }
 
 commit_fixture_state() {
@@ -103,7 +104,7 @@ make_fixture() {
   cp "${REPO_ROOT}/docs/dev/AGENTS.md" "${target}/docs/dev/AGENTS.md"
   cp "${REPO_ROOT}/scripts/pr-guardian.sh" "${target}/scripts/pr-guardian.sh"
   cp "${REPO_ROOT}/scripts/merge-pr.sh" "${target}/scripts/merge-pr.sh"
-  git -C "${target}" init -q -b work/706-loom-handoff-resume-test
+  git -C "${target}" init -q -b "work/${ITEM_ID}-loom-handoff-resume-test"
   git -C "${target}" config user.email "loom-test@example.invalid"
   git -C "${target}" config user.name "loom test"
   git -C "${target}" remote add origin "https://github.com/MC-and-his-Agents/WebEnvoy.git"
@@ -114,6 +115,7 @@ make_fixture() {
 
 main() {
   local fixture output head stale_head mock_bin
+  export ITEM_ID
   mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/webenvoy-loom-gh.XXXXXX")"
   setup_mock_gh "${mock_bin}"
   PATH="${mock_bin}:${PATH}"
@@ -148,14 +150,14 @@ main() {
   cp -R "${fixture}" "${fixture}.missing-review"
   set_recovery_field "${fixture}.missing-review" "Current Checkpoint" "merge checkpoint"
   set_recovery_field "${fixture}.missing-review" "Current Lane" "merge-ready"
-  rm "${fixture}.missing-review/.loom/reviews/706.json"
+  rm "${fixture}.missing-review/.loom/reviews/${ITEM_ID}.json"
   commit_fixture_state "${fixture}.missing-review"
   run_resume "${fixture}.missing-review" "${fixture}.missing-review.resume.json" && die "missing review record should block"
   assert_jq "${fixture}.missing-review.resume.json" '.recovery_record.authority_records.missing_inputs | map(tostring) | any(test("missing implementation review"))' "missing review record was not reported"
 
   cp -R "${fixture}" "${fixture}.partial-spec"
-  mkdir -p "${fixture}.partial-spec/.loom/specs/706"
-  printf '# Partial Spec\n' >"${fixture}.partial-spec/.loom/specs/706/spec.md"
+  mkdir -p "${fixture}.partial-spec/.loom/specs/${ITEM_ID}"
+  printf '# Partial Spec\n' >"${fixture}.partial-spec/.loom/specs/${ITEM_ID}/spec.md"
   set_recovery_field "${fixture}.partial-spec" "Current Checkpoint" "merge checkpoint"
   set_recovery_field "${fixture}.partial-spec" "Current Lane" "merge-ready"
   commit_fixture_state "${fixture}.partial-spec"

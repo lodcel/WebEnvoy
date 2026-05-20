@@ -3,7 +3,7 @@
   "host_adapters": [
     {
       "id": "webenvoy-controlled-merge-wrapper",
-      "summary": "WebEnvoy host adapter that gathers retained GitHub and guardian signals, consumes Loom merge-ready, and performs the controlled host merge action.",
+      "summary": "WebEnvoy host adapter that gathers retained GitHub and guardian compatibility signals, consumes Loom merge-ready, and performs the controlled host merge action.",
       "surfaces": [
         "merge_ready"
       ],
@@ -40,7 +40,7 @@
       "repo_locator": ".loom/shadow/admission-repo.json"
     },
     "review": {
-      "summary": "Compare review parity between Loom and the repo-native result.",
+      "summary": "Compare review parity between Loom and the WebEnvoy compatibility rendering.",
       "loom_locator": ".loom/shadow/review-loom.json",
       "repo_locator": ".loom/shadow/review-repo.json"
     },

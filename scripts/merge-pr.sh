@@ -12,8 +12,8 @@ usage() {
   scripts/merge-pr.sh <pr-number> [--delete-branch]
 
 说明:
-  统一合并入口。默认会执行 guardian review 并回写 review 结果，
-  只有在 guardian APPROVE、safe_to_merge=true 且 GitHub checks 全绿时才会 squash merge。
+  统一合并入口。默认通过 guardian host adapter 回写 Loom-backed review 兼容结果，
+  只有在 Loom merge-ready allow 且 retained GitHub/repo gates 全绿时才会 squash merge。
 EOF
 }
 

@@ -21,11 +21,11 @@ usage() {
 
 说明:
   review         本机执行 Codex 审查并打印结论
-  review-status  输出当前 HEAD 是否存在可复用 guardian review 的机器可读状态
+  review-status  输出当前 HEAD 是否存在可复用 Loom-backed guardian 兼容 review 的机器可读状态
   merge-if-safe  自动回写 review（可兼容传 --post-review）；Loom merge-ready 允许后执行 squash merge
 
 环境变量:
-  PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1  临时回退为 WebEnvoy 兼容 schema verdict authority
+  PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1  rollback-only: 临时回退为 WebEnvoy 兼容 schema verdict authority
 EOF
 }
 
@@ -2738,6 +2738,10 @@ normalize_native_review_result() {
         elif (((.title // "") | tostring) | test("^\\[P1\\]")) then 1
         elif (((.title // "") | tostring) | test("^\\[P2\\]")) then 2
         elif (((.title // "") | tostring) | test("^\\[P3\\]")) then 3
+        elif (((.severity // "") | tostring | ascii_downcase) == "critical") then 0
+        elif (((.severity // "") | tostring | ascii_downcase) == "high") then 1
+        elif (((.severity // "") | tostring | ascii_downcase) == "medium") then 2
+        elif (((.severity // "") | tostring | ascii_downcase) == "low") then 3
         else 2
         end;
       def severity_for($priority):
@@ -2774,7 +2778,8 @@ normalize_native_review_result() {
       | ((.summary // "") | tostring | trim_text) as $summary
       | ((.verdict // "") == "APPROVE") as $native_approve
       | ((.safe_to_merge // false) | to_bool_or(false)) as $native_safe
-      | (($findings | length) == 0 and (($summary | length) == 0 or looks_like_safe_approve($summary))) as $summary_safe
+      | ($findings | map(select(.priority <= 2))) as $blocking_findings
+      | (($blocking_findings | length) == 0 and ($required_actions | length) == 0 and (($summary | length) == 0 or looks_like_safe_approve($summary))) as $summary_safe
       | {
           verdict: (
             if $summary_safe
@@ -2796,7 +2801,7 @@ normalize_native_review_result() {
           ),
           findings: $findings,
           required_actions: (
-            ($required_actions + (if ($findings | length) > 0 then ($findings | map("修复：" + (.title // "未命名问题"))) else [] end))
+            ($required_actions + (if ($blocking_findings | length) > 0 then ($blocking_findings | map("修复：" + (.title // "未命名问题"))) else [] end))
             | map(trim_text)
             | map(select(length > 0))
             | unique
@@ -3356,7 +3361,8 @@ coerce_review_result_shape() {
       | ((.summary // "") | trim_text) as $summary
       | ((.verdict // "") | trim_text) as $raw_verdict
       | ((.safe_to_merge // false) | to_bool_or(false)) as $raw_safe
-      | ($raw_verdict == "APPROVE" and ($findings | length) == 0 and ($required_actions | length) == 0 and $raw_safe) as $can_approve
+      | ($findings | map(select(.priority <= 2))) as $blocking_findings
+      | ($raw_verdict == "APPROVE" and ($blocking_findings | length) == 0 and ($required_actions | length) == 0 and $raw_safe) as $can_approve
       | {
           verdict: (if $can_approve then "APPROVE" else "REQUEST_CHANGES" end),
           safe_to_merge: $can_approve,
@@ -3375,8 +3381,8 @@ coerce_review_result_shape() {
               $required_actions
             elif $can_approve then
               []
-            elif ($findings | length) > 0 then
-              ($findings | map("修复：" + .title) | unique)
+            elif ($blocking_findings | length) > 0 then
+              ($blocking_findings | map("修复：" + .title) | unique)
             else
               ["澄清 native review 结论"]
             end

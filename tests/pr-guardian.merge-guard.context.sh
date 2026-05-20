@@ -70,6 +70,24 @@ run_all_checks_pass_when_legacy_status_fails() {
   all_required_checks_pass 123 >/dev/null 2>&1
 }
 
+test_merge_pr_help_names_loom_merge_ready_authority() {
+  setup_case_dir "merge-pr-help-authority"
+
+  local help_file="${TMP_DIR}/merge-pr-help.txt"
+  assert_pass bash "${REPO_ROOT}/scripts/merge-pr.sh" --help > "${help_file}"
+  assert_file_contains "${help_file}" "Loom merge-ready allow"
+  assert_file_contains "${help_file}" "guardian host adapter"
+  assert_file_not_contains "${help_file}" "只有在 guardian APPROVE"
+}
+
+test_review_result_schema_is_compatibility_renderer_only() {
+  setup_case_dir "review-result-schema-role"
+
+  assert_equal "$(jq -r '.title' "${SCHEMA_FILE}")" "WebEnvoy Guardian Compatibility Review Result"
+  assert_file_contains "${SCHEMA_FILE}" "Compatibility renderer schema"
+  assert_file_contains "${SCHEMA_FILE}" "Loom review/spec review records are the semantic review authority"
+}
+
 test_load_pr_meta_rest_maps_rest_payload_to_guardian_fields() {
   setup_case_dir "pr-meta-rest-map"
 
