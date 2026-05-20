@@ -12,10 +12,10 @@
 - Validation Entry: bash tests/pr-guardian.merge-guard.test.sh && bash tests/loom-handoff-resume.test.sh && bash scripts/docs-guard.sh && bash scripts/check-pr-purity.sh work/708-loom-cleanup-duplicate-guardian main && python3 .loom/bin/loom_init.py verify --target . && python3 .loom/bin/loom_check.py .
 - Closing Condition: Issue #708 closes only after Phase 7 PR is merged to main, main validation is clean, duplicate WebEnvoy authority surfaces are demoted/cleaned, rollback paths remain explicit, and GitHub Issues/Projects remain progress truth.
 - Current Checkpoint: build
-- Current Stop: Local validation passed for Phase 7 cleanup/demotion surfaces; ready to commit, push, and open PR.
-- Next Step: Commit, push, open PR for issue #708 with cleanup inventory, authority before/after, rollback, and validation evidence.
+- Current Stop: PR #709 is open on branch work/708-loom-cleanup-duplicate-guardian; guardian findings for integration metadata and recovery stop/next-step have been addressed locally.
+- Next Step: Push the finding fix, wait for GitHub checks, rerun guardian, then proceed to Loom merge-ready and controlled merge only after allow.
 - Blockers: None recorded.
-- Latest Validation Summary: Passed: bash tests/pr-guardian.merge-guard.test.sh; bash tests/loom-handoff-resume.test.sh; bash scripts/docs-guard.sh; bash scripts/check-pr-purity.sh work/708-loom-cleanup-duplicate-guardian main; PYTHONDONTWRITEBYTECODE=1 python3 .loom/bin/loom_init.py verify --target .; PYTHONDONTWRITEBYTECODE=1 python3 .loom/bin/loom_check.py .; git diff --check; JSON validation; bash -n for changed shell files.
+- Latest Validation Summary: Finding fix validation passed: fact-chain --item 708; bash tests/loom-handoff-resume.test.sh; PYTHONDONTWRITEBYTECODE=1 python3 .loom/bin/loom_init.py verify --target .; PYTHONDONTWRITEBYTECODE=1 python3 .loom/bin/loom_check.py .; git diff --check.
 - Recovery Boundary: This recovery entry stores only current execution recovery for issue #708. GitHub Issues/Projects remain progress and backlog truth; PR descriptions remain human-readable evidence summaries; FR TODO files remain local implementation aids only.
 - Current Lane: implementation
 
