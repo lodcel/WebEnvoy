@@ -65,6 +65,7 @@ codex_app_review_context_present() {
 }
 
 populate_codex_app_review_binding_args() {
+  local mode="${1:-impl_review}"
   local app_server="${LOOM_CODEX_APP_REVIEW_ENDPOINT:-}"
   local thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID:-}"
   local thread_cwd="${LOOM_CODEX_APP_REVIEW_CWD:-}"
@@ -77,6 +78,10 @@ populate_codex_app_review_binding_args() {
   fi
 
   codex_app_review_context_present || return 0
+
+  if [[ "${mode}" == "spec_review" && -z "${raw_file}" ]]; then
+    return 0
+  fi
 
   if [[ -z "${thread_id}" && -n "${CODEX_THREAD_ID:-}" ]]; then
     thread_id="${CODEX_THREAD_ID}"
@@ -3539,7 +3544,7 @@ run_loom_spec_review() {
     printf '%s\n' "spec_review.md" > "${spec_scope_file}"
   fi
 
-  populate_codex_app_review_binding_args
+  populate_codex_app_review_binding_args spec_review
   if ! python3 "${launcher_file}" review guardian-spec-run \
     --target "${WORKTREE_DIR}" \
     --review-file "${SPEC_LOOM_REVIEW_RECORD_FILE#${WORKTREE_DIR}/}" \
@@ -3605,7 +3610,7 @@ run_codex_review() {
     return
   fi
 
-  populate_codex_app_review_binding_args
+  populate_codex_app_review_binding_args impl_review
   if ! python3 "${loom_flow_file}" review guardian-run \
     --target "${WORKTREE_DIR}" \
     --guardian-prompt-file "${PROMPT_RUN_FILE}" \

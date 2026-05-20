@@ -1086,6 +1086,39 @@ test_codex_thread_id_alone_does_not_force_codex_app_adapter() {
   if [[ -n "${previous_codex_ci}" ]]; then export CODEX_CI="${previous_codex_ci}"; else unset CODEX_CI || true; fi
 }
 
+test_spec_review_requires_raw_file_before_forcing_codex_app_adapter() {
+  setup_case_dir "spec-review-codex-app-binding-without-raw"
+
+  local previous_endpoint="${LOOM_CODEX_APP_REVIEW_ENDPOINT-}"
+  local previous_thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID-}"
+  local previous_cwd="${LOOM_CODEX_APP_REVIEW_CWD-}"
+  local previous_raw_file="${LOOM_CODEX_APP_REVIEW_RAW_FILE-}"
+  local previous_ci="${CI-}"
+  local previous_codex_ci="${CODEX_CI-}"
+
+  export LOOM_CODEX_APP_REVIEW_ENDPOINT="mock-app-proof"
+  export LOOM_CODEX_APP_REVIEW_THREAD_ID="thread-123"
+  export LOOM_CODEX_APP_REVIEW_CWD="${TMP_DIR}/worktree"
+  unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true
+  unset CI || true
+  unset CODEX_CI || true
+
+  populate_codex_app_review_binding_args spec_review
+  assert_equal "${#REVIEW_ADAPTER_ARGS[@]}" "0"
+
+  export LOOM_CODEX_APP_REVIEW_RAW_FILE=".loom/runtime/mock/codex-app-review.json"
+  populate_codex_app_review_binding_args spec_review
+  assert_equal "${REVIEW_ADAPTER_ARGS[0]}" "--engine-adapter"
+  assert_equal "${REVIEW_ADAPTER_ARGS[1]}" "loom/codex-app-review"
+
+  if [[ -n "${previous_endpoint}" ]]; then export LOOM_CODEX_APP_REVIEW_ENDPOINT="${previous_endpoint}"; else unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true; fi
+  if [[ -n "${previous_thread_id}" ]]; then export LOOM_CODEX_APP_REVIEW_THREAD_ID="${previous_thread_id}"; else unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true; fi
+  if [[ -n "${previous_cwd}" ]]; then export LOOM_CODEX_APP_REVIEW_CWD="${previous_cwd}"; else unset LOOM_CODEX_APP_REVIEW_CWD || true; fi
+  if [[ -n "${previous_raw_file}" ]]; then export LOOM_CODEX_APP_REVIEW_RAW_FILE="${previous_raw_file}"; else unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true; fi
+  if [[ -n "${previous_ci}" ]]; then export CI="${previous_ci}"; else unset CI || true; fi
+  if [[ -n "${previous_codex_ci}" ]]; then export CODEX_CI="${previous_codex_ci}"; else unset CODEX_CI || true; fi
+}
+
 test_run_codex_review_fails_closed_when_codex_app_proof_is_incomplete() {
   setup_case_dir "run-codex-app-incomplete-proof-review"
 
