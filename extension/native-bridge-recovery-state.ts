@@ -1,28 +1,16 @@
-type BridgeRequest = {
-  id: string;
-  method: "bridge.open" | "bridge.forward" | "__ping__";
-  profile: string | null;
-  params: Record<string, unknown>;
-  timeout_ms?: number;
-};
-
-type BridgeResponse = {
-  id: string;
-  status: "success" | "error";
-  summary: Record<string, unknown>;
-  payload?: Record<string, unknown>;
-  error: null | { code: string; message: string };
-};
-
-type NativeBridgeState = "connecting" | "ready" | "recovering" | "disconnected";
+import type {
+  NativeBridgeRequest,
+  NativeBridgeResponse,
+  NativeBridgeState
+} from "./native-bridge-protocol.js";
 
 interface NativeBridgeRecoveryStateHooks {
   getState(): NativeBridgeState;
-  emit(message: BridgeResponse): void;
+  emit(message: NativeBridgeResponse): void;
 }
 
 interface QueuedForwardRequest {
-  request: BridgeRequest;
+  request: NativeBridgeRequest;
   deadlineMs: number;
 }
 
@@ -51,7 +39,7 @@ export class NativeBridgeRecoveryState {
     private readonly maxRecoveryQueuedForwards = 5
   ) {}
 
-  queueForward(request: BridgeRequest): void {
+  queueForward(request: NativeBridgeRequest): void {
     const timeoutMs = this.#resolveForwardTimeoutMs(request);
     const deadlineMs = Date.now() + timeoutMs;
     if (Date.now() >= deadlineMs) {
@@ -89,7 +77,7 @@ export class NativeBridgeRecoveryState {
   }
 
   async replayQueuedForwards(
-    dispatchForward: (request: BridgeRequest, deadlineMs: number) => Promise<void>
+    dispatchForward: (request: NativeBridgeRequest, deadlineMs: number) => Promise<void>
   ): Promise<void> {
     if (this.#recoveryQueue.length === 0) {
       return;
@@ -168,7 +156,7 @@ export class NativeBridgeRecoveryState {
     this.#recoveryQueue = keep;
   }
 
-  #resolveForwardTimeoutMs(request: BridgeRequest): number {
+  #resolveForwardTimeoutMs(request: NativeBridgeRequest): number {
     const timeoutMs = readTimeoutMs(request.timeout_ms);
     return timeoutMs ?? (this.options?.forwardTimeoutMs ?? defaultForwardTimeoutMs);
   }

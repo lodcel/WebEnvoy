@@ -8,6 +8,12 @@ import { BackgroundRelay as ExtractedBackgroundRelay } from "./background-relay.
 import { BackgroundRuntimeTrustState } from "./background-runtime-trust-state.js";
 import { NativeBridgePendingForwardState } from "./native-bridge-pending-forward-state.js";
 import { NativeBridgeRecoveryState } from "./native-bridge-recovery-state.js";
+import type {
+  NativeBridgeRequest as BridgeRequest,
+  NativeBridgeResponse as BridgeResponse,
+  NativeBridgeState,
+  NativeMessageListener
+} from "./native-bridge-protocol.js";
 import {
   WRITE_INTERACTION_TIER,
   APPROVAL_CHECK_KEYS,
@@ -55,31 +61,6 @@ import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 
-type BridgeRequest = {
-  id: string;
-  method: "bridge.open" | "bridge.forward" | "__ping__";
-  profile: string | null;
-  params: Record<string, unknown>;
-  timeout_ms?: number;
-};
-
-type BridgeResponse = {
-  id: string;
-  status: "success" | "error";
-  summary: Record<string, unknown>;
-  payload?: Record<string, unknown>;
-  error: null | { code: string; message: string };
-};
-
-type NativeMessageListener = (message: BridgeResponse) => void;
-
-interface PendingForward {
-  request: BridgeRequest;
-  timeout: ReturnType<typeof setTimeout>;
-  consumerGateResult?: XhsTargetGateResult["consumerGateResult"];
-  gatePayload?: XhsTargetGateResult["gatePayload"];
-  suppressHostResponse?: boolean;
-}
 
 interface TrustedFingerprintContextEntry {
   sessionId: string;
@@ -394,7 +375,6 @@ interface NativeHeartbeatMessage {
   timeout_ms: number;
 }
 
-type NativeBridgeState = "connecting" | "ready" | "recovering" | "disconnected";
 type RuntimeBootstrapStatus = "pending" | "ready" | "stale" | "failed";
 interface RuntimeBootstrapState {
   version: string;
