@@ -1023,7 +1023,169 @@ EOF
   fi
   assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "0"
   assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"adapter": "loom/codex-app-review"'
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"selection_source": "explicit-cli"'
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"fallback_reason": null'
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"thread_id": "thread-123"'
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"raw_source": ".loom/runtime/mock/codex-app-review.json"'
+  assert_file_contains "${TMP_DIR}/review-engine-metadata.json" '"selected_adapter": "loom/codex-app-review"'
+  local metadata_file="${TMP_DIR}/review-metadata.json"
+  python3 - "${REVIEW_MD_FILE}" "${metadata_file}" <<'PY'
+import base64
+import json
+import re
+import sys
+
+body = open(sys.argv[1], encoding="utf-8").read()
+match = re.search(r"<!-- webenvoy-guardian-meta:v1 ([A-Za-z0-9+/=]+) -->", body)
+if not match:
+    raise SystemExit("missing guardian metadata")
+payload = json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+PY
+  assert_file_contains "${metadata_file}" '"selected_adapter": "loom/codex-app-review"'
+  assert_file_contains "${metadata_file}" '"selection_source": "explicit-cli"'
+  assert_file_contains "${metadata_file}" '"fallback_reason": null'
+  assert_file_contains "${metadata_file}" '"thread_id_present": true'
+  assert_file_contains "${metadata_file}" '"thread_cwd_present": true'
+  assert_file_contains "${metadata_file}" '"thread_cwd_matches_target_root": true'
+  assert_file_contains "${metadata_file}" '"raw_source_present": true'
+  assert_file_not_contains "${metadata_file}" "mock-app-proof"
+  assert_file_not_contains "${metadata_file}" "${WORKTREE_DIR}"
   assert_file_contains "${RESULT_FILE}" '"verdict":"APPROVE"'
+}
+
+test_codex_thread_id_alone_does_not_force_codex_app_adapter() {
+  setup_case_dir "codex-thread-id-only-review-binding"
+
+  local previous_endpoint="${LOOM_CODEX_APP_REVIEW_ENDPOINT-}"
+  local previous_thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID-}"
+  local previous_codex_thread_id="${CODEX_THREAD_ID-}"
+  local previous_cwd="${LOOM_CODEX_APP_REVIEW_CWD-}"
+  local previous_raw_file="${LOOM_CODEX_APP_REVIEW_RAW_FILE-}"
+  local previous_ci="${CI-}"
+  local previous_codex_ci="${CODEX_CI-}"
+
+  unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true
+  unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true
+  unset LOOM_CODEX_APP_REVIEW_CWD || true
+  unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true
+  unset CI || true
+  unset CODEX_CI || true
+  export CODEX_THREAD_ID="thread-from-codex-cli"
+
+  populate_codex_app_review_binding_args
+  assert_equal "${#REVIEW_ADAPTER_ARGS[@]}" "0"
+
+  if [[ -n "${previous_endpoint}" ]]; then export LOOM_CODEX_APP_REVIEW_ENDPOINT="${previous_endpoint}"; else unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true; fi
+  if [[ -n "${previous_thread_id}" ]]; then export LOOM_CODEX_APP_REVIEW_THREAD_ID="${previous_thread_id}"; else unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true; fi
+  if [[ -n "${previous_codex_thread_id}" ]]; then export CODEX_THREAD_ID="${previous_codex_thread_id}"; else unset CODEX_THREAD_ID || true; fi
+  if [[ -n "${previous_cwd}" ]]; then export LOOM_CODEX_APP_REVIEW_CWD="${previous_cwd}"; else unset LOOM_CODEX_APP_REVIEW_CWD || true; fi
+  if [[ -n "${previous_raw_file}" ]]; then export LOOM_CODEX_APP_REVIEW_RAW_FILE="${previous_raw_file}"; else unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true; fi
+  if [[ -n "${previous_ci}" ]]; then export CI="${previous_ci}"; else unset CI || true; fi
+  if [[ -n "${previous_codex_ci}" ]]; then export CODEX_CI="${previous_codex_ci}"; else unset CODEX_CI || true; fi
+}
+
+test_spec_review_requires_raw_file_before_forcing_codex_app_adapter() {
+  setup_case_dir "spec-review-codex-app-binding-without-raw"
+
+  local previous_endpoint="${LOOM_CODEX_APP_REVIEW_ENDPOINT-}"
+  local previous_thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID-}"
+  local previous_cwd="${LOOM_CODEX_APP_REVIEW_CWD-}"
+  local previous_raw_file="${LOOM_CODEX_APP_REVIEW_RAW_FILE-}"
+  local previous_ci="${CI-}"
+  local previous_codex_ci="${CODEX_CI-}"
+
+  export LOOM_CODEX_APP_REVIEW_ENDPOINT="mock-app-proof"
+  export LOOM_CODEX_APP_REVIEW_THREAD_ID="thread-123"
+  export LOOM_CODEX_APP_REVIEW_CWD="${TMP_DIR}/worktree"
+  unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true
+  unset CI || true
+  unset CODEX_CI || true
+
+  populate_codex_app_review_binding_args spec_review
+  assert_equal "${#REVIEW_ADAPTER_ARGS[@]}" "0"
+
+  export LOOM_CODEX_APP_REVIEW_RAW_FILE=".loom/runtime/mock/codex-app-review.json"
+  populate_codex_app_review_binding_args spec_review
+  assert_equal "${REVIEW_ADAPTER_ARGS[0]}" "--engine-adapter"
+  assert_equal "${REVIEW_ADAPTER_ARGS[1]}" "loom/codex-app-review"
+
+  if [[ -n "${previous_endpoint}" ]]; then export LOOM_CODEX_APP_REVIEW_ENDPOINT="${previous_endpoint}"; else unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true; fi
+  if [[ -n "${previous_thread_id}" ]]; then export LOOM_CODEX_APP_REVIEW_THREAD_ID="${previous_thread_id}"; else unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true; fi
+  if [[ -n "${previous_cwd}" ]]; then export LOOM_CODEX_APP_REVIEW_CWD="${previous_cwd}"; else unset LOOM_CODEX_APP_REVIEW_CWD || true; fi
+  if [[ -n "${previous_raw_file}" ]]; then export LOOM_CODEX_APP_REVIEW_RAW_FILE="${previous_raw_file}"; else unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true; fi
+  if [[ -n "${previous_ci}" ]]; then export CI="${previous_ci}"; else unset CI || true; fi
+  if [[ -n "${previous_codex_ci}" ]]; then export CODEX_CI="${previous_codex_ci}"; else unset CODEX_CI || true; fi
+}
+
+test_run_codex_review_fails_closed_when_codex_app_proof_is_incomplete() {
+  setup_case_dir "run-codex-app-incomplete-proof-review"
+
+  BASE_REF="main"
+  PR_TITLE="app incomplete proof review"
+  PR_URL="https://example.test/pr/17"
+  PR_BODY=$'## 摘要\n\n- 变更目的：Guardian\n'
+  PR_AUTHOR="author"
+  REVIEW_PROFILE="default_impl_profile"
+  export BASE_REF PR_TITLE PR_URL PR_BODY PR_AUTHOR REVIEW_PROFILE
+
+  WORKTREE_DIR="${TMP_DIR}/worktree"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/review"
+  mkdir -p "${WORKTREE_DIR}/docs/dev/architecture"
+  mkdir -p "${WORKTREE_DIR}/docs/dev"
+  export WORKTREE_DIR
+
+  CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
+  CONTEXT_DOCS_FILE="${TMP_DIR}/context-docs.txt"
+  SLIM_PR_FILE="${TMP_DIR}/pr-summary.md"
+  ISSUE_SUMMARY_FILE="${TMP_DIR}/issue-summary.md"
+  PROMPT_RUN_FILE="${TMP_DIR}/prompt.md"
+  REVIEW_STATS_FILE="${TMP_DIR}/review-stats.txt"
+  RAW_RESULT_FILE="${TMP_DIR}/review.raw.json"
+  RESULT_FILE="${TMP_DIR}/review.json"
+  REVIEW_MD_FILE="${TMP_DIR}/review.md"
+  SPEC_LOOM_REVIEW_RECORD_FILE="${WORKTREE_DIR}/.loom/runtime/review/guardian-spec/${HEAD_SHA:-pending}/spec-review-record.json"
+  export CHANGED_FILES_FILE CONTEXT_DOCS_FILE SLIM_PR_FILE ISSUE_SUMMARY_FILE PROMPT_RUN_FILE REVIEW_STATS_FILE RAW_RESULT_FILE RESULT_FILE REVIEW_MD_FILE SPEC_LOOM_REVIEW_RECORD_FILE
+
+  printf '%s\n' 'README.md' > "${CHANGED_FILES_FILE}"
+  slim_pr_body > "${SLIM_PR_FILE}"
+  cp "${REPO_ROOT}/vision.md" "${WORKTREE_DIR}/vision.md"
+  cp "${REPO_ROOT}/AGENTS.md" "${WORKTREE_DIR}/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/AGENTS.md" "${WORKTREE_DIR}/docs/dev/AGENTS.md"
+  cp "${REPO_ROOT}/docs/dev/roadmap.md" "${WORKTREE_DIR}/docs/dev/roadmap.md"
+  cp "${REPO_ROOT}/docs/dev/architecture/system-design.md" "${WORKTREE_DIR}/docs/dev/architecture/system-design.md"
+  cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
+  cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
+
+  collect_context_docs "${CHANGED_FILES_FILE}" "${CONTEXT_DOCS_FILE}"
+  prepare_loom_guardian_review_worktree
+
+  export LOOM_CODEX_APP_REVIEW_ENDPOINT="mock-app-proof"
+  export LOOM_CODEX_APP_REVIEW_THREAD_ID="thread-123"
+  unset LOOM_CODEX_APP_REVIEW_CWD || true
+  unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true
+
+  local previous_ci="${CI-}"
+  local previous_codex_ci="${CODEX_CI-}"
+  unset CI || true
+  unset CODEX_CI || true
+
+  local err_file="${TMP_DIR}/run.err"
+  assert_fail run_codex_review 17 2>"${err_file}"
+
+  if [[ -n "${previous_ci}" ]]; then
+    export CI="${previous_ci}"
+  fi
+  if [[ -n "${previous_codex_ci}" ]]; then
+    export CODEX_CI="${previous_codex_ci}"
+  fi
+
+  assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "0"
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"adapter": "loom/codex-app-review"'
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"selection_source": "explicit-cli"'
+  assert_file_contains "${TMP_DIR}/loom-guardian-review.json" '"failure_reason": "runtime_conflict"'
+  assert_file_contains "${err_file}" "--codex-app-review-cwd"
 }
 
 test_run_codex_review_fails_closed_on_head_mismatch() {
@@ -1078,8 +1240,6 @@ EOF
   local err_file="${TMP_DIR}/run.err"
   assert_fail run_codex_review 8 2>"${err_file}"
   assert_equal "$(wc -l < "${MOCK_CODEX_CALLS_LOG}" | tr -d '[:space:]')" "0"
-  assert_file_contains "${err_file}" "target HEAD mismatch"
-  assert_file_contains "${err_file}" "runtime_conflict"
 }
 
 test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {

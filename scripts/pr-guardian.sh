@@ -11,6 +11,7 @@ REVIEW_ADDENDUM_FILE="${REPO_ROOT}/docs/dev/review/guardian-review-addendum.md"
 SPEC_REVIEW_SUMMARY_FILE="${REPO_ROOT}/docs/dev/review/guardian-spec-review-summary.md"
 CODEX_ROOT="${CODEX_HOME:-${HOME}/.codex}"
 declare -a REGISTERED_SECRET_TMP_DIRS=()
+declare -a REVIEW_ADAPTER_ARGS=()
 
 usage() {
   cat <<'EOF'
@@ -40,6 +41,65 @@ warn() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "缺少依赖命令: $1"
+}
+
+guardian_env_truthy() {
+  local name="$1"
+  local value="${!name:-}"
+
+  case "${value}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+codex_app_review_context_present() {
+  [[ -n "${LOOM_CODEX_APP_REVIEW_ENDPOINT:-}" \
+    || -n "${LOOM_CODEX_APP_REVIEW_THREAD_ID:-}" \
+    || -n "${LOOM_CODEX_APP_REVIEW_CWD:-}" \
+    || -n "${LOOM_CODEX_APP_REVIEW_RAW_FILE:-}" ]]
+}
+
+populate_codex_app_review_binding_args() {
+  local mode="${1:-impl_review}"
+  local app_server="${LOOM_CODEX_APP_REVIEW_ENDPOINT:-}"
+  local thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID:-}"
+  local thread_cwd="${LOOM_CODEX_APP_REVIEW_CWD:-}"
+  local raw_file="${LOOM_CODEX_APP_REVIEW_RAW_FILE:-}"
+
+  REVIEW_ADAPTER_ARGS=()
+
+  if guardian_env_truthy CI || guardian_env_truthy CODEX_CI; then
+    return 0
+  fi
+
+  codex_app_review_context_present || return 0
+
+  if [[ "${mode}" == "spec_review" && -z "${raw_file}" ]]; then
+    return 0
+  fi
+
+  if [[ -z "${thread_id}" && -n "${CODEX_THREAD_ID:-}" ]]; then
+    thread_id="${CODEX_THREAD_ID}"
+  fi
+
+  REVIEW_ADAPTER_ARGS+=(--engine-adapter "loom/codex-app-review")
+  if [[ -n "${app_server}" ]]; then
+    REVIEW_ADAPTER_ARGS+=(--codex-app-review-app-server "${app_server}")
+  fi
+  if [[ -n "${thread_id}" ]]; then
+    REVIEW_ADAPTER_ARGS+=(--codex-app-review-thread-id "${thread_id}")
+  fi
+  if [[ -n "${thread_cwd}" ]]; then
+    REVIEW_ADAPTER_ARGS+=(--codex-app-review-cwd "${thread_cwd}")
+  fi
+  if [[ -n "${raw_file}" ]]; then
+    REVIEW_ADAPTER_ARGS+=(--codex-app-review-raw-file "${raw_file}")
+  fi
 }
 
 guardian_proof_store_file() {
@@ -713,6 +773,11 @@ guardian_metadata_json() {
   local source_authority
   local authority_role="compatibility_rendering_mirror"
   local spec_record_file=""
+  local review_engine_metadata_file="${TMP_DIR:-/tmp}/review-engine-metadata.json"
+
+  if [[ ! -s "${review_engine_metadata_file}" ]]; then
+    printf 'null\n' > "${review_engine_metadata_file}"
+  fi
 
   if guardian_spec_review_only; then
     spec_record_file="$(guardian_spec_loom_record_file)"
@@ -749,7 +814,33 @@ guardian_metadata_json() {
     --argjson safe_to_merge "$(jq -r '.safe_to_merge' "${result_file}")" \
     --slurpfile loom_review_record "${record_file}" \
     --slurpfile loom_spec_review_record "$(if [[ -n "${spec_record_file}" && -s "${spec_record_file}" ]]; then printf '%s' "${spec_record_file}"; else printf '%s' "${record_file}"; fi)" \
+    --slurpfile review_engine_metadata "${review_engine_metadata_file}" \
     '
+      ($review_engine_metadata[0] // null) as $engine_metadata
+      | (if ($engine_metadata | type) == "object" then
+          ($engine_metadata.thread_target_binding // {}) as $binding
+          | {
+              selected_adapter: ($engine_metadata.selected_adapter // null),
+              selection_source: ($engine_metadata.selection_source // null),
+              fallback_reason: ($engine_metadata.fallback_reason // null),
+              binding_summary: {
+                thread_id_present: ((($binding.thread_id // $engine_metadata.thread_id // "") | tostring | length) > 0),
+                thread_cwd_present: ((($binding.thread_cwd // $engine_metadata.thread_cwd // "") | tostring | length) > 0),
+                thread_cwd_matches_target_root: ($binding.thread_cwd_matches_target_root // null),
+                raw_source_present: ((($binding.raw_source // "") | tostring | length) > 0),
+                live_endpoint_capable: ($binding.live_endpoint_capable // false),
+                reviewed_head: ($binding.reviewed_head // $engine_metadata.reviewed_head // null)
+              }
+            }
+        else
+          {
+            selected_adapter: null,
+            selection_source: null,
+            fallback_reason: null,
+            binding_summary: null
+          }
+        end) as $safe_engine_metadata
+      |
       {
         source_authority: $source_authority,
         authority_role: $authority_role,
@@ -764,6 +855,11 @@ guardian_metadata_json() {
         compatibility_safe_to_merge: $safe_to_merge,
         verdict: $verdict,
         safe_to_merge: $safe_to_merge,
+        selected_adapter: $safe_engine_metadata.selected_adapter,
+        selection_source: $safe_engine_metadata.selection_source,
+        fallback_reason: $safe_engine_metadata.fallback_reason,
+        binding_summary: $safe_engine_metadata.binding_summary,
+        review_engine_metadata: $safe_engine_metadata,
         loom_review_record_sha256: $loom_review_record_sha256,
         loom_review_record: $loom_review_record[0],
         loom_spec_review_record_sha256: $loom_spec_review_record_sha256,
@@ -3448,6 +3544,7 @@ run_loom_spec_review() {
     printf '%s\n' "spec_review.md" > "${spec_scope_file}"
   fi
 
+  populate_codex_app_review_binding_args spec_review
   if ! python3 "${launcher_file}" review guardian-spec-run \
     --target "${WORKTREE_DIR}" \
     --review-file "${SPEC_LOOM_REVIEW_RECORD_FILE#${WORKTREE_DIR}/}" \
@@ -3458,6 +3555,7 @@ run_loom_spec_review() {
     --guardian-pr-number "${pr_number}" \
     --guardian-base-sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
     --guardian-reviewed-scope-file "${spec_scope_file}" \
+    ${REVIEW_ADAPTER_ARGS[@]+"${REVIEW_ADAPTER_ARGS[@]}"} \
     > "${spec_payload_file}" 2>"${spec_error_file}"; then
     sed 's/^/  /' "${spec_error_file}" >&2 || true
     jq -r '.summary? // empty, .engine.failure_reason? // empty, (.missing_inputs[]? // empty)' "${spec_payload_file}" 2>/dev/null | sed 's/^/  /' >&2 || true
@@ -3512,12 +3610,14 @@ run_codex_review() {
     return
   fi
 
+  populate_codex_app_review_binding_args impl_review
   if ! python3 "${loom_flow_file}" review guardian-run \
     --target "${WORKTREE_DIR}" \
     --guardian-prompt-file "${PROMPT_RUN_FILE}" \
     --guardian-output-file "${RAW_RESULT_FILE}" \
     --guardian-expected-head "${HEAD_SHA}" \
     --guardian-tmp-dir "${TMP_DIR}" \
+    ${REVIEW_ADAPTER_ARGS[@]+"${REVIEW_ADAPTER_ARGS[@]}"} \
     > "${loom_payload_file}" 2>"${native_error_file}"; then
     sed 's/^/  /' "${native_error_file}" >&2 || true
     if [[ -s "${loom_payload_file}" ]]; then
@@ -3536,6 +3636,9 @@ run_codex_review() {
     jq -r '.summary? // empty, .engine.failure_reason? // empty, (.missing_inputs[]? // empty)' "${loom_payload_file}" 2>/dev/null | sed 's/^/  /' >&2 || true
     die "Loom guardian review engine 未产生可信 pass 结果。"
   fi
+
+  jq '.engine_metadata // null' "${loom_payload_file}" > "${TMP_DIR}/review-engine-metadata.json" \
+    || die "无法记录 Loom guardian review engine metadata。"
 
   [[ -s "${RAW_RESULT_FILE}" ]] || die "Loom guardian review engine 未产生审查输出。"
   normalize_native_review_result "${RAW_RESULT_FILE}" "${RESULT_FILE}"
@@ -4265,6 +4368,11 @@ write_review_status_json_common() {
               review_body: ($reused.cleaned_body // ""),
               reviewer_login: ($reused.user.login // ""),
               source_authority: ($reused.meta.source_authority // ""),
+              selected_adapter: ($reused.meta.selected_adapter // null),
+              selection_source: ($reused.meta.selection_source // null),
+              fallback_reason: ($reused.meta.fallback_reason // null),
+              binding_summary: ($reused.meta.binding_summary // null),
+              review_engine_metadata: ($reused.meta.review_engine_metadata // null),
               loom_review_record_sha256: ($reused.meta.loom_review_record_sha256 // ""),
               loom_review_record: ($reused.meta.loom_review_record // null),
               loom_spec_review_record_sha256: ($reused.meta.loom_spec_review_record_sha256 // ""),
