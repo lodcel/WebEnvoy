@@ -4,32 +4,12 @@ import {
   type ContentToBackgroundMessage
 } from "./content-script-handler.js";
 import type { FingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
-
-type BridgeRequest = {
-  id: string;
-  method: "bridge.open" | "bridge.forward" | "__ping__";
-  profile: string | null;
-  params: Record<string, unknown>;
-  timeout_ms?: number;
-};
-
-type BridgeResponse = {
-  id: string;
-  status: "success" | "error";
-  summary: Record<string, unknown>;
-  payload?: Record<string, unknown>;
-  error: null | { code: string; message: string };
-};
-
-type NativeMessageListener = (message: BridgeResponse) => void;
-
-interface PendingForward {
-  request: BridgeRequest;
-  timeout: ReturnType<typeof setTimeout>;
-  consumerGateResult?: Record<string, unknown>;
-  gatePayload?: Record<string, unknown>;
-  suppressHostResponse?: boolean;
-}
+import type {
+  NativeBridgeRequest,
+  NativeBridgeResponse,
+  NativeMessageListener,
+  PendingForward
+} from "./native-bridge-protocol.js";
 
 const defaultForwardTimeoutMs = 3_000;
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
@@ -85,7 +65,7 @@ export class BackgroundRelay {
     return () => this.#listeners.delete(listener);
   }
 
-  onNativeRequest(request: BridgeRequest): void {
+  onNativeRequest(request: NativeBridgeRequest): void {
     if (request.method === "bridge.open") {
       this.#emit({
         id: request.id,
@@ -300,7 +280,7 @@ export class BackgroundRelay {
     return pending;
   }
 
-  #emit(message: BridgeResponse): void {
+  #emit(message: NativeBridgeResponse): void {
     for (const listener of this.#listeners) {
       listener(message);
     }
