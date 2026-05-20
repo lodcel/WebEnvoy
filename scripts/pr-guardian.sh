@@ -60,7 +60,6 @@ guardian_env_truthy() {
 codex_app_review_context_present() {
   [[ -n "${LOOM_CODEX_APP_REVIEW_ENDPOINT:-}" \
     || -n "${LOOM_CODEX_APP_REVIEW_THREAD_ID:-}" \
-    || -n "${CODEX_THREAD_ID:-}" \
     || -n "${LOOM_CODEX_APP_REVIEW_CWD:-}" \
     || -n "${LOOM_CODEX_APP_REVIEW_RAW_FILE:-}" ]]
 }
@@ -813,6 +812,29 @@ guardian_metadata_json() {
     --slurpfile review_engine_metadata "${review_engine_metadata_file}" \
     '
       ($review_engine_metadata[0] // null) as $engine_metadata
+      | (if ($engine_metadata | type) == "object" then
+          ($engine_metadata.thread_target_binding // {}) as $binding
+          | {
+              selected_adapter: ($engine_metadata.selected_adapter // null),
+              selection_source: ($engine_metadata.selection_source // null),
+              fallback_reason: ($engine_metadata.fallback_reason // null),
+              binding_summary: {
+                thread_id_present: ((($binding.thread_id // $engine_metadata.thread_id // "") | tostring | length) > 0),
+                thread_cwd_present: ((($binding.thread_cwd // $engine_metadata.thread_cwd // "") | tostring | length) > 0),
+                thread_cwd_matches_target_root: ($binding.thread_cwd_matches_target_root // null),
+                raw_source_present: ((($binding.raw_source // "") | tostring | length) > 0),
+                live_endpoint_capable: ($binding.live_endpoint_capable // false),
+                reviewed_head: ($binding.reviewed_head // $engine_metadata.reviewed_head // null)
+              }
+            }
+        else
+          {
+            selected_adapter: null,
+            selection_source: null,
+            fallback_reason: null,
+            binding_summary: null
+          }
+        end) as $safe_engine_metadata
       |
       {
         source_authority: $source_authority,
@@ -828,11 +850,11 @@ guardian_metadata_json() {
         compatibility_safe_to_merge: $safe_to_merge,
         verdict: $verdict,
         safe_to_merge: $safe_to_merge,
-        selected_adapter: (if ($engine_metadata | type) == "object" then $engine_metadata.selected_adapter else null end),
-        selection_source: (if ($engine_metadata | type) == "object" then $engine_metadata.selection_source else null end),
-        fallback_reason: (if ($engine_metadata | type) == "object" then $engine_metadata.fallback_reason else null end),
-        binding_summary: (if ($engine_metadata | type) == "object" then $engine_metadata.thread_target_binding else null end),
-        review_engine_metadata: $engine_metadata,
+        selected_adapter: $safe_engine_metadata.selected_adapter,
+        selection_source: $safe_engine_metadata.selection_source,
+        fallback_reason: $safe_engine_metadata.fallback_reason,
+        binding_summary: $safe_engine_metadata.binding_summary,
+        review_engine_metadata: $safe_engine_metadata,
         loom_review_record_sha256: $loom_review_record_sha256,
         loom_review_record: $loom_review_record[0],
         loom_spec_review_record_sha256: $loom_spec_review_record_sha256,

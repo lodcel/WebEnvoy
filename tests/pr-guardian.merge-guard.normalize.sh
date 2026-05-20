@@ -1046,8 +1046,44 @@ PY
   assert_file_contains "${metadata_file}" '"selected_adapter": "loom/codex-app-review"'
   assert_file_contains "${metadata_file}" '"selection_source": "explicit-cli"'
   assert_file_contains "${metadata_file}" '"fallback_reason": null'
-  assert_file_contains "${metadata_file}" '"thread_id": "thread-123"'
+  assert_file_contains "${metadata_file}" '"thread_id_present": true'
+  assert_file_contains "${metadata_file}" '"thread_cwd_present": true'
+  assert_file_contains "${metadata_file}" '"thread_cwd_matches_target_root": true'
+  assert_file_contains "${metadata_file}" '"raw_source_present": true'
+  assert_file_not_contains "${metadata_file}" "mock-app-proof"
+  assert_file_not_contains "${metadata_file}" "${WORKTREE_DIR}"
   assert_file_contains "${RESULT_FILE}" '"verdict":"APPROVE"'
+}
+
+test_codex_thread_id_alone_does_not_force_codex_app_adapter() {
+  setup_case_dir "codex-thread-id-only-review-binding"
+
+  local previous_endpoint="${LOOM_CODEX_APP_REVIEW_ENDPOINT-}"
+  local previous_thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID-}"
+  local previous_codex_thread_id="${CODEX_THREAD_ID-}"
+  local previous_cwd="${LOOM_CODEX_APP_REVIEW_CWD-}"
+  local previous_raw_file="${LOOM_CODEX_APP_REVIEW_RAW_FILE-}"
+  local previous_ci="${CI-}"
+  local previous_codex_ci="${CODEX_CI-}"
+
+  unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true
+  unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true
+  unset LOOM_CODEX_APP_REVIEW_CWD || true
+  unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true
+  unset CI || true
+  unset CODEX_CI || true
+  export CODEX_THREAD_ID="thread-from-codex-cli"
+
+  populate_codex_app_review_binding_args
+  assert_equal "${#REVIEW_ADAPTER_ARGS[@]}" "0"
+
+  if [[ -n "${previous_endpoint}" ]]; then export LOOM_CODEX_APP_REVIEW_ENDPOINT="${previous_endpoint}"; else unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true; fi
+  if [[ -n "${previous_thread_id}" ]]; then export LOOM_CODEX_APP_REVIEW_THREAD_ID="${previous_thread_id}"; else unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true; fi
+  if [[ -n "${previous_codex_thread_id}" ]]; then export CODEX_THREAD_ID="${previous_codex_thread_id}"; else unset CODEX_THREAD_ID || true; fi
+  if [[ -n "${previous_cwd}" ]]; then export LOOM_CODEX_APP_REVIEW_CWD="${previous_cwd}"; else unset LOOM_CODEX_APP_REVIEW_CWD || true; fi
+  if [[ -n "${previous_raw_file}" ]]; then export LOOM_CODEX_APP_REVIEW_RAW_FILE="${previous_raw_file}"; else unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true; fi
+  if [[ -n "${previous_ci}" ]]; then export CI="${previous_ci}"; else unset CI || true; fi
+  if [[ -n "${previous_codex_ci}" ]]; then export CODEX_CI="${previous_codex_ci}"; else unset CODEX_CI || true; fi
 }
 
 test_run_codex_review_fails_closed_when_codex_app_proof_is_incomplete() {
