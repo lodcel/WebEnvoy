@@ -121,6 +121,23 @@ EOF
   assert_file_contains "${result_file}" '"required_actions":["修复：Dropped issue context"]'
 }
 
+test_normalize_native_review_result_keeps_approve_for_nonblocking_compat_finding() {
+  setup_case_dir "normalize-guardian-schema-nonblocking-compat-finding"
+
+  local raw_file="${TMP_DIR}/guardian-review.json"
+  local result_file="${TMP_DIR}/normalized-review.json"
+  cat > "${raw_file}" <<'EOF'
+{"verdict":"APPROVE","safe_to_merge":true,"summary":"未发现新的阻断性问题。","findings":[{"severity":"low","title":"未发现新的阻断性问题。","details":"未发现新的阻断性问题。","code_location":{"absolute_file_path":"/tmp/worktree/.loom/bootstrap/init-result.json","line_range":{"start":1,"end":1}},"confidence_score":0.8,"priority":3}],"required_actions":[]}
+EOF
+
+  assert_pass normalize_native_review_result "${raw_file}" "${result_file}"
+  assert_pass validate_review_result_shape "${result_file}"
+  assert_file_contains "${result_file}" '"verdict":"APPROVE"'
+  assert_file_contains "${result_file}" '"safe_to_merge":true'
+  assert_file_contains "${result_file}" '"priority":3'
+  assert_file_contains "${result_file}" '"required_actions":[]'
+}
+
 test_normalize_native_review_result_accepts_code_fenced_native_schema_json() {
   setup_case_dir "normalize-native-review-code-fenced-json"
 
