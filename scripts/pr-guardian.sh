@@ -43,6 +43,11 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "缺少依赖命令: $1"
 }
 
+guardian_compat_renderer() {
+  require_cmd python3
+  python3 "${REPO_ROOT}/scripts/pr_guardian/compatibility_renderer.py" "$@"
+}
+
 guardian_env_truthy() {
   local name="$1"
   local value="${!name:-}"
@@ -891,46 +896,11 @@ build_markdown_review() {
     source_label="Loom review record + Loom spec review record"
   fi
 
-  jq -r --arg source_label "${source_label}" '
-    def severity_label:
-      if . == "critical" then "P0 / critical"
-      elif . == "high" then "P1 / high"
-      elif . == "medium" then "P2 / medium"
-      else "P3 / low"
-      end;
-    def findings:
-      if (.findings | length) == 0 then
-        "- 未发现新的阻断性问题。"
-      else
-        (.findings | to_entries | map(
-          ((.key + 1) | tostring) + ". **[" + (.value.severity | severity_label) + "] " + .value.title + "**\n" +
-          "文件: `" + .value.code_location.absolute_file_path + "`" +
-          (if (.value.code_location.line_range.start? != null and .value.code_location.line_range.end? != null)
-            then " (L" + (.value.code_location.line_range.start|tostring) + "-" + (.value.code_location.line_range.end|tostring) + ")"
-            else "" end) + "\n" +
-          "说明: " + .value.details +
-          (if .value.confidence_score? != null
-            then "\n置信度: " + (.value.confidence_score|tostring)
-            else "" end) +
-          (if .value.priority? != null
-            then "\n优先级: P" + (.value.priority|tostring)
-            else "" end)
-        ) | join("\n\n"))
-      end;
-    def actions:
-      if (.required_actions | length) == 0 then
-        "- 无。"
-      else
-        (.required_actions | map("- " + .) | join("\n"))
-      end;
-    "## PR Review 结论\n\n" +
-    "**Source authority**: " + $source_label + "\n\n" +
-    "**结论**: " + .verdict + "\n\n" +
-    "**允许合并**: " + (if .safe_to_merge then "是" else "否" end) + "\n\n" +
-    "**摘要**: " + .summary + "\n\n" +
-    "### 需要关注的问题\n\n" + findings + "\n\n" +
-    "### 合并前动作\n\n" + actions + "\n"
-  ' "${result_file}" > "${review_file}"
+  guardian_compat_renderer markdown \
+    --input "${result_file}" \
+    --output "${review_file}" \
+    --source-label "${source_label}" \
+    || die "无法渲染 guardian 兼容 Markdown review。"
 
   append_guardian_metadata_comment "${result_file}" "${review_file}"
 }
@@ -1101,59 +1071,18 @@ write_loom_review_record_from_guardian_result() {
   local item_id
 
   item_id="$(guardian_review_item_id)"
-  jq -c \
-    --arg item_id "${item_id}" \
-    --arg reviewed_head "${HEAD_SHA:-}" \
-    --arg reviewed_validation_summary "WebEnvoy guardian compatibility review context; GitHub checks remain a separate merge gate." \
-    --arg review_basis_digest "${REVIEW_BASIS_DIGEST:-}" \
-    --arg prompt_digest "${PROMPT_DIGEST:-}" \
-    --arg base_ref "${BASE_REF:-}" \
-    --arg merge_base_sha "${MERGE_BASE_SHA:-}" \
-    --arg review_profile "${REVIEW_PROFILE:-}" \
-    --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
-    '
-      def trim_text:
-        tostring | gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
-      def loom_severity:
-        if . == "critical" or . == "high" then "block" else "warn" end;
-      (.verdict == "APPROVE" and .safe_to_merge == true) as $approved
-      | {
-          schema_version: "loom-review/v1",
-          item_id: $item_id,
-          decision: (if $approved then "allow" else "block" end),
-          kind: "code_review",
-          summary: (.summary | trim_text),
-          reviewer: "webenvoy-guardian",
-          reviewed_head: $reviewed_head,
-          reviewed_validation_summary: $reviewed_validation_summary,
-          fallback_to: null,
-          findings: ((.findings // []) | to_entries | map(
-            {
-              id: ("guardian-finding-" + ((.key + 1) | tostring)),
-              summary: ((.value.title // .value.details // "Guardian review finding") | trim_text),
-              severity: ((.value.severity // "high") | loom_severity),
-              rebuttal: null,
-              disposition: {
-                status: "accepted",
-                summary: ((.value.details // .value.title // "Projected from WebEnvoy compatibility review output.") | trim_text)
-              },
-              code_location: (.value.code_location // null)
-            }
-          )),
-          blocking_issues: (if $approved then [] else ((.required_actions // []) | map(trim_text)) end),
-          follow_ups: (if $approved then ((.required_actions // []) | map(trim_text)) else [] end),
-          consumed_inputs: {
-            source: "webenvoy-guardian-compatibility-review",
-            compatibility_schema: "scripts/pr-review-result.schema.json",
-            review_basis_digest: $review_basis_digest,
-            prompt_digest: $prompt_digest,
-            base_ref: $base_ref,
-            merge_base_sha: $merge_base_sha,
-            review_profile: $review_profile,
-            guardian_runtime_sha256: $guardian_runtime_sha256
-          }
-        }
-    ' "${result_file}" > "${record_file}" \
+  guardian_compat_renderer guardian-to-record \
+    --input "${result_file}" \
+    --output "${record_file}" \
+    --item-id "${item_id}" \
+    --reviewed-head "${HEAD_SHA:-}" \
+    --reviewed-validation-summary "WebEnvoy guardian compatibility review context; GitHub checks remain a separate merge gate." \
+    --review-basis-digest "${REVIEW_BASIS_DIGEST:-}" \
+    --prompt-digest "${PROMPT_DIGEST:-}" \
+    --base-ref "${BASE_REF:-}" \
+    --merge-base-sha "${MERGE_BASE_SHA:-}" \
+    --review-profile "${REVIEW_PROFILE:-}" \
+    --guardian-runtime-sha256 "$(hash_running_guardian_script_sha256)" \
     || die "无法从 guardian 兼容结果生成 Loom review record。"
 }
 
@@ -1293,43 +1222,9 @@ loom_review_record_to_guardian_result() {
   local record_file="$1"
   local result_file="$2"
 
-  jq -c \
-    '
-      def trim_text:
-        tostring | gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
-      def guardian_severity($severity):
-        if $severity == "block" then "high" else "low" end;
-      def guardian_priority($severity):
-        if $severity == "block" then 1 else 3 end;
-      def fallback_location:
-        {
-          absolute_file_path: "Loom review record",
-          line_range: {start: 1, end: 1}
-        };
-      (.decision == "allow" and all((.findings // [])[]?; .severity != "block")) as $approved
-      | ((.findings // []) | map(
-          {
-            severity: guardian_severity(.severity),
-            title: ((.summary // "Loom review finding") | trim_text)[0:120],
-            details: (((.disposition.summary // .summary // "Loom review finding") | trim_text)),
-            code_location: ((.code_location // null) as $loc | if ($loc | type) == "object" then $loc else fallback_location end),
-            confidence_score: 0.8,
-            priority: guardian_priority(.severity)
-          }
-        )) as $findings
-      | {
-          verdict: (if $approved then "APPROVE" else "REQUEST_CHANGES" end),
-          safe_to_merge: $approved,
-          summary: (.summary | trim_text),
-          findings: $findings,
-          required_actions: (
-            if $approved then []
-            elif ($findings | length) > 0 then ($findings | map("修复：" + .title))
-            else ["修复 Loom review record 指出的阻断原因。"]
-            end
-          )
-        }
-    ' "${record_file}" > "${result_file}" \
+  guardian_compat_renderer record-to-guardian \
+    --input "${record_file}" \
+    --output "${result_file}" \
     || die "无法将 Loom review record 转换为 guardian 兼容输出。"
 }
 
@@ -1337,46 +1232,10 @@ loom_spec_review_record_to_guardian_result() {
   local record_file="$1"
   local result_file="$2"
 
-  jq -c \
-    '
-      def trim_text:
-        tostring | gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
-      def guardian_severity($severity):
-        if $severity == "block" then "high" else "low" end;
-      def guardian_priority($severity):
-        if $severity == "block" then 1 else 3 end;
-      def fallback_location:
-        {
-          absolute_file_path: "Loom spec review record",
-          line_range: {start: 1, end: 1}
-        };
-      (.decision == "allow" and all((.findings // [])[]?; .severity != "block")) as $approved
-      | ((.findings // []) | map(
-          {
-            severity: guardian_severity(.severity),
-            title: ((.summary // "Loom spec review finding") | trim_text)[0:120],
-            details: (((.disposition.summary // .summary // "Loom spec review finding") | trim_text)),
-            code_location: ((.code_location // null) as $loc | if ($loc | type) == "object" then {
-              absolute_file_path: ($loc.path // "Loom spec review record"),
-              line_range: {start: ($loc.line // 1), end: ($loc.end_line // $loc.line // 1)}
-            } else fallback_location end),
-            confidence_score: 0.85,
-            priority: guardian_priority(.severity)
-          }
-        )) as $findings
-      | {
-          verdict: (if $approved then "APPROVE" else "REQUEST_CHANGES" end),
-          safe_to_merge: $approved,
-          summary: ("Spec review authority: " + (.summary | trim_text)),
-          findings: $findings,
-          required_actions: (
-            if $approved then []
-            elif ($findings | length) > 0 then ($findings | map("修复 spec review 阻断：" + .title))
-            else ["修复 Loom spec review record 指出的阻断原因。"]
-            end
-          )
-        }
-    ' "${record_file}" > "${result_file}" \
+  guardian_compat_renderer record-to-guardian \
+    --input "${record_file}" \
+    --output "${result_file}" \
+    --spec \
     || die "无法将 Loom spec review record 转换为 guardian 兼容输出。"
 }
 
@@ -3384,107 +3243,10 @@ coerce_review_result_shape() {
 
   fallback_path="$(first_changed_file_absolute_path)"
 
-  jq -c \
-    --arg fallback_path "${fallback_path}" \
-    '
-      def trim_text:
-        tostring | gsub("[[:space:]]+"; " ") | sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "");
-      def to_int_or($default):
-        if . == null then $default
-        elif type == "number" then floor
-        elif type == "string" and test("^[0-9]+$") then tonumber
-        else $default
-        end;
-      def to_number_or($default):
-        if . == null then $default
-        elif type == "number" then .
-        elif type == "string" and test("^[0-9]+(?:\\.[0-9]+)?$") then tonumber
-        else $default
-        end;
-      def to_bool_or($default):
-        if type == "boolean" then .
-        elif type == "string" then
-          if ascii_downcase == "true" then true
-          elif ascii_downcase == "false" then false
-          else $default
-          end
-        else $default
-        end;
-      def priority_num:
-        if . == 0 or . == "0" or . == "P0" or . == "critical" then 0
-        elif . == 1 or . == "1" or . == "P1" or . == "high" then 1
-        elif . == 2 or . == "2" or . == "P2" or . == "medium" then 2
-        else 3
-        end;
-      def severity_for($priority):
-        if $priority == 0 then "critical"
-        elif $priority == 1 then "high"
-        elif $priority == 2 then "medium"
-        else "low"
-        end;
-      def normalized_findings($entries):
-        ($entries // [])
-        | if type == "array" then . else [] end
-        | map(
-            . as $entry
-            | (($entry.priority // $entry.severity // 2) | priority_num | to_int_or(2)) as $priority
-            | (($entry.title // $entry.summary // $entry.message // $entry.details // "Native review finding") | trim_text) as $title
-            | (($entry.details // $entry.body // $entry.summary // $entry.message // $title) | trim_text) as $details
-            | ((($entry.code_location.absolute_file_path // $entry.absolute_file_path // "") | trim_text) as $path
-              | if ($path | length) > 0 then $path else $fallback_path end) as $absolute_path
-            | ((($entry.code_location.line_range.start // $entry.line // 1) | to_int_or(1))) as $line_start
-            | {
-                severity: severity_for($priority),
-                title: (if ($title | length) > 0 then $title else "Native review finding" end),
-                details: (if ($details | length) > 0 then $details else (if ($title | length) > 0 then $title else "Native review finding" end) end),
-                code_location: {
-                  absolute_file_path: $absolute_path,
-                  line_range: {
-                    start: $line_start,
-                    end: (($entry.code_location.line_range.end // $entry.end_line // $line_start) | to_int_or($line_start))
-                  }
-                },
-                confidence_score: (($entry.confidence_score // $entry.confidence // 0.5) | to_number_or(0.5)),
-                priority: $priority
-              }
-          );
-      (normalized_findings(.findings)) as $findings
-      | ((.required_actions // [])
-        | if type == "array" then . else [] end
-        | map(trim_text)
-        | map(select(length > 0 and . != "修复：" and . != "修复:"))
-        | unique) as $required_actions
-      | ((.summary // "") | trim_text) as $summary
-      | ((.verdict // "") | trim_text) as $raw_verdict
-      | ((.safe_to_merge // false) | to_bool_or(false)) as $raw_safe
-      | ($findings | map(select(.priority <= 2))) as $blocking_findings
-      | ($raw_verdict == "APPROVE" and ($blocking_findings | length) == 0 and ($required_actions | length) == 0 and $raw_safe) as $can_approve
-      | {
-          verdict: (if $can_approve then "APPROVE" else "REQUEST_CHANGES" end),
-          safe_to_merge: $can_approve,
-          summary: (
-            if ($summary | length) > 0 then
-              $summary
-            elif $can_approve then
-              "未发现新的阻断性问题。"
-            else
-              "发现会阻止当前 PR 合并的阻断性问题。"
-            end
-          ),
-          findings: $findings,
-          required_actions: (
-            if ($required_actions | length) > 0 then
-              $required_actions
-            elif $can_approve then
-              []
-            elif ($blocking_findings | length) > 0 then
-              ($blocking_findings | map("修复：" + .title) | unique)
-            else
-              ["澄清 native review 结论"]
-            end
-          )
-        }
-    ' "${result_file}" > "${temp_file}" \
+  guardian_compat_renderer coerce-result \
+    --input "${result_file}" \
+    --output "${temp_file}" \
+    --fallback-path "${fallback_path}" \
     || die "guardian 审查结果修复失败。"
 
   mv "${temp_file}" "${result_file}"
@@ -3493,24 +3255,7 @@ coerce_review_result_shape() {
 validate_review_result_shape() {
   local result_file="$1"
 
-  if jq -e '
-    (.verdict == "APPROVE" or .verdict == "REQUEST_CHANGES")
-    and (.safe_to_merge | type == "boolean")
-    and (.summary | type == "string" and length > 0)
-    and (.findings | type == "array")
-    and (.required_actions | type == "array")
-    and all(.required_actions[]?; type == "string" and length > 0)
-    and all(.findings[]?;
-      (.severity == "critical" or .severity == "high" or .severity == "medium" or .severity == "low")
-      and (.title | type == "string" and length > 0 and length <= 120)
-      and (.details | type == "string" and length > 0)
-      and (.code_location.absolute_file_path | type == "string" and length > 0)
-      and (.code_location.line_range.start | type == "number" and floor == . and . >= 1)
-      and (.code_location.line_range.end | type == "number" and floor == . and . >= 1)
-      and (.confidence_score | type == "number" and . >= 0 and . <= 1)
-      and (.priority | type == "number" and floor == . and . >= 0 and . <= 3)
-    )
-  ' "${result_file}" >/dev/null 2>&1; then
+  if guardian_compat_renderer validate-result --input "${result_file}" >/dev/null 2>&1; then
     return 0
   fi
 
