@@ -53,6 +53,11 @@ guardian_merge_ready_signals() {
   python3 "${REPO_ROOT}/scripts/pr_guardian/merge_ready_signals.py" "$@"
 }
 
+guardian_review_status() {
+  require_cmd python3
+  python3 "${REPO_ROOT}/scripts/pr_guardian/review_status.py" "$@"
+}
+
 guardian_review_context() {
   require_cmd python3
   REPO_ROOT="${REPO_ROOT:-}" \
@@ -136,29 +141,16 @@ populate_codex_app_review_binding_args() {
 }
 
 guardian_proof_store_file() {
-  printf '%s/state/webenvoy-pr-guardian-proofs.json\n' "${CODEX_HOME:-${CODEX_ROOT}}"
+  CODEX_HOME="${CODEX_HOME:-${CODEX_ROOT}}" guardian_review_status proof-store-path
 }
 
 ensure_guardian_proof_store_file() {
-  local proof_file
-  local proof_dir
-
-  proof_file="$(guardian_proof_store_file)"
-  proof_dir="$(dirname "${proof_file}")"
-  mkdir -p "${proof_dir}"
-
-  if [[ ! -f "${proof_file}" ]]; then
-    printf '{\n  "proofs": {}\n}\n' > "${proof_file}"
-  fi
+  CODEX_HOME="${CODEX_HOME:-${CODEX_ROOT}}" guardian_review_status ensure-proof-store >/dev/null
 }
 
 load_guardian_proof_store_json() {
   local output_file="$1"
-  local proof_file
-
-  proof_file="$(guardian_proof_store_file)"
-  ensure_guardian_proof_store_file
-  jq '.' "${proof_file}" > "${output_file}"
+  CODEX_HOME="${CODEX_HOME:-${CODEX_ROOT}}" guardian_review_status load-proof-store --output "${output_file}"
 }
 
 repository_slug() {
@@ -3134,22 +3126,7 @@ annotate_pull_reviews_for_reuse() {
   local input_file="$1"
   local output_file="$2"
 
-  perl -MJSON::PP -MDigest::SHA=sha256_hex -MEncode=encode -0e '
-    my $json = JSON::PP->new->utf8->canonical;
-    my $data = $json->decode(do { local $/; <> });
-
-    for my $page (@{$data}) {
-      for my $review (@{$page}) {
-        my $body = $review->{body} // q{};
-        $body =~ s/\n?<!-- webenvoy-guardian-meta:v1 [A-Za-z0-9+\/=]+ -->\n?/\n/g;
-        $body =~ s/\s+\z//s;
-        $review->{cleaned_body} = $body;
-        $review->{cleaned_body_sha256} = sha256_hex(encode("UTF-8", $body));
-      }
-    }
-
-    print $json->encode($data);
-  ' < "${input_file}" > "${output_file}"
+  guardian_review_status annotate-reviews --input "${input_file}" --output "${output_file}"
 }
 
 find_latest_posted_guardian_review() {
@@ -3198,8 +3175,6 @@ persist_guardian_review_proof() {
   local pr_number="$1"
   local reviewer="$2"
   local review_file="$3"
-  local proof_file
-  local tmp_file
   local repo_slug
   local review_id
   local safe_to_merge
@@ -3208,8 +3183,6 @@ persist_guardian_review_proof() {
   local loom_spec_review_record_sha256=""
   local recorded_at
 
-  proof_file="$(guardian_proof_store_file)"
-  ensure_guardian_proof_store_file
   repo_slug="$(repository_slug)"
   review_id="$(jq -r '(.id // "") | tostring' "${review_file}")"
   [[ -n "${review_id}" ]] || return 1
@@ -3229,57 +3202,27 @@ persist_guardian_review_proof() {
     source_authority="loom_review_record_with_loom_spec_review_gate"
   fi
   recorded_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  tmp_file="$(mktemp "${TMPDIR:-/tmp}/webenvoy-pr-guardian-proof.XXXXXX")"
-
-  jq \
-    --arg review_id "${review_id}" \
-    --arg repo_slug "${repo_slug}" \
-    --arg pr_number "${pr_number}" \
-    --arg reviewer_login "${reviewer}" \
-    --arg head_sha "${HEAD_SHA:-}" \
-    --arg base_ref "${BASE_REF:-}" \
-    --arg base_sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
-    --arg merge_base_sha "${MERGE_BASE_SHA:-}" \
-    --arg review_profile "${REVIEW_PROFILE:-}" \
-    --arg review_basis_digest "${REVIEW_BASIS_DIGEST:-}" \
-    --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
-    --arg prompt_digest "${PROMPT_DIGEST:-}" \
-    --arg review_body_sha256 "$(jq -r '.cleaned_body_sha256 // ""' "${review_file}")" \
-    --arg verdict "${verdict}" \
-    --arg source_authority "${source_authority}" \
-    --arg loom_review_record_sha256 "${loom_review_record_sha256}" \
-    --arg loom_spec_review_record_sha256 "${loom_spec_review_record_sha256}" \
-    --arg review_state "$(jq -r '.state // ""' "${review_file}")" \
-    --arg submitted_at "$(jq -r '.submitted_at // ""' "${review_file}")" \
-    --arg recorded_at "${recorded_at}" \
-    --argjson safe_to_merge "${safe_to_merge}" \
-    '
-      .proofs //= {}
-      | .proofs[$review_id] = {
-          repo_slug: $repo_slug,
-          pr_number: $pr_number,
-          review_id: $review_id,
-          reviewer_login: $reviewer_login,
-          head_sha: $head_sha,
-          base_ref: $base_ref,
-          merge_base_sha: $merge_base_sha,
-          review_profile: $review_profile,
-          review_basis_digest: $review_basis_digest,
-          guardian_runtime_sha256: $guardian_runtime_sha256,
-          prompt_digest: $prompt_digest,
-          review_body_sha256: $review_body_sha256,
-          source_authority: $source_authority,
-          loom_review_record_sha256: $loom_review_record_sha256,
-          loom_spec_review_record_sha256: $loom_spec_review_record_sha256,
-          verdict: $verdict,
-          safe_to_merge: $safe_to_merge,
-          review_state: $review_state,
-          submitted_at: $submitted_at,
-          recorded_at: $recorded_at
-        }
-    ' "${proof_file}" > "${tmp_file}"
-
-  mv "${tmp_file}" "${proof_file}"
+  CODEX_HOME="${CODEX_HOME:-${CODEX_ROOT}}" guardian_review_status persist-proof \
+    --repo-slug "${repo_slug}" \
+    --pr-number "${pr_number}" \
+    --review-id "${review_id}" \
+    --reviewer-login "${reviewer}" \
+    --head-sha "${HEAD_SHA:-}" \
+    --base-ref "${BASE_REF:-}" \
+    --merge-base-sha "${MERGE_BASE_SHA:-}" \
+    --review-profile "${REVIEW_PROFILE:-}" \
+    --review-basis-digest "${REVIEW_BASIS_DIGEST:-}" \
+    --guardian-runtime-sha256 "$(hash_running_guardian_script_sha256)" \
+    --prompt-digest "${PROMPT_DIGEST:-}" \
+    --review-body-sha256 "$(jq -r '.cleaned_body_sha256 // ""' "${review_file}")" \
+    --source-authority "${source_authority}" \
+    --loom-review-record-sha256 "${loom_review_record_sha256}" \
+    --loom-spec-review-record-sha256 "${loom_spec_review_record_sha256}" \
+    --verdict "${verdict}" \
+    --safe-to-merge "${safe_to_merge}" \
+    --review-state "$(jq -r '.state // ""' "${review_file}")" \
+    --submitted-at "$(jq -r '.submitted_at // ""' "${review_file}")" \
+    --recorded-at "${recorded_at}"
 }
 
 record_posted_guardian_review_proof() {
@@ -3350,17 +3293,17 @@ write_review_status_json_common() {
   local strict_prompt_digest="${4:-1}"
   local include_requesting_user="${5:-0}"
   local raw_reviews_file="${TMP_DIR}/reviews-status.raw.json"
-  local reviews_file="${TMP_DIR}/reviews-status.json"
   local proof_store_file="${TMP_DIR}/guardian-proofs.json"
   local proof_store_available="1"
   local repo_slug
   local trusted_reviewers_json
+  local trusted_reviewers_file="${TMP_DIR}/trusted-reviewers.json"
   local review_item_id
   local expected_spec_locator=""
   local expected_spec_scope_json="[]"
+  local expected_spec_scope_file="${TMP_DIR}/expected-spec-scope.json"
 
   load_pull_reviews "${pr_number}" "${raw_reviews_file}" || return 1
-  annotate_pull_reviews_for_reuse "${raw_reviews_file}" "${reviews_file}" || return 1
   if ! load_guardian_proof_store_json "${proof_store_file}"; then
     printf '{\n  "proofs": {}\n}\n' > "${proof_store_file}"
     proof_store_available="0"
@@ -3373,514 +3316,32 @@ write_review_status_json_common() {
     expected_spec_locator="$(expected_spec_review_locator)" || expected_spec_locator=""
     expected_spec_scope_json="$(expected_spec_review_scope_json "${expected_spec_locator}")" || expected_spec_scope_json="[]"
   fi
+  printf '%s\n' "${trusted_reviewers_json}" > "${trusted_reviewers_file}"
+  printf '%s\n' "${expected_spec_scope_json}" > "${expected_spec_scope_file}"
 
-  jq -c \
-    --slurpfile proof_store "${proof_store_file}" \
-    --arg repo_slug "${repo_slug}" \
-    --arg pr_number "${pr_number}" \
-    --arg requesting_user "${requesting_user}" \
-    --arg proof_store_available "${proof_store_available}" \
-    --argjson trusted_reviewers "${trusted_reviewers_json}" \
-    --arg strict_prompt_digest "${strict_prompt_digest}" \
-    --arg pr_author "${PR_AUTHOR:-}" \
-    --arg head_sha "${HEAD_SHA:-}" \
-    --arg base_ref "${BASE_REF:-}" \
-    --arg base_sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
-    --arg merge_base_sha "${MERGE_BASE_SHA:-}" \
-    --arg review_profile "${REVIEW_PROFILE:-}" \
-    --arg review_basis_digest "${REVIEW_BASIS_DIGEST:-}" \
-    --arg guardian_runtime_sha256 "$(hash_running_guardian_script_sha256)" \
-    --arg prompt_digest "${PROMPT_DIGEST:-}" \
-    --arg review_item_id "${review_item_id}" \
-    --arg expected_spec_locator "${expected_spec_locator}" \
-    --argjson expected_spec_scope "${expected_spec_scope_json}" \
-    --arg allow_legacy_schema_authority "${PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY:-0}" \
-    '
-      ($proof_store[0].proofs // {}) as $proofs |
-      def sorted_strings($value): $value | map(select(type == "string")) | sort;
-      def completed_state:
-        . == "APPROVED" or . == "CHANGES_REQUESTED" or . == "COMMENTED" or . == "DISMISSED";
-      def trusted_bot_reviewer($login):
-        (($trusted_reviewers | index($login)) != null)
-        and ($login | endswith("[bot]"));
-      def expected_state($verdict; $reviewer):
-        if ($pr_author | length) > 0 and $pr_author == $reviewer then
-          "COMMENTED"
-        elif $verdict == "APPROVE" then
-          "APPROVED"
-        else
-          "CHANGES_REQUESTED"
-        end;
-      def latest_review($entries):
-        (
-          $entries
-          | to_entries
-          | sort_by([(.value.submitted_at // ""), (.value.id // 0), .key])
-          | last
-          | .value
-        );
-      def meta_safe_to_merge($entry):
-        if (($entry.meta | type) == "object") and ($entry.meta | has("safe_to_merge")) then
-          $entry.meta.safe_to_merge
-        else
-          null
-        end;
-      def record_safe_to_merge($record):
-        (($record.decision // "") == "allow")
-        and all(($record.findings // [])[]?; (.severity // "") != "block");
-      def record_verdict($record):
-        if record_safe_to_merge($record) then "APPROVE" else "REQUEST_CHANGES" end;
-      def record_common_is_valid($record):
-        ($record | type) == "object"
-        and ($record.schema_version // "") == "loom-review/v1"
-        and ($record.item_id // "") == $review_item_id
-        and (($record.decision // "") | IN("allow", "block", "fallback"))
-        and (($record.summary // "") | type == "string")
-        and (($record.summary // "") | length > 0)
-        and (($record.reviewer // "") | type == "string")
-        and (($record.reviewer // "") | length > 0)
-        and (($record.reviewed_head // "") == $head_sha)
-        and (($record.reviewed_validation_summary // "") | type == "string")
-        and (($record.reviewed_validation_summary // "") | length > 0)
-        and (
-          ((($record.decision // "") == "fallback") and (($record.fallback_to // "") | IN("admission", "build", "merge")))
-          or ((($record.decision // "") != "fallback") and (($record.fallback_to // null) == null))
-        )
-        and (($record.findings // null) | type == "array")
-        and (($record.blocking_issues // null) | type == "array")
-        and (($record.follow_ups // null) | type == "array")
-        and all(($record.findings // [])[]?;
-          type == "object"
-          and ((.id // "") | type == "string")
-          and ((.id // "") | length > 0)
-          and ((.summary // "") | type == "string")
-          and ((.summary // "") | length > 0)
-          and ((.severity // "") | IN("warn", "block"))
-          and (((.rebuttal // null) == null) or (((.rebuttal // "") | type == "string") and ((.rebuttal // "") | length > 0)))
-          and (((.disposition // null) == null) or (
-            (.disposition | type) == "object"
-            and ((.disposition.status // "") | IN("accepted", "rejected", "deferred"))
-            and ((.disposition.summary // "") | type == "string")
-            and ((.disposition.summary // "") | length > 0)
-          ))
-        );
-      def implementation_record_is_valid($record):
-        record_common_is_valid($record)
-        and (($record.kind // "") | IN("general_review", "code_review"));
-      def spec_record_is_valid($record):
-        record_common_is_valid($record)
-        and (($record.kind // "") == "spec_review")
-        and (($record.review_subject | type) == "object")
-        and (($record.review_subject.pr_number // "") == $pr_number)
-        and (($record.review_subject.head_sha // "") == $head_sha)
-        and (($record.review_subject.base_sha // "") == $base_sha)
-        and (($record.review_subject.spec_locator // "") == $expected_spec_locator)
-        and (($record.review_subject.reviewed_scope // null) | type == "array")
-        and (($record.review_subject.reviewed_scope // []) | length > 0)
-        and all(($record.review_subject.reviewed_scope // [])[]?; type == "string" and length > 0)
-        and (sorted_strings($record.review_subject.reviewed_scope // []) == sorted_strings($expected_spec_scope))
-        and (($record.review_provenance | type) == "object")
-        and (($record.review_provenance.reviewer // "") | type == "string")
-        and (($record.review_provenance.reviewer // "") | length > 0)
-        and (($record.review_provenance.engine_adapter // "") | type == "string")
-        and (($record.review_provenance.engine_adapter // "") | length > 0)
-        and ($record.review_provenance | has("fail_closed_reason"));
-      def legacy_meta_is_valid($meta):
-        ($allow_legacy_schema_authority == "1")
-        and (($meta.verdict // "") | IN("APPROVE", "REQUEST_CHANGES"))
-        and (($meta.safe_to_merge | type) == "boolean")
-        and (($meta.guardian_runtime_sha256 // "") | length) > 0
-        and (
-          ($meta | has("result") | not)
-          or (
-            (($meta.result | type) == "object")
-            and (($meta.result.verdict // "") == ($meta.verdict // ""))
-            and (($meta.result.safe_to_merge // null) == ($meta.safe_to_merge // null))
-          )
-        );
-      def authority_meta($meta):
-        if (($meta.source_authority // "") == "loom_review_record") then
-          ($meta.loom_review_record // null) as $record
-          | if (implementation_record_is_valid($record) | not) then
-              null
-            else
-              (record_verdict($record)) as $record_verdict
-              | (record_safe_to_merge($record)) as $record_safe
-              | if (($meta.loom_review_record_sha256 // "") | length) == 0
-                  or (($meta.verdict // $record_verdict) != $record_verdict)
-                  or (($meta.safe_to_merge | type) != "boolean")
-                  or ($meta.safe_to_merge != $record_safe)
-                  or (($meta.compatibility_verdict // $record_verdict) != $record_verdict)
-                  or (($meta.compatibility_safe_to_merge | type) != "boolean")
-                  or ($meta.compatibility_safe_to_merge != $record_safe)
-                then
-                  null
-                else
-                  $meta + {
-                    verdict: $record_verdict,
-                    safe_to_merge: $record_safe,
-                    result: {
-                      verdict: $record_verdict,
-                      safe_to_merge: $record_safe,
-                      summary: ($record.summary // ""),
-                      findings: [],
-                      required_actions: []
-                    }
-                  }
-                end
-            end
-        elif (($meta.source_authority // "") == "loom_spec_review_record") then
-          ($meta.loom_review_record // null) as $record
-          | if (spec_record_is_valid($record) | not) then
-              null
-            else
-              (record_verdict($record)) as $record_verdict
-              | (record_safe_to_merge($record)) as $record_safe
-              | if (($meta.loom_review_record_sha256 // "") | length) == 0
-                  or (($meta.verdict // $record_verdict) != $record_verdict)
-                  or (($meta.safe_to_merge | type) != "boolean")
-                  or ($meta.safe_to_merge != $record_safe)
-                  or (($meta.compatibility_verdict // $record_verdict) != $record_verdict)
-                  or (($meta.compatibility_safe_to_merge | type) != "boolean")
-                  or ($meta.compatibility_safe_to_merge != $record_safe)
-                then
-                  null
-                else
-                  $meta + {
-                    verdict: $record_verdict,
-                    safe_to_merge: $record_safe,
-                    result: {
-                      verdict: $record_verdict,
-                      safe_to_merge: $record_safe,
-                      summary: ($record.summary // ""),
-                      findings: [],
-                      required_actions: []
-                    }
-                  }
-                end
-            end
-        elif (($meta.source_authority // "") == "loom_review_record_with_loom_spec_review_gate") then
-          ($meta.loom_review_record // null) as $record
-          | ($meta.loom_spec_review_record // null) as $spec_record
-          | if (implementation_record_is_valid($record) | not) or (spec_record_is_valid($spec_record) | not) then
-              null
-            else
-              (record_verdict($record)) as $record_verdict
-              | (record_safe_to_merge($record) and record_safe_to_merge($spec_record)) as $combined_safe
-              | (if $combined_safe then $record_verdict else "REQUEST_CHANGES" end) as $combined_verdict
-              | if (($meta.loom_review_record_sha256 // "") | length) == 0
-                  or (($meta.loom_spec_review_record_sha256 // "") | length) == 0
-                  or (($meta.verdict // $combined_verdict) != $combined_verdict)
-                  or (($meta.safe_to_merge | type) != "boolean")
-                  or ($meta.safe_to_merge != $combined_safe)
-                  or (($meta.compatibility_verdict // $combined_verdict) != $combined_verdict)
-                  or (($meta.compatibility_safe_to_merge | type) != "boolean")
-                  or ($meta.compatibility_safe_to_merge != $combined_safe)
-                then
-                  null
-                else
-                  $meta + {
-                    verdict: $combined_verdict,
-                    safe_to_merge: $combined_safe,
-                    result: {
-                      verdict: $combined_verdict,
-                      safe_to_merge: $combined_safe,
-                      summary: ($record.summary // ""),
-                      findings: [],
-                      required_actions: []
-                    }
-                  }
-                end
-            end
-        elif legacy_meta_is_valid($meta) then
-          $meta
-        else
-          null
-        end;
-      def review_key:
-        [(.submitted_at // ""), (.id // 0)];
-      def review_id_string:
-        ((.id // "") | tostring);
-      def review_matches_current_context:
-        (.meta_status // "") == "ok"
-        and (.meta.head_sha // "") == $head_sha
-        and (.meta.base_ref // "") == $base_ref
-        and (.meta.merge_base_sha // "") == $merge_base_sha
-        and (.meta.review_profile // "") == $review_profile
-        and (.meta.review_basis_digest // "") == $review_basis_digest
-        and (.meta.guardian_runtime_sha256 // "") == $guardian_runtime_sha256
-        and (($strict_prompt_digest != "1") or ((.meta.prompt_digest // "") == $prompt_digest))
-        and ((.state // "") == (.expected_state // ""));
-      def review_matches_reuse_basis:
-        (.meta_status // "") == "ok"
-        and (.meta.head_sha // "") == $head_sha
-        and (.meta.base_ref // "") == $base_ref
-        and (.meta.merge_base_sha // "") == $merge_base_sha
-        and (.meta.review_profile // "") == $review_profile
-        and (.meta.review_basis_digest // "") == $review_basis_digest
-        and (.meta.guardian_runtime_sha256 // "") == $guardian_runtime_sha256
-        and (($strict_prompt_digest != "1") or ((.meta.prompt_digest // "") == $prompt_digest));
-      def proof_matches_remote_review:
-        ($proofs[review_id_string] // null) as $proof
-        | $proof != null
-        and (($proof.repo_slug // "") == $repo_slug)
-        and ((($proof.pr_number // "") | tostring) == ($pr_number | tostring))
-        and ((($proof.review_id // "") | tostring) == review_id_string)
-        and (($proof.reviewer_login // "") == (.user.login // ""))
-        and (($proof.head_sha // "") == (.commit_id // ""))
-        and (($proof.base_ref // "") == (.meta.base_ref // ""))
-        and (($proof.merge_base_sha // "") == (.meta.merge_base_sha // ""))
-        and (($proof.review_profile // "") == (.meta.review_profile // ""))
-        and (($proof.review_basis_digest // "") == (.meta.review_basis_digest // ""))
-        and (($proof.guardian_runtime_sha256 // "") == (.meta.guardian_runtime_sha256 // ""))
-        and (($proof.prompt_digest // "") == (.meta.prompt_digest // ""))
-        and (($proof.review_body_sha256 // "") == (.cleaned_body_sha256 // ""))
-        and (($proof.source_authority // "") == (.meta.source_authority // ""))
-        and (($proof.loom_review_record_sha256 // "") == (.meta.loom_review_record_sha256 // ""))
-        and (($proof.loom_spec_review_record_sha256 // "") == (.meta.loom_spec_review_record_sha256 // ""))
-        and (($proof.verdict // "") == (.meta.verdict // ""))
-        and (($proof.safe_to_merge // null) == meta_safe_to_merge(.))
-        and (($proof.review_state // "") == (.state // ""))
-        and (($proof.submitted_at // "") == (.submitted_at // ""));
-      def reviewer_trusted_for_reuse:
-        (.user.login // "") as $login
-        | if trusted_bot_reviewer($login) then
-            true
-          elif ($proof_store_available == "1")
-            and ($requesting_user | length) > 0
-            and $login == $requesting_user
-            and ($login | endswith("[bot]") | not) then
-            proof_matches_remote_review
-          else
-            false
-          end;
-      def review_regresses_merge_safety($reused):
-        review_matches_reuse_basis
-        and (($reused.meta_status // "") == "ok")
-        and (meta_safe_to_merge($reused) == true)
-        and (meta_safe_to_merge(.) == false);
-      def review_blocks_reuse($reused):
-        if (.meta_status // "") == "missing_metadata" then
-          (.state // "") != "COMMENTED"
-        elif (.meta_status // "") == "invalid_metadata" then
-          true
-        else
-          (
-            (.meta.head_sha // "") != $head_sha
-            or (.meta.base_ref // "") != $base_ref
-            or (.meta.merge_base_sha // "") != $merge_base_sha
-            or (.meta.review_profile // "") != $review_profile
-            or (.meta.review_basis_digest // "") != $review_basis_digest
-            or (.meta.guardian_runtime_sha256 // "") != $guardian_runtime_sha256
-            or ($strict_prompt_digest == "1" and (.meta.prompt_digest // "") != $prompt_digest)
-            or ((.state // "") != (.expected_state // ""))
-            or review_regresses_merge_safety($reused)
-          )
-        end;
-      def normalize_review:
-        (.body // "") as $body
-        | (.cleaned_body // "") as $cleaned_body
-        | (([$body | match("<!-- webenvoy-guardian-meta:v1 (?<meta>[A-Za-z0-9+/=]+) -->"; "g")?] | last | .captures[0].string?) // "") as $meta_b64
-        | if ($meta_b64 | length) == 0 then
-            . + {
-              meta_status: "missing_metadata",
-              meta: null,
-              cleaned_body: $cleaned_body
-            }
-          else
-            ((try ($meta_b64 | @base64d | fromjson) catch null)) as $meta
-            | (if $meta == null then null else authority_meta($meta) end) as $authority_meta
-            | if $meta == null
-                or $authority_meta == null
-                or (($authority_meta.guardian_runtime_sha256 // "") | length) == 0
-                or (($authority_meta.review_body_sha256 // "") != (.cleaned_body_sha256 // "")) then
-                . + {
-                  meta_status: "invalid_metadata",
-                  meta: $meta,
-                  cleaned_body: $cleaned_body
-                }
-              else
-                . + {
-                  meta_status: "ok",
-                  meta: $authority_meta,
-                  cleaned_body: $cleaned_body,
-                  expected_state: expected_state(($authority_meta.verdict // ""); (.user.login // ""))
-                }
-              end
-          end;
-      [
-        .[][]
-        | select((.commit_id // "") == $head_sha)
-        | select((.state // "") | completed_state)
-        | normalize_review
-      ] as $normalized_head_reviews
-      | [
-          $normalized_head_reviews[]
-          | select(reviewer_trusted_for_reuse)
-      ] as $raw_matching_reviews
-      | (
-          $raw_matching_reviews
-          | sort_by(.user.login // "")
-          | group_by(.user.login // "")
-          | map(latest_review(.))
-        ) as $matching_reviews
-      | (
-          [
-            $normalized_head_reviews[]
-            | select(reviewer_trusted_for_reuse or (.meta_status // "") != "missing_metadata")
-          ]
-          | sort_by(.user.login // "")
-          | group_by(.user.login // "")
-          | map(latest_review(.))
-        ) as $blocking_candidate_reviews
-      | (
-          if ($matching_reviews | length) == 0 then
-            null
-          else
-            latest_review($matching_reviews)
-          end
-        ) as $latest_matching_review
-      | [
-          $matching_reviews[]
-          | select(review_matches_current_context)
-        ] as $reusable_reviews
-      | if ($matching_reviews | length) == 0 then
-          {
-            reusable: false,
-            reason: "missing_review",
-            head_sha: $head_sha,
-            review_profile: $review_profile,
-            review_basis_digest: $review_basis_digest,
-            prompt_digest: "",
-            verdict: null,
-            safe_to_merge: null,
-            reviewer_login: ($requesting_user // "")
-          }
-        else
-          (
-            if ($reusable_reviews | length) == 0 then
-              null
-            else
-              latest_review($reusable_reviews)
-            end
-          ) as $latest_reusable_review
-          | (
-              if $latest_reusable_review == null then
-                []
-              else
-                [
-                  $blocking_candidate_reviews[]
-                  | select(review_key > ($latest_reusable_review | review_key))
-                  | select(review_blocks_reuse($latest_reusable_review))
-                ]
-              end
-            ) as $blocking_reviews
-          | if ($latest_reusable_review != null) and (($blocking_reviews | length) == 0) then
-          $latest_reusable_review as $reused
-          | {
-              reusable: true,
-              reason: "matching_metadata",
-              head_sha: $head_sha,
-              review_profile: $review_profile,
-              review_basis_digest: ($reused.meta.review_basis_digest // ""),
-              prompt_digest: ($reused.meta.prompt_digest // ""),
-              verdict: ($reused.meta.verdict // null),
-              safe_to_merge: meta_safe_to_merge($reused),
-              result: ($reused.meta.result // null),
-              base_ref: ($reused.meta.base_ref // ""),
-              merge_base_sha: ($reused.meta.merge_base_sha // ""),
-              review_state: ($reused.state // ""),
-              review_id: ($reused.id // null),
-              review_body: ($reused.cleaned_body // ""),
-              reviewer_login: ($reused.user.login // ""),
-              source_authority: ($reused.meta.source_authority // ""),
-              selected_adapter: ($reused.meta.selected_adapter // null),
-              selection_source: ($reused.meta.selection_source // null),
-              fallback_reason: ($reused.meta.fallback_reason // null),
-              binding_summary: ($reused.meta.binding_summary // null),
-              review_engine_metadata: ($reused.meta.review_engine_metadata // null),
-              loom_review_record_sha256: ($reused.meta.loom_review_record_sha256 // ""),
-              loom_review_record: ($reused.meta.loom_review_record // null),
-              loom_spec_review_record_sha256: ($reused.meta.loom_spec_review_record_sha256 // ""),
-              loom_spec_review_record: ($reused.meta.loom_spec_review_record // null)
-            }
-        else
-          (
-            if ($blocking_reviews | length) > 0 then
-              latest_review($blocking_reviews)
-            else
-              $latest_matching_review
-            end
-          ) as $latest
-          | if ($latest.meta_status // "") == "missing_metadata" then
-              {
-                reusable: false,
-                reason: "missing_metadata",
-                head_sha: $head_sha,
-                review_profile: $review_profile,
-                review_basis_digest: $review_basis_digest,
-                prompt_digest: ($latest.meta.prompt_digest // ""),
-                verdict: null,
-                safe_to_merge: null,
-                reviewer_login: ($latest.user.login // "")
-              }
-            elif ($latest.meta_status // "") == "invalid_metadata" then
-              {
-                reusable: false,
-                reason: "invalid_metadata",
-                head_sha: $head_sha,
-                review_profile: $review_profile,
-                review_basis_digest: $review_basis_digest,
-                prompt_digest: ($latest.meta.prompt_digest // ""),
-                verdict: ($latest.meta.verdict // null),
-                safe_to_merge: meta_safe_to_merge($latest),
-                result: ($latest.meta.result // null),
-                reviewer_login: ($latest.user.login // "")
-              }
-            else
-              {
-                reusable: false,
-                reason: (
-                  if ($latest.meta.head_sha // "") != $head_sha then
-                    "head_sha_mismatch"
-                  elif ($latest.meta.base_ref // "") != $base_ref then
-                    "base_ref_mismatch"
-                  elif ($latest.meta.merge_base_sha // "") != $merge_base_sha then
-                    "merge_base_sha_mismatch"
-                  elif ($latest.meta.review_profile // "") != $review_profile then
-                    "review_profile_mismatch"
-                  elif ($latest.meta.review_basis_digest // "") != $review_basis_digest then
-                    "review_basis_digest_mismatch"
-                  elif ($latest.meta.guardian_runtime_sha256 // "") != $guardian_runtime_sha256 then
-                    "guardian_runtime_sha256_mismatch"
-                  elif ($strict_prompt_digest == "1" and ($latest.meta.prompt_digest // "") != $prompt_digest) then
-                    "prompt_digest_mismatch"
-                  elif ($latest_reusable_review != null) and ($latest | review_regresses_merge_safety($latest_reusable_review)) then
-                    "newer_blocking_review"
-                  elif ($latest.state // "") != ($latest.expected_state // "") then
-                    "review_state_mismatch"
-                  else
-                    "matching_metadata"
-                  end
-                ),
-                head_sha: $head_sha,
-                review_profile: $review_profile,
-                review_basis_digest: $review_basis_digest,
-                prompt_digest: ($latest.meta.prompt_digest // ""),
-                verdict: ($latest.meta.verdict // null),
-                safe_to_merge: meta_safe_to_merge($latest),
-                result: ($latest.meta.result // null),
-                base_ref: ($latest.meta.base_ref // ""),
-                merge_base_sha: ($latest.meta.merge_base_sha // ""),
-                review_state: ($latest.state // ""),
-                review_id: ($latest.id // null),
-                review_body: ($latest.cleaned_body // ""),
-                reviewer_login: ($latest.user.login // "")
-              }
-            end
-        end
-        end
-    ' "${reviews_file}" > "${output_file}"
+  CODEX_HOME="${CODEX_HOME:-${CODEX_ROOT}}" guardian_review_status status \
+    --reviews-file "${raw_reviews_file}" \
+    --proof-store "${proof_store_file}" \
+    --proof-store-available "${proof_store_available}" \
+    --repo-slug "${repo_slug}" \
+    --pr-number "${pr_number}" \
+    --requesting-user "${requesting_user}" \
+    --trusted-reviewers-file "${trusted_reviewers_file}" \
+    --strict-prompt-digest "${strict_prompt_digest}" \
+    --pr-author "${PR_AUTHOR:-}" \
+    --head-sha "${HEAD_SHA:-}" \
+    --base-ref "${BASE_REF:-}" \
+    --base-sha "${BASE_SHA:-${MERGE_BASE_SHA:-}}" \
+    --merge-base-sha "${MERGE_BASE_SHA:-}" \
+    --review-profile "${REVIEW_PROFILE:-}" \
+    --review-basis-digest "${REVIEW_BASIS_DIGEST:-}" \
+    --guardian-runtime-sha256 "$(hash_running_guardian_script_sha256)" \
+    --prompt-digest "${PROMPT_DIGEST:-}" \
+    --review-item-id "${review_item_id}" \
+    --expected-spec-locator "${expected_spec_locator}" \
+    --expected-spec-scope-file "${expected_spec_scope_file}" \
+    --allow-legacy-schema-authority "${PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY:-0}" \
+    --output "${output_file}"
 }
 
 write_review_status_json() {
@@ -3893,40 +3354,30 @@ write_light_review_status_json() {
 
 hydrate_reused_review_result() {
   local review_status_file="$1"
+  local hydrate_action
+  local -a hydrate_args=()
 
   REUSED_REVIEWER_LOGIN="$(jq -r '.reviewer_login // ""' "${review_status_file}")"
   export REUSED_REVIEWER_LOGIN
 
-  jq -c '
-    if (.result | type) == "object" then
-      .result
-    else
-      {
-        verdict: .verdict,
-        safe_to_merge: .safe_to_merge,
-        summary: (
-          if .safe_to_merge then
-            "已复用当前 HEAD 的 guardian review 结论。"
-          else
-            "已复用当前 HEAD 的 guardian 阻断结论。"
-          end
-        ),
-        findings: [],
-        required_actions: []
-      }
-    end
-  ' "${review_status_file}" > "${RESULT_FILE}"
-
-  if jq -e '(.loom_review_record | type) == "object"' "${review_status_file}" >/dev/null 2>&1; then
-    jq '.loom_review_record' "${review_status_file}" > "${LOOM_REVIEW_RECORD_FILE}"
+  hydrate_args=(
+    hydrate
+    --status-file "${review_status_file}"
+    --result-output "${RESULT_FILE}"
+    --review-body-output "${REVIEW_MD_FILE}"
+  )
+  if [[ -n "${LOOM_REVIEW_RECORD_FILE:-}" ]]; then
+    hydrate_args+=(--loom-record-output "${LOOM_REVIEW_RECORD_FILE}")
   fi
-  if jq -e '(.loom_spec_review_record | type) == "object"' "${review_status_file}" >/dev/null 2>&1; then
-    jq '.loom_spec_review_record' "${review_status_file}" > "${SPEC_LOOM_REVIEW_RECORD_FILE}"
+  if [[ -n "${SPEC_LOOM_REVIEW_RECORD_FILE:-}" ]]; then
+    hydrate_args+=(--spec-loom-record-output "${SPEC_LOOM_REVIEW_RECORD_FILE}")
   fi
 
-  if [[ "$(jq -r '.review_body // ""' "${review_status_file}")" != "" ]]; then
-    jq -r '.review_body' "${review_status_file}" > "${REVIEW_MD_FILE}"
-  else
+  hydrate_action="$(
+    guardian_review_status "${hydrate_args[@]}"
+  )"
+
+  if [[ "${hydrate_action}" != "review_body" ]]; then
     build_markdown_review "${RESULT_FILE}" "${REVIEW_MD_FILE}"
   fi
 }
