@@ -5526,7 +5526,7 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
-  it("forwards canonical issue_208 live_write with editor focus attestation when top-level mode is omitted", async () => {
+  it("blocks canonical issue_208 live_write editor_input when debugger attestation would be required", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);
     const creatorUrl = "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article";
@@ -5611,50 +5611,30 @@ describe("extension service worker / gate and approval", () => {
       },
       timeout_ms: 100
     });
-    await waitForBridgeTurn();
-    await vi.waitFor(() => {
-      expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
-        32,
-        expect.objectContaining({
-          id: runId,
-          command: "xhs.search",
-          commandParams: expect.objectContaining({
-            requested_execution_mode: "live_write",
-            editor_focus_attestation: expect.objectContaining({
-              target_tab_id: 32,
-              focus_confirmed: true
-            }),
-            options: expect.objectContaining({
-              requested_execution_mode: "live_write",
-              editor_focus_attestation: expect.objectContaining({
-                target_tab_id: 32,
-                focus_confirmed: true
-              })
-            })
-          })
-        })
-      );
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: runId,
+      status: "error",
+      error: expect.objectContaining({
+        code: "ERR_EXECUTION_FAILED"
+      })
     });
-
-    runtimeMessageListeners[0]?.(
-      {
-        kind: "result",
-        id: runId,
-        ok: true,
-        payload: {
-          summary: {
-            outcome: "editor_input_forwarded"
-          }
-        }
-      },
-      {
-        tab: {
-          id: 32,
-          url: creatorUrl
+    expect(chromeApi.debugger.attach).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    const blocked = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; payload?: unknown })
+      .find((message) => message.id === runId);
+    expect(blocked).toMatchObject({
+      payload: {
+        details: {
+          reason: "EDITOR_INPUT_DEBUGGER_REQUIRED_BLOCKED",
+          requested_execution_mode: "live_write",
+          validation_action: "editor_input"
+        },
+        diagnosis: {
+          evidence: expect.arrayContaining(["chrome_debugger_attach=blocked"])
         }
       }
-    );
-    await waitForBridgeTurn();
+    });
   });
 
   it("falls back to global xhs tab resolution when currentWindow query is empty", async () => {

@@ -5504,7 +5504,7 @@ describe("extension service worker / bootstrap and trust", () => {
     });
   });
 
-  it("forwards issue_208 live_write with editor_input validation through the real background bridge", async () => {
+  it("fails closed for issue_208 live_write editor_input before debugger attach", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners, executeScript } = createChromeApi([firstPort]);
     let probeCall = 0;
@@ -5581,136 +5581,38 @@ describe("extension service worker / bootstrap and trust", () => {
       },
       timeout_ms: 1000
     });
-    await waitForBridgeTurn();
-    await vi.waitFor(() => {
-      expect(chromeApi.tabs.sendMessage).toHaveBeenCalled();
-    });
-
-    const proactiveContentScriptInject = executeScript.mock.calls.find(
-      (call) =>
-        (call[0] as { world?: string; files?: string[] }).world === "ISOLATED" &&
-        ((call[0] as { files?: string[] }).files ?? []).includes("build/content-script.js")
-    );
-    expect(proactiveContentScriptInject).toEqual([
-      expect.objectContaining({
-        target: { tabId: 32 },
-        world: "ISOLATED",
-        files: ["build/content-script.js"]
-      })
-    ]);
-    await vi.waitFor(() => {
-      expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
-        32,
-        expect.objectContaining({
-          command: "xhs.search",
-          commandParams: expect.objectContaining({
-            options: expect.objectContaining({
-              editor_focus_attestation: expect.objectContaining({
-                source: "chrome_debugger",
-                target_tab_id: 32,
-                focus_confirmed: true,
-                editor_locator: "div.tiptap.ProseMirror",
-                editor_target_key: "body > div:nth-of-type(1)"
-              })
-            })
-          })
-        })
-      );
-    });
-
-    runtimeMessageListeners[0]?.(
-      {
-        kind: "result",
-        id: "run-xhs-issue-208-editor-input-allowed-001",
-        ok: true,
-        payload: {
-          summary: {
-            capability_result: {
-              outcome: "success",
-              action: "write"
-            },
-            gate_outcome: {
-              gate_decision: "allowed",
-              effective_execution_mode: "live_write"
-            },
-            consumer_gate_result: {
-              requested_execution_mode: "live_write",
-              effective_execution_mode: "live_write",
-              gate_decision: "allowed",
-              gate_reasons: [
-                "WRITE_INTERACTION_APPROVED",
-                "ISSUE_208_EDITOR_INPUT_VALIDATION_APPROVED"
-              ]
-            },
-            interaction_result: {
-              validation_action: "editor_input",
-              target_page: "creator.xiaohongshu.com/publish",
-              validation_attestation: "controlled_real_interaction",
-              success_signals: [
-                "editable_state_entered",
-                "editor_focus_attested",
-                "text_visible",
-                "text_persisted_after_blur"
-              ],
-              failure_signals: [],
-              minimum_replay: [
-                "enter_editable_mode",
-                "focus_editor",
-                "type_short_text",
-                "blur_or_reobserve"
-              ],
-              out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
-            }
-          }
-        }
-      },
-      {
-        tab: {
-          id: 32,
-          url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article"
-        }
-      }
-    );
-    await waitForBridgeTurn();
-
-    const approved = firstPort.postMessage.mock.calls
-      .map(
-        (call) =>
-          call[0] as {
-            id?: string;
-            status?: string;
-            error?: { code?: string; message?: string };
-          }
-      )
-      .find((message) => message.id === "run-xhs-issue-208-editor-input-allowed-001");
-    expect(approved?.status).toBe("success");
-    expect(approved).toMatchObject({
+    await waitForPostedMessage(firstPort.postMessage, {
       id: "run-xhs-issue-208-editor-input-allowed-001",
+      status: "error",
+      error: expect.objectContaining({
+        code: "ERR_EXECUTION_FAILED"
+      })
+    });
+    expect(chromeApi.debugger.attach).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(executeScript.mock.calls.some((call) =>
+      ((call[0] as { files?: string[] }).files ?? []).includes("build/content-script.js")
+    )).toBe(false);
+    const blocked = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; payload?: unknown })
+      .find((message) => message.id === "run-xhs-issue-208-editor-input-allowed-001");
+    expect(blocked).toMatchObject({
       payload: {
-        summary: {
-          capability_result: {
-            outcome: "success",
-            action: "write"
-          },
-          gate_outcome: {
-            gate_decision: "allowed",
-            effective_execution_mode: "live_write"
-          },
-          consumer_gate_result: {
-            requested_execution_mode: "live_write",
-            effective_execution_mode: "live_write",
-            gate_decision: "allowed"
-          },
-          interaction_result: {
-            validation_attestation: "controlled_real_interaction",
-            success_signals: expect.arrayContaining(["editor_focus_attested"])
-          }
+        details: {
+          reason: "EDITOR_INPUT_DEBUGGER_REQUIRED_BLOCKED",
+          forward_failure_stage: "editor_input_debugger_dependency",
+          validation_action: "editor_input",
+          failure_signals: expect.arrayContaining(["debugger_required_blocked"])
+        },
+        diagnosis: {
+          category: "execution_blocked",
+          evidence: expect.arrayContaining(["chrome_debugger_attach=blocked"])
         }
       }
     });
   });
 
-  it("attests the active editor target when multiple editor candidates match", async () => {
+  it("fails closed instead of debugger-attesting repeated editor candidates", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners, executeScript } = createChromeApi([firstPort]);
     let probeCall = 0;
@@ -5789,26 +5691,18 @@ describe("extension service worker / bootstrap and trust", () => {
     });
     await waitForBridgeTurn();
 
-    await vi.waitFor(() => {
-      expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
-        32,
-        expect.objectContaining({
-          commandParams: expect.objectContaining({
-            options: expect.objectContaining({
-              editor_focus_attestation: expect.objectContaining({
-                source: "chrome_debugger",
-                editor_locator: "div.tiptap.ProseMirror",
-                editor_target_key: "body > div:nth-of-type(2)",
-                focus_confirmed: true
-              })
-            })
-          })
-        })
-      );
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-xhs-issue-208-editor-input-multi-editor-001",
+      status: "error",
+      error: expect.objectContaining({
+        code: "ERR_EXECUTION_FAILED"
+      })
     });
+    expect(chromeApi.debugger.attach).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("annotates editor_input forward with debugger attach failure attestation", async () => {
+  it("blocks editor_input before debugger attach when attestation would require debugger", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners, debuggerAttach } = createChromeApi([firstPort]);
     debuggerAttach.mockRejectedValueOnce(new Error("debugger attach denied"));
@@ -5856,25 +5750,29 @@ describe("extension service worker / bootstrap and trust", () => {
     });
     await waitForBridgeTurn();
 
-    let forwardCall: (typeof chromeApi.tabs.sendMessage.mock.calls)[number] | undefined;
-    await vi.waitFor(() => {
-      forwardCall = chromeApi.tabs.sendMessage.mock.calls.find(
-        (call) =>
-          (call[1] as { id?: string }).id ===
-          "run-xhs-issue-208-editor-input-debugger-attach-failed-001"
-      );
-      expect(forwardCall).toBeDefined();
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-xhs-issue-208-editor-input-debugger-attach-failed-001",
+      status: "error",
+      error: expect.objectContaining({
+        code: "ERR_EXECUTION_FAILED"
+      })
     });
-    const forwarded = (forwardCall?.[1] as { commandParams?: { options?: Record<string, unknown> } })
-      .commandParams?.options;
-    const attestation = asRecord(forwarded?.editor_focus_attestation);
-    expect(attestation).toMatchObject({
-      source: "chrome_debugger",
-      target_tab_id: 32,
-      focus_confirmed: false,
-      editor_locator: "div.tiptap.ProseMirror",
-      editor_target_key: "body > div:nth-of-type(1)",
-      failure_reason: "DEBUGGER_ATTACH_FAILED"
+    expect(debuggerAttach).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    const blocked = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; payload?: unknown })
+      .find((message) => message.id === "run-xhs-issue-208-editor-input-debugger-attach-failed-001");
+    expect(blocked).toMatchObject({
+      payload: {
+        details: {
+          reason: "EDITOR_INPUT_DEBUGGER_REQUIRED_BLOCKED",
+          forward_failure_stage: "editor_input_debugger_dependency",
+          failure_signals: expect.arrayContaining(["debugger_required_blocked"])
+        },
+        diagnosis: {
+          evidence: expect.arrayContaining(["chrome_debugger_attach=blocked"])
+        }
+      }
     });
   });
 
