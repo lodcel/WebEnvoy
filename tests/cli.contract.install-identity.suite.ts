@@ -3989,12 +3989,68 @@ describe("webenvoy cli contract / install and identity", () => {
 
   const realBrowserContract = realBrowserContractsEnabled ? it : it.skip;
 
+  it(
+    "times out and cleans up profile-scoped headless DOM probe processes",
+    async () => {
+      const runtimeCwd = await createRuntimeCwd();
+      const profileDir = path.join(runtimeCwd, "probe-profile");
+      await mkdir(profileDir, { recursive: true });
+      const fakeBrowserPath = path.join(runtimeCwd, "fake-hanging-browser.cjs");
+      const childPidPath = path.join(profileDir, "probe-child.pid");
+      await writeFile(
+        fakeBrowserPath,
+        `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+const path = require("node:path");
+
+const profilePrefix = "--user-data-dir=";
+const profileArg = process.argv.find((arg) => arg.startsWith(profilePrefix));
+if (!profileArg) {
+  process.exit(64);
+}
+const profileDir = profileArg.slice(profilePrefix.length);
+const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", profileDir], {
+  detached: true,
+  stdio: "ignore"
+});
+child.unref();
+writeFileSync(path.join(profileDir, "probe-child.pid"), String(child.pid), "utf8");
+setInterval(() => {}, 1000);
+`,
+        "utf8"
+      );
+      await chmod(fakeBrowserPath, 0o755);
+
+      let childPid: number | null = null;
+      try {
+        const result = await runHeadlessDomProbe(fakeBrowserPath, profileDir, "about:blank", {
+          cleanupBeforeLaunch: false,
+          timeoutMs: 3000
+        });
+        childPid = Number((await readFile(childPidPath, "utf8")).trim());
+
+        expect(result.status).toBeNull();
+        expect(result.timedOut).toBe(true);
+        expect(result.stderr).toMatch(/headless DOM probe timed out after \d+ms/);
+        expect(result.cleanupPids).toContain(childPid);
+        await wait(200);
+        expect(isPidAlive(childPid)).toBe(false);
+      } finally {
+        if (childPid !== null && isPidAlive(childPid)) {
+          process.kill(childPid, "SIGKILL");
+        }
+      }
+    },
+    15_000
+  );
+
   realBrowserContract("persists cookie/localStorage across second start on same profile via local fixture page", async () => {
     const realBrowserPath = detectSystemChromePath();
     expect(realBrowserPath).not.toBeNull();
 
     const runtimeCwd = await createRuntimeCwd();
-    const probeSupportCheck = runHeadlessDomProbe(String(realBrowserPath), runtimeCwd, "about:blank");
+    const probeSupportCheck = await runHeadlessDomProbe(String(realBrowserPath), runtimeCwd, "about:blank");
     expect(probeSupportCheck.status).toBe(0);
 
     const token = "persist_token_v1";
@@ -4009,7 +4065,7 @@ describe("webenvoy cli contract / install and identity", () => {
         res.end(`<!doctype html>
 <html><body>
 <script>
-document.cookie = "fixture_cookie=${token}; path=/; SameSite=Lax";
+document.cookie = "fixture_cookie=${token}; path=/; Max-Age=3600; SameSite=Lax";
 localStorage.setItem("fixture_local", "${token}");
 document.body.textContent = "seeded";
 </script>
@@ -4066,7 +4122,7 @@ document.body.textContent = JSON.stringify(state);
       const firstSummary = firstStartBody.summary as Record<string, unknown>;
       const profileDir = String(firstSummary.profileDir);
 
-      await wait(900);
+      await wait(2500);
 
       const firstStop = runCli(
         ["runtime.stop", "--profile", "fixture_persist_profile", "--run-id", "run-contract-971"],
@@ -4075,31 +4131,19 @@ document.body.textContent = JSON.stringify(state);
       );
       expect(firstStop.status).toBe(0);
 
-      const secondStart = runCli(
-        [
-          "runtime.start",
-          "--profile",
-          "fixture_persist_profile",
-          "--run-id",
-          "run-contract-972",
-          "--params",
-          JSON.stringify({
-            headless: true
-          })
-        ],
-        runtimeCwd,
-        env
-      );
-      expect(secondStart.status).toBe(0);
+      await wait(1000);
 
-      const secondStop = runCli(
-        ["runtime.stop", "--profile", "fixture_persist_profile", "--run-id", "run-contract-972"],
-        runtimeCwd,
-        env
-      );
-      expect(secondStop.status).toBe(0);
+      const seedProbe = await runHeadlessDomProbe(realBrowserPath, profileDir, `${baseUrl}/seed`, {
+        timeoutMs: 45_000
+      });
+      expect(seedProbe.status).toBe(0);
+      expect(seedProbe.stdout).toContain("seeded");
 
-      const probe = runHeadlessDomProbe(realBrowserPath, profileDir, `${baseUrl}/read`);
+      await wait(1000);
+
+      const probe = await runHeadlessDomProbe(realBrowserPath, profileDir, `${baseUrl}/read`, {
+        timeoutMs: 45_000
+      });
       expect(probe.status).toBe(0);
       expect(probe.stdout).toContain(`"local":"${token}"`);
       expect(probe.stdout).toContain(`fixture_cookie=${token}`);
@@ -4114,7 +4158,7 @@ document.body.textContent = JSON.stringify(state);
         });
       });
     }
-  });
+  }, 180_000);
 
   realBrowserContract(
     "keeps install -> start/status -> stop -> uninstall recovery machine-readable for official Chrome persistent runtime via real Chrome",

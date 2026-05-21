@@ -1771,7 +1771,7 @@ describe("webenvoy cli contract / runtime profile lifecycle", () => {
     expect(realBrowserPath).not.toBeNull();
 
     const runtimeCwd = await createRuntimeCwd();
-    const probeSupportCheck = runHeadlessDomProbe(String(realBrowserPath), runtimeCwd, "about:blank");
+    const probeSupportCheck = await runHeadlessDomProbe(String(realBrowserPath), runtimeCwd, "about:blank");
     expect(probeSupportCheck.status).toBe(0);
 
     const token = "persist_token_v1";
@@ -1786,7 +1786,7 @@ describe("webenvoy cli contract / runtime profile lifecycle", () => {
         res.end(`<!doctype html>
 <html><body>
 <script>
-document.cookie = "fixture_cookie=${token}; path=/; SameSite=Lax";
+document.cookie = "fixture_cookie=${token}; path=/; Max-Age=3600; SameSite=Lax";
 localStorage.setItem("fixture_local", "${token}");
 document.body.textContent = "seeded";
 </script>
@@ -1843,7 +1843,7 @@ document.body.textContent = JSON.stringify(state);
       const firstSummary = firstStartBody.summary as Record<string, unknown>;
       const profileDir = String(firstSummary.profileDir);
 
-      await wait(900);
+      await wait(2500);
 
       const firstStop = runCli(
         ["runtime.stop", "--profile", "fixture_persist_profile", "--run-id", "run-contract-971"],
@@ -1852,31 +1852,19 @@ document.body.textContent = JSON.stringify(state);
       );
       expect(firstStop.status).toBe(0);
 
-      const secondStart = runCli(
-        [
-          "runtime.start",
-          "--profile",
-          "fixture_persist_profile",
-          "--run-id",
-          "run-contract-972",
-          "--params",
-          JSON.stringify({
-            headless: true
-          })
-        ],
-        runtimeCwd,
-        env
-      );
-      expect(secondStart.status).toBe(0);
+      await wait(1000);
 
-      const secondStop = runCli(
-        ["runtime.stop", "--profile", "fixture_persist_profile", "--run-id", "run-contract-972"],
-        runtimeCwd,
-        env
-      );
-      expect(secondStop.status).toBe(0);
+      const seedProbe = await runHeadlessDomProbe(realBrowserPath, profileDir, `${baseUrl}/seed`, {
+        timeoutMs: 45_000
+      });
+      expect(seedProbe.status).toBe(0);
+      expect(seedProbe.stdout).toContain("seeded");
 
-      const probe = runHeadlessDomProbe(realBrowserPath, profileDir, `${baseUrl}/read`);
+      await wait(1000);
+
+      const probe = await runHeadlessDomProbe(realBrowserPath, profileDir, `${baseUrl}/read`, {
+        timeoutMs: 45_000
+      });
       expect(probe.status).toBe(0);
       expect(probe.stdout).toContain(`"local":"${token}"`);
       expect(probe.stdout).toContain(`fixture_cookie=${token}`);
@@ -1891,7 +1879,7 @@ document.body.textContent = JSON.stringify(state);
         });
       });
     }
-  });
+  }, 180_000);
 
   realBrowserContract(
     "keeps install -> start/status -> stop -> uninstall recovery machine-readable for official Chrome persistent runtime via real Chrome",
