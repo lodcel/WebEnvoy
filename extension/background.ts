@@ -56,7 +56,6 @@ import {
   validateXhsCommandInputForExtension,
   type ExtensionAbilityAction
 } from "./xhs-command-contract.js";
-import type { EditorInputFocusAttestation } from "./xhs-editor-input.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -114,20 +113,12 @@ const passiveCaptureSensitiveHeaderNames = new Set([
   "x-t"
 ]);
 const passiveCaptureRedactedHeaderValue = "[redacted]";
-const editorInputDebuggerProbeWaitMs = 150;
 const xhsTargetRestoreNavigationTimeoutMs = 5_000;
 const xhsTargetRestoreNavigationPollMs = 100;
 const xhsOpenResultCardNavigationTimeoutMs = 5_000;
 const xhsForwardResponseSafetyMs = 5_000;
 const xhsPreForwardStageTimeoutMs = 5_000;
 const xhsStaleRestoreBindingLeaseMaxAgeMs = 120_000;
-const editorInputDebuggerEntryLabels = ["新的创作"] as const;
-const editorInputSelectors = [
-  'div.tiptap.ProseMirror[contenteditable="true"]',
-  '[contenteditable="true"].tiptap.ProseMirror',
-  '[contenteditable="true"].ProseMirror',
-  '[contenteditable="true"][data-lexical-editor="true"]'
-] as const;
 const xhsSearchInputSelectors = [
   'input[type="search"]',
   'input[class*="search"]',
@@ -295,12 +286,6 @@ interface EditorInputProbeTarget {
   targetKey: string;
   centerX: number;
   centerY: number;
-}
-
-interface EditorInputProbeResult {
-  entryButton: EditorInputProbeTarget | null;
-  editor: EditorInputProbeTarget | null;
-  editorFocused: boolean;
 }
 
 interface XhsSearchResultCardTarget extends EditorInputProbeTarget {
@@ -6472,6 +6457,62 @@ class ChromeBackgroundBridge {
           },
           requestedFingerprintContext
         ) ?? requestedFingerprintContext;
+
+      if (xhsForwardState.issue208EditorInputValidation) {
+        if (suppressHostResponse) {
+          return;
+        }
+        this.#emit({
+          id: dispatchRequest.id,
+          status: "error",
+          summary: {
+            relay_path: "host>background>content-script>background>host"
+          },
+          payload: {
+            ...(gatePayload ? { ...gatePayload } : {}),
+            details: {
+              ...(asRecord(gatePayload?.details) ?? {}),
+              stage: "execution",
+              reason: "EDITOR_INPUT_DEBUGGER_REQUIRED_BLOCKED",
+              forward_failure_stage: "editor_input_debugger_dependency",
+              target_domain: consumerGateResult?.target_domain ?? null,
+              target_tab_id: consumerGateResult?.target_tab_id ?? tabId,
+              target_page: consumerGateResult?.target_page ?? null,
+              requested_execution_mode: consumerGateResult?.requested_execution_mode ?? null,
+              effective_execution_mode: consumerGateResult?.effective_execution_mode ?? null,
+              validation_action: "editor_input",
+              failure_signals: [
+                "debugger_required_blocked",
+                "editor_focus_not_attested"
+              ],
+              out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+            },
+            diagnosis: {
+              category: "execution_blocked",
+              stage: "policy",
+              component: "background",
+              failure_site: {
+                stage: "policy",
+                component: "background",
+                target: "xhs.editor_input.live_write",
+                summary:
+                  "editor_input live_write requires chrome.debugger attestation and is blocked before attach"
+              },
+              evidence: [
+                "validation_action=editor_input",
+                "requested_execution_mode=live_write",
+                "chrome_debugger_attach=blocked"
+              ]
+            }
+          },
+          error: {
+            code: "ERR_EXECUTION_FAILED",
+            message:
+              "editor_input live_write is blocked because the current controlled interaction path requires chrome.debugger"
+          }
+        });
+        return;
+      }
     } else {
       tabId = await this.#resolveTargetTabId(dispatchRequest);
     }
@@ -6577,25 +6618,6 @@ class ChromeBackgroundBridge {
         });
         return;
       }
-    }
-
-    if (xhsForwardState.issue208EditorInputValidation) {
-      const editorFocusAttestation = await runXhsPreForwardStage(
-        "editor_focus_attestation",
-        this.#buildEditorInputFocusAttestation(tabId)
-      );
-      if (editorFocusAttestation === null) {
-        emitXhsPreForwardTimeout("editor_focus_attestation");
-        return;
-      }
-      commandParams = this.#injectEditorFocusAttestation(commandParams, editorFocusAttestation);
-      dispatchRequest = {
-        ...dispatchRequest,
-        params: {
-          ...dispatchRequest.params,
-          command_params: commandParams
-        }
-      };
     }
 
     const timeoutMs = requestDeadlineMs - Date.now();
@@ -6746,349 +6768,6 @@ class ChromeBackgroundBridge {
         message: error instanceof Error ? error.message : "content script dispatch failed"
       });
     }
-  }
-
-  #injectEditorFocusAttestation(
-    commandParams: Record<string, unknown>,
-    attestation: EditorInputFocusAttestation
-  ): Record<string, unknown> {
-    const normalized: Record<string, unknown> = {
-      ...commandParams,
-      editor_focus_attestation: attestation
-    };
-    const optionParams = asRecord(commandParams.options);
-    const normalizedOptions: Record<string, unknown> = optionParams ? { ...optionParams } : {};
-    normalizedOptions.editor_focus_attestation = attestation;
-    normalized.options = normalizedOptions;
-    return normalized;
-  }
-
-  #buildEditorInputFocusAttestationRecord(input: {
-    tabId: number;
-    editableState: "already_ready" | "entered";
-    entryButton: EditorInputProbeTarget | null;
-    editor: EditorInputProbeTarget | null;
-    focusConfirmed: boolean;
-    failureReason: string | null;
-  }): EditorInputFocusAttestation {
-    return {
-      source: "chrome_debugger",
-      target_tab_id: input.tabId,
-      editable_state: input.editableState,
-      focus_confirmed: input.focusConfirmed,
-      entry_button_locator: input.entryButton?.locator ?? null,
-      entry_button_target_key: input.entryButton?.targetKey ?? null,
-      editor_locator: input.editor?.locator ?? null,
-      editor_target_key: input.editor?.targetKey ?? null,
-      failure_reason: input.failureReason
-    };
-  }
-
-  #buildEditorInputFailureAttestation(
-    tabId: number,
-    failureReason: string,
-    input?: {
-      editableState?: "already_ready" | "entered";
-      entryButton?: EditorInputProbeTarget | null;
-      editor?: EditorInputProbeTarget | null;
-    }
-  ): EditorInputFocusAttestation {
-    return this.#buildEditorInputFocusAttestationRecord({
-      tabId,
-      editableState: input?.editableState ?? "already_ready",
-      entryButton: input?.entryButton ?? null,
-      editor: input?.editor ?? null,
-      focusConfirmed: false,
-      failureReason
-    });
-  }
-
-  #buildEditorInputSuccessAttestation(
-    tabId: number,
-    input: {
-      editableState: "already_ready" | "entered";
-      entryButton: EditorInputProbeTarget | null;
-      editor: EditorInputProbeTarget;
-    }
-  ): EditorInputFocusAttestation {
-    return this.#buildEditorInputFocusAttestationRecord({
-      tabId,
-      editableState: input.editableState,
-      entryButton: input.entryButton,
-      editor: input.editor,
-      focusConfirmed: true,
-      failureReason: null
-    });
-  }
-
-  async #attachEditorInputDebugger(tabId: number): Promise<boolean> {
-    const debuggerApi = this.chromeApi.debugger;
-    if (!debuggerApi) {
-      return false;
-    }
-
-    try {
-      await debuggerApi.attach({ tabId }, debuggerProtocolVersion);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  async #resolveEditorInputAttestationAfterAttach(
-    tabId: number,
-    input: {
-      editableState: "already_ready" | "entered";
-      entryButton: EditorInputProbeTarget | null;
-      editor: EditorInputProbeTarget | null;
-    }
-  ): Promise<EditorInputFocusAttestation> {
-    const { editableState } = input;
-    let entryButton = input.entryButton;
-    let editor = input.editor;
-
-    if (!editor) {
-      return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_ENTRY_NOT_VISIBLE", {
-        editableState,
-        entryButton,
-        editor
-      });
-    }
-
-    await this.#dispatchEditorInputDebuggerClick(tabId, editor);
-    await this.#sleep(50);
-    const finalProbe = await this.#probeEditorInputTargets(tabId);
-    const focusConfirmed = finalProbe?.editorFocused === true;
-    const finalEditor = finalProbe?.editor ?? editor;
-
-    if (!focusConfirmed) {
-      return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_FOCUS_NOT_ATTESTED", {
-        editableState,
-        entryButton,
-        editor: finalEditor
-      });
-    }
-
-    return this.#buildEditorInputSuccessAttestation(tabId, {
-      editableState,
-      entryButton,
-      editor: finalEditor
-    });
-  }
-
-  async #buildEditorInputFocusAttestation(tabId: number): Promise<EditorInputFocusAttestation> {
-    const debuggerApi = this.chromeApi.debugger;
-    const initialProbe = await this.#probeEditorInputTargets(tabId);
-    if (!initialProbe) {
-      return this.#buildEditorInputFailureAttestation(tabId, "DEBUGGER_INTERACTION_FAILED");
-    }
-    let entryButton = initialProbe.entryButton;
-    const editor = initialProbe.editor;
-    let editableState: "already_ready" | "entered" = "already_ready";
-    const attached = await this.#attachEditorInputDebugger(tabId);
-    if (!attached) {
-      return this.#buildEditorInputFailureAttestation(tabId, "DEBUGGER_ATTACH_FAILED", {
-        entryButton,
-        editor
-      });
-    }
-
-    try {
-      if (!editor) {
-        if (!entryButton) {
-          return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_ENTRY_NOT_VISIBLE", {
-            entryButton,
-            editor
-          });
-        }
-        await this.#dispatchEditorInputDebuggerClick(tabId, entryButton);
-        await this.#sleep(editorInputDebuggerProbeWaitMs);
-        const postEntryProbe = await this.#probeEditorInputTargets(tabId);
-        if (!postEntryProbe?.editor) {
-          return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_ENTRY_NOT_VISIBLE", {
-            entryButton,
-            editor
-          });
-        }
-        editableState = "entered";
-        entryButton = postEntryProbe.entryButton ?? entryButton;
-        return await this.#resolveEditorInputAttestationAfterAttach(tabId, {
-          editableState,
-          entryButton,
-          editor: postEntryProbe.editor
-        });
-      }
-
-      return await this.#resolveEditorInputAttestationAfterAttach(tabId, {
-        editableState,
-        entryButton,
-        editor
-      });
-    } catch {
-      return this.#buildEditorInputFailureAttestation(tabId, "DEBUGGER_INTERACTION_FAILED", {
-        editableState,
-        entryButton,
-        editor
-      });
-    } finally {
-      if (attached) {
-        try {
-          await debuggerApi?.detach({ tabId });
-        } catch {
-          // Swallow detach errors to avoid overriding primary failure semantics.
-        }
-      }
-    }
-  }
-
-  async #probeEditorInputTargets(tabId: number): Promise<EditorInputProbeResult | null> {
-    const executeScript = this.chromeApi.scripting?.executeScript;
-    if (!executeScript) {
-      return null;
-    }
-    try {
-      const results = await executeScript({
-        target: { tabId },
-        world: "ISOLATED",
-        func: (entryLabels: unknown, selectors: unknown) => {
-          const labels = Array.isArray(entryLabels)
-            ? entryLabels.filter((item): item is string => typeof item === "string")
-            : [];
-          const editorSelectors = Array.isArray(selectors)
-            ? selectors.filter((item): item is string => typeof item === "string")
-            : [];
-          const asVisibleElement = (value: unknown): HTMLElement | null => {
-            if (!(value instanceof HTMLElement)) {
-              return null;
-            }
-            const rect = value.getBoundingClientRect();
-            const style = window.getComputedStyle(value);
-            if (
-              rect.width <= 0 ||
-              rect.height <= 0 ||
-              style.visibility === "hidden" ||
-              style.display === "none"
-            ) {
-              return null;
-            }
-            return value;
-          };
-          const buildLocator = (element: HTMLElement): string => {
-            if (typeof element.id === "string" && element.id.length > 0) {
-              return `#${element.id}`;
-            }
-            const className =
-              typeof element.className === "string"
-                ? element.className
-                    .split(/\s+/)
-                    .map((token) => token.trim())
-                    .filter((token) => token.length > 0)
-                    .slice(0, 2)
-                    .join(".")
-                : "";
-            if (className) {
-              return `${element.tagName.toLowerCase()}.${className}`;
-            }
-            return element.tagName.toLowerCase();
-          };
-          const buildTargetKey = (element: HTMLElement): string => {
-            const segments: string[] = [];
-            let current: HTMLElement | null = element;
-            while (current) {
-              const parent: HTMLElement | null = current.parentElement;
-              const tagName = current.tagName.toLowerCase();
-              if (!parent) {
-                segments.unshift(current.id ? `${tagName}#${current.id}` : tagName);
-                break;
-              }
-              const siblings = Array.from(parent.children).filter(
-                (candidate): candidate is HTMLElement =>
-                  candidate instanceof HTMLElement && candidate.tagName === current?.tagName
-              );
-              const position = siblings.indexOf(current) + 1;
-              const idSegment = current.id ? `#${current.id}` : "";
-              segments.unshift(`${tagName}${idSegment}:nth-of-type(${position})`);
-              current = parent;
-            }
-            return segments.join(" > ");
-          };
-          const toTarget = (
-            element: HTMLElement | null
-          ): { locator: string; targetKey: string; centerX: number; centerY: number } | null => {
-            if (!element) {
-              return null;
-            }
-            const rect = element.getBoundingClientRect();
-            return {
-              locator: buildLocator(element),
-              targetKey: buildTargetKey(element),
-              centerX: Math.round(rect.left + rect.width / 2),
-              centerY: Math.round(rect.top + rect.height / 2)
-            };
-          };
-          const buttons = Array.from(document.querySelectorAll("button, [role='button']"))
-            .map((entry) => asVisibleElement(entry))
-            .filter((entry): entry is HTMLElement => entry !== null);
-          let entryButton: HTMLElement | null = null;
-          for (const button of buttons) {
-            const text = button.innerText?.trim() ?? button.textContent?.trim() ?? "";
-            if (labels.some((label) => text.includes(label))) {
-              entryButton = button;
-              break;
-            }
-          }
-          let editor: HTMLElement | null = null;
-          for (const selector of editorSelectors) {
-            const candidates = Array.from(document.querySelectorAll(selector))
-              .map((entry) => asVisibleElement(entry))
-              .filter((entry): entry is HTMLElement => entry !== null);
-            if (candidates.length > 0) {
-              const active = document.activeElement;
-              const activeCandidate =
-                active instanceof Element
-                  ? candidates.find(
-                      (candidate) => candidate === active || candidate.contains(active as Node)
-                    ) ?? null
-                  : null;
-              if (activeCandidate) {
-                editor = activeCandidate;
-              } else if (candidates.length === 1) {
-                editor = candidates[0];
-              } else {
-                editor = null;
-              }
-              break;
-            }
-          }
-          const active = document.activeElement;
-          const editorFocused =
-            editor !== null &&
-            (active === editor ||
-              (active instanceof Element && editor.contains(active as Node)));
-          return {
-            entryButton: toTarget(entryButton),
-            editor: toTarget(editor),
-            editorFocused
-          };
-        },
-        args: [[...editorInputDebuggerEntryLabels], [...editorInputSelectors]]
-      });
-      return this.#parseEditorInputProbeResult(results[0]?.result ?? null);
-    } catch {
-      return null;
-    }
-  }
-
-  #parseEditorInputProbeResult(value: unknown): EditorInputProbeResult | null {
-    const record = asRecord(value);
-    if (!record) {
-      return null;
-    }
-    return {
-      entryButton: this.#parseEditorInputProbeTarget(record.entryButton),
-      editor: this.#parseEditorInputProbeTarget(record.editor),
-      editorFocused: record.editorFocused === true
-    };
   }
 
   #parseEditorInputProbeTarget(value: unknown): EditorInputProbeTarget | null {
