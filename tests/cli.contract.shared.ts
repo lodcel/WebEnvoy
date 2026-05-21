@@ -584,26 +584,458 @@ const wait = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-const runHeadlessDomProbe = (
+type HeadlessDomProbeResult = {
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  cleanupPids: number[];
+};
+
+const HEADLESS_DOM_PROBE_TIMEOUT_MS = 30_000;
+const HEADLESS_DOM_PROBE_FORCE_KILL_DELAY_MS = 1_500;
+const HEADLESS_DOM_PROBE_DOM_SETTLE_MS = 1_000;
+
+const listProcessIdsMatchingCommand = (needle: string): number[] => {
+  if (needle.length === 0) {
+    return [];
+  }
+  const result = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8"
+  });
+  if (result.status !== 0) {
+    return [];
+  }
+  const currentPid = process.pid;
+  return result.stdout
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      const match = /^(\d+)\s+(.+)$/.exec(trimmed);
+      if (!match) {
+        return null;
+      }
+      const pid = Number(match[1]);
+      const command = match[2];
+      if (!Number.isInteger(pid) || pid <= 0 || pid === currentPid || !command.includes(needle)) {
+        return null;
+      }
+      return pid;
+    })
+    .filter((pid): pid is number => pid !== null);
+};
+
+const killPid = (pid: number, signal: NodeJS.Signals): boolean => {
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    return nodeError.code === "ESRCH";
+  }
+};
+
+const killProfileProcessMatches = (profileDir: string, signal: NodeJS.Signals): number[] => {
+  const killed = new Set<number>();
+  for (const pid of listProcessIdsMatchingCommand(profileDir)) {
+    if (killPid(pid, signal)) {
+      killed.add(pid);
+    }
+  }
+  return [...killed].sort((left, right) => left - right);
+};
+
+const terminateHeadlessDomProbe = (
+  pid: number | undefined,
+  profileDir: string,
+  signal: NodeJS.Signals
+): number[] => {
+  const killed = new Set<number>();
+  if (typeof pid === "number" && Number.isInteger(pid) && pid > 0) {
+    const targetPid = process.platform === "win32" ? pid : -pid;
+    if (killPid(targetPid, signal)) {
+      killed.add(pid);
+    }
+  }
+  for (const matchedPid of killProfileProcessMatches(profileDir, signal)) {
+    killed.add(matchedPid);
+  }
+  return [...killed].sort((left, right) => left - right);
+};
+
+class HeadlessDomProbeTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`headless DOM probe timed out after ${String(timeoutMs)}ms`);
+  }
+}
+
+const resolveRemainingProbeTime = (deadline: number): number =>
+  Math.max(1, deadline - Date.now());
+
+const fetchJsonWithTimeout = async (url: string, timeoutMs: number): Promise<unknown> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`status=${String(response.status)}`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const waitForDevToolsPort = async (
+  profileDir: string,
+  deadline: number,
+  timeoutMs: number
+): Promise<number> => {
+  const activePortPath = path.join(profileDir, "DevToolsActivePort");
+  while (Date.now() < deadline) {
+    try {
+      const raw = await readFile(activePortPath, "utf8");
+      const [portLine] = raw.split("\n");
+      const port = Number(portLine);
+      if (Number.isInteger(port) && port > 0) {
+        return port;
+      }
+    } catch {
+      // DevToolsActivePort is created after Chrome finishes startup.
+    }
+    await wait(100);
+  }
+  throw new HeadlessDomProbeTimeoutError(timeoutMs);
+};
+
+const waitForPageTargetWebSocketUrl = async (
+  cdpPort: number,
+  url: string,
+  deadline: number
+): Promise<string> => {
+  while (Date.now() < deadline) {
+    try {
+      const payload = await fetchJsonWithTimeout(
+        `http://127.0.0.1:${String(cdpPort)}/json/list`,
+        Math.min(1_000, resolveRemainingProbeTime(deadline))
+      );
+      if (Array.isArray(payload)) {
+        const pageTarget = payload
+          .map((item) => asRecord(item))
+          .find(
+            (target) =>
+              target?.type === "page" &&
+              typeof target.webSocketDebuggerUrl === "string" &&
+              typeof target.url === "string" &&
+              (target.url === url || String(target.url).startsWith(url))
+          );
+        if (pageTarget && typeof pageTarget.webSocketDebuggerUrl === "string") {
+          return pageTarget.webSocketDebuggerUrl;
+        }
+      }
+    } catch {
+      // CDP list endpoint can be briefly unavailable during startup.
+    }
+    await wait(100);
+  }
+  throw new Error(`headless DOM probe could not resolve page target for ${url}`);
+};
+
+type ProbeCdpSend = (
+  method: string,
+  params?: Record<string, unknown>
+) => Promise<Record<string, unknown>>;
+
+const withProbeCdpSession = async <T>(
+  wsUrl: string,
+  run: (send: ProbeCdpSend) => Promise<T>,
+  deadline: number
+): Promise<T> => {
+  if (typeof WebSocket !== "function") {
+    throw new Error("global WebSocket is unavailable; Node >= 22 is required");
+  }
+  const ws = new WebSocket(wsUrl);
+  const pending = new Map<
+    number,
+    {
+      resolve: (value: Record<string, unknown>) => void;
+      reject: (error: Error) => void;
+    }
+  >();
+  let nextId = 1;
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("headless DOM probe CDP websocket open timeout")),
+      Math.min(5_000, resolveRemainingProbeTime(deadline))
+    );
+    ws.addEventListener("open", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("headless DOM probe CDP websocket open failed"));
+    });
+  });
+
+  const handleMessage = (text: string): void => {
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    if (typeof parsed.id !== "number") {
+      return;
+    }
+    const request = pending.get(parsed.id);
+    if (!request) {
+      return;
+    }
+    pending.delete(parsed.id);
+    const error = asRecord(parsed.error);
+    if (error) {
+      request.reject(new Error(JSON.stringify(error)));
+      return;
+    }
+    request.resolve(asRecord(parsed.result) ?? {});
+  };
+
+  ws.addEventListener("message", (event) => {
+    const data = event.data;
+    if (typeof data === "string") {
+      handleMessage(data);
+      return;
+    }
+    if (typeof Blob !== "undefined" && data instanceof Blob) {
+      void data.text().then(handleMessage).catch(() => undefined);
+      return;
+    }
+    handleMessage(Buffer.from(data as ArrayBuffer).toString("utf8"));
+  });
+  ws.addEventListener("close", () => {
+    for (const request of pending.values()) {
+      request.reject(new Error("headless DOM probe CDP websocket closed"));
+    }
+    pending.clear();
+  });
+
+  const send: ProbeCdpSend = async (method, params = {}) => {
+    const id = nextId;
+    nextId += 1;
+    return await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = setTimeout(
+        () => {
+          pending.delete(id);
+          reject(new Error(`headless DOM probe CDP command timeout: ${method}`));
+        },
+        Math.min(12_000, resolveRemainingProbeTime(deadline))
+      );
+      pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+      try {
+        ws.send(JSON.stringify({ id, method, params }));
+      } catch (error) {
+        clearTimeout(timer);
+        pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  };
+
+  try {
+    return await run(send);
+  } finally {
+    try {
+      ws.close();
+    } catch {
+      // Ignore close failure; probe cleanup still owns Chrome process shutdown.
+    }
+  }
+};
+
+const evaluateHeadlessDom = async (
   browserPath: string,
   profileDir: string,
-  url: string
-): { status: number | null; stdout: string; stderr: string } =>
-  spawnSync(
+  url: string,
+  deadline: number,
+  appendStderr: (chunk: string) => void,
+  onChildPid: (pid: number | undefined) => void
+): Promise<{
+  childPid: number | undefined;
+  html: string;
+}> => {
+  const child = spawn(
     browserPath,
     [
       `--user-data-dir=${profileDir}`,
+      "--profile-directory=Default",
       "--headless=new",
       "--no-first-run",
       "--no-default-browser-check",
-      "--virtual-time-budget=1500",
-      "--dump-dom",
+      "--remote-debugging-port=0",
+      "--remote-allow-origins=*",
       url
     ],
     {
-      encoding: "utf8"
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"]
     }
   );
+  onChildPid(child.pid);
+  child.stderr?.on("data", (chunk) => appendStderr(chunk.toString("utf8")));
+
+  const cdpPort = await waitForDevToolsPort(profileDir, deadline, Math.max(1, deadline - Date.now()));
+  const wsUrl = await waitForPageTargetWebSocketUrl(cdpPort, url, deadline);
+  const html = await withProbeCdpSession(
+    wsUrl,
+    async (send) => {
+      await send("Runtime.enable");
+      const response = await send("Runtime.evaluate", {
+        expression: `new Promise((resolve) => {
+  const expectedUrl = ${JSON.stringify(url)};
+  const startedAt = Date.now();
+  const finishWhenReady = () => {
+    const urlReady = location.href === expectedUrl || location.href.startsWith(expectedUrl);
+    const documentReady = document.readyState === "complete" || document.readyState === "interactive";
+    const bodyReady = expectedUrl === "about:blank" || (document.body !== null && document.body.childNodes.length > 0);
+    if (urlReady && documentReady && bodyReady) {
+      setTimeout(() => resolve(document.documentElement.outerHTML), ${String(HEADLESS_DOM_PROBE_DOM_SETTLE_MS)});
+      return;
+    }
+    if (Date.now() - startedAt >= 10000) {
+      resolve(document.documentElement.outerHTML);
+      return;
+    }
+    setTimeout(finishWhenReady, 100);
+  };
+  finishWhenReady();
+})`,
+        awaitPromise: true,
+        returnByValue: true
+      });
+      if (response.exceptionDetails) {
+        throw new Error(`headless DOM probe evaluation failed: ${JSON.stringify(response.exceptionDetails)}`);
+      }
+      const result = asRecord(response.result);
+      const value = result?.value;
+      if (typeof value !== "string") {
+        throw new Error("headless DOM probe evaluation returned a non-string value");
+      }
+      void send("Browser.close").catch(() => undefined);
+      await wait(HEADLESS_DOM_PROBE_DOM_SETTLE_MS);
+      return value;
+    },
+    deadline
+  );
+
+  return {
+    childPid: child.pid,
+    html
+  };
+};
+
+const runHeadlessDomProbe = async (
+  browserPath: string,
+  profileDir: string,
+  url: string,
+  options?: { timeoutMs?: number; cleanupBeforeLaunch?: boolean }
+): Promise<HeadlessDomProbeResult> => {
+  const timeoutMs = options?.timeoutMs ?? HEADLESS_DOM_PROBE_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
+  let stderr = "";
+  let childPid: number | undefined;
+  let timedOut = false;
+  const cleanupPids = new Set<number>();
+  const recordCleanup = (pids: number[]) => {
+    for (const pid of pids) {
+      cleanupPids.add(pid);
+    }
+  };
+  const appendStderr = (chunk: string): void => {
+    stderr += chunk;
+  };
+
+  if (options?.cleanupBeforeLaunch !== false) {
+    recordCleanup(killProfileProcessMatches(profileDir, "SIGTERM"));
+    await wait(250);
+    recordCleanup(killProfileProcessMatches(profileDir, "SIGKILL"));
+  }
+  await rm(path.join(profileDir, "DevToolsActivePort"), { force: true });
+
+  const probePromise = evaluateHeadlessDom(
+    browserPath,
+    profileDir,
+    url,
+    deadline,
+    appendStderr,
+    (pid) => {
+      childPid = pid;
+    }
+  );
+  void probePromise.catch(() => undefined);
+  let timeoutTimer: NodeJS.Timeout | null = null;
+
+  try {
+    const probe = await Promise.race([
+      probePromise,
+      new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          timedOut = true;
+          recordCleanup(terminateHeadlessDomProbe(childPid, profileDir, "SIGTERM"));
+          reject(new HeadlessDomProbeTimeoutError(timeoutMs));
+        }, timeoutMs);
+        timeoutTimer.unref?.();
+      })
+    ]);
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
+    }
+    childPid = probe.childPid;
+    recordCleanup(terminateHeadlessDomProbe(childPid, profileDir, "SIGTERM"));
+    await wait(HEADLESS_DOM_PROBE_FORCE_KILL_DELAY_MS);
+    recordCleanup(killProfileProcessMatches(profileDir, "SIGKILL"));
+    return {
+      status: 0,
+      signal: null,
+      stdout: probe.html,
+      stderr: stderr.trimEnd(),
+      timedOut: false,
+      cleanupPids: [...cleanupPids].sort((left, right) => left - right)
+    };
+  } catch (error) {
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
+    }
+    timedOut = timedOut || error instanceof HeadlessDomProbeTimeoutError;
+    recordCleanup(terminateHeadlessDomProbe(childPid, profileDir, timedOut ? "SIGKILL" : "SIGTERM"));
+    await wait(100);
+    recordCleanup(killProfileProcessMatches(profileDir, "SIGKILL"));
+    return {
+      status: null,
+      signal: null,
+      stdout: "",
+      stderr: [
+        stderr.trimEnd(),
+        error instanceof Error ? error.message : String(error)
+      ].filter((line) => line.length > 0).join("\n"),
+      timedOut,
+      cleanupPids: [...cleanupPids].sort((left, right) => left - right)
+    };
+  }
+};
 
 const realBrowserContractsEnabled = process.env.WEBENVOY_RUN_REAL_BROWSER === "1";
 const BROWSER_STATE_FILENAME = "__webenvoy_browser_instance.json";
