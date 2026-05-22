@@ -165,7 +165,8 @@ spec review 的执行约束：
 ## integration project 联动规则
 
 - 默认执行真相源仍是当前仓库内的 Issue / Project / PR 分层；只有在事项触及跨仓共享契约、跨仓依赖或联合验收时，才查看 owner 级 integration project。
-- 每个进入执行回合的 PR 都必须在 PR 描述的 `integration_check` 中显式声明：
+- WebEnvoy core backlog 与普通本仓库治理 / 文档 / 实现事项默认 `local_only`，不因未来可能被 Syvert 使用而绑定 Syvert；只有明确进入 Syvert provider / WebEnvoy provider adapter、跨仓共享契约或联合验收的事项，才允许设置 `external_dependency=syvert|both` 或 `merge_gate=integration_check_required`。
+- 需要 integration 联动的 PR 必须在 PR 描述的 `integration_check` 中显式声明：
   - `integration_applicable`
   - `integration_touchpoint`
   - `integration_ref`
@@ -179,11 +180,12 @@ spec review 的执行约束：
 - `integration_applicable=no` 时，`integration_ref` 必须写 `none`；`integration_applicable=yes` 时，`integration_ref` 必须指向具体 integration issue / project item。
 - `integration_ref` 必须指向可核查的具体 integration issue / project item；只写 owner 级 project 根链接不算合法绑定。
 - 满足以下任一条件时，`integration_touchpoint` 不得为 `none`，并且在进入实现前必须先查看 `integration_ref` 对应的 integration issue / item：
+  - 明确进入 Syvert provider / WebEnvoy provider adapter 事项
   - 改共享输入输出
   - 改错误码或错误语义
   - 改 `raw` / `normalized` / `diagnostics` / `observability`
   - 改 `task_id` / `request_id` / `run_id`
-  - 改执行模式或 gate 口径
+  - 改跨仓共享执行模式或 provider/shared-contract integration gate 口径
   - 依赖另一仓库先做、同步做或共同验收
   - 影响联合 PoC、联合回归或共享桥接能力
 - `integration_touchpoint` 取值约定：
@@ -210,7 +212,7 @@ spec review 的执行约束：
   - `diagnostics_observability`
   - `runtime_modes`
   - `integration_governance`
-- 若当前 PR 只改 integration gate / review 语义或其他共享协作治理口径，`contract_surface` 统一写 `integration_governance`，不得回退为 `none` 或误标为业务运行时表面。
+- 若已判定为 integration-gated 的 PR 只改 integration gate / review 语义或其他共享协作治理口径，`contract_surface` 统一写 `integration_governance`，不得回退为 `none` 或误标为业务运行时表面。
 - integration project 只承载跨仓协调真相；本地 Issue / Project / PR 仍是本仓库执行、关闭语义与 merge gate 的真相源。
 
 ## 轻量改动通道

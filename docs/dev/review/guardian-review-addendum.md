@@ -18,8 +18,8 @@
 - fallback 产品价值必须与 formal closeout 证据分离；DOM/state extraction、observed context 或 fallback 结果不能替代正式关闭条件。
 - live evidence closeout 必须使用当前 PR latest head 或 current latest main 的 fresh evidence；旧 head、历史 artifact、旧 run 或 same-head 历史产物只能作为背景。
 - closeout / live closeout / formal completion PR 必须在 PR 描述中声明 `issue_type`、`readiness_admission_status`、`closeout_evidence`、`fallback_limitations` 和 `blocker_split_handling`。
-- 若事项触及跨仓共享契约、跨仓依赖或联合验收，先核对 PR 描述中的 `integration_check`；缺失时不得默认视为本地单仓事项。
-- 若当前 PR 改 integration gate / review 语义、联合验收口径或其他共享协作契约，即使 diff 只落在治理文档，也必须按 integration-gated 事项审查；不得因“未改实现代码”而跳过 `integration_check`。
+- 若事项触及跨仓共享契约、跨仓依赖、联合验收，或明确进入 Syvert provider / WebEnvoy provider adapter，先核对 PR 描述中的 `integration_check`；缺失时不得默认视为本地单仓事项。
+- WebEnvoy core、普通本仓库治理 / 文档 / 实现事项默认 `local_only`；不要仅因未来可能被 Syvert 使用，或仅因本仓库维护 integration 口径，就把事项升级为 Syvert-gated。
 - 真实 Live Evidence 专项门禁只适用于声称完成真实 runtime / 真实页面交互 / 真实 live read-write 闭环，或把 live evidence 作为关闭 issue、判定“已完成”或请求 merge 放行核心依据的 PR。
 - 对 formal spec review PR、live evidence 治理落库/治理维护 PR 与所有落入专项门禁的 PR，先核对 PR 描述中的结构化 `gate_applicability`；缺失时直接阻断，不得回退到标题、路径或 issue 引用 heuristics。
 - 治理相关 lane 只有在 PR 实际变更精确等于 `AGENTS.md`、`docs/dev/AGENTS.md`、`code_review.md`、`docs/dev/review/guardian-review-addendum.md`、`.github/PULL_REQUEST_TEMPLATE.md` 这五处冻结治理目标文件时才成立；五者缺一不可。
@@ -31,4 +31,4 @@
 - 只有来自 `real_browser` 执行面的最新 live evidence，且能证明真实页面交互或真实闭环结果时，才可作为放行依据；`runtime.ping`、`runtime.bootstrap`、stub/fake host、旧 head/旧 artifact 或 same-head 历史 artifact 默认无效。
 - 若 `integration_check.shared_contract_changed=yes`、`integration_check.external_dependency!=none`、`integration_check.joint_acceptance_needed=yes` 或事项本身要求 `merge_gate=integration_check_required`，reviewer / guardian 还必须确认提 PR 前与合并前都核对过 `integration_ref` 对应状态。
 - 若 `integration_check.integration_applicable=no`，`integration_ref` 必须写 `none`；若 `integration_check.integration_applicable=yes`，`integration_ref` 必须是具体 integration issue / item。
-- 若 `integration_check` 缺失、`integration_ref` 非法、在 `integration_check.integration_applicable=yes` 或事项应按 integration-gated 处理时 `merge_gate` 仍为 `local_only`，或 integration gate / review 语义变更却未使用 `contract_surface=integration_governance`，必须直接阻断，不得继续批准。
+- 若需要 integration 联动但 `integration_check` 缺失、`integration_ref` 非法、在 `integration_check.integration_applicable=yes` 或事项应按 integration-gated 处理时 `merge_gate` 仍为 `local_only`，或 integration-gated 的 gate / review 语义变更却未使用 `contract_surface=integration_governance`，必须直接阻断，不得继续批准。
