@@ -38,6 +38,8 @@
 
 ## integration_check
 
+仅 provider / shared-contract / joint-acceptance 事项启用；WebEnvoy core 默认 local-only。
+
 - integration_applicable（`yes` / `no`）:
 - integration_touchpoint（`none` / `check_required` / `active` / `blocked` / `resolved`）:
 - integration_ref:
@@ -51,11 +53,13 @@
 
 补充说明：
 
+- WebEnvoy core、普通本仓库治理 / 文档 / 实现事项默认 `integration_applicable=no`、`integration_touchpoint=none`、`external_dependency=none`、`merge_gate=local_only`、`contract_surface=none`；不要仅因未来可能被 Syvert 使用而绑定 Syvert。
+- 只有明确进入 Syvert provider / WebEnvoy provider adapter、跨仓共享契约或联合验收时，才填写 `integration_applicable=yes` 并启用 integration gate。
 - `integration_applicable=no` 时，`integration_ref` 填 `none`；只有 `integration_applicable=yes` 时，`integration_ref` 才必须指向可核查的具体 integration issue / project item，而不是只写 project 根链接。
 - `integration_applicable=yes` 时，`integration_touchpoint`、`merge_gate` 与 `contract_surface` 不得留空。
-- `integration_touchpoint` 为 `check_required` / `active` / `blocked`、`shared_contract_changed=yes`、`external_dependency != none`、`joint_acceptance_needed=yes`，或当前 PR 改 integration gate / review 语义时，当前事项 / PR 的 `merge_gate` 必须按 `integration_check_required` 收口。
-- 只有 `integration_touchpoint=resolved` 且 `shared_contract_changed=no`、`external_dependency=none`、`joint_acceptance_needed=no`，并且当前 PR 未改 integration gate / review 语义时，才可继续使用 `merge_gate=local_only`；其余场景保持 `integration_check_required`。
-- 若当前 PR 改 integration gate / review 语义、联合验收口径或其他共享协作契约，`contract_surface` 不得写 `none`；治理型 gate / review 语义变更统一写 `integration_governance`，其他场景填写最接近的共享表面。
+- `integration_touchpoint` 为 `check_required` / `active` / `blocked`、`shared_contract_changed=yes`、`external_dependency != none`、`joint_acceptance_needed=yes`，或事项明确进入 provider/shared-contract integration 时，当前事项 / PR 的 `merge_gate` 必须按 `integration_check_required` 收口。
+- 纯 WebEnvoy-local 事项使用 `merge_gate=local_only`；只有明确触发 provider/shared-contract/joint-acceptance 时才升级为 `integration_check_required`。
+- 若已判定为 integration-gated 的 PR 改 integration gate / review 语义、联合验收口径或其他共享协作契约，`contract_surface` 不得写 `none`；治理型 gate / review 语义变更统一写 `integration_governance`，其他场景填写最接近的共享表面。
 - merge 前必须再次核对 `integration_ref` 对应 integration issue / project item 的状态、依赖与联合验收约束。
 
 ## gate_applicability（对 formal spec review PR、live evidence 治理落库/治理维护 PR，以及所有落入真实 live evidence 专项门禁的 PR 必填）
@@ -119,7 +123,7 @@
 - [ ] 若本 PR 属于 formal spec review PR、live evidence 治理落库/治理维护 PR 或落入真实 live evidence 专项门禁，已补齐 `gate_applicability`
 - [ ] 若本 PR 属于治理相关 lane，已确认 `governance_context_issue_ref`、`review_lane`、精确五文件治理范围与 closing 语义彼此一致，且未混入 FR-0016 formal spec / `docs/dev/specs/FR-0016-live-evidence-governance-gate/TODO.md` 范围
 - [ ] 若本 PR 落入真实 live evidence 专项门禁，已补齐 latest head 的有效 `live_evidence_record`，且未把 stub/fake host、`runtime.ping` 或 `runtime.bootstrap` 误写为真实闭环证据
-- [ ] 若事项触及跨仓共享契约、跨仓依赖、联合验收，或当前 PR 改 integration gate / review 语义，PR 描述已补齐 `integration_check`，且提 PR 前与合并前都核对过 `integration_ref`
+- [ ] 若事项触及跨仓共享契约、跨仓依赖、联合验收，或明确进入 provider/shared-contract integration，PR 描述已补齐 `integration_check`，且提 PR 前与合并前都核对过 `integration_ref`
 - [ ] 如涉及 FR / 架构 / 高风险目录，已补充必要上下文与影响说明
 - [ ] 如涉及正式 spec / 架构规约，已先完成 spec review，且未与实现代码混在同一 PR
 - [ ] 如本 PR 是正式套件起草 / 修订，已补齐 GWT、异常场景、测试策略与 TDD 范围
