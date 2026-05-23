@@ -224,10 +224,31 @@ const parseContentDescriptor = (value, abilityId) => {
     if (sizeBytes !== undefined && (typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes) || sizeBytes < 0)) {
         throw invalidDownloadInput("SIZE_BYTES_INVALID", abilityId);
     }
+    const checksumSha256 = object.checksum_sha256;
+    if (checksumSha256 !== undefined &&
+        (typeof checksumSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(checksumSha256))) {
+        throw invalidDownloadInput("CHECKSUM_SHA256_INVALID", abilityId);
+    }
     return {
         content_kind: contentKind,
         mime_type: mimeType,
-        ...(sizeBytes !== undefined ? { size_bytes: sizeBytes } : {})
+        ...(sizeBytes !== undefined ? { size_bytes: sizeBytes } : {}),
+        ...(checksumSha256 !== undefined ? { checksum_sha256: checksumSha256 } : {})
+    };
+};
+const parseBrowserArtifactForContract = (value, abilityId) => {
+    if (value === undefined) {
+        return undefined;
+    }
+    const object = asObject(value);
+    if (!object) {
+        throw invalidDownloadInput("BROWSER_ARTIFACT_INVALID", abilityId);
+    }
+    const contentBase64 = parseRequiredString(object, "content_base64", "BROWSER_ARTIFACT_CONTENT_INVALID", abilityId);
+    const artifactRef = parseOptionalString(object, "artifact_ref", "BROWSER_ARTIFACT_REF_INVALID", abilityId);
+    return {
+        content_base64: contentBase64,
+        ...(artifactRef ? { artifact_ref: artifactRef } : {})
     };
 };
 export const parseDownloadResultSummaryForContract = (value, abilityId = "download.prepare") => {
@@ -305,6 +326,7 @@ export const parseDownloadBrowserExecutionResultForContract = (value, abilityId 
     if (!TRIGGER_SURFACES.has(triggerSurface)) {
         throw invalidDownloadInput("DOWNLOAD_TRIGGER_SURFACE_INVALID", abilityId);
     }
+    const browserArtifact = parseBrowserArtifactForContract(target.browser_artifact, abilityId);
     return {
         success: true,
         download_target: {
@@ -317,6 +339,7 @@ export const parseDownloadBrowserExecutionResultForContract = (value, abilityId 
                 }
                 : {}),
             content_descriptor: parseContentDescriptor(target.content_descriptor, abilityId),
+            ...(browserArtifact ? { browser_artifact: browserArtifact } : {}),
             trigger_status: triggerStatus,
             trigger_mode: triggerMode,
             trigger_surface: triggerSurface
@@ -387,6 +410,19 @@ export const buildDownloadTriggeredResultSummaryForContract = (input) => ({
     source_url: input.target.source_url,
     ...(input.target.file_name_hint ? { file_name_hint: input.target.file_name_hint } : {}),
     content_descriptor: { ...input.target.content_descriptor }
+});
+export const buildDownloadLandedResultSummaryForContract = (input) => ({
+    download_ref: `download.trigger/${input.runId}`,
+    result_state: "downloaded",
+    saved_artifact_refs: [...input.savedArtifactRefs],
+    resolved_output_path: input.resolvedOutputPath,
+    source_url: input.target.source_url,
+    file_name_hint: input.fileNameHint,
+    content_descriptor: {
+        ...input.target.content_descriptor,
+        size_bytes: input.sizeBytes,
+        checksum_sha256: input.checksumSha256
+    }
 });
 export const buildAbilityValidationSeedForDownloadRequest = (input) => ({
     ...input.materialized,

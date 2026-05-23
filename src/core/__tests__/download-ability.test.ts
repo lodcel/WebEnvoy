@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseAbilityValidationRequestForContract } from "../ability-validation.js";
 import {
   buildAbilityValidationSeedForDownloadRequest,
+  buildDownloadLandedResultSummaryForContract,
   buildDownloadPrepareResultSummaryForContract,
   buildDownloadTriggeredResultSummaryForContract,
   materializeCandidateAbilityFromDownloadSeedForContract,
@@ -246,12 +247,16 @@ describe("download ability contract", () => {
         content_descriptor: {
           content_kind: "file",
           mime_type: "application/pdf",
-          size_bytes: 2048
+          size_bytes: 2048,
+          checksum_sha256: "a".repeat(64)
         }
       })
     ).toMatchObject({
       result_state: "downloaded",
-      source_url: "https://example.com/report.pdf"
+      source_url: "https://example.com/report.pdf",
+      content_descriptor: {
+        checksum_sha256: "a".repeat(64)
+      }
     });
     expect(
       buildDownloadPrepareResultSummaryForContract({
@@ -331,6 +336,52 @@ describe("download ability contract", () => {
       file_name_hint: "report.pdf"
     });
     expect(summary).not.toHaveProperty("resolved_output_path");
+  });
+
+  it("builds downloaded summaries after CLI artifact landing", () => {
+    const browserResult = parseDownloadBrowserExecutionResultForContract({
+      success: true,
+      download_target: {
+        target_ref: "download-link",
+        source_kind: "page_derived",
+        source_url: "https://example.com/export/report.pdf",
+        file_name_hint: "report.pdf",
+        content_descriptor: {
+          content_kind: "file",
+          mime_type: "application/pdf"
+        },
+        browser_artifact: {
+          content_base64: Buffer.from("download artifact\n", "utf8").toString("base64"),
+          artifact_ref: "loopback-browser-artifact://run-download"
+        },
+        trigger_status: "resolved",
+        trigger_mode: "resolve_only",
+        trigger_surface: "dom_button"
+      }
+    });
+    const summary = buildDownloadLandedResultSummaryForContract({
+      runId: "run-download-landed",
+      target: browserResult.download_target!,
+      resolvedOutputPath: "/trusted-downloads/exports/report.pdf",
+      savedArtifactRefs: ["download-artifact://run-download-landed/0123456789abcdef"],
+      sizeBytes: 18,
+      checksumSha256: "b".repeat(64),
+      fileNameHint: "report.pdf"
+    });
+
+    expect(summary).toMatchObject({
+      download_ref: "download.trigger/run-download-landed",
+      result_state: "downloaded",
+      resolved_output_path: "/trusted-downloads/exports/report.pdf",
+      source_url: "https://example.com/export/report.pdf",
+      file_name_hint: "report.pdf",
+      saved_artifact_refs: ["download-artifact://run-download-landed/0123456789abcdef"],
+      content_descriptor: {
+        checksum_sha256: "b".repeat(64),
+        size_bytes: 18
+      }
+    });
+    expect(parseDownloadResultSummaryForContract(summary).result_state).toBe("downloaded");
   });
 
   it("validates browser-side trigger failure classifications", () => {

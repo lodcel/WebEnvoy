@@ -1,6 +1,7 @@
 import { CliError } from "../core/errors.js";
 import {
   buildAbilityValidationSeedForDownloadRequest,
+  buildDownloadLandedResultSummaryForContract,
   buildDownloadPrepareResultSummaryForContract,
   buildDownloadTriggeredResultSummaryForContract,
   materializeCandidateAbilityFromDownloadSeedForContract,
@@ -9,6 +10,7 @@ import {
   parseDownloadFailureReasonForContract,
   parseDownloadTriggerModeForContract,
   type DownloadCapabilityEnvelope,
+  type DownloadBrowserTarget,
   type MaterializedDownloadCandidateAbility
 } from "../core/download-ability.js";
 import type { CommandDefinition, JsonObject, RuntimeContext } from "../core/types.js";
@@ -18,6 +20,7 @@ import {
 } from "../runtime/native-messaging/bridge.js";
 import { NativeHostBridgeTransport } from "../runtime/native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "../runtime/native-messaging/loopback.js";
+import { landBrowserDownloadArtifactForContract } from "../runtime/download-landing.js";
 
 const asObject = (value: unknown): JsonObject | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -87,6 +90,13 @@ const resolveRuntimeBridge = (): NativeMessagingBridge => {
   return new NativeMessagingBridge({
     transport: new NativeHostBridgeTransport()
   });
+};
+
+const stripBrowserArtifactFromDownloadTarget = (
+  target: DownloadBrowserTarget
+): Omit<DownloadBrowserTarget, "browser_artifact"> => {
+  const { browser_artifact: _browserArtifact, ...safeTarget } = target;
+  return safeTarget;
 };
 
 const downloadPrepare = async (context: RuntimeContext): Promise<JsonObject> => {
@@ -192,6 +202,47 @@ const downloadTrigger = async (context: RuntimeContext): Promise<JsonObject> => 
       throw invalidDownloadCommandInput("DOWNLOAD_TARGET_MISSING", envelope.input.ability_ref);
     }
 
+    if (browserResult.download_target.browser_artifact) {
+      const landed = await landBrowserDownloadArtifactForContract({
+        cwd: context.cwd,
+        runId: context.run_id,
+        request: envelope.input,
+        target: browserResult.download_target
+      });
+      const downloadResultSummary = buildDownloadLandedResultSummaryForContract({
+        runId: context.run_id,
+        target: browserResult.download_target,
+        resolvedOutputPath: landed.resolvedOutputPath,
+        savedArtifactRefs: landed.savedArtifactRefs,
+        sizeBytes: landed.sizeBytes,
+        checksumSha256: landed.checksumSha256,
+        fileNameHint: landed.fileName
+      });
+      return {
+        capability_result: {
+          ability_id: envelope.ability.id,
+          layer: envelope.ability.layer,
+          action: "download",
+          outcome: "success",
+          data_ref: downloadResultSummary.download_ref,
+          download_result_summary: downloadResultSummary
+        },
+        download_target: stripBrowserArtifactFromDownloadTarget(browserResult.download_target),
+        trigger_audit: browserResult.trigger_audit,
+        download_file_audit: landed.audit,
+        ...materialized,
+        ability_validation_seed: buildAbilityValidationSeedForDownloadRequest({
+          request: envelope.input,
+          materialized,
+          validationExecutionBoundary: "seed_only_until_fr0021_750"
+        }),
+        relay_path: bridgeResult.relay_path,
+        download_execution_boundary: "browser_target_trigger_and_cli_landing_fr0021_749",
+        file_landing_boundary: "executed_in_fr0021_749",
+        validation_execution_boundary: "seed_only_until_fr0021_750"
+      };
+    }
+
     const downloadResultSummary = buildDownloadTriggeredResultSummaryForContract({
       runId: context.run_id,
       target: browserResult.download_target
@@ -205,7 +256,7 @@ const downloadTrigger = async (context: RuntimeContext): Promise<JsonObject> => 
         data_ref: downloadResultSummary.download_ref,
         download_result_summary: downloadResultSummary
       },
-      download_target: browserResult.download_target,
+      download_target: stripBrowserArtifactFromDownloadTarget(browserResult.download_target),
       trigger_audit: browserResult.trigger_audit,
       ...materialized,
       ability_validation_seed: buildAbilityValidationSeedForDownloadRequest({
