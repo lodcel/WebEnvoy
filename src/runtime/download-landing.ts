@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 
 import { CliError } from "../core/errors.js";
@@ -15,6 +15,7 @@ const MAX_BROWSER_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_BROWSER_ARTIFACT_BASE64_CHARS = Math.ceil(MAX_BROWSER_ARTIFACT_BYTES / 3) * 4;
 
 interface DownloadLandingFileSystem {
+  lstat(path: string): Promise<DownloadLandingDirectoryEntry>;
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
   realpath(path: string): Promise<string>;
   stat(path: string): Promise<unknown>;
@@ -27,7 +28,13 @@ interface DownloadLandingFileSystem {
   rm(path: string, options?: { force?: boolean }): Promise<unknown>;
 }
 
+interface DownloadLandingDirectoryEntry {
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+}
+
 const DEFAULT_FILE_SYSTEM: DownloadLandingFileSystem = {
+  lstat,
   mkdir,
   realpath,
   stat,
@@ -120,6 +127,92 @@ const assertActualDirectoryInsideTrustedBase = async (input: {
     realTrustedBase,
     realDestinationDir
   };
+};
+
+const isMissingPathError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as { code?: unknown }).code === "ENOENT";
+
+const assertDirectoryEntry = (
+  entry: DownloadLandingDirectoryEntry,
+  abilityId: string,
+  symlinkReason: string
+): void => {
+  if (entry.isSymbolicLink()) {
+    throw cliDownloadError(symlinkReason, abilityId, "input_validation");
+  }
+  if (!entry.isDirectory()) {
+    throw cliDownloadError(symlinkReason, abilityId, "input_validation");
+  }
+};
+
+const ensureDirectoryWithoutSymlink = async (input: {
+  fs: DownloadLandingFileSystem;
+  path: string;
+  abilityId: string;
+  symlinkReason: string;
+}): Promise<void> => {
+  try {
+    assertDirectoryEntry(await input.fs.lstat(input.path), input.abilityId, input.symlinkReason);
+    return;
+  } catch (error) {
+    if (!isMissingPathError(error)) {
+      throw error;
+    }
+  }
+
+  await input.fs.mkdir(input.path);
+  assertDirectoryEntry(await input.fs.lstat(input.path), input.abilityId, input.symlinkReason);
+};
+
+const ensureDirectoryPathWithoutSymlink = async (input: {
+  fs: DownloadLandingFileSystem;
+  baseDir: string;
+  segments: string[];
+  abilityId: string;
+  symlinkReason: string;
+}): Promise<void> => {
+  let currentPath = input.baseDir;
+  for (const segment of input.segments) {
+    currentPath = resolve(currentPath, segment);
+    await ensureDirectoryWithoutSymlink({
+      fs: input.fs,
+      path: currentPath,
+      abilityId: input.abilityId,
+      symlinkReason: input.symlinkReason
+    });
+  }
+};
+
+const ensureTrustedDestinationDirectories = async (input: {
+  fs: DownloadLandingFileSystem;
+  cwd: string;
+  trustedBase: string;
+  destinationDir: string;
+  abilityId: string;
+}): Promise<void> => {
+  const worktreeRoot = resolveRuntimeWorktreeRoot(input.cwd);
+  await ensureDirectoryPathWithoutSymlink({
+    fs: input.fs,
+    baseDir: worktreeRoot,
+    segments: [...TRUSTED_DOWNLOAD_SEGMENTS],
+    abilityId: input.abilityId,
+    symlinkReason: "TRUSTED_DOWNLOAD_BASE_SYMLINK_UNSUPPORTED"
+  });
+
+  const destinationRelativePath = relative(input.trustedBase, input.destinationDir);
+  if (destinationRelativePath === "") {
+    return;
+  }
+  await ensureDirectoryPathWithoutSymlink({
+    fs: input.fs,
+    baseDir: input.trustedBase,
+    segments: destinationRelativePath.split(/[\\/]+/u).filter(Boolean),
+    abilityId: input.abilityId,
+    symlinkReason: "DESTINATION_ROOT_ESCAPES_TRUSTED_BASE"
+  });
 };
 
 const assertActualFileInsideTrustedBase = async (input: {
@@ -246,7 +339,13 @@ export const landBrowserDownloadArtifactForContract = async (
   const content = decodeBrowserArtifactContent(artifact.content_base64, input.request.ability_ref);
   const checksumSha256 = createHash("sha256").update(content).digest("hex");
 
-  await fs.mkdir(destinationDir, { recursive: true });
+  await ensureTrustedDestinationDirectories({
+    fs,
+    cwd: input.cwd,
+    trustedBase: trustedDownloadBase,
+    destinationDir,
+    abilityId: input.request.ability_ref
+  });
   const { realTrustedBase, realDestinationDir } = await assertActualDirectoryInsideTrustedBase({
     fs,
     trustedBase: trustedDownloadBase,

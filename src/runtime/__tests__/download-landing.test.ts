@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,6 +27,15 @@ const createTempCwd = async (): Promise<string> => {
   const cwd = await mkdtemp(join(tmpdir(), "webenvoy-download-landing-"));
   tempDirs.push(cwd);
   return cwd;
+};
+
+const pathExists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const createRequest = (
@@ -167,14 +176,15 @@ describe("download artifact landing", () => {
         reason: "TRUSTED_DOWNLOAD_BASE_SYMLINK_UNSUPPORTED"
       }
     });
+    expect(await pathExists(join(outside, "exports"))).toBe(false);
   });
 
   it("rejects destination-root symlink escapes before writing bytes", async () => {
     const cwd = await createTempCwd();
     const outside = await createTempCwd();
     const trustedBase = resolveTrustedDownloadBaseForContract(cwd);
-    await mkdir(join(trustedBase, "exports"), { recursive: true });
-    await symlink(outside, join(trustedBase, "exports", "reports"), "dir");
+    await mkdir(trustedBase, { recursive: true });
+    await symlink(outside, join(trustedBase, "exports"), "dir");
 
     await expect(
       landBrowserDownloadArtifactForContract({
@@ -189,6 +199,7 @@ describe("download artifact landing", () => {
         reason: "DESTINATION_ROOT_ESCAPES_TRUSTED_BASE"
       }
     });
+    expect(await pathExists(join(outside, "reports"))).toBe(false);
   });
 
   it("rejects oversized base64 payloads before writing bytes", async () => {
@@ -200,6 +211,10 @@ describe("download artifact landing", () => {
       content_base64: "A".repeat(maxBase64Chars + 4)
     };
     const fs = {
+      lstat: async () => ({
+        isDirectory: () => true,
+        isSymbolicLink: () => false
+      }),
       mkdir: async () => undefined,
       realpath: async (path: string) => path,
       stat: async () => {
@@ -234,6 +249,10 @@ describe("download artifact landing", () => {
     const writes: string[] = [];
     const removed: string[] = [];
     const fs = {
+      lstat: async () => ({
+        isDirectory: () => true,
+        isSymbolicLink: () => false
+      }),
       mkdir: async () => undefined,
       realpath: async (path: string) => path,
       stat: async () => {

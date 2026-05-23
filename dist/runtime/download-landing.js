@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { CliError } from "../core/errors.js";
 import { resolveRuntimeWorktreeRoot } from "./worktree-root.js";
@@ -7,6 +7,7 @@ const TRUSTED_DOWNLOAD_SEGMENTS = [".webenvoy", "downloads"];
 const MAX_BROWSER_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_BROWSER_ARTIFACT_BASE64_CHARS = Math.ceil(MAX_BROWSER_ARTIFACT_BYTES / 3) * 4;
 const DEFAULT_FILE_SYSTEM = {
+    lstat,
     mkdir,
     realpath,
     stat,
@@ -52,6 +53,64 @@ const assertActualDirectoryInsideTrustedBase = async (input) => {
         realTrustedBase,
         realDestinationDir
     };
+};
+const isMissingPathError = (error) => typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT";
+const assertDirectoryEntry = (entry, abilityId, symlinkReason) => {
+    if (entry.isSymbolicLink()) {
+        throw cliDownloadError(symlinkReason, abilityId, "input_validation");
+    }
+    if (!entry.isDirectory()) {
+        throw cliDownloadError(symlinkReason, abilityId, "input_validation");
+    }
+};
+const ensureDirectoryWithoutSymlink = async (input) => {
+    try {
+        assertDirectoryEntry(await input.fs.lstat(input.path), input.abilityId, input.symlinkReason);
+        return;
+    }
+    catch (error) {
+        if (!isMissingPathError(error)) {
+            throw error;
+        }
+    }
+    await input.fs.mkdir(input.path);
+    assertDirectoryEntry(await input.fs.lstat(input.path), input.abilityId, input.symlinkReason);
+};
+const ensureDirectoryPathWithoutSymlink = async (input) => {
+    let currentPath = input.baseDir;
+    for (const segment of input.segments) {
+        currentPath = resolve(currentPath, segment);
+        await ensureDirectoryWithoutSymlink({
+            fs: input.fs,
+            path: currentPath,
+            abilityId: input.abilityId,
+            symlinkReason: input.symlinkReason
+        });
+    }
+};
+const ensureTrustedDestinationDirectories = async (input) => {
+    const worktreeRoot = resolveRuntimeWorktreeRoot(input.cwd);
+    await ensureDirectoryPathWithoutSymlink({
+        fs: input.fs,
+        baseDir: worktreeRoot,
+        segments: [...TRUSTED_DOWNLOAD_SEGMENTS],
+        abilityId: input.abilityId,
+        symlinkReason: "TRUSTED_DOWNLOAD_BASE_SYMLINK_UNSUPPORTED"
+    });
+    const destinationRelativePath = relative(input.trustedBase, input.destinationDir);
+    if (destinationRelativePath === "") {
+        return;
+    }
+    await ensureDirectoryPathWithoutSymlink({
+        fs: input.fs,
+        baseDir: input.trustedBase,
+        segments: destinationRelativePath.split(/[\\/]+/u).filter(Boolean),
+        abilityId: input.abilityId,
+        symlinkReason: "DESTINATION_ROOT_ESCAPES_TRUSTED_BASE"
+    });
 };
 const assertActualFileInsideTrustedBase = async (input) => {
     const realFinalPath = normalizeNativePath(await input.fs.realpath(input.finalPath));
@@ -145,7 +204,13 @@ export const landBrowserDownloadArtifactForContract = async (input) => {
     const fileName = sanitizeFileName(input.target.file_name_hint);
     const content = decodeBrowserArtifactContent(artifact.content_base64, input.request.ability_ref);
     const checksumSha256 = createHash("sha256").update(content).digest("hex");
-    await fs.mkdir(destinationDir, { recursive: true });
+    await ensureTrustedDestinationDirectories({
+        fs,
+        cwd: input.cwd,
+        trustedBase: trustedDownloadBase,
+        destinationDir,
+        abilityId: input.request.ability_ref
+    });
     const { realTrustedBase, realDestinationDir } = await assertActualDirectoryInsideTrustedBase({
         fs,
         trustedBase: trustedDownloadBase,
