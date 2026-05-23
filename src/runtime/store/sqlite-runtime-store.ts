@@ -4,6 +4,13 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 import { SQLiteRuntimeStoreAntiDetectionValidationRepository } from "./sqlite-runtime-store-anti-detection-validation.js";
+import {
+  SQLiteRuntimeStoreAbilityValidationRepository,
+  type AbilityReplayInputSnapshotRecord,
+  type AbilityValidationScopeKeyInput,
+  type InsertAbilityReplayInputSnapshotInput,
+  type UpsertAbilityLatestValidationInput
+} from "./sqlite-runtime-store-ability-validation.js";
 import { initializeRuntimeStoreSchema } from "./sqlite-runtime-store-schema.js";
 import {
   mapGateApprovalRecordRow,
@@ -16,6 +23,7 @@ import {
   assertListGateAuditInput,
   assertUpsertRunInput
 } from "./sqlite-runtime-store-validation.js";
+import type { LatestValidationByMode } from "../../core/ability-validation.js";
 
 export type RuntimeRunStatus = "running" | "succeeded" | "failed";
 
@@ -351,6 +359,13 @@ export interface AntiDetectionValidationViewRecord {
   last_success_at: string | null;
 }
 
+export type {
+  AbilityReplayInputSnapshotRecord,
+  AbilityValidationScopeKeyInput,
+  InsertAbilityReplayInputSnapshotInput,
+  UpsertAbilityLatestValidationInput
+};
+
 const LIVE_APPROVAL_EXECUTION_MODES = new Set([
   "live_read_limited",
   "live_read_high_risk",
@@ -587,6 +602,7 @@ const resolveDatabaseSyncConstructor = (): DatabaseSyncConstructor => {
 export class SQLiteRuntimeStore {
   #db!: DatabaseSync;
   #antiDetectionValidation!: SQLiteRuntimeStoreAntiDetectionValidationRepository;
+  #abilityValidation!: SQLiteRuntimeStoreAbilityValidationRepository;
 
   constructor(dbPath: string) {
     let lastError: unknown;
@@ -607,6 +623,12 @@ export class SQLiteRuntimeStore {
               notFound: (message) =>
                 new RuntimeStoreError("ERR_RUNTIME_STORE_UNAVAILABLE", message)
             });
+          this.#abilityValidation = new SQLiteRuntimeStoreAbilityValidationRepository({
+            db: this.#db,
+            invalidInput: invalidRuntimeStoreInput,
+            isIsoLike,
+            toStoreDbError: (error) => this.#toStoreDbError(error)
+          });
           this.#db.exec(`PRAGMA busy_timeout=${SQLITE_RUNTIME_BUSY_TIMEOUT_MS};`);
           return;
         } catch (error) {
@@ -1447,6 +1469,38 @@ export class SQLiteRuntimeStore {
     baselineRef: string
   ): Promise<AntiDetectionBaselineSnapshotRecord | null> {
     return this.#antiDetectionValidation.getAntiDetectionBaselineSnapshot(baselineRef);
+  }
+
+  async upsertAbilityLatestValidation(
+    input: UpsertAbilityLatestValidationInput
+  ): Promise<LatestValidationByMode> {
+    return this.#abilityValidation.upsertAbilityLatestValidation(input);
+  }
+
+  async listAbilityLatestValidations(
+    scope: AbilityValidationScopeKeyInput
+  ): Promise<LatestValidationByMode[]> {
+    return this.#abilityValidation.listAbilityLatestValidations(scope);
+  }
+
+  async insertAbilityReplayInputSnapshot(
+    input: InsertAbilityReplayInputSnapshotInput
+  ): Promise<AbilityReplayInputSnapshotRecord> {
+    return this.#abilityValidation.insertAbilityReplayInputSnapshot(input);
+  }
+
+  async getAbilityReplayInputSnapshot(
+    snapshotRef: string
+  ): Promise<AbilityReplayInputSnapshotRecord | null> {
+    return this.#abilityValidation.getAbilityReplayInputSnapshot(snapshotRef);
+  }
+
+  async getLatestAbilityReplayInputSnapshot(
+    scope: AbilityValidationScopeKeyInput & {
+      capturedInputContractRef: string;
+    }
+  ): Promise<AbilityReplayInputSnapshotRecord | null> {
+    return this.#abilityValidation.getLatestAbilityReplayInputSnapshot(scope);
   }
 
   #listGateAuditRecords(input: ListGateAuditRecordsInput): GateAuditRecord[] {

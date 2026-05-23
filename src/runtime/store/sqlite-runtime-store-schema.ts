@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 interface InitializeRuntimeStoreSchemaInput {
   db: DatabaseSync;
@@ -489,6 +489,54 @@ const migrateV15ToV16 = (db: DatabaseSync): void => {
   db.prepare("UPDATE runtime_store_meta SET value = ? WHERE key = 'schema_version'").run("16");
 };
 
+const createAbilityValidationTables = (db: DatabaseSync): void => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ability_latest_validation (
+      ability_ref TEXT NOT NULL,
+      profile_ref TEXT NOT NULL,
+      execution_layer TEXT NOT NULL,
+      validation_mode TEXT NOT NULL,
+      result_state TEXT NOT NULL,
+      failure_class TEXT,
+      validated_at TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      validated_execution_layer TEXT NOT NULL,
+      baseline_descriptor_json TEXT NOT NULL,
+      artifact_refs_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (ability_ref, profile_ref, execution_layer, validation_mode)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ability_latest_validation_scope_updated
+      ON ability_latest_validation(ability_ref, profile_ref, execution_layer, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS ability_replay_input_snapshot (
+      snapshot_ref TEXT PRIMARY KEY,
+      ability_ref TEXT NOT NULL,
+      profile_ref TEXT NOT NULL,
+      execution_layer TEXT NOT NULL,
+      captured_input_contract_ref TEXT NOT NULL,
+      source_run_id TEXT NOT NULL,
+      payload_locator TEXT NOT NULL UNIQUE,
+      input_payload_json TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      retired_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ability_replay_input_snapshot_scope_latest
+      ON ability_replay_input_snapshot(
+        ability_ref,
+        profile_ref,
+        execution_layer,
+        captured_input_contract_ref,
+        captured_at DESC
+      );
+  `);
+};
+
+const migrateV16ToV17 = (db: DatabaseSync): void => {
+  createAbilityValidationTables(db);
+  db.prepare("UPDATE runtime_store_meta SET value = ? WHERE key = 'schema_version'").run("17");
+};
+
 export const initializeRuntimeStoreSchema = ({
   db,
   onSchemaMismatch
@@ -741,6 +789,7 @@ export const initializeRuntimeStoreSchema = ({
         validated_at DESC
       );
   `);
+  createAbilityValidationTables(db);
   db.exec(`
     DROP VIEW IF EXISTS anti_detection_validation_view;
     CREATE VIEW IF NOT EXISTS anti_detection_validation_view AS
@@ -924,6 +973,11 @@ export const initializeRuntimeStoreSchema = ({
     if (currentVersion === 15) {
       migrateV15ToV16(db);
       currentVersion = 16;
+      continue;
+    }
+    if (currentVersion === 16) {
+      migrateV16ToV17(db);
+      currentVersion = 17;
       continue;
     }
     break;
