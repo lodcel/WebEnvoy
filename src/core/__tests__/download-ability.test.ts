@@ -179,7 +179,15 @@ describe("download ability contract", () => {
       "REQUESTED_EXECUTION_LAYER_MISMATCH"
     );
 
-    for (const destinationRoot of ["/tmp", "../escape", "~", "C:\\tmp", "\\\\server\\share"]) {
+    for (const destinationRoot of [
+      "/tmp",
+      "../escape",
+      "~",
+      "C:\\tmp",
+      "C:tmp",
+      "C:../escape",
+      "\\\\server\\share"
+    ]) {
       expectInputError(
         () =>
           parseDownloadCapabilityEnvelopeForContract(

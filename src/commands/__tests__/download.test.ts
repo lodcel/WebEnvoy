@@ -235,45 +235,47 @@ describe("download commands", () => {
 
   it("rejects unsafe destination roots through the unified error shell", async () => {
     const cwd = await createTempCwd();
-    const stdout = captureStdout();
-    const params = downloadParams({
-      input: {
-        ...(downloadParams().input as JsonObject),
-        output_policy: {
-          destination_root: "../escape",
-          file_name_policy: "preserve_source_name",
-          conflict_policy: "rename_with_suffix"
+    for (const destinationRoot of ["../escape", "C:tmp"]) {
+      const stdout = captureStdout();
+      const params = downloadParams({
+        input: {
+          ...(downloadParams().input as JsonObject),
+          output_policy: {
+            destination_root: destinationRoot,
+            file_name_policy: "preserve_source_name",
+            conflict_policy: "rename_with_suffix"
+          }
         }
-      }
-    });
-    const code = await runCli(
-      [
-        "download.prepare",
-        "--run-id",
-        "run-download-invalid-root",
-        "--profile",
-        "profile/default",
-        "--params",
-        JSON.stringify(params)
-      ],
-      {
-        cwd,
-        stdout: stdout.stream,
-        stderr: stderrSink()
-      }
-    );
+      });
+      const code = await runCli(
+        [
+          "download.prepare",
+          "--run-id",
+          `run-download-invalid-root-${destinationRoot.replace(/[^a-z0-9]/giu, "-")}`,
+          "--profile",
+          "profile/default",
+          "--params",
+          JSON.stringify(params)
+        ],
+        {
+          cwd,
+          stdout: stdout.stream,
+          stderr: stderrSink()
+        }
+      );
 
-    expect(code).not.toBe(0);
-    expect(parseJsonLine(stdout.read())).toMatchObject({
-      status: "error",
-      error: {
-        details: {
-          ability_id: "generic.file.download.v1",
-          stage: "input_validation",
-          reason: "DESTINATION_ROOT_INVALID"
+      expect(code).not.toBe(0);
+      expect(parseJsonLine(stdout.read())).toMatchObject({
+        status: "error",
+        error: {
+          details: {
+            ability_id: "generic.file.download.v1",
+            stage: "input_validation",
+            reason: "DESTINATION_ROOT_INVALID"
+          }
         }
-      }
-    });
+      });
+    }
   });
 
   it("rejects ability layer and request layer mirror conflicts", async () => {

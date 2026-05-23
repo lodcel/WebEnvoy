@@ -218,7 +218,7 @@ const normalizeDestinationRoot = (value: string, abilityId: string): string => {
     raw.startsWith("//") ||
     raw.startsWith("\\\\") ||
     /^~(?:$|[/\\])/u.test(raw) ||
-    /^[A-Za-z]:(?:$|[/\\])/u.test(raw)
+    /^[A-Za-z]:/u.test(raw)
   ) {
     throw invalidDownloadInput("DESTINATION_ROOT_INVALID", abilityId);
   }
