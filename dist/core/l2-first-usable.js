@@ -29,6 +29,13 @@ const asObject = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const cloneJsonObject = (value) => JSON.parse(JSON.stringify(value));
+const assertKnownKeys = (source, allowedKeys, reason, abilityId = "l2.first_usable") => {
+    for (const key of Object.keys(source)) {
+        if (!allowedKeys.has(key)) {
+            throw invalidL2Input(reason, abilityId);
+        }
+    }
+};
 const invalidL2Input = (reason, abilityId = "l2.first_usable") => new CliError("ERR_CLI_INVALID_ARGS", "L2 first usable input invalid", {
     details: {
         ability_id: abilityId,
@@ -54,6 +61,15 @@ const parseRiskGateContext = (value) => {
     if (!object) {
         throw invalidL2Input("RISK_GATE_CONTEXT_INVALID");
     }
+    assertKnownKeys(object, new Set([
+        "run_id",
+        "session_id",
+        "profile",
+        "target_domain",
+        "target_tab_id",
+        "target_page",
+        "risk_state"
+    ]), "PLATFORM_GATE_SEMANTICS_UNSUPPORTED");
     const runId = parseRequiredString(object, "run_id", "RISK_RUN_ID_INVALID");
     const sessionId = parseOptionalString(object, "session_id", "RISK_SESSION_ID_INVALID");
     const profile = parseRequiredString(object, "profile", "RISK_PROFILE_INVALID");
@@ -117,6 +133,14 @@ export const parseL2FirstUsableRequestForContract = (value, runtime) => {
     if (!object) {
         throw invalidL2Input("REQUEST_INVALID");
     }
+    assertKnownKeys(object, new Set([
+        "target_url",
+        "goal_kind",
+        "interaction_safety_class",
+        "goal_hint",
+        "risk_gate_context",
+        "allowed_actions"
+    ]), "PLATFORM_GATE_SEMANTICS_UNSUPPORTED");
     const targetUrl = parseRequiredString(object, "target_url", "TARGET_URL_INVALID");
     const riskGateContext = parseRiskGateContext(object.risk_gate_context);
     assertTargetUrlMatchesDomain(targetUrl, riskGateContext.target_domain);

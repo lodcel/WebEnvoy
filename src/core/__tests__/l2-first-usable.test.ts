@@ -213,6 +213,46 @@ describe("l2 first usable contract", () => {
     );
   });
 
+  it("rejects platform-specific gate or write lane semantics in L2 request input", () => {
+    expectInvalidReason(
+      () =>
+        parseL2FirstUsableRequestForContract({
+          ...requestInput(),
+          action_type: "write"
+        }),
+      "PLATFORM_GATE_SEMANTICS_UNSUPPORTED"
+    );
+    expectInvalidReason(
+      () =>
+        parseL2FirstUsableRequestForContract({
+          ...requestInput(),
+          requested_execution_mode: "live_write"
+        }),
+      "PLATFORM_GATE_SEMANTICS_UNSUPPORTED"
+    );
+    expectInvalidReason(
+      () =>
+        parseL2FirstUsableRequestForContract({
+          ...requestInput(),
+          gate_input: {
+            irreversible_write: true
+          }
+        }),
+      "PLATFORM_GATE_SEMANTICS_UNSUPPORTED"
+    );
+    expectInvalidReason(
+      () =>
+        parseL2FirstUsableRequestForContract({
+          ...requestInput(),
+          risk_gate_context: {
+            ...requestInput().risk_gate_context,
+            action_type: "irreversible_write"
+          }
+        }),
+      "PLATFORM_GATE_SEMANTICS_UNSUPPORTED"
+    );
+  });
+
   it("keeps paused risk gates and L1 fallback as structured failure classes", () => {
     expect(buildL2RiskGateBlockedResultForContract()).toEqual({
       success: false,
