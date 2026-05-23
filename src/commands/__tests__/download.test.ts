@@ -711,6 +711,38 @@ describe("download commands", () => {
 
   it("rejects ambiguous download validation evidence instead of accepting caller overrides", async () => {
     const cwd = await createTempCwd();
+    const missingDescriptorStdout = captureStdout();
+    const missingDescriptorCode = await runCli(
+      [
+        "download.validate",
+        "--run-id",
+        "run-download-validation-missing-descriptor",
+        "--params",
+        JSON.stringify({
+          candidate_ability_contract_registry: downloadRegistry(),
+          ability_validation_request: abilityValidationRequest(),
+          download_result_summary: downloadedResultSummary("run-download-validation-missing-descriptor")
+        })
+      ],
+      {
+        cwd,
+        stdout: missingDescriptorStdout.stream,
+        stderr: stderrSink()
+      }
+    );
+
+    expect(missingDescriptorCode).not.toBe(0);
+    expect(parseJsonLine(missingDescriptorStdout.read())).toMatchObject({
+      status: "error",
+      error: {
+        details: {
+          ability_id: "download.validate",
+          stage: "input_validation",
+          reason: "CANDIDATE_ABILITY_DESCRIPTOR_MISSING"
+        }
+      }
+    });
+
     const ambiguousStdout = captureStdout();
     const ambiguousCode = await runCli(
       [

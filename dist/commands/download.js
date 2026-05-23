@@ -55,35 +55,35 @@ const stripBrowserArtifactFromDownloadTarget = (target) => {
     const { browser_artifact: _browserArtifact, ...safeTarget } = target;
     return safeTarget;
 };
-const parseDownloadValidationBridgeParams = (params, requestKey) => {
+const parseDownloadValidationBridgeParams = (params, requestKey, commandName) => {
     const seed = asObject(params.ability_validation_seed);
     const candidateDescriptor = params.candidate_ability_descriptor ?? seed?.candidate_ability_descriptor;
     const candidateRegistry = params.candidate_ability_contract_registry ?? seed?.candidate_ability_contract_registry;
     const request = params[requestKey] ?? seed?.[requestKey];
     if (!candidateDescriptor) {
-        throw invalidDownloadCommandInput("CANDIDATE_ABILITY_DESCRIPTOR_MISSING");
+        throw invalidDownloadCommandInput("CANDIDATE_ABILITY_DESCRIPTOR_MISSING", commandName);
     }
     if (!candidateRegistry) {
-        throw invalidDownloadCommandInput("CANDIDATE_ABILITY_CONTRACT_REGISTRY_MISSING");
+        throw invalidDownloadCommandInput("CANDIDATE_ABILITY_CONTRACT_REGISTRY_MISSING", commandName);
     }
     if (!request) {
-        throw invalidDownloadCommandInput(`${requestKey.toUpperCase()}_MISSING`);
+        throw invalidDownloadCommandInput(`${requestKey.toUpperCase()}_MISSING`, commandName);
     }
     if (hasOwn(params, "execution_result")) {
-        throw invalidDownloadCommandInput("DOWNLOAD_VALIDATION_EXECUTION_RESULT_OVERRIDE_UNSUPPORTED");
+        throw invalidDownloadCommandInput("DOWNLOAD_VALIDATION_EXECUTION_RESULT_OVERRIDE_UNSUPPORTED", commandName);
     }
     const hasDownloadResultSummary = hasOwn(params, "download_result_summary");
     const hasDownloadFailureReason = hasOwn(params, "download_failure_reason");
     if (hasDownloadResultSummary === hasDownloadFailureReason) {
         throw invalidDownloadCommandInput(hasDownloadResultSummary
             ? "DOWNLOAD_VALIDATION_RESULT_AMBIGUOUS"
-            : "DOWNLOAD_VALIDATION_RESULT_MISSING");
+            : "DOWNLOAD_VALIDATION_RESULT_MISSING", commandName);
     }
     const downloadResultSummary = hasDownloadResultSummary
-        ? parseDownloadResultSummaryForContract(params.download_result_summary)
+        ? parseDownloadResultSummaryForContract(params.download_result_summary, commandName)
         : undefined;
     const failureReason = hasDownloadFailureReason
-        ? parseDownloadFailureReasonForContract(params.download_failure_reason)
+        ? parseDownloadFailureReasonForContract(params.download_failure_reason, commandName)
         : undefined;
     return {
         bridgeParams: {
@@ -276,7 +276,7 @@ const downloadValidate = async (context) => {
     if (!params) {
         throw invalidDownloadCommandInput("PARAMS_INVALID");
     }
-    const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(params, "ability_validation_request");
+    const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(params, "ability_validation_request", "download.validate");
     const validationResult = await runAbilityValidationForContract(context, bridgeParams);
     return {
         ...validationResult,
@@ -292,7 +292,7 @@ const downloadReplay = async (context) => {
     if (!params) {
         throw invalidDownloadCommandInput("PARAMS_INVALID");
     }
-    const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(params, "ability_replay_request");
+    const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(params, "ability_replay_request", "download.replay");
     const replayResult = await runAbilityReplayForContract(context, bridgeParams);
     return {
         ...replayResult,
