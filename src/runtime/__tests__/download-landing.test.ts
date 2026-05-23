@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  isPathInsideDirectoryForContract,
   landBrowserDownloadArtifactForContract,
   resolveTrustedDownloadBaseForContract
 } from "../download-landing.js";
@@ -72,6 +73,65 @@ const createTarget = (fileNameHint = "report.pdf"): DownloadBrowserTarget => ({
   trigger_status: "resolved",
   trigger_mode: "resolve_only",
   trigger_surface: "dom_button"
+});
+
+describe("download landing path containment contract", () => {
+  it("accepts win32 same-drive targets inside the trusted download base", () => {
+    expect(
+      isPathInsideDirectoryForContract({
+        baseDir: "C:\\repo\\.webenvoy\\downloads",
+        candidatePath: "C:\\repo\\.webenvoy\\downloads\\exports\\report.pdf",
+        semantics: "win32"
+      })
+    ).toBe(true);
+  });
+
+  it("rejects win32 different-drive targets", () => {
+    expect(
+      isPathInsideDirectoryForContract({
+        baseDir: "C:\\repo\\.webenvoy\\downloads",
+        candidatePath: "D:\\repo\\.webenvoy\\downloads\\exports\\report.pdf",
+        semantics: "win32"
+      })
+    ).toBe(false);
+  });
+
+  it("rejects win32 UNC and sibling-prefix escapes", () => {
+    expect(
+      isPathInsideDirectoryForContract({
+        baseDir: "\\\\server\\share\\repo\\.webenvoy\\downloads",
+        candidatePath: "\\\\server\\other-share\\repo\\.webenvoy\\downloads\\report.pdf",
+        semantics: "win32"
+      })
+    ).toBe(false);
+    expect(
+      isPathInsideDirectoryForContract({
+        baseDir: "C:\\repo\\.webenvoy\\downloads",
+        candidatePath: "C:\\repo\\.webenvoy\\downloads-escape\\report.pdf",
+        semantics: "win32"
+      })
+    ).toBe(false);
+  });
+
+  it("normalizes win32 mixed separators before containment checks", () => {
+    expect(
+      isPathInsideDirectoryForContract({
+        baseDir: "C:/repo/.webenvoy/downloads",
+        candidatePath: "C:\\repo\\.webenvoy\\downloads/exports\\report.pdf",
+        semantics: "win32"
+      })
+    ).toBe(true);
+  });
+
+  it("rejects posix sibling-prefix escapes", () => {
+    expect(
+      isPathInsideDirectoryForContract({
+        baseDir: "/repo/.webenvoy/downloads",
+        candidatePath: "/repo/.webenvoy/downloads-escape/report.pdf",
+        semantics: "posix"
+      })
+    ).toBe(false);
+  });
 });
 
 describe("download artifact landing", () => {
@@ -242,6 +302,57 @@ describe("download artifact landing", () => {
       }
     });
     expect(writes).toHaveLength(0);
+  });
+
+  it("rejects cross-platform destination-root escapes before writing bytes", async () => {
+    const cwd = await createTempCwd();
+
+    for (const destinationRoot of [
+      "C:/tmp/evil",
+      "C:\\tmp\\evil",
+      "C:tmp\\evil",
+      "\\\\server\\share\\evil",
+      "//server/share/evil",
+      "exports\\..\\..\\outside",
+      "exports/..\\..\\outside",
+      "../downloads-evil"
+    ]) {
+      const writes: string[] = [];
+      const fs = {
+        lstat: async () => ({
+          isDirectory: () => true,
+          isSymbolicLink: () => false
+        }),
+        mkdir: async () => undefined,
+        realpath: async (path: string) => path,
+        stat: async () => {
+          throw new Error("missing");
+        },
+        writeFile: async (path: string) => {
+          writes.push(path);
+        },
+        rename: async () => undefined,
+        rm: async () => undefined
+      };
+      const request = createRequest();
+      request.output_policy.destination_root = destinationRoot;
+
+      await expect(
+        landBrowserDownloadArtifactForContract({
+          cwd,
+          runId: "run-download-landing-destination-root",
+          request,
+          target: createTarget(),
+          fs
+        })
+      ).rejects.toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: {
+          reason: "DESTINATION_ROOT_INVALID"
+        }
+      });
+      expect(writes, destinationRoot).toHaveLength(0);
+    }
   });
 
   it("cleans temporary files when final rename fails", async () => {
