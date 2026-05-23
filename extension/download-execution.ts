@@ -243,7 +243,7 @@ export const executeDownloadTriggerInPage = (input: {
           blob_url_present: Boolean(request.download_source.blob_url)
         });
       }
-      const sourceUrl = resolveElementSourceUrl(element) ?? request.download_source.blob_url ?? null;
+      const sourceUrl = resolveElementSourceUrl(element);
       if (!sourceUrl || (!sourceUrl.startsWith("blob:") && !absoluteUrl(sourceUrl))) {
         return failure("SOURCE_UNAVAILABLE", {
           ...auditBase,

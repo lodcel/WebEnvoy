@@ -235,4 +235,44 @@ describe("content script download trigger contract", () => {
       }
     });
   });
+
+  it("rejects page_blob blob_url when the browser locator has no verifiable source url", async () => {
+    const button = createMockElement({
+      tagName: "BUTTON",
+      attrs: {
+        "data-testid": "blob-trigger"
+      }
+    });
+    installMockPage({
+      querySelector: (selector) => (selector === "#blob-trigger" ? button : null),
+      querySelectorAll: () => []
+    });
+
+    const results = dispatchDownloadTrigger({
+      request: {
+        ability_ref: "generic.file.download.v1",
+        download_source: {
+          source_kind: "page_blob",
+          blob_locator: "#blob-trigger",
+          blob_url: "blob:https://example.com/unverified"
+        },
+        download_goal: "single_file"
+      }
+    });
+    await waitForResult(results);
+
+    expect(results[0]).toMatchObject({
+      ok: true,
+      payload: {
+        download_browser_result: {
+          success: false,
+          failure_reason: "SOURCE_UNAVAILABLE",
+          trigger_audit: {
+            locator_found: true,
+            blob_url_present: true
+          }
+        }
+      }
+    });
+  });
 });
