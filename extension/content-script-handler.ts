@@ -147,6 +147,131 @@ const asString = (value: unknown): string | null =>
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
+const L2_ALLOWED_ACTIONS = new Set([
+  "navigate",
+  "locate",
+  "reveal_only_click",
+  "extract",
+  "wait_settled"
+]);
+const L2_REVEAL_ONLY_CLICK_KINDS = new Set([
+  "expand_or_collapse",
+  "switch_content_tab",
+  "open_detail_view",
+  "load_more_or_paginate"
+]);
+
+const normalizeL2AbilitySegment = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48) || "page";
+
+const contractRefForL2Ability = (
+  abilityId: string,
+  kind: "input" | "output" | "error"
+): string => `cad::${abilityId}::${kind}::v1`;
+
+const textOfElement = (element: Element): string => {
+  const htmlElement = element as HTMLElement;
+  return (htmlElement.innerText ?? htmlElement.textContent ?? "").trim().replace(/\s+/g, " ");
+};
+
+const isElementVisibleForL2 = (element: Element): boolean => {
+  if (typeof HTMLElement !== "undefined" && !(element instanceof HTMLElement)) {
+    return false;
+  }
+  const text = textOfElement(element);
+  if (text.length === 0) {
+    return false;
+  }
+  const rect = element.getBoundingClientRect?.();
+  return !rect || rect.width > 0 || rect.height > 0;
+};
+
+const collectL2TextItems = (selector: string, limit: number): Array<Record<string, unknown>> => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return [];
+  }
+  return Array.from(document.querySelectorAll(selector))
+    .filter(isElementVisibleForL2)
+    .slice(0, limit)
+    .map((element, index) => ({
+      ref: `${selector}:${index + 1}`,
+      text: textOfElement(element).slice(0, 240)
+    }));
+};
+
+const collectL2PageStructure = (): Record<string, unknown> => ({
+  headings: collectL2TextItems("h1,h2,h3,[role='heading']", 12),
+  links: collectL2TextItems("a[href]", 20),
+  buttons: collectL2TextItems("button,[role='button']", 20)
+});
+
+const buildL2CandidateShellSeed = (input: {
+  abilityId: string;
+  displayName: string;
+  targetUrl: string;
+  runId: string;
+  profile: string;
+  capturedAt: string;
+}) => {
+  const inputRef = contractRefForL2Ability(input.abilityId, "input");
+  const outputRef = contractRefForL2Ability(input.abilityId, "output");
+  const errorRef = contractRefForL2Ability(input.abilityId, "error");
+  const parsedUrl = new URL(input.targetUrl);
+  return {
+    ability_id: input.abilityId,
+    display_name: input.displayName,
+    ability_kind: "read",
+    entrypoint: "l2.first_usable",
+    platform_scope: {
+      platform_family: "generic_web",
+      site_pattern: parsedUrl.hostname
+    },
+    execution_layer_support: ["L2"],
+    input_contract_ref: inputRef,
+    output_contract_ref: outputRef,
+    error_contract_ref: errorRef,
+    capture_origin: "l2_first_usable_sample",
+    capture_run_id: input.runId,
+    capture_profile: input.profile,
+    capture_artifact_refs: [`l2-first-usable://${input.runId}`],
+    captured_at: input.capturedAt,
+    candidate_status: "draft_candidate",
+    contract_registry_seed: {
+      ability_id: input.abilityId,
+      entries: [
+        {
+          contract_ref: inputRef,
+          contract_kind: "input",
+          contract_body: {
+            type: "object",
+            required: ["target_url", "goal_kind", "risk_gate_context", "allowed_actions"]
+          }
+        },
+        {
+          contract_ref: outputRef,
+          contract_kind: "output",
+          contract_body: {
+            type: "object",
+            required: ["page_url", "title", "text_excerpt", "structure"]
+          }
+        },
+        {
+          contract_ref: errorRef,
+          contract_kind: "error",
+          contract_body: {
+            type: "object",
+            required: ["failure_class"]
+          }
+        }
+      ]
+    }
+  };
+};
+
 const hasReadyFingerprintRuntime = (fingerprintRuntime: Record<string, unknown> | null): boolean => {
   const injection = asRecord(fingerprintRuntime?.injection);
   const execution = asRecord(fingerprintRuntime?.execution);
@@ -1755,6 +1880,11 @@ export class ContentScriptHandler {
       return true;
     }
 
+    if (message.command === "l2.first_usable") {
+      void this.#handleL2FirstUsableCommand(message);
+      return true;
+    }
+
     if (XHS_READ_COMMANDS.has(message.command)) {
       this.#handleXhsReadCommandWithDeadline(message);
       return true;
@@ -1765,6 +1895,181 @@ export class ContentScriptHandler {
       listener(result);
     }
     return true;
+  }
+
+  async #handleL2FirstUsableCommand(message: BackgroundToContentMessage): Promise<void> {
+    const request =
+      asRecord(message.commandParams.l2_first_usable_request) ??
+      asRecord(message.commandParams);
+    const riskGateContext = asRecord(request?.risk_gate_context);
+    const targetUrl = asString(request?.target_url);
+    const goalKind = asString(request?.goal_kind);
+    const safetyClass = asString(request?.interaction_safety_class);
+    const allowedActions = Array.isArray(request?.allowed_actions)
+      ? request.allowed_actions.filter((item): item is string => typeof item === "string")
+      : [];
+    const runId = asString(riskGateContext?.run_id) ?? message.runId;
+    const profile = asString(riskGateContext?.profile) ?? message.profile ?? "profile/default";
+    const riskState = asString(riskGateContext?.risk_state);
+
+    const emitResult = (result: Record<string, unknown>): void => {
+      this.#emit({
+        kind: "result",
+        id: message.id,
+        ok: true,
+        payload: {
+          l2_first_usable_result: result
+        }
+      });
+    };
+
+    if (riskState === "paused") {
+      emitResult({
+        success: false,
+        failure_class: "risk_gate_blocked"
+      });
+      return;
+    }
+
+    const invalidRequest =
+      !request ||
+      !targetUrl ||
+      goalKind !== "read" ||
+      safetyClass !== "pure_read" ||
+      !allowedActions.includes("extract") ||
+      allowedActions.some((action) => !L2_ALLOWED_ACTIONS.has(action));
+    if (invalidRequest) {
+      emitResult({
+        success: false,
+        failure_class: "requires_l1_fallback",
+        l1_fallback_payload: {
+          fallback_goal: "read",
+          fallback_reason: "target_not_located",
+          recommended_strategy: "visual_reacquire"
+        }
+      });
+      return;
+    }
+
+    const simulateResult = asString(message.commandParams.simulate_result);
+    if (
+      simulateResult === "insufficient_semantic_structure" ||
+      simulateResult === "target_not_located" ||
+      simulateResult === "state_not_settled"
+    ) {
+      emitResult({
+        success: false,
+        failure_class: "requires_l1_fallback",
+        l1_fallback_payload: {
+          fallback_goal: "read",
+          fallback_reason: simulateResult,
+          recommended_strategy:
+            simulateResult === "target_not_located"
+              ? "visual_reacquire"
+              : simulateResult === "state_not_settled"
+                ? "visual_state_check"
+                : "visual_state_check"
+        }
+      });
+      return;
+    }
+
+    let parsedTargetUrl: URL;
+    try {
+      parsedTargetUrl = new URL(targetUrl);
+    } catch {
+      emitResult({
+        success: false,
+        failure_class: "requires_l1_fallback",
+        l1_fallback_payload: {
+          fallback_goal: "read",
+          fallback_reason: "target_not_located",
+          recommended_strategy: "visual_reacquire"
+        }
+      });
+      return;
+    }
+
+    const href = typeof location !== "undefined" ? location.href : targetUrl;
+    const title = typeof document !== "undefined" ? document.title : "";
+    const bodyText =
+      typeof document !== "undefined" && document.body
+        ? (document.body.innerText ?? document.body.textContent ?? "").trim().replace(/\s+/g, " ")
+        : "";
+    const structure = collectL2PageStructure();
+    const structureCount =
+      (Array.isArray(structure.headings) ? structure.headings.length : 0) +
+      (Array.isArray(structure.links) ? structure.links.length : 0) +
+      (Array.isArray(structure.buttons) ? structure.buttons.length : 0);
+    if (bodyText.length === 0 && structureCount === 0) {
+      emitResult({
+        success: false,
+        failure_class: "requires_l1_fallback",
+        l1_fallback_payload: {
+          fallback_goal: "read",
+          fallback_reason: "insufficient_semantic_structure",
+          recommended_strategy: "visual_state_check"
+        }
+      });
+      return;
+    }
+
+    const capturedAt = new Date().toISOString();
+    const abilityId = `generic.${normalizeL2AbilitySegment(parsedTargetUrl.hostname)}.${normalizeL2AbilitySegment(parsedTargetUrl.pathname)}.read.v1`;
+    const resultSummary = {
+      page_url: href,
+      target_url: targetUrl,
+      title,
+      text_excerpt: bodyText.slice(0, 1200),
+      structure
+    };
+    emitResult({
+      success: true,
+      result_summary: resultSummary,
+      first_usable_trace: [
+        {
+          step_id: "step-1",
+          action: "locate",
+          target_hint: parsedTargetUrl.hostname,
+          result: "page_structure_located"
+        },
+        {
+          step_id: "step-2",
+          action: "extract",
+          target_hint: "document",
+          result: "structured_read_completed"
+        }
+      ],
+      interaction_trace: [
+        {
+          action: "locate",
+          target_ref: "document",
+          settled: true,
+          interaction_semantics: "neutral"
+        },
+        {
+          action: "extract",
+          target_ref: "document",
+          settled: true,
+          interaction_semantics: "neutral"
+        }
+      ],
+      capture_hints: {
+        source: "content_script_dom_extract",
+        page_url: href,
+        target_domain: parsedTargetUrl.hostname,
+        allowed_actions: allowedActions,
+        reveal_only_click_kinds: [...L2_REVEAL_ONLY_CLICK_KINDS]
+      },
+      candidate_shell_seed: buildL2CandidateShellSeed({
+        abilityId,
+        displayName: `Generic read ${parsedTargetUrl.hostname}`,
+        targetUrl,
+        runId,
+        profile,
+        capturedAt
+      })
+    });
   }
 
   #emitUnexpectedXhsReadFailure(

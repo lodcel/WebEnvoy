@@ -8772,6 +8772,21 @@ class ChromeBackgroundBridge {
     ) {
       return commandParams.target_tab_id;
     }
+    const riskGateContext = asRecord(commandParams.risk_gate_context);
+    if (
+      typeof riskGateContext?.target_tab_id === "number" &&
+      Number.isInteger(riskGateContext.target_tab_id)
+    ) {
+      return riskGateContext.target_tab_id;
+    }
+    const l2FirstUsableRequest = asRecord(commandParams.l2_first_usable_request);
+    const l2RiskGateContext = asRecord(l2FirstUsableRequest?.risk_gate_context);
+    if (
+      typeof l2RiskGateContext?.target_tab_id === "number" &&
+      Number.isInteger(l2RiskGateContext.target_tab_id)
+    ) {
+      return l2RiskGateContext.target_tab_id;
+    }
     const options =
       typeof commandParams.options === "object" && commandParams.options !== null
         ? (commandParams.options as Record<string, unknown>)

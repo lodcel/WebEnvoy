@@ -1255,6 +1255,166 @@ describe("content-script handler contract", () => {
     });
   });
 
+  it("returns structured l2.first_usable read extraction from visible DOM", async () => {
+    await withMockMainWorld(async () => {
+      const mockElement = (text: string) => ({
+        innerText: text,
+        textContent: text,
+        getBoundingClientRect: () => ({ width: 100, height: 20 })
+      });
+      (globalThis as { document: Document }).document = {
+        title: "L2 Contract Page",
+        readyState: "complete",
+        body: {
+          innerText: "L2 visible article body with enough semantic content.",
+          textContent: "L2 visible article body with enough semantic content."
+        },
+        querySelectorAll: (selector: string) => {
+          if (selector === "h1,h2,h3,[role='heading']") {
+            return [mockElement("L2 Contract Heading")];
+          }
+          if (selector === "a[href]") {
+            return [mockElement("Read more")];
+          }
+          if (selector === "button,[role='button']") {
+            return [mockElement("Expand")];
+          }
+          return [];
+        },
+        createElement: () => ({
+          textContent: "",
+          remove: () => {}
+        }),
+        documentElement: {
+          appendChild: (node: unknown) => node
+        }
+      } as unknown as Document;
+      const handler = new ContentScriptHandler();
+      const results: Array<Record<string, unknown>> = [];
+      handler.onResult((message) => {
+        results.push(message as unknown as Record<string, unknown>);
+      });
+
+      handler.onBackgroundMessage({
+        kind: "forward",
+        id: "run-l2-dom-001",
+        runId: "run-l2-dom-001",
+        tabId: 4,
+        profile: "profile-a",
+        cwd: "/workspace/WebEnvoy",
+        timeoutMs: 1_000,
+        command: "l2.first_usable",
+        params: {},
+        commandParams: {
+          l2_first_usable_request: {
+            target_url: "https://example.com/articles/l2",
+            goal_kind: "read",
+            interaction_safety_class: "pure_read",
+            risk_gate_context: {
+              run_id: "run-l2-dom-001",
+              profile: "profile-a",
+              target_domain: "example.com",
+              target_tab_id: 4,
+              target_page: "article",
+              risk_state: "limited"
+            },
+            allowed_actions: ["navigate", "locate", "extract", "wait_settled"]
+          }
+        },
+        fingerprintContext: null
+      });
+
+      await waitForResult(results);
+
+      expect(results[0]?.ok).toBe(true);
+      const payload = results[0]?.payload as Record<string, unknown>;
+      const l2Result = payload?.l2_first_usable_result as Record<string, unknown>;
+      expect(l2Result).toMatchObject({
+        success: true,
+        result_summary: {
+          page_url: "https://example.com/articles/l2",
+          title: "L2 Contract Page",
+          text_excerpt: "L2 visible article body with enough semantic content.",
+          structure: {
+            headings: [expect.objectContaining({ text: "L2 Contract Heading" })],
+            links: [expect.objectContaining({ text: "Read more" })],
+            buttons: [expect.objectContaining({ text: "Expand" })]
+          }
+        },
+        interaction_trace: [
+          expect.objectContaining({ action: "locate" }),
+          expect.objectContaining({
+            action: "extract",
+            interaction_semantics: "neutral"
+          })
+        ],
+        capture_hints: {
+          source: "content_script_dom_extract"
+        },
+        candidate_shell_seed: {
+          ability_kind: "read",
+          entrypoint: "l2.first_usable",
+          execution_layer_support: ["L2"]
+        }
+      });
+    });
+  });
+
+  it("returns requires_l1_fallback for l2.first_usable simulated fallback", async () => {
+    await withMockMainWorld(async () => {
+      const handler = new ContentScriptHandler();
+      const results: Array<Record<string, unknown>> = [];
+      handler.onResult((message) => {
+        results.push(message as unknown as Record<string, unknown>);
+      });
+
+      handler.onBackgroundMessage({
+        kind: "forward",
+        id: "run-l2-fallback-001",
+        runId: "run-l2-fallback-001",
+        tabId: 4,
+        profile: "profile-a",
+        cwd: "/workspace/WebEnvoy",
+        timeoutMs: 1_000,
+        command: "l2.first_usable",
+        params: {},
+        commandParams: {
+          simulate_result: "state_not_settled",
+          l2_first_usable_request: {
+            target_url: "https://example.com/articles/l2",
+            goal_kind: "read",
+            interaction_safety_class: "pure_read",
+            risk_gate_context: {
+              run_id: "run-l2-fallback-001",
+              profile: "profile-a",
+              target_domain: "example.com",
+              target_tab_id: 4,
+              target_page: "article",
+              risk_state: "allowed"
+            },
+            allowed_actions: ["locate", "extract", "wait_settled"]
+          }
+        },
+        fingerprintContext: null
+      });
+
+      await waitForResult(results);
+
+      expect(results[0]?.ok).toBe(true);
+      expect(results[0]?.payload).toMatchObject({
+        l2_first_usable_result: {
+          success: false,
+          failure_class: "requires_l1_fallback",
+          l1_fallback_payload: {
+            fallback_goal: "read",
+            fallback_reason: "state_not_settled",
+            recommended_strategy: "visual_state_check"
+          }
+        }
+      });
+    });
+  });
+
   it("does not trust forged main-world fingerprint-install success by request id only", async () => {
     await withMockMainWorld(async ({ mockWindow, mainWorldRequestEvent, mainWorldResultEvent }) => {
       (mockWindow as Window & Record<string, unknown>).__disableMainWorldBridgeFingerprintInstall__ =

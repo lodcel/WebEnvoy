@@ -10,7 +10,75 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const L2_ALLOWED_ACTIONS = new Set([
+    "navigate",
+    "locate",
+    "reveal_only_click",
+    "extract",
+    "wait_settled"
+]);
 const toLoopbackProfileRef = (profile) => profile.startsWith("profile/") ? profile : `profile/${profile}`;
+const normalizeL2AbilitySegment = (value) => value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48) || "page";
+const contractRefForL2Ability = (abilityId, kind) => `cad::${abilityId}::${kind}::v1`;
+const buildLoopbackL2CandidateShellSeed = (input) => {
+    const parsedUrl = new URL(input.targetUrl);
+    const inputRef = contractRefForL2Ability(input.abilityId, "input");
+    const outputRef = contractRefForL2Ability(input.abilityId, "output");
+    const errorRef = contractRefForL2Ability(input.abilityId, "error");
+    return {
+        ability_id: input.abilityId,
+        display_name: `Generic read ${parsedUrl.hostname}`,
+        ability_kind: "read",
+        entrypoint: "l2.first_usable",
+        platform_scope: {
+            platform_family: "generic_web",
+            site_pattern: parsedUrl.hostname
+        },
+        execution_layer_support: ["L2"],
+        input_contract_ref: inputRef,
+        output_contract_ref: outputRef,
+        error_contract_ref: errorRef,
+        capture_origin: "l2_first_usable_sample",
+        capture_run_id: input.runId,
+        capture_profile: input.profile,
+        capture_artifact_refs: [`loopback-l2-first-usable://${input.runId}`],
+        captured_at: input.capturedAt,
+        candidate_status: "draft_candidate",
+        contract_registry_seed: {
+            ability_id: input.abilityId,
+            entries: [
+                {
+                    contract_ref: inputRef,
+                    contract_kind: "input",
+                    contract_body: {
+                        type: "object",
+                        required: ["target_url", "goal_kind", "risk_gate_context", "allowed_actions"]
+                    }
+                },
+                {
+                    contract_ref: outputRef,
+                    contract_kind: "output",
+                    contract_body: {
+                        type: "object",
+                        required: ["page_url", "title", "text_excerpt", "structure"]
+                    }
+                },
+                {
+                    contract_ref: errorRef,
+                    contract_kind: "error",
+                    contract_body: {
+                        type: "object",
+                        required: ["failure_class"]
+                    }
+                }
+            ]
+        }
+    };
+};
 const buildLoopbackXhsSearchPageUrl = (query) => {
     const url = new URL("https://www.xiaohongshu.com/search_result");
     if (query.length > 0) {
@@ -178,6 +246,134 @@ export class InMemoryContentScriptRuntime {
                     bootstrap_state: bootstrapState
                 }
             };
+        }
+        if (message.command === "l2.first_usable") {
+            const commandParams = asRecord(message.commandParams) ?? {};
+            const request = asRecord(commandParams.l2_first_usable_request) ?? commandParams;
+            const riskGateContext = asRecord(request.risk_gate_context);
+            const targetUrl = asString(request.target_url);
+            const riskState = asString(riskGateContext?.risk_state);
+            const profile = asString(riskGateContext?.profile) ?? message.profile ?? "profile/default";
+            const runId = asString(riskGateContext?.run_id) ?? message.runId;
+            const allowedActions = Array.isArray(request.allowed_actions)
+                ? request.allowed_actions.filter((item) => typeof item === "string")
+                : [];
+            const simulated = asString(commandParams.simulate_result) ?? "success";
+            const resultPayload = (result) => ({
+                kind: "result",
+                id: message.id,
+                ok: true,
+                payload: {
+                    l2_first_usable_result: result
+                }
+            });
+            if (riskState === "paused") {
+                return resultPayload({
+                    success: false,
+                    failure_class: "risk_gate_blocked"
+                });
+            }
+            if (!targetUrl ||
+                request.goal_kind !== "read" ||
+                request.interaction_safety_class !== "pure_read" ||
+                !allowedActions.includes("extract") ||
+                allowedActions.some((action) => !L2_ALLOWED_ACTIONS.has(action))) {
+                return resultPayload({
+                    success: false,
+                    failure_class: "requires_l1_fallback",
+                    l1_fallback_payload: {
+                        fallback_goal: "read",
+                        fallback_reason: "target_not_located",
+                        recommended_strategy: "visual_reacquire"
+                    }
+                });
+            }
+            if (simulated === "insufficient_semantic_structure" ||
+                simulated === "target_not_located" ||
+                simulated === "state_not_settled") {
+                return resultPayload({
+                    success: false,
+                    failure_class: "requires_l1_fallback",
+                    l1_fallback_payload: {
+                        fallback_goal: "read",
+                        fallback_reason: simulated,
+                        recommended_strategy: simulated === "target_not_located" ? "visual_reacquire" : "visual_state_check"
+                    }
+                });
+            }
+            let parsedUrl;
+            try {
+                parsedUrl = new URL(targetUrl);
+            }
+            catch {
+                return resultPayload({
+                    success: false,
+                    failure_class: "requires_l1_fallback",
+                    l1_fallback_payload: {
+                        fallback_goal: "read",
+                        fallback_reason: "target_not_located",
+                        recommended_strategy: "visual_reacquire"
+                    }
+                });
+            }
+            const capturedAt = "2026-05-23T00:00:00.000Z";
+            const abilityId = `generic.${normalizeL2AbilitySegment(parsedUrl.hostname)}.${normalizeL2AbilitySegment(parsedUrl.pathname)}.read.v1`;
+            const resultSummary = {
+                page_url: targetUrl,
+                target_url: targetUrl,
+                title: "Loopback L2 Fixture",
+                text_excerpt: "Loopback L2 first usable extracted content",
+                structure: {
+                    headings: [{ ref: "h1:1", text: "Loopback L2 Fixture" }],
+                    links: [{ ref: "a:1", text: "Example result" }],
+                    buttons: []
+                }
+            };
+            return resultPayload({
+                success: true,
+                result_summary: resultSummary,
+                first_usable_trace: [
+                    {
+                        step_id: "step-1",
+                        action: "locate",
+                        target_hint: parsedUrl.hostname,
+                        result: "page_structure_located"
+                    },
+                    {
+                        step_id: "step-2",
+                        action: "extract",
+                        target_hint: "document",
+                        result: "structured_read_completed"
+                    }
+                ],
+                interaction_trace: [
+                    {
+                        action: "locate",
+                        target_ref: "document",
+                        settled: true,
+                        interaction_semantics: "neutral"
+                    },
+                    {
+                        action: "extract",
+                        target_ref: "document",
+                        settled: true,
+                        interaction_semantics: "neutral"
+                    }
+                ],
+                capture_hints: {
+                    source: "loopback_l2_fixture",
+                    page_url: targetUrl,
+                    target_domain: parsedUrl.hostname,
+                    allowed_actions: allowedActions
+                },
+                candidate_shell_seed: buildLoopbackL2CandidateShellSeed({
+                    abilityId,
+                    targetUrl,
+                    runId,
+                    profile,
+                    capturedAt
+                })
+            });
         }
         if (XHS_READ_COMMANDS.has(message.command)) {
             const simulated = typeof message.commandParams.options === "object" &&

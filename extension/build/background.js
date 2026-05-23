@@ -1,5 +1,6 @@
 import { resolveMainWorldEventNamesForSecret } from "./content-script-handler.js";
 import { BackgroundRelay as ExtractedBackgroundRelay } from "./background-relay.js";
+import { dispatchBackgroundBridgeCommand } from "./background-command-dispatch.js";
 import { BackgroundRuntimeTrustState } from "./background-runtime-trust-state.js";
 import { NativeBridgePendingForwardState } from "./native-bridge-pending-forward-state.js";
 import { NativeBridgeRecoveryState } from "./native-bridge-recovery-state.js";
@@ -32,20 +33,12 @@ const passiveCaptureSensitiveHeaderNames = new Set([
     "x-t"
 ]);
 const passiveCaptureRedactedHeaderValue = "[redacted]";
-const editorInputDebuggerProbeWaitMs = 150;
 const xhsTargetRestoreNavigationTimeoutMs = 5_000;
 const xhsTargetRestoreNavigationPollMs = 100;
 const xhsOpenResultCardNavigationTimeoutMs = 5_000;
 const xhsForwardResponseSafetyMs = 5_000;
 const xhsPreForwardStageTimeoutMs = 5_000;
 const xhsStaleRestoreBindingLeaseMaxAgeMs = 120_000;
-const editorInputDebuggerEntryLabels = ["新的创作"];
-const editorInputSelectors = [
-    'div.tiptap.ProseMirror[contenteditable="true"]',
-    '[contenteditable="true"].tiptap.ProseMirror',
-    '[contenteditable="true"].ProseMirror',
-    '[contenteditable="true"][data-lexical-editor="true"]'
-];
 const xhsSearchInputSelectors = [
     'input[type="search"]',
     'input[class*="search"]',
@@ -2303,98 +2296,23 @@ class ChromeBackgroundBridge {
             });
             return;
         }
-        const command = String(request.params.command ?? "");
-        if (command === "runtime.bootstrap") {
-            await this.#handleRuntimeBootstrap(request);
-            return;
-        }
-        if (command === "runtime.tabs") {
-            await this.#handleRuntimeTabs(request);
-            return;
-        }
-        if (command === "runtime.restore_xhs_target") {
-            await this.#handleRuntimeRestoreXhsTarget(request);
-            return;
-        }
-        if (command === "runtime.reload_tab") {
-            await this.#handleRuntimeReloadTab(request);
-            return;
-        }
-        if (command === "runtime.xhs_debug_page_state") {
-            await this.#handleRuntimeXhsDebugPageState(request);
-            return;
-        }
-        if (command === "runtime.xhs_capture_user_home_context") {
-            await this.#handleRuntimeXhsCaptureUserHomeContext(request);
-            return;
-        }
-        if (command === "runtime.xhs_debug_main_world_roundtrip") {
-            await this.#handleRuntimeXhsDebugMainWorldRoundtrip(request);
-            return;
-        }
-        if (command === "runtime.xhs_open_result_card") {
-            await this.#handleRuntimeXhsOpenResultCard(request);
-            return;
-        }
-        if (command === "runtime.xhs_debug_result_targets") {
-            await this.#handleRuntimeXhsDebugResultTargets(request);
-            return;
-        }
-        if (command === "runtime.main_world_probe") {
-            await this.#handleRuntimeMainWorldProbe(request);
-            return;
-        }
-        if (command === "runtime.trusted_fingerprint_probe") {
-            this.#handleRuntimeTrustedFingerprintProbe(request);
-            return;
-        }
-        if (command === "runtime.readiness") {
-            await this.#handleRuntimeReadiness(request);
-            return;
-        }
-        try {
-            await this.#dispatchForward(request);
-        }
-        catch (error) {
-            const failureMessage = error instanceof Error ? error.message : String(error);
-            const failureName = error instanceof Error && typeof error.name === "string" && error.name.length > 0
-                ? error.name
-                : "Error";
-            const xhsCommand = XHS_GATE_COMMANDS.has(command);
-            this.#emit({
-                id: request.id,
-                status: "error",
-                summary: {
-                    relay_path: "host>background>content-script>background>host"
-                },
-                payload: xhsCommand
-                    ? {
-                        details: {
-                            stage: "execution",
-                            reason: "BACKGROUND_FORWARD_EXCEPTION",
-                            forward_failure_stage: "background_dispatch_exception",
-                            error_name: failureName
-                        },
-                        diagnosis: {
-                            category: "runtime_unavailable",
-                            stage: "runtime",
-                            component: "background",
-                            failure_site: {
-                                stage: "runtime",
-                                component: "background",
-                                target: command,
-                                summary: failureMessage
-                            },
-                            evidence: [`background_forward_exception=${failureName}`]
-                        }
-                    }
-                    : undefined,
-                error: {
-                    code: xhsCommand ? "ERR_EXECUTION_FAILED" : "ERR_TRANSPORT_FORWARD_FAILED",
-                    message: failureMessage
-                }
-            });
-        }
+        await dispatchBackgroundBridgeCommand(request, {
+            emit: (message) => this.#emit(message),
+            dispatchForward: (forwardRequest) => this.#dispatchForward(forwardRequest),
+            isXhsGateCommand: (command) => XHS_GATE_COMMANDS.has(command),
+            handleRuntimeBootstrap: (runtimeRequest) => this.#handleRuntimeBootstrap(runtimeRequest),
+            handleRuntimeTabs: (runtimeRequest) => this.#handleRuntimeTabs(runtimeRequest),
+            handleRuntimeRestoreXhsTarget: (runtimeRequest) => this.#handleRuntimeRestoreXhsTarget(runtimeRequest),
+            handleRuntimeReloadTab: (runtimeRequest) => this.#handleRuntimeReloadTab(runtimeRequest),
+            handleRuntimeXhsDebugPageState: (runtimeRequest) => this.#handleRuntimeXhsDebugPageState(runtimeRequest),
+            handleRuntimeXhsCaptureUserHomeContext: (runtimeRequest) => this.#handleRuntimeXhsCaptureUserHomeContext(runtimeRequest),
+            handleRuntimeXhsDebugMainWorldRoundtrip: (runtimeRequest) => this.#handleRuntimeXhsDebugMainWorldRoundtrip(runtimeRequest),
+            handleRuntimeXhsOpenResultCard: (runtimeRequest) => this.#handleRuntimeXhsOpenResultCard(runtimeRequest),
+            handleRuntimeXhsDebugResultTargets: (runtimeRequest) => this.#handleRuntimeXhsDebugResultTargets(runtimeRequest),
+            handleRuntimeMainWorldProbe: (runtimeRequest) => this.#handleRuntimeMainWorldProbe(runtimeRequest),
+            handleRuntimeTrustedFingerprintProbe: (runtimeRequest) => this.#handleRuntimeTrustedFingerprintProbe(runtimeRequest),
+            handleRuntimeReadiness: (runtimeRequest) => this.#handleRuntimeReadiness(runtimeRequest)
+        });
     }
     async #handleRuntimeBootstrap(request) {
         const commandParams = asRecord(request.params.command_params) ?? {};
@@ -5190,6 +5108,59 @@ class ChromeBackgroundBridge {
                         command_params: commandParams
                     }
                 }, requestedFingerprintContext) ?? requestedFingerprintContext;
+            if (xhsForwardState.issue208EditorInputValidation) {
+                if (suppressHostResponse) {
+                    return;
+                }
+                this.#emit({
+                    id: dispatchRequest.id,
+                    status: "error",
+                    summary: {
+                        relay_path: "host>background>content-script>background>host"
+                    },
+                    payload: {
+                        ...(gatePayload ? { ...gatePayload } : {}),
+                        details: {
+                            ...(asRecord(gatePayload?.details) ?? {}),
+                            stage: "execution",
+                            reason: "EDITOR_INPUT_DEBUGGER_REQUIRED_BLOCKED",
+                            forward_failure_stage: "editor_input_debugger_dependency",
+                            target_domain: consumerGateResult?.target_domain ?? null,
+                            target_tab_id: consumerGateResult?.target_tab_id ?? tabId,
+                            target_page: consumerGateResult?.target_page ?? null,
+                            requested_execution_mode: consumerGateResult?.requested_execution_mode ?? null,
+                            effective_execution_mode: consumerGateResult?.effective_execution_mode ?? null,
+                            validation_action: "editor_input",
+                            failure_signals: [
+                                "debugger_required_blocked",
+                                "editor_focus_not_attested"
+                            ],
+                            out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+                        },
+                        diagnosis: {
+                            category: "execution_blocked",
+                            stage: "policy",
+                            component: "background",
+                            failure_site: {
+                                stage: "policy",
+                                component: "background",
+                                target: "xhs.editor_input.live_write",
+                                summary: "editor_input live_write requires chrome.debugger attestation and is blocked before attach"
+                            },
+                            evidence: [
+                                "validation_action=editor_input",
+                                "requested_execution_mode=live_write",
+                                "chrome_debugger_attach=blocked"
+                            ]
+                        }
+                    },
+                    error: {
+                        code: "ERR_EXECUTION_FAILED",
+                        message: "editor_input live_write is blocked because the current controlled interaction path requires chrome.debugger"
+                    }
+                });
+                return;
+            }
         }
         else {
             tabId = await this.#resolveTargetTabId(dispatchRequest);
@@ -5283,21 +5254,6 @@ class ChromeBackgroundBridge {
                 });
                 return;
             }
-        }
-        if (xhsForwardState.issue208EditorInputValidation) {
-            const editorFocusAttestation = await runXhsPreForwardStage("editor_focus_attestation", this.#buildEditorInputFocusAttestation(tabId));
-            if (editorFocusAttestation === null) {
-                emitXhsPreForwardTimeout("editor_focus_attestation");
-                return;
-            }
-            commandParams = this.#injectEditorFocusAttestation(commandParams, editorFocusAttestation);
-            dispatchRequest = {
-                ...dispatchRequest,
-                params: {
-                    ...dispatchRequest.params,
-                    command_params: commandParams
-                }
-            };
         }
         const timeoutMs = requestDeadlineMs - Date.now();
         if (timeoutMs <= 0) {
@@ -5443,296 +5399,6 @@ class ChromeBackgroundBridge {
                 message: error instanceof Error ? error.message : "content script dispatch failed"
             });
         }
-    }
-    #injectEditorFocusAttestation(commandParams, attestation) {
-        const normalized = {
-            ...commandParams,
-            editor_focus_attestation: attestation
-        };
-        const optionParams = asRecord(commandParams.options);
-        const normalizedOptions = optionParams ? { ...optionParams } : {};
-        normalizedOptions.editor_focus_attestation = attestation;
-        normalized.options = normalizedOptions;
-        return normalized;
-    }
-    #buildEditorInputFocusAttestationRecord(input) {
-        return {
-            source: "chrome_debugger",
-            target_tab_id: input.tabId,
-            editable_state: input.editableState,
-            focus_confirmed: input.focusConfirmed,
-            entry_button_locator: input.entryButton?.locator ?? null,
-            entry_button_target_key: input.entryButton?.targetKey ?? null,
-            editor_locator: input.editor?.locator ?? null,
-            editor_target_key: input.editor?.targetKey ?? null,
-            failure_reason: input.failureReason
-        };
-    }
-    #buildEditorInputFailureAttestation(tabId, failureReason, input) {
-        return this.#buildEditorInputFocusAttestationRecord({
-            tabId,
-            editableState: input?.editableState ?? "already_ready",
-            entryButton: input?.entryButton ?? null,
-            editor: input?.editor ?? null,
-            focusConfirmed: false,
-            failureReason
-        });
-    }
-    #buildEditorInputSuccessAttestation(tabId, input) {
-        return this.#buildEditorInputFocusAttestationRecord({
-            tabId,
-            editableState: input.editableState,
-            entryButton: input.entryButton,
-            editor: input.editor,
-            focusConfirmed: true,
-            failureReason: null
-        });
-    }
-    async #attachEditorInputDebugger(tabId) {
-        const debuggerApi = this.chromeApi.debugger;
-        if (!debuggerApi) {
-            return false;
-        }
-        try {
-            await debuggerApi.attach({ tabId }, debuggerProtocolVersion);
-            return true;
-        }
-        catch {
-            return false;
-        }
-    }
-    async #resolveEditorInputAttestationAfterAttach(tabId, input) {
-        const { editableState } = input;
-        let entryButton = input.entryButton;
-        let editor = input.editor;
-        if (!editor) {
-            return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_ENTRY_NOT_VISIBLE", {
-                editableState,
-                entryButton,
-                editor
-            });
-        }
-        await this.#dispatchEditorInputDebuggerClick(tabId, editor);
-        await this.#sleep(50);
-        const finalProbe = await this.#probeEditorInputTargets(tabId);
-        const focusConfirmed = finalProbe?.editorFocused === true;
-        const finalEditor = finalProbe?.editor ?? editor;
-        if (!focusConfirmed) {
-            return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_FOCUS_NOT_ATTESTED", {
-                editableState,
-                entryButton,
-                editor: finalEditor
-            });
-        }
-        return this.#buildEditorInputSuccessAttestation(tabId, {
-            editableState,
-            entryButton,
-            editor: finalEditor
-        });
-    }
-    async #buildEditorInputFocusAttestation(tabId) {
-        const debuggerApi = this.chromeApi.debugger;
-        const initialProbe = await this.#probeEditorInputTargets(tabId);
-        if (!initialProbe) {
-            return this.#buildEditorInputFailureAttestation(tabId, "DEBUGGER_INTERACTION_FAILED");
-        }
-        let entryButton = initialProbe.entryButton;
-        const editor = initialProbe.editor;
-        let editableState = "already_ready";
-        const attached = await this.#attachEditorInputDebugger(tabId);
-        if (!attached) {
-            return this.#buildEditorInputFailureAttestation(tabId, "DEBUGGER_ATTACH_FAILED", {
-                entryButton,
-                editor
-            });
-        }
-        try {
-            if (!editor) {
-                if (!entryButton) {
-                    return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_ENTRY_NOT_VISIBLE", {
-                        entryButton,
-                        editor
-                    });
-                }
-                await this.#dispatchEditorInputDebuggerClick(tabId, entryButton);
-                await this.#sleep(editorInputDebuggerProbeWaitMs);
-                const postEntryProbe = await this.#probeEditorInputTargets(tabId);
-                if (!postEntryProbe?.editor) {
-                    return this.#buildEditorInputFailureAttestation(tabId, "EDITOR_ENTRY_NOT_VISIBLE", {
-                        entryButton,
-                        editor
-                    });
-                }
-                editableState = "entered";
-                entryButton = postEntryProbe.entryButton ?? entryButton;
-                return await this.#resolveEditorInputAttestationAfterAttach(tabId, {
-                    editableState,
-                    entryButton,
-                    editor: postEntryProbe.editor
-                });
-            }
-            return await this.#resolveEditorInputAttestationAfterAttach(tabId, {
-                editableState,
-                entryButton,
-                editor
-            });
-        }
-        catch {
-            return this.#buildEditorInputFailureAttestation(tabId, "DEBUGGER_INTERACTION_FAILED", {
-                editableState,
-                entryButton,
-                editor
-            });
-        }
-        finally {
-            if (attached) {
-                try {
-                    await debuggerApi?.detach({ tabId });
-                }
-                catch {
-                    // Swallow detach errors to avoid overriding primary failure semantics.
-                }
-            }
-        }
-    }
-    async #probeEditorInputTargets(tabId) {
-        const executeScript = this.chromeApi.scripting?.executeScript;
-        if (!executeScript) {
-            return null;
-        }
-        try {
-            const results = await executeScript({
-                target: { tabId },
-                world: "ISOLATED",
-                func: (entryLabels, selectors) => {
-                    const labels = Array.isArray(entryLabels)
-                        ? entryLabels.filter((item) => typeof item === "string")
-                        : [];
-                    const editorSelectors = Array.isArray(selectors)
-                        ? selectors.filter((item) => typeof item === "string")
-                        : [];
-                    const asVisibleElement = (value) => {
-                        if (!(value instanceof HTMLElement)) {
-                            return null;
-                        }
-                        const rect = value.getBoundingClientRect();
-                        const style = window.getComputedStyle(value);
-                        if (rect.width <= 0 ||
-                            rect.height <= 0 ||
-                            style.visibility === "hidden" ||
-                            style.display === "none") {
-                            return null;
-                        }
-                        return value;
-                    };
-                    const buildLocator = (element) => {
-                        if (typeof element.id === "string" && element.id.length > 0) {
-                            return `#${element.id}`;
-                        }
-                        const className = typeof element.className === "string"
-                            ? element.className
-                                .split(/\s+/)
-                                .map((token) => token.trim())
-                                .filter((token) => token.length > 0)
-                                .slice(0, 2)
-                                .join(".")
-                            : "";
-                        if (className) {
-                            return `${element.tagName.toLowerCase()}.${className}`;
-                        }
-                        return element.tagName.toLowerCase();
-                    };
-                    const buildTargetKey = (element) => {
-                        const segments = [];
-                        let current = element;
-                        while (current) {
-                            const parent = current.parentElement;
-                            const tagName = current.tagName.toLowerCase();
-                            if (!parent) {
-                                segments.unshift(current.id ? `${tagName}#${current.id}` : tagName);
-                                break;
-                            }
-                            const siblings = Array.from(parent.children).filter((candidate) => candidate instanceof HTMLElement && candidate.tagName === current?.tagName);
-                            const position = siblings.indexOf(current) + 1;
-                            const idSegment = current.id ? `#${current.id}` : "";
-                            segments.unshift(`${tagName}${idSegment}:nth-of-type(${position})`);
-                            current = parent;
-                        }
-                        return segments.join(" > ");
-                    };
-                    const toTarget = (element) => {
-                        if (!element) {
-                            return null;
-                        }
-                        const rect = element.getBoundingClientRect();
-                        return {
-                            locator: buildLocator(element),
-                            targetKey: buildTargetKey(element),
-                            centerX: Math.round(rect.left + rect.width / 2),
-                            centerY: Math.round(rect.top + rect.height / 2)
-                        };
-                    };
-                    const buttons = Array.from(document.querySelectorAll("button, [role='button']"))
-                        .map((entry) => asVisibleElement(entry))
-                        .filter((entry) => entry !== null);
-                    let entryButton = null;
-                    for (const button of buttons) {
-                        const text = button.innerText?.trim() ?? button.textContent?.trim() ?? "";
-                        if (labels.some((label) => text.includes(label))) {
-                            entryButton = button;
-                            break;
-                        }
-                    }
-                    let editor = null;
-                    for (const selector of editorSelectors) {
-                        const candidates = Array.from(document.querySelectorAll(selector))
-                            .map((entry) => asVisibleElement(entry))
-                            .filter((entry) => entry !== null);
-                        if (candidates.length > 0) {
-                            const active = document.activeElement;
-                            const activeCandidate = active instanceof Element
-                                ? candidates.find((candidate) => candidate === active || candidate.contains(active)) ?? null
-                                : null;
-                            if (activeCandidate) {
-                                editor = activeCandidate;
-                            }
-                            else if (candidates.length === 1) {
-                                editor = candidates[0];
-                            }
-                            else {
-                                editor = null;
-                            }
-                            break;
-                        }
-                    }
-                    const active = document.activeElement;
-                    const editorFocused = editor !== null &&
-                        (active === editor ||
-                            (active instanceof Element && editor.contains(active)));
-                    return {
-                        entryButton: toTarget(entryButton),
-                        editor: toTarget(editor),
-                        editorFocused
-                    };
-                },
-                args: [[...editorInputDebuggerEntryLabels], [...editorInputSelectors]]
-            });
-            return this.#parseEditorInputProbeResult(results[0]?.result ?? null);
-        }
-        catch {
-            return null;
-        }
-    }
-    #parseEditorInputProbeResult(value) {
-        const record = asRecord(value);
-        if (!record) {
-            return null;
-        }
-        return {
-            entryButton: this.#parseEditorInputProbeTarget(record.entryButton),
-            editor: this.#parseEditorInputProbeTarget(record.editor),
-            editorFocused: record.editorFocused === true
-        };
     }
     #parseEditorInputProbeTarget(value) {
         const record = asRecord(value);
@@ -7484,6 +7150,17 @@ class ChromeBackgroundBridge {
         if (typeof commandParams.target_tab_id === "number" &&
             Number.isInteger(commandParams.target_tab_id)) {
             return commandParams.target_tab_id;
+        }
+        const riskGateContext = asRecord(commandParams.risk_gate_context);
+        if (typeof riskGateContext?.target_tab_id === "number" &&
+            Number.isInteger(riskGateContext.target_tab_id)) {
+            return riskGateContext.target_tab_id;
+        }
+        const l2FirstUsableRequest = asRecord(commandParams.l2_first_usable_request);
+        const l2RiskGateContext = asRecord(l2FirstUsableRequest?.risk_gate_context);
+        if (typeof l2RiskGateContext?.target_tab_id === "number" &&
+            Number.isInteger(l2RiskGateContext.target_tab_id)) {
+            return l2RiskGateContext.target_tab_id;
         }
         const options = typeof commandParams.options === "object" && commandParams.options !== null
             ? commandParams.options
