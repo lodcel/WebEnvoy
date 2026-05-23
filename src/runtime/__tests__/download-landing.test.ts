@@ -191,6 +191,44 @@ describe("download artifact landing", () => {
     });
   });
 
+  it("rejects oversized base64 payloads before writing bytes", async () => {
+    const cwd = await createTempCwd();
+    const writes: string[] = [];
+    const maxBase64Chars = Math.ceil((25 * 1024 * 1024) / 3) * 4;
+    const target = createTarget();
+    target.browser_artifact = {
+      content_base64: "A".repeat(maxBase64Chars + 4)
+    };
+    const fs = {
+      mkdir: async () => undefined,
+      realpath: async (path: string) => path,
+      stat: async () => {
+        throw new Error("missing");
+      },
+      writeFile: async (path: string) => {
+        writes.push(path);
+      },
+      rename: async () => undefined,
+      rm: async () => undefined
+    };
+
+    await expect(
+      landBrowserDownloadArtifactForContract({
+        cwd,
+        runId: "run-download-landing-oversized",
+        request: createRequest(),
+        target,
+        fs
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_EXECUTION_FAILED",
+      details: {
+        reason: "BROWSER_ARTIFACT_SIZE_INVALID"
+      }
+    });
+    expect(writes).toHaveLength(0);
+  });
+
   it("cleans temporary files when final rename fails", async () => {
     const cwd = await createTempCwd();
     const writes: string[] = [];

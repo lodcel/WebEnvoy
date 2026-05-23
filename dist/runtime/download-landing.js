@@ -5,6 +5,7 @@ import { CliError } from "../core/errors.js";
 import { resolveRuntimeWorktreeRoot } from "./worktree-root.js";
 const TRUSTED_DOWNLOAD_SEGMENTS = [".webenvoy", "downloads"];
 const MAX_BROWSER_ARTIFACT_BYTES = 25 * 1024 * 1024;
+const MAX_BROWSER_ARTIFACT_BASE64_CHARS = Math.ceil(MAX_BROWSER_ARTIFACT_BYTES / 3) * 4;
 const DEFAULT_FILE_SYSTEM = {
     mkdir,
     realpath,
@@ -120,6 +121,9 @@ const resolveFinalPath = async (input) => {
 };
 const decodeBrowserArtifactContent = (contentBase64, abilityId) => {
     const normalized = contentBase64.trim();
+    if (normalized.length > MAX_BROWSER_ARTIFACT_BASE64_CHARS) {
+        throw cliDownloadError("BROWSER_ARTIFACT_SIZE_INVALID", abilityId, "output_mapping");
+    }
     if (normalized.length === 0 || normalized.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/u.test(normalized)) {
         throw cliDownloadError("BROWSER_ARTIFACT_CONTENT_INVALID", abilityId, "output_mapping");
     }
