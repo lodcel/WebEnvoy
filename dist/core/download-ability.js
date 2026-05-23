@@ -13,6 +13,14 @@ const FAILURE_REASONS = new Set([
     "WRITE_BLOCKED",
     "RUNTIME_ERROR"
 ]);
+const TRIGGER_MODES = new Set(["resolve_only", "dispatch_click"]);
+const TRIGGER_STATUSES = new Set(["resolved", "triggered"]);
+const TRIGGER_SURFACES = new Set([
+    "direct_url",
+    "dom_anchor",
+    "dom_button",
+    "blob_locator"
+]);
 const asObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
@@ -63,7 +71,10 @@ const parseUrlString = (value, reason, abilityId) => {
     }
     const normalized = value.trim();
     try {
-        new URL(normalized);
+        const parsed = new URL(normalized);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            throw new Error("unsupported direct download url protocol");
+        }
     }
     catch {
         throw invalidDownloadInput(reason, abilityId);
@@ -255,6 +266,64 @@ export const parseDownloadFailureReasonForContract = (value, abilityId = "downlo
     }
     return value;
 };
+export const parseDownloadTriggerModeForContract = (value, abilityId = "download.trigger") => {
+    if (value === undefined || value === null) {
+        return "resolve_only";
+    }
+    if (typeof value !== "string" || !TRIGGER_MODES.has(value)) {
+        throw invalidDownloadInput("DOWNLOAD_TRIGGER_MODE_INVALID", abilityId);
+    }
+    return value;
+};
+export const parseDownloadBrowserExecutionResultForContract = (value, abilityId = "download.trigger") => {
+    const object = asObject(value);
+    if (!object || typeof object.success !== "boolean") {
+        throw invalidDownloadInput("DOWNLOAD_BROWSER_RESULT_INVALID", abilityId);
+    }
+    const triggerAudit = asObject(object.trigger_audit);
+    if (!object.success) {
+        return {
+            success: false,
+            failure_reason: parseDownloadFailureReasonForContract(object.failure_reason, abilityId),
+            ...(triggerAudit ? { trigger_audit: cloneJsonObject(triggerAudit) } : {})
+        };
+    }
+    const target = asObject(object.download_target);
+    if (!target) {
+        throw invalidDownloadInput("DOWNLOAD_TARGET_MISSING", abilityId);
+    }
+    const sourceKind = parseRequiredString(target, "source_kind", "DOWNLOAD_SOURCE_KIND_INVALID", abilityId);
+    if (sourceKind !== "direct_url" && sourceKind !== "page_blob" && sourceKind !== "page_derived") {
+        throw invalidDownloadInput("DOWNLOAD_SOURCE_KIND_INVALID", abilityId);
+    }
+    const triggerStatus = parseRequiredString(target, "trigger_status", "DOWNLOAD_TRIGGER_STATUS_INVALID", abilityId);
+    if (!TRIGGER_STATUSES.has(triggerStatus)) {
+        throw invalidDownloadInput("DOWNLOAD_TRIGGER_STATUS_INVALID", abilityId);
+    }
+    const triggerMode = parseDownloadTriggerModeForContract(target.trigger_mode, abilityId);
+    const triggerSurface = parseRequiredString(target, "trigger_surface", "DOWNLOAD_TRIGGER_SURFACE_INVALID", abilityId);
+    if (!TRIGGER_SURFACES.has(triggerSurface)) {
+        throw invalidDownloadInput("DOWNLOAD_TRIGGER_SURFACE_INVALID", abilityId);
+    }
+    return {
+        success: true,
+        download_target: {
+            target_ref: parseRequiredString(target, "target_ref", "DOWNLOAD_TARGET_REF_INVALID", abilityId),
+            source_kind: sourceKind,
+            source_url: parseRequiredString(target, "source_url", "SOURCE_URL_INVALID", abilityId),
+            ...(parseOptionalString(target, "file_name_hint", "FILE_NAME_HINT_INVALID", abilityId)
+                ? {
+                    file_name_hint: parseOptionalString(target, "file_name_hint", "FILE_NAME_HINT_INVALID", abilityId)
+                }
+                : {}),
+            content_descriptor: parseContentDescriptor(target.content_descriptor, abilityId),
+            trigger_status: triggerStatus,
+            trigger_mode: triggerMode,
+            trigger_surface: triggerSurface
+        },
+        ...(triggerAudit ? { trigger_audit: cloneJsonObject(triggerAudit) } : {})
+    };
+};
 export const materializeCandidateAbilityFromDownloadSeedForContract = (seed) => {
     const object = asObject(seed);
     if (!object) {
@@ -309,6 +378,16 @@ export const buildDownloadPrepareResultSummaryForContract = (input) => ({
         mime_type: "application/octet-stream"
     }
 });
+export const buildDownloadTriggeredResultSummaryForContract = (input) => ({
+    download_ref: `download.trigger/${input.runId}`,
+    result_state: "partial",
+    saved_artifact_refs: input.artifactRefs && input.artifactRefs.length > 0
+        ? [...input.artifactRefs]
+        : [`download-trigger://${input.runId}/${input.target.target_ref}`],
+    source_url: input.target.source_url,
+    ...(input.target.file_name_hint ? { file_name_hint: input.target.file_name_hint } : {}),
+    content_descriptor: { ...input.target.content_descriptor }
+});
 export const buildAbilityValidationSeedForDownloadRequest = (input) => ({
     ...input.materialized,
     ability_validation_request: {
@@ -319,5 +398,5 @@ export const buildAbilityValidationSeedForDownloadRequest = (input) => ({
         expected_capability_kind: "download",
         smoke_input: cloneJsonObject(input.request)
     },
-    validation_execution_boundary: "not_executed_in_fr0021_747"
+    validation_execution_boundary: input.validationExecutionBoundary ?? "not_executed_in_fr0021_747"
 });

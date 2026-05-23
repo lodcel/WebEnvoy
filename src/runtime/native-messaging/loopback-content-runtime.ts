@@ -447,6 +447,125 @@ export class InMemoryContentScriptRuntime {
       });
     }
 
+    if (message.command === "download.trigger") {
+      const commandParams = asRecord(message.commandParams) ?? {};
+      const request =
+        asRecord(commandParams.download_ability_request) ??
+        asRecord(commandParams.input) ??
+        {};
+      const source = asRecord(request.download_source);
+      const sourceKind = asString(source?.source_kind);
+      const triggerMode =
+        asString(commandParams.trigger_mode) === "dispatch_click" ? "dispatch_click" : "resolve_only";
+      const resultPayload = (result: Record<string, unknown>): ContentMessage => ({
+        kind: "result",
+        id: message.id,
+        ok: true,
+        payload: {
+          download_browser_result: result
+        }
+      });
+
+      if (commandParams.simulate_result === "auth_required") {
+        return resultPayload({
+          success: false,
+          failure_reason: "AUTH_OR_SESSION_REQUIRED",
+          trigger_audit: {
+            run_id: message.runId,
+            source_kind: sourceKind ?? "unknown",
+            trigger_mode: triggerMode
+          }
+        });
+      }
+      if (!sourceKind || !source) {
+        return resultPayload({
+          success: false,
+          failure_reason: "SOURCE_UNAVAILABLE",
+          trigger_audit: {
+            run_id: message.runId,
+            source_kind: "unknown",
+            trigger_mode: triggerMode
+          }
+        });
+      }
+      if (triggerMode === "dispatch_click") {
+        return resultPayload({
+          success: false,
+          failure_reason: "WRITE_BLOCKED",
+          trigger_audit: {
+            run_id: message.runId,
+            source_kind: sourceKind,
+            trigger_mode: triggerMode,
+            reason: "DISPATCH_CLICK_REQUIRES_TRUSTED_INPUT_GATE",
+            download_execution_boundary: "resolve_only_until_trusted_input_gate_fr0021_748",
+            simulated_browser_surface: "loopback_content_runtime"
+          }
+        });
+      }
+      if (sourceKind === "page_blob") {
+        return resultPayload({
+          success: false,
+          failure_reason: "SOURCE_UNAVAILABLE",
+          trigger_audit: {
+            run_id: message.runId,
+            source_kind: sourceKind,
+            trigger_mode: triggerMode,
+            locator_found: false,
+            blob_url_present: Boolean(asString(source.blob_url)),
+            reason: "PAGE_BLOB_REQUIRES_BROWSER_LOCATOR_RESOLUTION",
+            simulated_browser_surface: "loopback_content_runtime"
+          }
+        });
+      }
+
+      const targetUrl =
+        sourceKind === "direct_url"
+          ? asString(source.target_url)
+          : "https://example.com/export/report.pdf";
+      if (!targetUrl) {
+        return resultPayload({
+          success: false,
+          failure_reason: "SOURCE_UNAVAILABLE",
+          trigger_audit: {
+            run_id: message.runId,
+            source_kind: sourceKind,
+            trigger_mode: triggerMode
+          }
+        });
+      }
+
+      return resultPayload({
+        success: true,
+        download_target: {
+          target_ref:
+            sourceKind === "page_blob"
+              ? asString(source.blob_locator) ?? "loopback-blob"
+              : sourceKind === "page_derived"
+                ? asString(source.trigger_hint) ?? "loopback-export"
+                : "direct_url",
+          source_kind: sourceKind,
+          source_url: targetUrl,
+          file_name_hint: "report.pdf",
+          content_descriptor: {
+            content_kind: "file",
+            mime_type: "application/pdf"
+          },
+          trigger_status: "resolved",
+          trigger_mode: triggerMode,
+          trigger_surface:
+            sourceKind === "direct_url"
+              ? "direct_url"
+              : "dom_button"
+        },
+        trigger_audit: {
+          run_id: message.runId,
+          source_kind: sourceKind,
+          trigger_mode: triggerMode,
+          simulated_browser_surface: "loopback_content_runtime"
+        }
+      });
+    }
+
     if (XHS_READ_COMMANDS.has(message.command)) {
       const simulated =
         typeof message.commandParams.options === "object" &&

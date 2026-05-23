@@ -43,6 +43,11 @@ import {
   validateXhsCommandInputForExtension
 } from "./xhs-command-contract.js";
 import { containsCookie, hasXhsAccountSafetyOverlaySignal } from "./xhs-search-telemetry.js";
+import {
+  executeDownloadTriggerInPage,
+  parseDownloadTriggerRequestForExtension,
+  type DownloadTriggerMode
+} from "./download-execution.js";
 
 export {
   encodeMainWorldPayload,
@@ -116,6 +121,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const DOWNLOAD_COMMANDS = new Set(["download.trigger"]);
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const CONTENT_SCRIPT_DIAGNOSTIC_BUILD_MARKER = "issue650-closeout-deadline-v1";
 
@@ -1885,6 +1891,11 @@ export class ContentScriptHandler {
       return true;
     }
 
+    if (DOWNLOAD_COMMANDS.has(message.command)) {
+      void this.#handleDownloadTriggerCommand(message);
+      return true;
+    }
+
     if (XHS_READ_COMMANDS.has(message.command)) {
       this.#handleXhsReadCommandWithDeadline(message);
       return true;
@@ -1895,6 +1906,47 @@ export class ContentScriptHandler {
       listener(result);
     }
     return true;
+  }
+
+  async #handleDownloadTriggerCommand(message: BackgroundToContentMessage): Promise<void> {
+    const request =
+      parseDownloadTriggerRequestForExtension(message.commandParams.download_ability_request) ??
+      parseDownloadTriggerRequestForExtension(message.commandParams.input);
+    const triggerMode =
+      message.commandParams.trigger_mode === "dispatch_click" ? "dispatch_click" : "resolve_only";
+
+    if (!request) {
+      this.#emit({
+        kind: "result",
+        id: message.id,
+        ok: true,
+        payload: {
+          download_browser_result: {
+            success: false,
+            failure_reason: "SOURCE_UNAVAILABLE",
+            trigger_audit: {
+              run_id: message.runId,
+              command: message.command,
+              reason: "DOWNLOAD_ABILITY_REQUEST_INVALID"
+            }
+          }
+        }
+      });
+      return;
+    }
+
+    this.#emit({
+      kind: "result",
+      id: message.id,
+      ok: true,
+      payload: {
+        download_browser_result: executeDownloadTriggerInPage({
+          request,
+          runId: message.runId,
+          triggerMode: triggerMode as DownloadTriggerMode
+        })
+      }
+    });
   }
 
   async #handleL2FirstUsableCommand(message: BackgroundToContentMessage): Promise<void> {
