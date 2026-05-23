@@ -488,13 +488,40 @@ export class InMemoryContentScriptRuntime {
           }
         });
       }
+      if (triggerMode === "dispatch_click") {
+        return resultPayload({
+          success: false,
+          failure_reason: "WRITE_BLOCKED",
+          trigger_audit: {
+            run_id: message.runId,
+            source_kind: sourceKind,
+            trigger_mode: triggerMode,
+            reason: "DISPATCH_CLICK_REQUIRES_TRUSTED_INPUT_GATE",
+            download_execution_boundary: "resolve_only_until_trusted_input_gate_fr0021_748",
+            simulated_browser_surface: "loopback_content_runtime"
+          }
+        });
+      }
+      if (sourceKind === "page_blob") {
+        return resultPayload({
+          success: false,
+          failure_reason: "SOURCE_UNAVAILABLE",
+          trigger_audit: {
+            run_id: message.runId,
+            source_kind: sourceKind,
+            trigger_mode: triggerMode,
+            locator_found: false,
+            blob_url_present: Boolean(asString(source.blob_url)),
+            reason: "PAGE_BLOB_REQUIRES_BROWSER_LOCATOR_RESOLUTION",
+            simulated_browser_surface: "loopback_content_runtime"
+          }
+        });
+      }
 
       const targetUrl =
         sourceKind === "direct_url"
           ? asString(source.target_url)
-          : sourceKind === "page_blob"
-            ? (asString(source.blob_url) ?? "blob:https://example.com/loopback-download")
-            : "https://example.com/export/report.pdf";
+          : "https://example.com/export/report.pdf";
       if (!targetUrl) {
         return resultPayload({
           success: false,
@@ -518,19 +545,17 @@ export class InMemoryContentScriptRuntime {
                 : "direct_url",
           source_kind: sourceKind,
           source_url: targetUrl,
-          file_name_hint: sourceKind === "page_blob" ? "blob-download.bin" : "report.pdf",
+          file_name_hint: "report.pdf",
           content_descriptor: {
             content_kind: "file",
-            mime_type: sourceKind === "page_blob" ? "application/octet-stream" : "application/pdf"
+            mime_type: "application/pdf"
           },
-          trigger_status: triggerMode === "dispatch_click" ? "triggered" : "resolved",
+          trigger_status: "resolved",
           trigger_mode: triggerMode,
           trigger_surface:
             sourceKind === "direct_url"
               ? "direct_url"
-              : sourceKind === "page_blob"
-                ? "blob_locator"
-                : "dom_button"
+              : "dom_button"
         },
         trigger_audit: {
           run_id: message.runId,

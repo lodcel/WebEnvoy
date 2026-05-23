@@ -381,7 +381,7 @@ describe("download commands", () => {
           JSON.stringify(
             downloadParams({
               options: {
-                trigger_mode: "dispatch_click",
+                trigger_mode: "resolve_only",
                 target_tab_id: 17,
                 target_domain: "example.com",
                 target_page: "export"
@@ -418,8 +418,8 @@ describe("download commands", () => {
           },
           download_target: {
             source_kind: "page_derived",
-            trigger_status: "triggered",
-            trigger_mode: "dispatch_click",
+            trigger_status: "resolved",
+            trigger_mode: "resolve_only",
             trigger_surface: "dom_button"
           },
           download_execution_boundary: "browser_target_trigger_only_fr0021_748",
@@ -436,6 +436,100 @@ describe("download commands", () => {
       const downloadSummary = capabilityResult.download_result_summary as JsonObject;
       expect(downloadSummary.result_state).toBe("partial");
       expect(downloadSummary).not.toHaveProperty("resolved_output_path");
+    });
+  });
+
+  it("maps dispatch_click loopback attempts to WRITE_BLOCKED until trusted input gate exists", async () => {
+    await withLoopbackTransport(async () => {
+      const cwd = await createTempCwd();
+      const stdout = captureStdout();
+      const code = await runCli(
+        [
+          "download.trigger",
+          "--run-id",
+          "run-download-trigger-write-blocked",
+          "--profile",
+          "profile/default",
+          "--params",
+          JSON.stringify(
+            downloadParams({
+              options: {
+                trigger_mode: "dispatch_click",
+                target_tab_id: 17,
+                target_domain: "example.com"
+              }
+            })
+          )
+        ],
+        {
+          cwd,
+          stdout: stdout.stream,
+          stderr: stderrSink()
+        }
+      );
+
+      expect(code).not.toBe(0);
+      expect(parseJsonLine(stdout.read())).toMatchObject({
+        status: "error",
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          details: {
+            ability_id: "generic.file.download.v1",
+            stage: "execution",
+            reason: "WRITE_BLOCKED"
+          }
+        }
+      });
+    });
+  });
+
+  it("keeps loopback page_blob from resolving blob_url without browser locator evidence", async () => {
+    await withLoopbackTransport(async () => {
+      const cwd = await createTempCwd();
+      const stdout = captureStdout();
+      const code = await runCli(
+        [
+          "download.trigger",
+          "--run-id",
+          "run-download-trigger-blob-unresolved",
+          "--profile",
+          "profile/default",
+          "--params",
+          JSON.stringify(
+            downloadParams({
+              input: {
+                ...downloadParams().input,
+                download_source: {
+                  source_kind: "page_blob",
+                  blob_locator: "#blob-download",
+                  blob_url: "blob:https://example.com/unverified"
+                }
+              },
+              options: {
+                trigger_mode: "resolve_only"
+              }
+            })
+          )
+        ],
+        {
+          cwd,
+          stdout: stdout.stream,
+          stderr: stderrSink()
+        }
+      );
+
+      expect(code).not.toBe(0);
+      expect(parseJsonLine(stdout.read())).toMatchObject({
+        status: "error",
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          details: {
+            ability_id: "generic.file.download.v1",
+            stage: "execution",
+            reason: "SOURCE_UNAVAILABLE"
+          }
+        }
+      });
     });
   });
 
