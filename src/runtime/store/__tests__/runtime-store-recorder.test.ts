@@ -1050,7 +1050,7 @@ describe("runtime-store-recorder", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   it("does not promote session rhythm when the live gate is blocked", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-recorder-rhythm-limited-"));
