@@ -2365,6 +2365,7 @@ const runtimeHelp = async () => ({
         "runtime.xhs_closeout_validation",
         "runtime.stop",
         "runtime.audit",
+        "l2.first_usable",
         "xhs.search",
         "xhs.detail",
         "xhs.user_home"

@@ -144,6 +144,75 @@ describe("native messaging loopback content runtime", () => {
     });
   });
 
+  it("forwards l2.first_usable with deterministic success payload", async () => {
+    const [left, right] = createPortPair<ContentMessage>();
+
+    new InMemoryContentScriptRuntime(right);
+
+    const resultPromise = new Promise<Record<string, unknown>>((resolve) => {
+      const off = left.onMessage((message) => {
+        if (message.kind === "result") {
+          off();
+          resolve(message as Record<string, unknown>);
+        }
+      });
+    });
+
+    left.postMessage({
+      kind: "forward",
+      id: "l2-first-usable-loopback-001",
+      command: "l2.first_usable",
+      runId: "run-l2-loopback-runtime-001",
+      sessionId: "session-l2-loopback-runtime-001",
+      profile: "loopback_profile",
+      commandParams: {
+        l2_first_usable_request: {
+          target_url: "https://example.com/articles/l2",
+          goal_kind: "read",
+          interaction_safety_class: "pure_read",
+          risk_gate_context: {
+            run_id: "run-l2-loopback-runtime-001",
+            profile: "loopback_profile",
+            target_domain: "example.com",
+            target_tab_id: 5,
+            target_page: "article",
+            risk_state: "allowed"
+          },
+          allowed_actions: ["navigate", "locate", "extract", "wait_settled"]
+        }
+      }
+    });
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      ok: true,
+      payload: {
+        l2_first_usable_result: {
+          success: true,
+          result_summary: {
+            title: "Loopback L2 Fixture",
+            text_excerpt: "Loopback L2 first usable extracted content"
+          },
+          interaction_trace: [
+            expect.objectContaining({ action: "locate" }),
+            expect.objectContaining({
+              action: "extract",
+              interaction_semantics: "neutral"
+            })
+          ],
+          capture_hints: {
+            source: "loopback_l2_fixture"
+          },
+          candidate_shell_seed: {
+            ability_kind: "read",
+            entrypoint: "l2.first_usable",
+            execution_layer_support: ["L2"]
+          }
+        }
+      }
+    });
+  });
+
   it("rejects xhs.detail with missing note_id instead of emitting an empty data_ref", async () => {
     const [left, right] = createPortPair<ContentMessage>();
 
