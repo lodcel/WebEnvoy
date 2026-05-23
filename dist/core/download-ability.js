@@ -398,5 +398,5 @@ export const buildAbilityValidationSeedForDownloadRequest = (input) => ({
         expected_capability_kind: "download",
         smoke_input: cloneJsonObject(input.request)
     },
-    validation_execution_boundary: "not_executed_in_fr0021_747"
+    validation_execution_boundary: input.validationExecutionBoundary ?? "not_executed_in_fr0021_747"
 });

@@ -425,10 +425,12 @@ describe("download commands", () => {
           download_execution_boundary: "browser_target_trigger_only_fr0021_748",
           file_landing_boundary: "not_executed_until_fr0021_749",
           ability_validation_seed: {
+            validation_execution_boundary: "seed_only_until_fr0021_750",
             ability_validation_request: {
               expected_capability_kind: "download"
             }
-          }
+          },
+          validation_execution_boundary: "seed_only_until_fr0021_750"
         }
       });
       const summary = payload.summary as JsonObject;

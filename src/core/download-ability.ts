@@ -702,6 +702,7 @@ export const buildDownloadTriggeredResultSummaryForContract = (input: {
 export const buildAbilityValidationSeedForDownloadRequest = (input: {
   request: DownloadAbilityRequest;
   materialized: MaterializedDownloadCandidateAbility;
+  validationExecutionBoundary?: string;
 }): JsonObject => ({
   ...input.materialized,
   ability_validation_request: {
@@ -712,5 +713,5 @@ export const buildAbilityValidationSeedForDownloadRequest = (input: {
     expected_capability_kind: "download",
     smoke_input: cloneJsonObject(input.request as unknown as JsonObject)
   },
-  validation_execution_boundary: "not_executed_in_fr0021_747"
+  validation_execution_boundary: input.validationExecutionBoundary ?? "not_executed_in_fr0021_747"
 });

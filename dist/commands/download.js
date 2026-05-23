@@ -154,7 +154,8 @@ const downloadTrigger = async (context) => {
             ...materialized,
             ability_validation_seed: buildAbilityValidationSeedForDownloadRequest({
                 request: envelope.input,
-                materialized
+                materialized,
+                validationExecutionBoundary: "seed_only_until_fr0021_750"
             }),
             relay_path: bridgeResult.relay_path,
             download_execution_boundary: "browser_target_trigger_only_fr0021_748",
