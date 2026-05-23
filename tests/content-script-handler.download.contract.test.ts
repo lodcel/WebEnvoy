@@ -80,7 +80,52 @@ const dispatchDownloadTrigger = (input: {
 };
 
 describe("content script download trigger contract", () => {
-  it("resolves and triggers a page-derived download target in the browser surface", async () => {
+  it("resolves a page-derived download target without triggering browser input", async () => {
+    let clicked = false;
+    const button = createMockElement({
+      tagName: "BUTTON",
+      text: "Export PDF",
+      onClick: () => {
+        clicked = true;
+      }
+    });
+    installMockPage({
+      querySelector: () => null,
+      querySelectorAll: () => [button]
+    });
+
+    const results = dispatchDownloadTrigger({
+      request: {
+        ability_ref: "generic.file.download.v1",
+        download_source: {
+          source_kind: "page_derived",
+          derive_mode: "export_flow",
+          trigger_hint: "export"
+        },
+        download_goal: "single_file"
+      }
+    });
+    await waitForResult(results);
+
+    expect(clicked).toBe(false);
+    expect(results[0]).toMatchObject({
+      ok: true,
+      payload: {
+        download_browser_result: {
+          success: true,
+          download_target: {
+            source_kind: "page_derived",
+            source_url: "https://example.com/export#page_derived",
+            trigger_status: "resolved",
+            trigger_mode: "resolve_only",
+            trigger_surface: "dom_button"
+          }
+        }
+      }
+    });
+  });
+
+  it("blocks dispatch_click until a trusted input gate exists", async () => {
     let clicked = false;
     const button = createMockElement({
       tagName: "BUTTON",
@@ -108,25 +153,24 @@ describe("content script download trigger contract", () => {
     });
     await waitForResult(results);
 
-    expect(clicked).toBe(true);
+    expect(clicked).toBe(false);
     expect(results[0]).toMatchObject({
       ok: true,
       payload: {
         download_browser_result: {
-          success: true,
-          download_target: {
+          success: false,
+          failure_reason: "WRITE_BLOCKED",
+          trigger_audit: {
             source_kind: "page_derived",
-            source_url: "https://example.com/export#page_derived",
-            trigger_status: "triggered",
             trigger_mode: "dispatch_click",
-            trigger_surface: "dom_button"
+            reason: "DISPATCH_CLICK_REQUIRES_TRUSTED_INPUT_GATE"
           }
         }
       }
     });
   });
 
-  it("rejects direct_url non-http protocols before creating a clickable anchor", async () => {
+  it("rejects direct_url non-http protocols during target resolution", async () => {
     let createElementCalled = false;
     installMockPage({
       createElement: () => {
@@ -136,7 +180,6 @@ describe("content script download trigger contract", () => {
     });
 
     const results = dispatchDownloadTrigger({
-      triggerMode: "dispatch_click",
       request: {
         ability_ref: "generic.file.download.v1",
         download_source: {
@@ -157,7 +200,7 @@ describe("content script download trigger contract", () => {
           failure_reason: "SOURCE_UNAVAILABLE",
           trigger_audit: {
             source_kind: "direct_url",
-            trigger_mode: "dispatch_click"
+            trigger_mode: "resolve_only"
           }
         }
       }

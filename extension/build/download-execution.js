@@ -62,13 +62,6 @@ const inferMimeType = (sourceUrl, element) => {
     }
     return "application/octet-stream";
 };
-const clickElement = (element) => {
-    const clickable = element;
-    if (typeof clickable.click !== "function") {
-        throw new Error("download target is not clickable");
-    }
-    clickable.click();
-};
 const targetFromUrl = (input) => ({
     target_ref: input.targetRef ?? input.sourceUrl,
     source_kind: input.sourceKind,
@@ -124,19 +117,17 @@ export const executeDownloadTriggerInPage = (input) => {
         page_url: location.href
     };
     try {
+        if (triggerMode === "dispatch_click") {
+            return failure("WRITE_BLOCKED", {
+                ...auditBase,
+                reason: "DISPATCH_CLICK_REQUIRES_TRUSTED_INPUT_GATE",
+                download_execution_boundary: "resolve_only_until_trusted_input_gate_fr0021_748"
+            });
+        }
         if (request.download_source.source_kind === "direct_url") {
             const sourceUrl = absoluteUrl(request.download_source.target_url);
             if (!sourceUrl) {
                 return failure("SOURCE_UNAVAILABLE", auditBase);
-            }
-            if (triggerMode === "dispatch_click") {
-                const anchor = document.createElement("a");
-                anchor.href = sourceUrl;
-                anchor.rel = "noopener";
-                anchor.style.display = "none";
-                document.documentElement.append(anchor);
-                clickElement(anchor);
-                anchor.remove();
             }
             return success(targetFromUrl({
                 sourceKind: "direct_url",
@@ -163,9 +154,6 @@ export const executeDownloadTriggerInPage = (input) => {
                     blob_url_present: Boolean(request.download_source.blob_url)
                 });
             }
-            if (triggerMode === "dispatch_click" && element) {
-                clickElement(element);
-            }
             return success(targetFromUrl({
                 sourceKind: "page_blob",
                 sourceUrl,
@@ -190,9 +178,6 @@ export const executeDownloadTriggerInPage = (input) => {
             });
         }
         const sourceUrl = resolveElementSourceUrl(element) ?? `${location.href}#page_derived`;
-        if (triggerMode === "dispatch_click") {
-            clickElement(element);
-        }
         return success(targetFromUrl({
             sourceKind: "page_derived",
             sourceUrl,
