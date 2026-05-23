@@ -186,7 +186,7 @@ describe("download commands", () => {
     expect(summary).not.toHaveProperty("download_result_summary");
   });
 
-  it("projects downloaded summaries only inside summary.capability_result", async () => {
+  it("rejects caller-provided download result summaries before success projection", async () => {
     const cwd = await createTempCwd();
     const stdout = captureStdout();
     const code = await runCli(
@@ -220,24 +220,17 @@ describe("download commands", () => {
       }
     );
 
-    expect(code).toBe(0);
-    const payload = parseJsonLine(stdout.read());
-    expect(payload).toMatchObject({
-      status: "success",
-      summary: {
-        capability_result: {
-          outcome: "success",
-          data_ref: "download/run-downloaded",
-          download_result_summary: {
-            result_state: "downloaded",
-            resolved_output_path: "trusted-base/exports/reports/report.pdf",
-            source_url: "https://example.com/report.pdf",
-            file_name_hint: "report.pdf"
-          }
+    expect(code).not.toBe(0);
+    expect(parseJsonLine(stdout.read())).toMatchObject({
+      status: "error",
+      error: {
+        details: {
+          ability_id: "generic.file.download.v1",
+          stage: "input_validation",
+          reason: "DOWNLOAD_RESULT_SUMMARY_INPUT_UNSUPPORTED"
         }
       }
     });
-    expect(payload.summary).not.toHaveProperty("download_result_summary");
   });
 
   it("rejects unsafe destination roots through the unified error shell", async () => {

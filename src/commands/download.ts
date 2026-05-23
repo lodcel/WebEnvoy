@@ -4,7 +4,6 @@ import {
   buildDownloadPrepareResultSummaryForContract,
   materializeCandidateAbilityFromDownloadSeedForContract,
   parseDownloadCapabilityEnvelopeForContract,
-  parseDownloadResultSummaryForContract,
   type DownloadCapabilityEnvelope,
   type MaterializedDownloadCandidateAbility
 } from "../core/download-ability.js";
@@ -32,16 +31,20 @@ const parseParams = (
 ): {
   envelope: DownloadCapabilityEnvelope;
   candidateSeed: unknown;
-  projectedSummary: unknown;
 } => {
   const envelope = parseDownloadCapabilityEnvelopeForContract(value);
   if (!Object.prototype.hasOwnProperty.call(value, "candidate_shell_seed")) {
     throw invalidDownloadCommandInput("CANDIDATE_SHELL_SEED_MISSING", envelope.input.ability_ref);
   }
+  if (Object.prototype.hasOwnProperty.call(value, "download_result_summary")) {
+    throw invalidDownloadCommandInput(
+      "DOWNLOAD_RESULT_SUMMARY_INPUT_UNSUPPORTED",
+      envelope.input.ability_ref
+    );
+  }
   return {
     envelope,
-    candidateSeed: value.candidate_shell_seed,
-    projectedSummary: value.download_result_summary
+    candidateSeed: value.candidate_shell_seed
   };
 };
 
@@ -70,29 +73,24 @@ const downloadPrepare = async (context: RuntimeContext): Promise<JsonObject> => 
     throw invalidDownloadCommandInput("PARAMS_INVALID");
   }
 
-  const { envelope, candidateSeed, projectedSummary } = parseParams(params);
+  const { envelope, candidateSeed } = parseParams(params);
   if (context.profile !== envelope.input.profile_ref) {
     throw invalidDownloadCommandInput("PROFILE_MISMATCH", envelope.input.ability_ref);
   }
   const materialized = materializeCandidateAbilityFromDownloadSeedForContract(candidateSeed);
   assertCandidateMatchesRequest(envelope, materialized);
 
-  const downloadResultSummary =
-    projectedSummary === undefined
-      ? buildDownloadPrepareResultSummaryForContract({
-          runId: context.run_id,
-          request: envelope.input
-        })
-      : parseDownloadResultSummaryForContract(projectedSummary, envelope.input.ability_ref);
-  const outcome =
-    downloadResultSummary.result_state === "downloaded" ? "success" : "partial";
+  const downloadResultSummary = buildDownloadPrepareResultSummaryForContract({
+    runId: context.run_id,
+    request: envelope.input
+  });
 
   return {
     capability_result: {
       ability_id: envelope.ability.id,
       layer: envelope.ability.layer,
       action: "download",
-      outcome,
+      outcome: "partial",
       data_ref: downloadResultSummary.download_ref,
       download_result_summary: downloadResultSummary
     },
