@@ -8,6 +8,7 @@ import { buildFailedFingerprintInjectionContext, hasInstalledFingerprintInjectio
 import { encodeMainWorldPayload, configureCapturedRequestContextProvenanceViaMainWorld, installMainWorldEventChannelSecret, installFingerprintRuntimeViaMainWorld, MAIN_WORLD_EVENT_BOOTSTRAP, readCapturedRequestContextViaMainWorld, readPageStateViaMainWorld, requestXhsSearchJsonViaMainWorld, resetMainWorldEventChannelForContract, resolveMainWorldEventNamesForSecret } from "./content-script-main-world.js";
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
 import { containsCookie, hasXhsAccountSafetyOverlaySignal } from "./xhs-search-telemetry.js";
+import { executeDownloadTriggerInPage, parseDownloadTriggerRequestForExtension } from "./download-execution.js";
 export { encodeMainWorldPayload, configureCapturedRequestContextProvenanceViaMainWorld, installFingerprintRuntimeViaMainWorld, installMainWorldEventChannelSecret, MAIN_WORLD_EVENT_BOOTSTRAP, readCapturedRequestContextViaMainWorld, readPageStateViaMainWorld, requestXhsSearchJsonViaMainWorld, resetMainWorldEventChannelForContract, resolveMainWorldEventNamesForSecret };
 export { resolveFingerprintContextForContract };
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
@@ -15,6 +16,7 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const DOWNLOAD_COMMANDS = new Set(["download.trigger"]);
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const CONTENT_SCRIPT_DIAGNOSTIC_BUILD_MARKER = "issue650-closeout-deadline-v1";
 const createCurrentPageContextNamespace = (href) => {
@@ -1501,6 +1503,10 @@ export class ContentScriptHandler {
             void this.#handleL2FirstUsableCommand(message);
             return true;
         }
+        if (DOWNLOAD_COMMANDS.has(message.command)) {
+            void this.#handleDownloadTriggerCommand(message);
+            return true;
+        }
         if (XHS_READ_COMMANDS.has(message.command)) {
             this.#handleXhsReadCommandWithDeadline(message);
             return true;
@@ -1510,6 +1516,42 @@ export class ContentScriptHandler {
             listener(result);
         }
         return true;
+    }
+    async #handleDownloadTriggerCommand(message) {
+        const request = parseDownloadTriggerRequestForExtension(message.commandParams.download_ability_request) ??
+            parseDownloadTriggerRequestForExtension(message.commandParams.input);
+        const triggerMode = message.commandParams.trigger_mode === "dispatch_click" ? "dispatch_click" : "resolve_only";
+        if (!request) {
+            this.#emit({
+                kind: "result",
+                id: message.id,
+                ok: true,
+                payload: {
+                    download_browser_result: {
+                        success: false,
+                        failure_reason: "SOURCE_UNAVAILABLE",
+                        trigger_audit: {
+                            run_id: message.runId,
+                            command: message.command,
+                            reason: "DOWNLOAD_ABILITY_REQUEST_INVALID"
+                        }
+                    }
+                }
+            });
+            return;
+        }
+        this.#emit({
+            kind: "result",
+            id: message.id,
+            ok: true,
+            payload: {
+                download_browser_result: executeDownloadTriggerInPage({
+                    request,
+                    runId: message.runId,
+                    triggerMode: triggerMode
+                })
+            }
+        });
     }
     async #handleL2FirstUsableCommand(message) {
         const request = asRecord(message.commandParams.l2_first_usable_request) ??

@@ -4,10 +4,13 @@ import { parseAbilityValidationRequestForContract } from "../ability-validation.
 import {
   buildAbilityValidationSeedForDownloadRequest,
   buildDownloadPrepareResultSummaryForContract,
+  buildDownloadTriggeredResultSummaryForContract,
   materializeCandidateAbilityFromDownloadSeedForContract,
+  parseDownloadBrowserExecutionResultForContract,
   parseDownloadCapabilityEnvelopeForContract,
   parseDownloadFailureReasonForContract,
-  parseDownloadResultSummaryForContract
+  parseDownloadResultSummaryForContract,
+  parseDownloadTriggerModeForContract
 } from "../download-ability.js";
 import type { CandidateExecutionLayer } from "../candidate-ability.js";
 import type { JsonObject } from "../types.js";
@@ -261,6 +264,72 @@ describe("download ability contract", () => {
     expectInputError(
       () => parseDownloadFailureReasonForContract("FAILED"),
       "download.prepare",
+      "DOWNLOAD_FAILURE_REASON_INVALID"
+    );
+  });
+
+  it("validates browser-side target trigger results without promoting them to downloaded", () => {
+    expect(parseDownloadTriggerModeForContract(undefined)).toBe("resolve_only");
+    const browserResult = parseDownloadBrowserExecutionResultForContract({
+      success: true,
+      download_target: {
+        target_ref: "download-link",
+        source_kind: "direct_url",
+        source_url: "https://example.com/report.pdf",
+        file_name_hint: "report.pdf",
+        content_descriptor: {
+          content_kind: "file",
+          mime_type: "application/pdf"
+        },
+        trigger_status: "triggered",
+        trigger_mode: "dispatch_click",
+        trigger_surface: "direct_url"
+      },
+      trigger_audit: {
+        run_id: "run-download-trigger"
+      }
+    });
+    expect(browserResult).toMatchObject({
+      success: true,
+      download_target: {
+        source_url: "https://example.com/report.pdf",
+        trigger_status: "triggered"
+      }
+    });
+    const summary = buildDownloadTriggeredResultSummaryForContract({
+      runId: "run-download-trigger",
+      target: browserResult.download_target!
+    });
+    expect(summary).toMatchObject({
+      download_ref: "download.trigger/run-download-trigger",
+      result_state: "partial",
+      saved_artifact_refs: ["download-trigger://run-download-trigger/download-link"],
+      source_url: "https://example.com/report.pdf",
+      file_name_hint: "report.pdf"
+    });
+    expect(summary).not.toHaveProperty("resolved_output_path");
+  });
+
+  it("validates browser-side trigger failure classifications", () => {
+    expect(
+      parseDownloadBrowserExecutionResultForContract({
+        success: false,
+        failure_reason: "SOURCE_UNAVAILABLE",
+        trigger_audit: {
+          stage: "target_resolution"
+        }
+      })
+    ).toMatchObject({
+      success: false,
+      failure_reason: "SOURCE_UNAVAILABLE"
+    });
+    expectInputError(
+      () =>
+        parseDownloadBrowserExecutionResultForContract({
+          success: false,
+          failure_reason: "FAILED"
+        }),
+      "download.trigger",
       "DOWNLOAD_FAILURE_REASON_INVALID"
     );
   });
