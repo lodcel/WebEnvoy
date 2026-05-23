@@ -35,6 +35,7 @@ const startOfficialReadyRuntime = async (
     runtimeCwd,
     {
       WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
+      WEBENVOY_BROWSER_MOCK_TTL: "10",
       WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
       WEBENVOY_NATIVE_HOST_MODE: "bootstrap-ack-timeout-error"
     }
