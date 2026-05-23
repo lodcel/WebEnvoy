@@ -1,6 +1,7 @@
 import { CommandRegistry } from "../core/registry.js";
 
 import { abilityCommands } from "./ability.js";
+import { downloadCommands } from "./download.js";
 import { installCommands } from "./install.js";
 import { l2Commands } from "./l2.js";
 import { runtimeCommands } from "./runtime.js";
@@ -22,6 +23,10 @@ export const createCommandRegistry = (): CommandRegistry => {
   }
 
   for (const command of abilityCommands()) {
+    registry.register(command);
+  }
+
+  for (const command of downloadCommands()) {
     registry.register(command);
   }
 
