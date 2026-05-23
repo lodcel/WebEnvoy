@@ -230,7 +230,10 @@ const parseUrlString = (value: unknown, reason: string, abilityId: string): stri
   }
   const normalized = value.trim();
   try {
-    new URL(normalized);
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("unsupported direct download url protocol");
+    }
   } catch {
     throw invalidDownloadInput(reason, abilityId);
   }

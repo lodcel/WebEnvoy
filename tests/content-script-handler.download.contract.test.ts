@@ -126,6 +126,44 @@ describe("content script download trigger contract", () => {
     });
   });
 
+  it("rejects direct_url non-http protocols before creating a clickable anchor", async () => {
+    let createElementCalled = false;
+    installMockPage({
+      createElement: () => {
+        createElementCalled = true;
+        return createMockElement({});
+      }
+    });
+
+    const results = dispatchDownloadTrigger({
+      triggerMode: "dispatch_click",
+      request: {
+        ability_ref: "generic.file.download.v1",
+        download_source: {
+          source_kind: "direct_url",
+          target_url: "javascript:alert(1)"
+        },
+        download_goal: "single_file"
+      }
+    });
+    await waitForResult(results);
+
+    expect(createElementCalled).toBe(false);
+    expect(results[0]).toMatchObject({
+      ok: true,
+      payload: {
+        download_browser_result: {
+          success: false,
+          failure_reason: "SOURCE_UNAVAILABLE",
+          trigger_audit: {
+            source_kind: "direct_url",
+            trigger_mode: "dispatch_click"
+          }
+        }
+      }
+    });
+  });
+
   it("resolves a blob locator without treating blob_url-only as the browser target", async () => {
     const anchor = createMockElement({
       tagName: "A",

@@ -76,9 +76,16 @@ const attr = (element: Element, name: string): string | null => {
   return value && value.trim().length > 0 ? value.trim() : null;
 };
 
-const absoluteUrl = (value: string): string | null => {
+const absoluteUrl = (value: string, options: { allowBlob?: boolean } = {}): string | null => {
   try {
-    return new URL(value, location.href).toString();
+    const parsed = new URL(value, location.href);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+    if (options.allowBlob === true && parsed.protocol === "blob:") {
+      return parsed.toString();
+    }
+    return null;
   } catch {
     return null;
   }
@@ -172,7 +179,7 @@ const findDownloadHintElement = (hint: string): Element | null => {
 
 const resolveElementSourceUrl = (element: Element): string | null => {
   const href = attr(element, "href") ?? attr(element, "data-download-url") ?? attr(element, "data-href");
-  return href ? absoluteUrl(href) : null;
+  return href ? absoluteUrl(href, { allowBlob: true }) : null;
 };
 
 const success = (
@@ -244,7 +251,7 @@ export const executeDownloadTriggerInPage = (input: {
         });
       }
       const sourceUrl = resolveElementSourceUrl(element);
-      if (!sourceUrl || (!sourceUrl.startsWith("blob:") && !absoluteUrl(sourceUrl))) {
+      if (!sourceUrl) {
         return failure("SOURCE_UNAVAILABLE", {
           ...auditBase,
           locator_found: true,
@@ -257,7 +264,7 @@ export const executeDownloadTriggerInPage = (input: {
       return success(
         targetFromUrl({
           sourceKind: "page_blob",
-          sourceUrl: sourceUrl.startsWith("blob:") ? sourceUrl : absoluteUrl(sourceUrl) ?? sourceUrl,
+          sourceUrl,
           triggerMode,
           triggerSurface: "blob_locator",
           element,

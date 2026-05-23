@@ -166,6 +166,29 @@ describe("download ability contract", () => {
     });
   });
 
+  it("rejects direct_url sources with non-http protocols", () => {
+    for (const targetUrl of [
+      "javascript:alert(1)",
+      "data:text/html,<a>download</a>",
+      "file:///tmp/report.pdf",
+      "blob:https://example.com/blob-001"
+    ]) {
+      expectInputError(
+        () =>
+          parseDownloadCapabilityEnvelopeForContract(
+            createEnvelope({
+              input: createRequest({
+                source_kind: "direct_url",
+                target_url: targetUrl
+              })
+            })
+          ),
+        "generic.file.download.v1",
+        "TARGET_URL_INVALID"
+      );
+    }
+  });
+
   it("rejects layer mirror conflicts and destination roots outside trusted base", () => {
     expectInputError(
       () =>
