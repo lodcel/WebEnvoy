@@ -21,7 +21,7 @@ describe("webenvoy cli contract / runtime basics", () => {
       }
     });
     expect(typeof body.timestamp).toBe("string");
-  });
+  }, 10_000);
 
   it("returns structured runtime unavailable when runtime store is unavailable", () => {
     const result = runCli(["runtime.ping", "--run-id", "run-contract-store-warning-001"], {

@@ -110,8 +110,8 @@ const buildHealthView = async (input) => {
         lastSuccessInputRef: latestSnapshot?.snapshot_ref ?? null
     });
 };
-const abilityValidate = async (context) => {
-    const wrapper = parseWrapperParams(context.params, "ability_validation_request");
+export const runAbilityValidationForContract = async (context, params) => {
+    const wrapper = parseWrapperParams(params, "ability_validation_request");
     resolveCandidateAbilityContractsForContract(wrapper.descriptor, wrapper.registry);
     const request = parseAbilityValidationRequestForContract(wrapper.descriptor, wrapper.request);
     const invocation = buildAbilityInvocationForValidationContract({
@@ -179,8 +179,8 @@ const abilityValidate = async (context) => {
         store?.close();
     }
 };
-const abilityReplay = async (context) => {
-    const wrapper = parseWrapperParams(context.params, "ability_replay_request");
+export const runAbilityReplayForContract = async (context, params) => {
+    const wrapper = parseWrapperParams(params, "ability_replay_request");
     resolveCandidateAbilityContractsForContract(wrapper.descriptor, wrapper.registry);
     const request = parseAbilityReplayRequestForContract(wrapper.descriptor, wrapper.request);
     const executionResult = parseExecutionResult(wrapper.executionResult, wrapper.descriptor.ability_id);
@@ -262,6 +262,8 @@ const abilityReplay = async (context) => {
         store?.close();
     }
 };
+const abilityValidate = async (context) => runAbilityValidationForContract(context, context.params);
+const abilityReplay = async (context) => runAbilityReplayForContract(context, context.params);
 export const abilityCommands = () => [
     {
         name: "ability.validate",

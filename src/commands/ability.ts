@@ -179,8 +179,11 @@ const buildHealthView = async (input: {
   });
 };
 
-const abilityValidate = async (context: RuntimeContext): Promise<JsonObject> => {
-  const wrapper = parseWrapperParams(context.params, "ability_validation_request");
+export const runAbilityValidationForContract = async (
+  context: RuntimeContext,
+  params: JsonObject
+): Promise<JsonObject> => {
+  const wrapper = parseWrapperParams(params, "ability_validation_request");
   resolveCandidateAbilityContractsForContract(wrapper.descriptor, wrapper.registry);
   const request = parseAbilityValidationRequestForContract(
     wrapper.descriptor,
@@ -251,8 +254,11 @@ const abilityValidate = async (context: RuntimeContext): Promise<JsonObject> => 
   }
 };
 
-const abilityReplay = async (context: RuntimeContext): Promise<JsonObject> => {
-  const wrapper = parseWrapperParams(context.params, "ability_replay_request");
+export const runAbilityReplayForContract = async (
+  context: RuntimeContext,
+  params: JsonObject
+): Promise<JsonObject> => {
+  const wrapper = parseWrapperParams(params, "ability_replay_request");
   resolveCandidateAbilityContractsForContract(wrapper.descriptor, wrapper.registry);
   const request = parseAbilityReplayRequestForContract(wrapper.descriptor, wrapper.request);
   const executionResult = parseExecutionResult(wrapper.executionResult, wrapper.descriptor.ability_id);
@@ -341,6 +347,12 @@ const abilityReplay = async (context: RuntimeContext): Promise<JsonObject> => {
     store?.close();
   }
 };
+
+const abilityValidate = async (context: RuntimeContext): Promise<JsonObject> =>
+  runAbilityValidationForContract(context, context.params);
+
+const abilityReplay = async (context: RuntimeContext): Promise<JsonObject> =>
+  runAbilityReplayForContract(context, context.params);
 
 export const abilityCommands = (): CommandDefinition[] => [
   {

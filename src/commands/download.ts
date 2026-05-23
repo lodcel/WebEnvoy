@@ -1,6 +1,7 @@
 import { CliError } from "../core/errors.js";
 import {
   buildAbilityValidationSeedForDownloadRequest,
+  buildDownloadValidationExecutionResultForContract,
   buildDownloadLandedResultSummaryForContract,
   buildDownloadPrepareResultSummaryForContract,
   buildDownloadTriggeredResultSummaryForContract,
@@ -8,6 +9,7 @@ import {
   parseDownloadBrowserExecutionResultForContract,
   parseDownloadCapabilityEnvelopeForContract,
   parseDownloadFailureReasonForContract,
+  parseDownloadResultSummaryForContract,
   parseDownloadTriggerModeForContract,
   type DownloadCapabilityEnvelope,
   type DownloadBrowserTarget,
@@ -21,11 +23,18 @@ import {
 import { NativeHostBridgeTransport } from "../runtime/native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "../runtime/native-messaging/loopback.js";
 import { landBrowserDownloadArtifactForContract } from "../runtime/download-landing.js";
+import {
+  runAbilityReplayForContract,
+  runAbilityValidationForContract
+} from "./ability.js";
 
 const asObject = (value: unknown): JsonObject | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as JsonObject)
     : null;
+
+const hasOwn = (value: JsonObject, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
 
 const invalidDownloadCommandInput = (
   reason: string,
@@ -97,6 +106,60 @@ const stripBrowserArtifactFromDownloadTarget = (
 ): Omit<DownloadBrowserTarget, "browser_artifact"> => {
   const { browser_artifact: _browserArtifact, ...safeTarget } = target;
   return safeTarget;
+};
+
+const parseDownloadValidationBridgeParams = (
+  params: JsonObject,
+  requestKey: "ability_validation_request" | "ability_replay_request"
+): {
+  bridgeParams: JsonObject;
+  projectionSource: "download_result_summary" | "download_failure_reason";
+} => {
+  const seed = asObject(params.ability_validation_seed);
+  const candidateDescriptor =
+    params.candidate_ability_descriptor ?? seed?.candidate_ability_descriptor;
+  const candidateRegistry =
+    params.candidate_ability_contract_registry ?? seed?.candidate_ability_contract_registry;
+  const request = params[requestKey] ?? seed?.[requestKey];
+  if (!candidateDescriptor) {
+    throw invalidDownloadCommandInput("CANDIDATE_ABILITY_DESCRIPTOR_MISSING");
+  }
+  if (!candidateRegistry) {
+    throw invalidDownloadCommandInput("CANDIDATE_ABILITY_CONTRACT_REGISTRY_MISSING");
+  }
+  if (!request) {
+    throw invalidDownloadCommandInput(`${requestKey.toUpperCase()}_MISSING`);
+  }
+  if (hasOwn(params, "execution_result")) {
+    throw invalidDownloadCommandInput("DOWNLOAD_VALIDATION_EXECUTION_RESULT_OVERRIDE_UNSUPPORTED");
+  }
+  const hasDownloadResultSummary = hasOwn(params, "download_result_summary");
+  const hasDownloadFailureReason = hasOwn(params, "download_failure_reason");
+  if (hasDownloadResultSummary === hasDownloadFailureReason) {
+    throw invalidDownloadCommandInput(
+      hasDownloadResultSummary
+        ? "DOWNLOAD_VALIDATION_RESULT_AMBIGUOUS"
+        : "DOWNLOAD_VALIDATION_RESULT_MISSING"
+    );
+  }
+  const downloadResultSummary = hasDownloadResultSummary
+    ? parseDownloadResultSummaryForContract(params.download_result_summary)
+    : undefined;
+  const failureReason = hasDownloadFailureReason
+    ? parseDownloadFailureReasonForContract(params.download_failure_reason)
+    : undefined;
+  return {
+    bridgeParams: {
+      candidate_ability_descriptor: candidateDescriptor,
+      candidate_ability_contract_registry: candidateRegistry,
+      [requestKey]: request,
+      execution_result: buildDownloadValidationExecutionResultForContract({
+        downloadResultSummary,
+        failureReason
+      })
+    },
+    projectionSource: hasDownloadResultSummary ? "download_result_summary" : "download_failure_reason"
+  };
 };
 
 const downloadPrepare = async (context: RuntimeContext): Promise<JsonObject> => {
@@ -287,6 +350,46 @@ const downloadTrigger = async (context: RuntimeContext): Promise<JsonObject> => 
   }
 };
 
+const downloadValidate = async (context: RuntimeContext): Promise<JsonObject> => {
+  const params = asObject(context.params);
+  if (!params) {
+    throw invalidDownloadCommandInput("PARAMS_INVALID");
+  }
+  const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(
+    params,
+    "ability_validation_request"
+  );
+  const validationResult = await runAbilityValidationForContract(context, bridgeParams);
+  return {
+    ...validationResult,
+    download_validation_projection: {
+      source: projectionSource,
+      execution_result: bridgeParams.execution_result
+    },
+    validation_execution_boundary: "executed_in_fr0021_750"
+  };
+};
+
+const downloadReplay = async (context: RuntimeContext): Promise<JsonObject> => {
+  const params = asObject(context.params);
+  if (!params) {
+    throw invalidDownloadCommandInput("PARAMS_INVALID");
+  }
+  const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(
+    params,
+    "ability_replay_request"
+  );
+  const replayResult = await runAbilityReplayForContract(context, bridgeParams);
+  return {
+    ...replayResult,
+    download_validation_projection: {
+      source: projectionSource,
+      execution_result: bridgeParams.execution_result
+    },
+    validation_execution_boundary: "executed_in_fr0021_750"
+  };
+};
+
 export const downloadCommands = (): CommandDefinition[] => [
   {
     name: "download.prepare",
@@ -299,5 +402,17 @@ export const downloadCommands = (): CommandDefinition[] => [
     status: "implemented",
     requiresProfile: true,
     handler: downloadTrigger
+  },
+  {
+    name: "download.validate",
+    status: "implemented",
+    requiresProfile: false,
+    handler: downloadValidate
+  },
+  {
+    name: "download.replay",
+    status: "implemented",
+    requiresProfile: false,
+    handler: downloadReplay
   }
 ];

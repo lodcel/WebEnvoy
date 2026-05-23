@@ -6,12 +6,15 @@ import {
   buildDownloadLandedResultSummaryForContract,
   buildDownloadPrepareResultSummaryForContract,
   buildDownloadTriggeredResultSummaryForContract,
+  buildDownloadValidationExecutionResultForContract,
   materializeCandidateAbilityFromDownloadSeedForContract,
+  mapDownloadFailureReasonToAbilityFailureClassForContract,
   parseDownloadBrowserExecutionResultForContract,
   parseDownloadCapabilityEnvelopeForContract,
   parseDownloadFailureReasonForContract,
   parseDownloadResultSummaryForContract,
-  parseDownloadTriggerModeForContract
+  parseDownloadTriggerModeForContract,
+  type DownloadBrowserTarget
 } from "../download-ability.js";
 import type { CandidateExecutionLayer } from "../candidate-ability.js";
 import type { JsonObject } from "../types.js";
@@ -107,6 +110,20 @@ const createCandidateSeed = (input?: {
     ...(input?.overrides ?? {})
   };
 };
+
+const createBrowserTarget = (): DownloadBrowserTarget => ({
+  target_ref: "download-link",
+  source_kind: "direct_url",
+  source_url: "https://example.com/report.pdf",
+  file_name_hint: "report.pdf",
+  content_descriptor: {
+    content_kind: "file",
+    mime_type: "application/pdf"
+  },
+  trigger_status: "resolved",
+  trigger_mode: "resolve_only",
+  trigger_surface: "direct_url"
+});
 
 const expectInputError = (
   callback: () => unknown,
@@ -405,6 +422,41 @@ describe("download ability contract", () => {
         }),
       "download.trigger",
       "DOWNLOAD_FAILURE_REASON_INVALID"
+    );
+  });
+
+  it("projects download summaries and failures into FR-0018 validation execution results", () => {
+    const downloaded = buildDownloadLandedResultSummaryForContract({
+      runId: "run-download-validation",
+      target: createBrowserTarget(),
+      resolvedOutputPath: "/trusted/.webenvoy/downloads/report.pdf",
+      savedArtifactRefs: ["download-artifact://run-download-validation/0123456789abcdef"],
+      sizeBytes: 18,
+      checksumSha256: "c".repeat(64),
+      fileNameHint: "report.pdf"
+    });
+    expect(
+      buildDownloadValidationExecutionResultForContract({
+        downloadResultSummary: downloaded
+      })
+    ).toEqual({
+      result_state: "verified",
+      artifact_refs: ["download-artifact://run-download-validation/0123456789abcdef"]
+    });
+    expect(
+      buildDownloadValidationExecutionResultForContract({
+        downloadResultSummary: buildDownloadTriggeredResultSummaryForContract({
+          runId: "run-download-partial",
+          target: createBrowserTarget()
+        })
+      })
+    ).toMatchObject({
+      result_state: "broken",
+      failure_class: "runtime_error"
+    });
+    expect(mapDownloadFailureReasonToAbilityFailureClassForContract("WRITE_BLOCKED")).toBe("gate_blocked");
+    expect(mapDownloadFailureReasonToAbilityFailureClassForContract("AUTH_OR_SESSION_REQUIRED")).toBe(
+      "auth_or_session_required"
     );
   });
 
