@@ -246,7 +246,10 @@ const parseUrlString = (value: unknown, reason: string, abilityId: string): stri
   return normalized;
 };
 
-const normalizeDestinationRoot = (value: string, abilityId: string): string => {
+export const normalizeDownloadDestinationRootForContract = (
+  value: string,
+  abilityId: string
+): string => {
   const raw = value.trim();
   if (
     raw.length === 0 ||
@@ -273,7 +276,7 @@ const parseOutputPolicy = (value: unknown, abilityId: string): OutputPolicy => {
   if (!object) {
     throw invalidDownloadInput("OUTPUT_POLICY_INVALID", abilityId);
   }
-  const destinationRoot = normalizeDestinationRoot(
+  const destinationRoot = normalizeDownloadDestinationRootForContract(
     parseRequiredString(object, "destination_root", "DESTINATION_ROOT_INVALID", abilityId),
     abilityId
   );

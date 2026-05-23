@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, posix, relative, resolve, sep, win32 } from "node:path";
 
 import { CliError } from "../core/errors.js";
+import { normalizeDownloadDestinationRootForContract } from "../core/download-ability.js";
 import type {
   DownloadAbilityRequest,
   DownloadBrowserTarget
@@ -61,6 +62,8 @@ export interface LandedBrowserDownloadArtifact {
   audit: JsonObject;
 }
 
+export type DownloadLandingPathSemantics = "native" | "posix" | "win32";
+
 const cliDownloadError = (
   reason: string,
   abilityId: string,
@@ -78,16 +81,41 @@ const cliDownloadError = (
     }
   );
 
-const isInsideDirectory = (baseDir: string, candidatePath: string): boolean => {
-  const relativePath = relative(baseDir, candidatePath);
+const pathSemantics = (semantics: DownloadLandingPathSemantics) => {
+  if (semantics === "posix") {
+    return posix;
+  }
+  if (semantics === "win32") {
+    return win32;
+  }
+  return {
+    isAbsolute,
+    relative,
+    resolve,
+    sep
+  };
+};
+
+export const isPathInsideDirectoryForContract = (input: {
+  baseDir: string;
+  candidatePath: string;
+  semantics?: DownloadLandingPathSemantics;
+}): boolean => {
+  const path = pathSemantics(input.semantics ?? "native");
+  const normalizedBase = path.resolve(input.baseDir);
+  const normalizedCandidate = path.resolve(input.candidatePath);
+  const relativePath = path.relative(normalizedBase, normalizedCandidate);
   return (
     relativePath === "" ||
-    (!relativePath.startsWith(`..${"/"}`) &&
-      !relativePath.startsWith(`..${"\\"}`) &&
+    (!relativePath.startsWith(`..${path.sep}`) &&
+      !relativePath.startsWith(`..${path.sep === "/" ? "\\" : "/"}`) &&
       relativePath !== ".." &&
-      !isAbsolute(relativePath))
+      !path.isAbsolute(relativePath))
   );
 };
+
+const isInsideDirectory = (baseDir: string, candidatePath: string): boolean =>
+  isPathInsideDirectoryForContract({ baseDir, candidatePath });
 
 const normalizeNativePath = (input: string): string =>
   input.startsWith("/private/var/") ? input.slice("/private".length) : input;
@@ -100,8 +128,14 @@ const resolveDestinationDirectory = (
   destinationRoot: string,
   abilityId: string
 ): string => {
+  const normalizedDestinationRoot = normalizeDownloadDestinationRootForContract(
+    destinationRoot,
+    abilityId
+  );
   const destinationDir =
-    destinationRoot === "." ? trustedBase : resolve(trustedBase, destinationRoot);
+    normalizedDestinationRoot === "."
+      ? trustedBase
+      : resolve(trustedBase, normalizedDestinationRoot);
   if (!isInsideDirectory(trustedBase, destinationDir)) {
     throw cliDownloadError("DESTINATION_ROOT_ESCAPES_TRUSTED_BASE", abilityId, "input_validation");
   }

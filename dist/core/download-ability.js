@@ -81,7 +81,7 @@ const parseUrlString = (value, reason, abilityId) => {
     }
     return normalized;
 };
-const normalizeDestinationRoot = (value, abilityId) => {
+export const normalizeDownloadDestinationRootForContract = (value, abilityId) => {
     const raw = value.trim();
     if (raw.length === 0 ||
         raw.includes("\0") ||
@@ -104,7 +104,7 @@ const parseOutputPolicy = (value, abilityId) => {
     if (!object) {
         throw invalidDownloadInput("OUTPUT_POLICY_INVALID", abilityId);
     }
-    const destinationRoot = normalizeDestinationRoot(parseRequiredString(object, "destination_root", "DESTINATION_ROOT_INVALID", abilityId), abilityId);
+    const destinationRoot = normalizeDownloadDestinationRootForContract(parseRequiredString(object, "destination_root", "DESTINATION_ROOT_INVALID", abilityId), abilityId);
     const fileNamePolicy = parseRequiredString(object, "file_name_policy", "FILE_NAME_POLICY_INVALID", abilityId);
     const conflictPolicy = parseRequiredString(object, "conflict_policy", "CONFLICT_POLICY_INVALID", abilityId);
     if (!CONFLICT_POLICIES.has(conflictPolicy)) {

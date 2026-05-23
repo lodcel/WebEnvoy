@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, posix, relative, resolve, sep, win32 } from "node:path";
 import { CliError } from "../core/errors.js";
+import { normalizeDownloadDestinationRootForContract } from "../core/download-ability.js";
 import { resolveRuntimeWorktreeRoot } from "./worktree-root.js";
 const TRUSTED_DOWNLOAD_SEGMENTS = [".webenvoy", "downloads"];
 const MAX_BROWSER_ARTIFACT_BYTES = 25 * 1024 * 1024;
@@ -22,18 +23,39 @@ const cliDownloadError = (reason, abilityId, stage = "execution") => new CliErro
         reason
     }
 });
-const isInsideDirectory = (baseDir, candidatePath) => {
-    const relativePath = relative(baseDir, candidatePath);
-    return (relativePath === "" ||
-        (!relativePath.startsWith(`..${"/"}`) &&
-            !relativePath.startsWith(`..${"\\"}`) &&
-            relativePath !== ".." &&
-            !isAbsolute(relativePath)));
+const pathSemantics = (semantics) => {
+    if (semantics === "posix") {
+        return posix;
+    }
+    if (semantics === "win32") {
+        return win32;
+    }
+    return {
+        isAbsolute,
+        relative,
+        resolve,
+        sep
+    };
 };
+export const isPathInsideDirectoryForContract = (input) => {
+    const path = pathSemantics(input.semantics ?? "native");
+    const normalizedBase = path.resolve(input.baseDir);
+    const normalizedCandidate = path.resolve(input.candidatePath);
+    const relativePath = path.relative(normalizedBase, normalizedCandidate);
+    return (relativePath === "" ||
+        (!relativePath.startsWith(`..${path.sep}`) &&
+            !relativePath.startsWith(`..${path.sep === "/" ? "\\" : "/"}`) &&
+            relativePath !== ".." &&
+            !path.isAbsolute(relativePath)));
+};
+const isInsideDirectory = (baseDir, candidatePath) => isPathInsideDirectoryForContract({ baseDir, candidatePath });
 const normalizeNativePath = (input) => input.startsWith("/private/var/") ? input.slice("/private".length) : input;
 export const resolveTrustedDownloadBaseForContract = (cwd) => resolve(resolveRuntimeWorktreeRoot(cwd), ...TRUSTED_DOWNLOAD_SEGMENTS);
 const resolveDestinationDirectory = (trustedBase, destinationRoot, abilityId) => {
-    const destinationDir = destinationRoot === "." ? trustedBase : resolve(trustedBase, destinationRoot);
+    const normalizedDestinationRoot = normalizeDownloadDestinationRootForContract(destinationRoot, abilityId);
+    const destinationDir = normalizedDestinationRoot === "."
+        ? trustedBase
+        : resolve(trustedBase, normalizedDestinationRoot);
     if (!isInsideDirectory(trustedBase, destinationDir)) {
         throw cliDownloadError("DESTINATION_ROOT_ESCAPES_TRUSTED_BASE", abilityId, "input_validation");
     }
