@@ -281,16 +281,24 @@ const parseAllowedActions = (value: unknown): L2AllowedAction[] => {
   return parsed;
 };
 
-const assertTargetUrlMatchesDomain = (targetUrl: string, targetDomain: string): void => {
+const assertUrlHostnameMatchesDomain = (
+  url: string,
+  targetDomain: string,
+  reason: string
+): void => {
   let parsed: URL;
   try {
-    parsed = new URL(targetUrl);
+    parsed = new URL(url);
   } catch {
-    throw invalidL2Input("TARGET_URL_INVALID");
+    throw invalidL2Input(reason);
   }
   if (parsed.hostname !== targetDomain) {
-    throw invalidL2Input("TARGET_URL_DOMAIN_MISMATCH");
+    throw invalidL2Input(reason);
   }
+};
+
+const assertTargetUrlMatchesDomain = (targetUrl: string, targetDomain: string): void => {
+  assertUrlHostnameMatchesDomain(targetUrl, targetDomain, "TARGET_URL_DOMAIN_MISMATCH");
 };
 
 export const parseL2FirstUsableRequestForContract = (
@@ -595,6 +603,16 @@ export const parseL2FirstUsableResultForContract = (
   if (!resultSummary || !captureHints) {
     throw invalidL2Input("SUCCESS_PAYLOAD_INVALID");
   }
+  const pageUrl = parseRequiredString(
+    resultSummary,
+    "page_url",
+    "RESULT_PAGE_URL_INVALID"
+  );
+  assertUrlHostnameMatchesDomain(
+    pageUrl,
+    request.risk_gate_context.target_domain,
+    "RESULT_PAGE_URL_DOMAIN_MISMATCH"
+  );
   if (!Array.isArray(object.first_usable_trace) || !Array.isArray(object.interaction_trace)) {
     throw invalidL2Input("SUCCESS_TRACE_INVALID");
   }

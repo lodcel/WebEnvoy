@@ -290,4 +290,22 @@ describe("l2 first usable contract", () => {
       "SUCCESS_EXTRACT_TRACE_REQUIRED"
     );
   });
+
+  it("does not accept successful output from a page outside the requested target domain", () => {
+    const request = parseL2FirstUsableRequestForContract(requestInput());
+    expectInvalidReason(
+      () =>
+        parseL2FirstUsableResultForContract(
+          {
+            ...successResultInput(),
+            result_summary: {
+              ...successResultInput().result_summary,
+              page_url: "https://other.example/articles/l2"
+            }
+          },
+          request
+        ),
+      "RESULT_PAGE_URL_DOMAIN_MISMATCH"
+    );
+  });
 });

@@ -1415,6 +1415,92 @@ describe("content-script handler contract", () => {
     });
   });
 
+  it("returns requires_l1_fallback when l2.first_usable current page is outside target domain", async () => {
+    await withMockMainWorld(async () => {
+      const previousLocation = (globalThis as { location?: unknown }).location;
+      try {
+        (globalThis as { location?: unknown }).location = {
+          href: "https://other.example/articles/l2"
+        };
+        (globalThis as { document: Document }).document = {
+          title: "Wrong Page",
+          readyState: "complete",
+          body: {
+            innerText: "This page should not be captured for example.com.",
+            textContent: "This page should not be captured for example.com."
+          },
+          querySelectorAll: () => [],
+          createElement: () => ({
+            textContent: "",
+            remove: () => {}
+          }),
+          documentElement: {
+            appendChild: (node: unknown) => node
+          }
+        } as unknown as Document;
+
+        const handler = new ContentScriptHandler();
+        const results: Array<Record<string, unknown>> = [];
+        handler.onResult((message) => {
+          results.push(message as unknown as Record<string, unknown>);
+        });
+
+        handler.onBackgroundMessage({
+          kind: "forward",
+          id: "run-l2-wrong-page-001",
+          runId: "run-l2-wrong-page-001",
+          tabId: 4,
+          profile: "profile-a",
+          cwd: "/workspace/WebEnvoy",
+          timeoutMs: 1_000,
+          command: "l2.first_usable",
+          params: {},
+          commandParams: {
+            l2_first_usable_request: {
+              target_url: "https://example.com/articles/l2",
+              goal_kind: "read",
+              interaction_safety_class: "pure_read",
+              risk_gate_context: {
+                run_id: "run-l2-wrong-page-001",
+                profile: "profile-a",
+                target_domain: "example.com",
+                target_tab_id: 4,
+                target_page: "article",
+                risk_state: "allowed"
+              },
+              allowed_actions: ["locate", "extract", "wait_settled"]
+            }
+          },
+          fingerprintContext: null
+        });
+
+        await waitForResult(results);
+
+        expect(results[0]?.ok).toBe(true);
+        expect(results[0]?.payload).toMatchObject({
+          l2_first_usable_result: {
+            success: false,
+            failure_class: "requires_l1_fallback",
+            l1_fallback_payload: {
+              fallback_goal: "read",
+              fallback_reason: "target_not_located",
+              recommended_strategy: "visual_reacquire"
+            }
+          }
+        });
+        const payload = results[0]?.payload as Record<string, unknown>;
+        const l2Result = payload.l2_first_usable_result as Record<string, unknown>;
+        expect(l2Result).not.toHaveProperty("candidate_shell_seed");
+      } finally {
+        if (previousLocation === undefined) {
+          delete (globalThis as { location?: unknown }).location;
+        } else {
+          (globalThis as { location?: unknown }).location = previousLocation;
+        }
+      }
+    });
+  });
+
   it("does not trust forged main-world fingerprint-install success by request id only", async () => {
     await withMockMainWorld(async ({ mockWindow, mainWorldRequestEvent, mainWorldResultEvent }) => {
       (mockWindow as Window & Record<string, unknown>).__disableMainWorldBridgeFingerprintInstall__ =

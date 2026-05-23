@@ -1523,6 +1523,7 @@ export class ContentScriptHandler {
             : [];
         const runId = asString(riskGateContext?.run_id) ?? message.runId;
         const profile = asString(riskGateContext?.profile) ?? message.profile ?? "profile/default";
+        const targetDomain = asString(riskGateContext?.target_domain);
         const riskState = asString(riskGateContext?.risk_state);
         const emitResult = (result) => {
             this.#emit({
@@ -1594,7 +1595,47 @@ export class ContentScriptHandler {
             });
             return;
         }
+        if (!targetDomain || parsedTargetUrl.hostname !== targetDomain) {
+            emitResult({
+                success: false,
+                failure_class: "requires_l1_fallback",
+                l1_fallback_payload: {
+                    fallback_goal: "read",
+                    fallback_reason: "target_not_located",
+                    recommended_strategy: "visual_reacquire"
+                }
+            });
+            return;
+        }
         const href = typeof location !== "undefined" ? location.href : targetUrl;
+        let parsedCurrentUrl;
+        try {
+            parsedCurrentUrl = new URL(href);
+        }
+        catch {
+            emitResult({
+                success: false,
+                failure_class: "requires_l1_fallback",
+                l1_fallback_payload: {
+                    fallback_goal: "read",
+                    fallback_reason: "target_not_located",
+                    recommended_strategy: "visual_reacquire"
+                }
+            });
+            return;
+        }
+        if (parsedCurrentUrl.hostname !== targetDomain) {
+            emitResult({
+                success: false,
+                failure_class: "requires_l1_fallback",
+                l1_fallback_payload: {
+                    fallback_goal: "read",
+                    fallback_reason: "target_not_located",
+                    recommended_strategy: "visual_reacquire"
+                }
+            });
+            return;
+        }
         const title = typeof document !== "undefined" ? document.title : "";
         const bodyText = typeof document !== "undefined" && document.body
             ? (document.body.innerText ?? document.body.textContent ?? "").trim().replace(/\s+/g, " ")
