@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -438,6 +438,87 @@ describe("download commands", () => {
       const downloadSummary = capabilityResult.download_result_summary as JsonObject;
       expect(downloadSummary.result_state).toBe("partial");
       expect(downloadSummary).not.toHaveProperty("resolved_output_path");
+    });
+  });
+
+  it("lands loopback browser artifact payloads into the trusted download base", async () => {
+    await withLoopbackTransport(async () => {
+      const cwd = await createTempCwd();
+      const stdout = captureStdout();
+      const code = await runCli(
+        [
+          "download.trigger",
+          "--run-id",
+          "run-download-trigger-landed",
+          "--profile",
+          "profile/default",
+          "--params",
+          JSON.stringify(
+            downloadParams({
+              simulate_artifact_payload: "success",
+              options: {
+                trigger_mode: "resolve_only",
+                target_tab_id: 17,
+                target_domain: "example.com",
+                target_page: "export"
+              }
+            })
+          )
+        ],
+        {
+          cwd,
+          stdout: stdout.stream,
+          stderr: stderrSink()
+        }
+      );
+
+      expect(code).toBe(0);
+      const payload = parseJsonLine(stdout.read());
+      expect(payload).toMatchObject({
+        status: "success",
+        summary: {
+          capability_result: {
+            ability_id: "generic.file.download.v1",
+            layer: "L2",
+            action: "download",
+            outcome: "success",
+            download_result_summary: {
+              download_ref: "download.trigger/run-download-trigger-landed",
+              result_state: "downloaded",
+              source_url: "https://example.com/export/report.pdf",
+              file_name_hint: "report.pdf",
+              content_descriptor: {
+                content_kind: "file",
+                mime_type: "application/pdf",
+                size_bytes: 27
+              }
+            }
+          },
+          download_execution_boundary: "browser_target_trigger_and_cli_landing_fr0021_749",
+          file_landing_boundary: "executed_in_fr0021_749",
+          download_file_audit: {
+            run_id: "run-download-trigger-landed",
+            path_inside_trusted_base: true,
+            leakage_check: "passed"
+          },
+          validation_execution_boundary: "seed_only_until_fr0021_750"
+        }
+      });
+      const summary = payload.summary as JsonObject;
+      const capabilityResult = summary.capability_result as JsonObject;
+      const downloadSummary = capabilityResult.download_result_summary as JsonObject;
+      const resolvedOutputPath = String(downloadSummary.resolved_output_path);
+      const artifactRefs = downloadSummary.saved_artifact_refs as string[];
+      const downloadTarget = summary.download_target as JsonObject;
+      expect(resolvedOutputPath).toContain(".webenvoy/downloads/exports/reports/report.pdf");
+      expect(artifactRefs).toHaveLength(1);
+      expect(artifactRefs[0]).toMatch(/^download-artifact:\/\/run-download-trigger-landed\/[a-f0-9]{16}$/u);
+      expect(await readFile(resolvedOutputPath, "utf8")).toBe("loopback download artifact\n");
+      expect(downloadTarget).not.toHaveProperty("browser_artifact");
+      expect(stdout.read()).not.toContain("bG9vcGJhY2sgZG93bmxvYWQgYXJ0aWZhY3QK");
+      expect(JSON.stringify((summary.download_file_audit as JsonObject).artifact_ref)).not.toContain(
+        "example.com"
+      );
     });
   });
 

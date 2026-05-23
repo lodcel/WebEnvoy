@@ -550,6 +550,14 @@ export class InMemoryContentScriptRuntime {
             content_kind: "file",
             mime_type: "application/pdf"
           },
+          ...(commandParams.simulate_artifact_payload === "success"
+            ? {
+                browser_artifact: {
+                  content_base64: Buffer.from("loopback download artifact\n", "utf8").toString("base64"),
+                  artifact_ref: `loopback-browser-artifact://${message.runId}`
+                }
+              }
+            : {}),
           trigger_status: "resolved",
           trigger_mode: triggerMode,
           trigger_surface:
