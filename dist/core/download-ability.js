@@ -436,3 +436,41 @@ export const buildAbilityValidationSeedForDownloadRequest = (input) => ({
     },
     validation_execution_boundary: input.validationExecutionBoundary ?? "not_executed_in_fr0021_747"
 });
+export const mapDownloadFailureReasonToAbilityFailureClassForContract = (reason) => {
+    if (reason === "SOURCE_UNAVAILABLE") {
+        return "page_changed";
+    }
+    if (reason === "AUTH_OR_SESSION_REQUIRED") {
+        return "auth_or_session_required";
+    }
+    if (reason === "WRITE_BLOCKED") {
+        return "gate_blocked";
+    }
+    return "runtime_error";
+};
+export const buildDownloadValidationExecutionResultForContract = (input) => {
+    if (input.downloadResultSummary && input.failureReason) {
+        throw invalidDownloadInput("DOWNLOAD_VALIDATION_RESULT_AMBIGUOUS", input.downloadResultSummary.download_ref);
+    }
+    if (input.failureReason) {
+        return {
+            result_state: "broken",
+            failure_class: mapDownloadFailureReasonToAbilityFailureClassForContract(input.failureReason)
+        };
+    }
+    if (!input.downloadResultSummary) {
+        throw invalidDownloadInput("DOWNLOAD_VALIDATION_RESULT_MISSING");
+    }
+    const artifactRefs = input.downloadResultSummary.saved_artifact_refs;
+    if (input.downloadResultSummary.result_state === "downloaded") {
+        return {
+            result_state: "verified",
+            ...(artifactRefs ? { artifact_refs: [...artifactRefs] } : {})
+        };
+    }
+    return {
+        result_state: "broken",
+        failure_class: "runtime_error",
+        ...(artifactRefs ? { artifact_refs: [...artifactRefs] } : {})
+    };
+};

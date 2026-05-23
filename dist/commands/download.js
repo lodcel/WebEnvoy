@@ -1,12 +1,14 @@
 import { CliError } from "../core/errors.js";
-import { buildAbilityValidationSeedForDownloadRequest, buildDownloadLandedResultSummaryForContract, buildDownloadPrepareResultSummaryForContract, buildDownloadTriggeredResultSummaryForContract, materializeCandidateAbilityFromDownloadSeedForContract, parseDownloadBrowserExecutionResultForContract, parseDownloadCapabilityEnvelopeForContract, parseDownloadFailureReasonForContract, parseDownloadTriggerModeForContract } from "../core/download-ability.js";
+import { buildAbilityValidationSeedForDownloadRequest, buildDownloadValidationExecutionResultForContract, buildDownloadLandedResultSummaryForContract, buildDownloadPrepareResultSummaryForContract, buildDownloadTriggeredResultSummaryForContract, materializeCandidateAbilityFromDownloadSeedForContract, parseDownloadBrowserExecutionResultForContract, parseDownloadCapabilityEnvelopeForContract, parseDownloadFailureReasonForContract, parseDownloadResultSummaryForContract, parseDownloadTriggerModeForContract } from "../core/download-ability.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "../runtime/native-messaging/bridge.js";
 import { NativeHostBridgeTransport } from "../runtime/native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "../runtime/native-messaging/loopback.js";
 import { landBrowserDownloadArtifactForContract } from "../runtime/download-landing.js";
+import { runAbilityReplayForContract, runAbilityValidationForContract } from "./ability.js";
 const asObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const invalidDownloadCommandInput = (reason, abilityId = "download.prepare") => new CliError("ERR_CLI_INVALID_ARGS", "Download command input invalid", {
     details: {
         ability_id: abilityId,
@@ -52,6 +54,49 @@ const resolveRuntimeBridge = () => {
 const stripBrowserArtifactFromDownloadTarget = (target) => {
     const { browser_artifact: _browserArtifact, ...safeTarget } = target;
     return safeTarget;
+};
+const parseDownloadValidationBridgeParams = (params, requestKey, commandName) => {
+    const seed = asObject(params.ability_validation_seed);
+    const candidateDescriptor = params.candidate_ability_descriptor ?? seed?.candidate_ability_descriptor;
+    const candidateRegistry = params.candidate_ability_contract_registry ?? seed?.candidate_ability_contract_registry;
+    const request = params[requestKey] ?? seed?.[requestKey];
+    if (!candidateDescriptor) {
+        throw invalidDownloadCommandInput("CANDIDATE_ABILITY_DESCRIPTOR_MISSING", commandName);
+    }
+    if (!candidateRegistry) {
+        throw invalidDownloadCommandInput("CANDIDATE_ABILITY_CONTRACT_REGISTRY_MISSING", commandName);
+    }
+    if (!request) {
+        throw invalidDownloadCommandInput(`${requestKey.toUpperCase()}_MISSING`, commandName);
+    }
+    if (hasOwn(params, "execution_result")) {
+        throw invalidDownloadCommandInput("DOWNLOAD_VALIDATION_EXECUTION_RESULT_OVERRIDE_UNSUPPORTED", commandName);
+    }
+    const hasDownloadResultSummary = hasOwn(params, "download_result_summary");
+    const hasDownloadFailureReason = hasOwn(params, "download_failure_reason");
+    if (hasDownloadResultSummary === hasDownloadFailureReason) {
+        throw invalidDownloadCommandInput(hasDownloadResultSummary
+            ? "DOWNLOAD_VALIDATION_RESULT_AMBIGUOUS"
+            : "DOWNLOAD_VALIDATION_RESULT_MISSING", commandName);
+    }
+    const downloadResultSummary = hasDownloadResultSummary
+        ? parseDownloadResultSummaryForContract(params.download_result_summary, commandName)
+        : undefined;
+    const failureReason = hasDownloadFailureReason
+        ? parseDownloadFailureReasonForContract(params.download_failure_reason, commandName)
+        : undefined;
+    return {
+        bridgeParams: {
+            candidate_ability_descriptor: candidateDescriptor,
+            candidate_ability_contract_registry: candidateRegistry,
+            [requestKey]: request,
+            execution_result: buildDownloadValidationExecutionResultForContract({
+                downloadResultSummary,
+                failureReason
+            })
+        },
+        projectionSource: hasDownloadResultSummary ? "download_result_summary" : "download_failure_reason"
+    };
 };
 const downloadPrepare = async (context) => {
     const params = asObject(context.params);
@@ -226,6 +271,38 @@ const downloadTrigger = async (context) => {
         await bridge?.close().catch(() => undefined);
     }
 };
+const downloadValidate = async (context) => {
+    const params = asObject(context.params);
+    if (!params) {
+        throw invalidDownloadCommandInput("PARAMS_INVALID");
+    }
+    const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(params, "ability_validation_request", "download.validate");
+    const validationResult = await runAbilityValidationForContract(context, bridgeParams);
+    return {
+        ...validationResult,
+        download_validation_projection: {
+            source: projectionSource,
+            execution_result: bridgeParams.execution_result
+        },
+        validation_execution_boundary: "executed_in_fr0021_750"
+    };
+};
+const downloadReplay = async (context) => {
+    const params = asObject(context.params);
+    if (!params) {
+        throw invalidDownloadCommandInput("PARAMS_INVALID");
+    }
+    const { bridgeParams, projectionSource } = parseDownloadValidationBridgeParams(params, "ability_replay_request", "download.replay");
+    const replayResult = await runAbilityReplayForContract(context, bridgeParams);
+    return {
+        ...replayResult,
+        download_validation_projection: {
+            source: projectionSource,
+            execution_result: bridgeParams.execution_result
+        },
+        validation_execution_boundary: "executed_in_fr0021_750"
+    };
+};
 export const downloadCommands = () => [
     {
         name: "download.prepare",
@@ -238,5 +315,17 @@ export const downloadCommands = () => [
         status: "implemented",
         requiresProfile: true,
         handler: downloadTrigger
+    },
+    {
+        name: "download.validate",
+        status: "implemented",
+        requiresProfile: false,
+        handler: downloadValidate
+    },
+    {
+        name: "download.replay",
+        status: "implemented",
+        requiresProfile: false,
+        handler: downloadReplay
     }
 ];

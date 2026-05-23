@@ -115,6 +115,39 @@ const candidateSeed = (abilityId = "generic.file.download.v1"): JsonObject => ({
   }
 });
 
+const downloadDescriptor = (abilityId = "generic.file.download.v1"): JsonObject => {
+  const seed = candidateSeed(abilityId);
+  const { contract_registry_seed: _contractRegistrySeed, ...descriptor } = seed;
+  return descriptor;
+};
+
+const downloadRegistry = (abilityId = "generic.file.download.v1"): JsonObject =>
+  (candidateSeed(abilityId).contract_registry_seed as JsonObject);
+
+const abilityValidationRequest = (): JsonObject => ({
+  ability_ref: "generic.file.download.v1",
+  validation_mode: "smoke_validation",
+  profile_ref: "profile/default",
+  requested_execution_layer: "L2",
+  expected_capability_kind: "download",
+  smoke_input: downloadParams().input
+});
+
+const downloadedResultSummary = (runId = "run-download-validation-smoke"): JsonObject => ({
+  download_ref: `download.trigger/${runId}`,
+  result_state: "downloaded",
+  saved_artifact_refs: [`download-artifact://${runId}/0123456789abcdef`],
+  resolved_output_path: "/trusted/.webenvoy/downloads/exports/reports/report.pdf",
+  source_url: "https://example.com/export/report.pdf",
+  file_name_hint: "report.pdf",
+  content_descriptor: {
+    content_kind: "file",
+    mime_type: "application/pdf",
+    size_bytes: 27,
+    checksum_sha256: "0".repeat(64)
+  }
+});
+
 const downloadParams = (overrides: JsonObject = {}): JsonObject => ({
   ability: {
     id: "generic.file.download.v1",
@@ -519,6 +552,263 @@ describe("download commands", () => {
       expect(JSON.stringify((summary.download_file_audit as JsonObject).artifact_ref)).not.toContain(
         "example.com"
       );
+    });
+  });
+
+  it("validates downloaded summaries into FR-0018 health and replays the scoped smoke input", async () => {
+    const cwd = await createTempCwd();
+    const validateStdout = captureStdout();
+    const validateCode = await runCli(
+      [
+        "download.validate",
+        "--run-id",
+        "run-download-validation-smoke",
+        "--params",
+        JSON.stringify({
+          candidate_ability_descriptor: downloadDescriptor(),
+          candidate_ability_contract_registry: downloadRegistry(),
+          ability_validation_request: abilityValidationRequest(),
+          download_result_summary: downloadedResultSummary()
+        })
+      ],
+      {
+        cwd,
+        stdout: validateStdout.stream,
+        stderr: stderrSink()
+      }
+    );
+
+    expect(validateCode).toBe(0);
+    const validatePayload = parseJsonLine(validateStdout.read());
+    expect(validatePayload).toMatchObject({
+      status: "success",
+      summary: {
+        ability_health_view: {
+          ability_ref: "generic.file.download.v1",
+          profile_ref: "profile/default",
+          execution_layer: "L2",
+          health_state: "healthy",
+          validation_coverage_state: "smoke_only",
+          latest_validations: [
+            expect.objectContaining({
+              validation_mode: "smoke_validation",
+              result_state: "verified",
+              artifact_refs: ["download-artifact://run-download-validation-smoke/0123456789abcdef"]
+            })
+          ],
+          last_success_input_ref: expect.stringContaining("run-download-validation-smoke/smoke")
+        },
+        validation_execution_boundary: "executed_in_fr0021_750",
+        download_validation_projection: {
+          source: "download_result_summary",
+          execution_result: {
+            result_state: "verified",
+            artifact_refs: ["download-artifact://run-download-validation-smoke/0123456789abcdef"]
+          }
+        }
+      }
+    });
+
+    const replayStdout = captureStdout();
+    const replayCode = await runCli(
+      [
+        "download.replay",
+        "--run-id",
+        "run-download-validation-replay",
+        "--params",
+        JSON.stringify({
+          candidate_ability_descriptor: downloadDescriptor(),
+          candidate_ability_contract_registry: downloadRegistry(),
+          ability_replay_request: {
+            ability_ref: "generic.file.download.v1",
+            profile_ref: "profile/default",
+            requested_execution_layer: "L2",
+            expected_capability_kind: "download",
+            replay_source: "last_success_input",
+            replay_reason: "manual_check"
+          },
+          download_result_summary: downloadedResultSummary("run-download-validation-replay")
+        })
+      ],
+      {
+        cwd,
+        stdout: replayStdout.stream,
+        stderr: stderrSink()
+      }
+    );
+
+    expect(replayCode).toBe(0);
+    expect(parseJsonLine(replayStdout.read())).toMatchObject({
+      status: "success",
+      summary: {
+        replay_input_ref: expect.stringContaining("run-download-validation-smoke/smoke"),
+        ability_health_view: {
+          health_state: "healthy",
+          validation_coverage_state: "smoke_plus_replay",
+          latest_validations: [
+            expect.objectContaining({ validation_mode: "smoke_validation" }),
+            expect.objectContaining({
+              validation_mode: "replay_validation",
+              artifact_refs: ["download-artifact://run-download-validation-replay/0123456789abcdef"]
+            })
+          ]
+        },
+        validation_execution_boundary: "executed_in_fr0021_750"
+      }
+    });
+  });
+
+  it("maps download failure reasons into FR-0018 failure classes without artifact payload locators", async () => {
+    const cwd = await createTempCwd();
+    const stdout = captureStdout();
+    const code = await runCli(
+      [
+        "download.validate",
+        "--run-id",
+        "run-download-validation-blocked",
+        "--params",
+        JSON.stringify({
+          candidate_ability_descriptor: downloadDescriptor(),
+          candidate_ability_contract_registry: downloadRegistry(),
+          ability_validation_request: abilityValidationRequest(),
+          download_failure_reason: "WRITE_BLOCKED"
+        })
+      ],
+      {
+        cwd,
+        stdout: stdout.stream,
+        stderr: stderrSink()
+      }
+    );
+
+    expect(code).toBe(0);
+    const payload = parseJsonLine(stdout.read());
+    expect(payload).toMatchObject({
+      status: "success",
+      summary: {
+        ability_health_view: {
+          health_state: "broken",
+          validation_coverage_state: "divergent",
+          latest_validations: [
+            expect.objectContaining({
+              result_state: "broken",
+              failure_class: "gate_blocked"
+            })
+          ]
+        },
+        download_validation_projection: {
+          source: "download_failure_reason",
+          execution_result: {
+            result_state: "broken",
+            failure_class: "gate_blocked"
+          }
+        }
+      }
+    });
+    expect(JSON.stringify(payload)).not.toContain("payload_locator");
+    expect(JSON.stringify(payload)).not.toContain("download-artifact://");
+  });
+
+  it("rejects ambiguous download validation evidence instead of accepting caller overrides", async () => {
+    const cwd = await createTempCwd();
+    const missingDescriptorStdout = captureStdout();
+    const missingDescriptorCode = await runCli(
+      [
+        "download.validate",
+        "--run-id",
+        "run-download-validation-missing-descriptor",
+        "--params",
+        JSON.stringify({
+          candidate_ability_contract_registry: downloadRegistry(),
+          ability_validation_request: abilityValidationRequest(),
+          download_result_summary: downloadedResultSummary("run-download-validation-missing-descriptor")
+        })
+      ],
+      {
+        cwd,
+        stdout: missingDescriptorStdout.stream,
+        stderr: stderrSink()
+      }
+    );
+
+    expect(missingDescriptorCode).not.toBe(0);
+    expect(parseJsonLine(missingDescriptorStdout.read())).toMatchObject({
+      status: "error",
+      error: {
+        details: {
+          ability_id: "download.validate",
+          stage: "input_validation",
+          reason: "CANDIDATE_ABILITY_DESCRIPTOR_MISSING"
+        }
+      }
+    });
+
+    const ambiguousStdout = captureStdout();
+    const ambiguousCode = await runCli(
+      [
+        "download.validate",
+        "--run-id",
+        "run-download-validation-ambiguous",
+        "--params",
+        JSON.stringify({
+          candidate_ability_descriptor: downloadDescriptor(),
+          candidate_ability_contract_registry: downloadRegistry(),
+          ability_validation_request: abilityValidationRequest(),
+          download_result_summary: downloadedResultSummary("run-download-validation-ambiguous"),
+          download_failure_reason: "WRITE_BLOCKED"
+        })
+      ],
+      {
+        cwd,
+        stdout: ambiguousStdout.stream,
+        stderr: stderrSink()
+      }
+    );
+
+    expect(ambiguousCode).not.toBe(0);
+    expect(parseJsonLine(ambiguousStdout.read())).toMatchObject({
+      status: "error",
+      error: {
+        details: {
+          stage: "input_validation",
+          reason: "DOWNLOAD_VALIDATION_RESULT_AMBIGUOUS"
+        }
+      }
+    });
+
+    const overrideStdout = captureStdout();
+    const overrideCode = await runCli(
+      [
+        "download.validate",
+        "--run-id",
+        "run-download-validation-override",
+        "--params",
+        JSON.stringify({
+          candidate_ability_descriptor: downloadDescriptor(),
+          candidate_ability_contract_registry: downloadRegistry(),
+          ability_validation_request: abilityValidationRequest(),
+          download_result_summary: downloadedResultSummary("run-download-validation-override"),
+          execution_result: {
+            result_state: "verified"
+          }
+        })
+      ],
+      {
+        cwd,
+        stdout: overrideStdout.stream,
+        stderr: stderrSink()
+      }
+    );
+
+    expect(overrideCode).not.toBe(0);
+    expect(parseJsonLine(overrideStdout.read())).toMatchObject({
+      status: "error",
+      error: {
+        details: {
+          stage: "input_validation",
+          reason: "DOWNLOAD_VALIDATION_EXECUTION_RESULT_OVERRIDE_UNSUPPORTED"
+        }
+      }
     });
   });
 

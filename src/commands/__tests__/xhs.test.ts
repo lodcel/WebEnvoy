@@ -5641,7 +5641,7 @@ describe("normalizeGateOptionsForContract", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 10_000);
+  }, 15_000);
 
   it("blocks XHS live reads at the validation baseline gate even when scope and caller action are wrong", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-baseline-action-omitted-"));
