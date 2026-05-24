@@ -9,11 +9,67 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
+const buildLoopbackMediaUploadDiscovery = () => ({
+    discovery_action: "media_upload_path",
+    target_page: "creator_publish_tab",
+    upload_path_catalog: [
+        {
+            scenario: "image_upload",
+            route_role: "primary",
+            path_kind: "page",
+            entry_type: "file_input",
+            file_injection: "data_transfer",
+            trigger_events: ["change", "input"],
+            progress_signals: ["preview_visible", "uploading", "upload_done"],
+            failure_signals: [
+                "entry_missing",
+                "type_rejected",
+                "size_rejected",
+                "upload_failed",
+                "risk_blocked",
+                "upload_injection_blocked"
+            ],
+            evidence_status: "candidate",
+            evidence_maturity: "observed_once",
+            notes: "loopback dry_run/recon only; no file bytes read and no upload attempted"
+        },
+        {
+            scenario: "image_upload",
+            route_role: "fallback",
+            path_kind: "api",
+            entry_type: "upload_api",
+            file_injection: "api_direct",
+            trigger_events: [],
+            progress_signals: [],
+            failure_signals: ["signature_entry_missing", "request_context_missing", "risk_blocked"],
+            evidence_status: "candidate",
+            evidence_maturity: "observed_once",
+            notes: "fallback candidate only; not promoted to primary and not called during #755"
+        }
+    ],
+    file_selection_boundary: {
+        file_bytes_read: false,
+        native_picker_opened: false,
+        data_transfer_injected: false,
+        real_upload_attempted: false,
+        allowed_modes: ["dry_run", "recon"]
+    },
+    submitted: false,
+    published: false,
+    out_of_scope_actions: [
+        "file_picker_open",
+        "file_bytes_read",
+        "data_transfer_injection",
+        "submit",
+        "publish_confirm"
+    ]
+});
 const XHS_GATED_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
     "xhs.creator_publish.admit",
+    "xhs.media_upload.discover",
     "xhs.detail",
     "xhs.user_home"
 ]);
@@ -612,42 +668,55 @@ export class InMemoryContentScriptRuntime {
                                 target_page: "creator_publish_tab"
                             }
                         }
-                        : commandName === "xhs.detail"
+                        : commandName === "xhs.media_upload.discover"
                             ? {
-                                defaultAbilityId: "xhs.note.detail.v1",
-                                page_kind: "detail",
-                                url: "https://www.xiaohongshu.com/explore/note-id",
-                                title: "Detail",
+                                defaultAbilityId: "xhs.creator.publish.v1",
+                                page_kind: "compose",
+                                url: "https://creator.xiaohongshu.com/publish/publish",
+                                title: "Creator Publish",
                                 request_method: "POST",
-                                request_url: "/api/sns/web/v1/feed",
+                                request_url: "/web_api/sns/v2/note",
                                 successDataRef: {
-                                    note_id: String(normalizedInput.note_id ?? "")
+                                    target_page: "creator_publish_tab",
+                                    discovery_action: "media_upload_path"
                                 }
                             }
-                            : commandName === "xhs.user_home"
+                            : commandName === "xhs.detail"
                                 ? {
-                                    defaultAbilityId: "xhs.user.home.v1",
-                                    page_kind: "user_home",
-                                    url: "https://www.xiaohongshu.com/user/profile/user-id",
-                                    title: "User Home",
-                                    request_method: "GET",
-                                    request_url: "/api/sns/web/v1/user_posted",
+                                    defaultAbilityId: "xhs.note.detail.v1",
+                                    page_kind: "detail",
+                                    url: "https://www.xiaohongshu.com/explore/note-id",
+                                    title: "Detail",
+                                    request_method: "POST",
+                                    request_url: "/api/sns/web/v1/feed",
                                     successDataRef: {
-                                        user_id: String(normalizedInput.user_id ?? "")
+                                        note_id: String(normalizedInput.note_id ?? "")
                                     }
                                 }
-                                : {
-                                    defaultAbilityId: "xhs.note.search.v1",
-                                    page_kind: "search",
-                                    url: "https://www.xiaohongshu.com/search_result",
-                                    title: "Search Result",
-                                    request_method: "POST",
-                                    request_url: "/api/sns/web/v1/search/notes",
-                                    successDataRef: {
-                                        query: String(normalizedInput.query ?? ""),
-                                        search_id: "loopback-search-id"
+                                : commandName === "xhs.user_home"
+                                    ? {
+                                        defaultAbilityId: "xhs.user.home.v1",
+                                        page_kind: "user_home",
+                                        url: "https://www.xiaohongshu.com/user/profile/user-id",
+                                        title: "User Home",
+                                        request_method: "GET",
+                                        request_url: "/api/sns/web/v1/user_posted",
+                                        successDataRef: {
+                                            user_id: String(normalizedInput.user_id ?? "")
+                                        }
                                     }
-                                };
+                                    : {
+                                        defaultAbilityId: "xhs.note.search.v1",
+                                        page_kind: "search",
+                                        url: "https://www.xiaohongshu.com/search_result",
+                                        title: "Search Result",
+                                        request_method: "POST",
+                                        request_url: "/api/sns/web/v1/search/notes",
+                                        successDataRef: {
+                                            query: String(normalizedInput.query ?? ""),
+                                            search_id: "loopback-search-id"
+                                        }
+                                    };
             const successObservability = {
                 page_state: {
                     page_kind: commandSpec.page_kind,
@@ -800,7 +869,14 @@ export class InMemoryContentScriptRuntime {
                                 }
                             }
                         }
-                        : undefined);
+                        : commandName === "xhs.media_upload.discover"
+                            ? {
+                                summary: {
+                                    media_upload_discovery: buildLoopbackMediaUploadDiscovery(),
+                                    upload_path_catalog: buildLoopbackMediaUploadDiscovery().upload_path_catalog
+                                }
+                            }
+                            : undefined);
             }
             if (consumerGateResult.effective_execution_mode === "live_write" &&
                 options.validation_action === "editor_input") {

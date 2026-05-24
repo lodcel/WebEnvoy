@@ -2,6 +2,7 @@ import type {
   EditorInputFocusAttestation,
   EditorInputValidationResult
 } from "./xhs-editor-input.js";
+import type { MediaUploadDiscoveryResult } from "./xhs-media-upload-discovery.js";
 import type { ExecutionMode, IssueActionMatrixEntry, IssueScope, RiskState, WriteActionMatrixDecisionsOutput, WriteInteractionTier } from "../shared/risk-state.js";
 
 export type JsonRecord = Record<string, unknown>;
@@ -50,6 +51,7 @@ export interface XhsSearchOptions {
   validation_action?: string;
   validation_text?: string;
   editor_text_write?: boolean;
+  discovery_action?: string;
   __request_context_provenance_confirmed?: boolean;
   explicit_request_context_artifact?: Record<string, unknown>;
   active_api_fetch_fallback?: ActiveApiFetchFallbackGateOptions;
@@ -259,6 +261,7 @@ export interface XhsSearchEnvironment {
   performEditorInputValidation?(
     input: { text: string; focusAttestation?: EditorInputFocusAttestation | null }
   ): Promise<EditorInputValidationResult>;
+  performMediaUploadDiscovery?(): Promise<MediaUploadDiscoveryResult>;
 }
 
 export interface SearchExecutionSuccess {

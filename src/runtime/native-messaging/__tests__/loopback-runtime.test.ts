@@ -234,6 +234,62 @@ describe("native messaging legacy loopback runtime", () => {
     }
   });
 
+  it("emits media upload discovery evidence without live upload side effects", async () => {
+    const bridge = new NativeMessagingBridge({
+      transport: createInMemoryLoopbackTransport("host>background>content-script>background>host")
+    });
+
+    const result = await bridge.runCommand({
+      runId: "run-loopback-media-upload-discover-001",
+      profile: "profile-a",
+      cwd: "/tmp",
+      command: "xhs.media_upload.discover",
+      params: {
+        ability: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {},
+        options: {
+          issue_scope: "issue_755",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "recon",
+          discovery_action: "media_upload_path",
+          risk_state: "allowed"
+        }
+      }
+    });
+
+    const payload = result.payload as Record<string, unknown>;
+    const summary = payload.summary as Record<string, unknown>;
+    const mediaUploadDiscovery = summary.media_upload_discovery as Record<string, unknown>;
+    expect(result.ok).toBe(true);
+    expect(summary.capability_result).toMatchObject({
+      ability_id: "xhs.creator.publish.v1",
+      outcome: "partial",
+      data_ref: {
+        target_page: "creator_publish_tab",
+        discovery_action: "media_upload_path"
+      }
+    });
+    expect(mediaUploadDiscovery).toMatchObject({
+      discovery_action: "media_upload_path",
+      submitted: false,
+      published: false,
+      file_selection_boundary: {
+        file_bytes_read: false,
+        native_picker_opened: false,
+        data_transfer_injected: false,
+        real_upload_attempted: false
+      }
+    });
+    expect(summary.upload_path_catalog).toEqual(mediaUploadDiscovery.upload_path_catalog);
+  });
+
   it("keeps xhs.search observability page_state aligned with the shared contract", async () => {
     const bridge = new NativeMessagingBridge({
       transport: createInMemoryLoopbackTransport("host>background>content-script>background>host")

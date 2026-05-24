@@ -8,8 +8,64 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
+const buildLoopbackMediaUploadDiscovery = () => ({
+    discovery_action: "media_upload_path",
+    target_page: "creator_publish_tab",
+    upload_path_catalog: [
+        {
+            scenario: "image_upload",
+            route_role: "primary",
+            path_kind: "page",
+            entry_type: "file_input",
+            file_injection: "data_transfer",
+            trigger_events: ["change", "input"],
+            progress_signals: ["preview_visible", "uploading", "upload_done"],
+            failure_signals: [
+                "entry_missing",
+                "type_rejected",
+                "size_rejected",
+                "upload_failed",
+                "risk_blocked",
+                "upload_injection_blocked"
+            ],
+            evidence_status: "candidate",
+            evidence_maturity: "observed_once",
+            notes: "loopback dry_run/recon only; no file bytes read and no upload attempted"
+        },
+        {
+            scenario: "image_upload",
+            route_role: "fallback",
+            path_kind: "api",
+            entry_type: "upload_api",
+            file_injection: "api_direct",
+            trigger_events: [],
+            progress_signals: [],
+            failure_signals: ["signature_entry_missing", "request_context_missing", "risk_blocked"],
+            evidence_status: "candidate",
+            evidence_maturity: "observed_once",
+            notes: "fallback candidate only; not promoted to primary and not called during #755"
+        }
+    ],
+    file_selection_boundary: {
+        file_bytes_read: false,
+        native_picker_opened: false,
+        data_transfer_injected: false,
+        real_upload_attempted: false,
+        allowed_modes: ["dry_run", "recon"]
+    },
+    submitted: false,
+    published: false,
+    out_of_scope_actions: [
+        "file_picker_open",
+        "file_bytes_read",
+        "data_transfer_injection",
+        "submit",
+        "publish_confirm"
+    ]
+});
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
+const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS = {
     "xhs.search": "xhs.note.search.v1",
@@ -19,12 +75,14 @@ const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS = {
 const XHS_GATE_COMMANDS = new Set([
     ...XHS_READ_COMMANDS,
     XHS_EDITOR_INPUT_VALIDATE_COMMAND,
-    XHS_EDITOR_TEXT_WRITE_COMMAND
+    XHS_EDITOR_TEXT_WRITE_COMMAND,
+    XHS_MEDIA_UPLOAD_DISCOVER_COMMAND
 ]);
 const XHS_GATE_COMMAND_DEFAULT_ABILITY_IDS = {
     ...XHS_READ_COMMAND_DEFAULT_ABILITY_IDS,
     [XHS_EDITOR_INPUT_VALIDATE_COMMAND]: "xhs.editor.input.v1",
-    [XHS_EDITOR_TEXT_WRITE_COMMAND]: "xhs.editor.input.v1"
+    [XHS_EDITOR_TEXT_WRITE_COMMAND]: "xhs.editor.input.v1",
+    [XHS_MEDIA_UPLOAD_DISCOVER_COMMAND]: "xhs.creator.publish.v1"
 };
 const XHS_READ_COMMAND_SPECS = {
     "xhs.search": {
@@ -307,6 +365,9 @@ class InMemoryContentScriptRuntime {
             message.command === XHS_EDITOR_TEXT_WRITE_COMMAND) {
             return this.handleXhsEditorInputValidate(message);
         }
+        if (message.command === XHS_MEDIA_UPLOAD_DISCOVER_COMMAND) {
+            return this.handleXhsMediaUploadDiscovery(message);
+        }
         if (XHS_READ_COMMANDS.has(message.command)) {
             return this.handleXhsRead(message);
         }
@@ -476,6 +537,85 @@ class InMemoryContentScriptRuntime {
             error: {
                 code: "ERR_EXECUTION_FAILED",
                 message: `editor_input validation requires a controlled execution surface: ${validationText}`
+            }
+        };
+    }
+    handleXhsMediaUploadDiscovery(message) {
+        const ability = typeof message.commandParams.ability === "object" && message.commandParams.ability !== null
+            ? message.commandParams.ability
+            : {};
+        const options = typeof message.commandParams.options === "object" && message.commandParams.options !== null
+            ? message.commandParams.options
+            : {};
+        const gateBundle = buildLoopbackXhsGateBundle({
+            options,
+            abilityAction: asString(ability.action),
+            runId: message.runId,
+            requestId: message.id,
+            commandRequestId: message.commandParams.request_id,
+            gateInvocationId: message.commandParams.gate_invocation_id,
+            sessionId: message.sessionId,
+            profile: message.profile
+        });
+        const consumerGateResult = gateBundle.consumerGateResult;
+        const mediaUploadDiscovery = buildLoopbackMediaUploadDiscovery();
+        if (consumerGateResult.gate_decision === "blocked") {
+            return {
+                kind: "result",
+                id: message.id,
+                ok: false,
+                error: {
+                    code: "ERR_EXECUTION_FAILED",
+                    message: `执行模式门禁阻断了当前 ${message.command} 请求`
+                },
+                payload: {
+                    details: {
+                        ability_id: String(ability.id ?? "xhs.creator.publish.v1"),
+                        stage: "execution",
+                        reason: "EXECUTION_MODE_GATE_BLOCKED",
+                        discovery_action: "media_upload_path",
+                        target_page: "creator_publish_tab",
+                        failure_signals: consumerGateResult.gate_reasons
+                    },
+                    ...gateBundle.payload,
+                    media_upload_discovery: mediaUploadDiscovery
+                }
+            };
+        }
+        return {
+            kind: "result",
+            id: message.id,
+            ok: true,
+            payload: {
+                summary: {
+                    capability_result: {
+                        ability_id: String(ability.id ?? "xhs.creator.publish.v1"),
+                        layer: String(ability.layer ?? "L3"),
+                        action: String(consumerGateResult.action_type ?? ability.action ?? "write"),
+                        outcome: "partial",
+                        data_ref: {
+                            target_page: "creator_publish_tab",
+                            discovery_action: "media_upload_path"
+                        },
+                        metrics: {
+                            count: 0
+                        }
+                    },
+                    ...gateBundle.payload,
+                    media_upload_discovery: mediaUploadDiscovery,
+                    upload_path_catalog: mediaUploadDiscovery.upload_path_catalog
+                },
+                observability: {
+                    page_state: {
+                        page_kind: "compose",
+                        url: "https://creator.xiaohongshu.com/publish/publish",
+                        title: "Creator Publish",
+                        ready_state: "complete",
+                        observation_status: "complete"
+                    },
+                    key_requests: [],
+                    failure_site: null
+                }
             }
         };
     }

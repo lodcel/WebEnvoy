@@ -18,11 +18,68 @@ const asString = (value: unknown): string | null =>
 const asInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) ? value : null;
 
+const buildLoopbackMediaUploadDiscovery = (): Record<string, unknown> => ({
+  discovery_action: "media_upload_path",
+  target_page: "creator_publish_tab",
+  upload_path_catalog: [
+    {
+      scenario: "image_upload",
+      route_role: "primary",
+      path_kind: "page",
+      entry_type: "file_input",
+      file_injection: "data_transfer",
+      trigger_events: ["change", "input"],
+      progress_signals: ["preview_visible", "uploading", "upload_done"],
+      failure_signals: [
+        "entry_missing",
+        "type_rejected",
+        "size_rejected",
+        "upload_failed",
+        "risk_blocked",
+        "upload_injection_blocked"
+      ],
+      evidence_status: "candidate",
+      evidence_maturity: "observed_once",
+      notes: "loopback dry_run/recon only; no file bytes read and no upload attempted"
+    },
+    {
+      scenario: "image_upload",
+      route_role: "fallback",
+      path_kind: "api",
+      entry_type: "upload_api",
+      file_injection: "api_direct",
+      trigger_events: [],
+      progress_signals: [],
+      failure_signals: ["signature_entry_missing", "request_context_missing", "risk_blocked"],
+      evidence_status: "candidate",
+      evidence_maturity: "observed_once",
+      notes: "fallback candidate only; not promoted to primary and not called during #755"
+    }
+  ],
+  file_selection_boundary: {
+    file_bytes_read: false,
+    native_picker_opened: false,
+    data_transfer_injected: false,
+    real_upload_attempted: false,
+    allowed_modes: ["dry_run", "recon"]
+  },
+  submitted: false,
+  published: false,
+  out_of_scope_actions: [
+    "file_picker_open",
+    "file_bytes_read",
+    "data_transfer_injection",
+    "submit",
+    "publish_confirm"
+  ]
+});
+
 const XHS_GATED_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
   "xhs.editor_text.write",
   "xhs.creator_publish.admit",
+  "xhs.media_upload.discover",
   "xhs.detail",
   "xhs.user_home"
 ]);
@@ -702,6 +759,19 @@ export class InMemoryContentScriptRuntime {
                   target_page: "creator_publish_tab"
                 }
               }
+          : commandName === "xhs.media_upload.discover"
+            ? {
+                defaultAbilityId: "xhs.creator.publish.v1",
+                page_kind: "compose",
+                url: "https://creator.xiaohongshu.com/publish/publish",
+                title: "Creator Publish",
+                request_method: "POST",
+                request_url: "/web_api/sns/v2/note",
+                successDataRef: {
+                  target_page: "creator_publish_tab",
+                  discovery_action: "media_upload_path"
+                }
+              }
           : commandName === "xhs.detail"
             ? {
                 defaultAbilityId: "xhs.note.detail.v1",
@@ -903,6 +973,13 @@ export class InMemoryContentScriptRuntime {
                     account_readiness: asRecord(options.account_readiness),
                     out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
                   }
+                }
+              }
+            : commandName === "xhs.media_upload.discover"
+            ? {
+                summary: {
+                  media_upload_discovery: buildLoopbackMediaUploadDiscovery(),
+                  upload_path_catalog: buildLoopbackMediaUploadDiscovery().upload_path_catalog
                 }
               }
             : undefined

@@ -25,6 +25,7 @@ import {
   resolveRiskStateOutput
 } from "./xhs-search-telemetry.js";
 import type { EditorInputValidationResult } from "./xhs-editor-input.js";
+import { buildXhsMediaUploadDiscoveryResult } from "./xhs-media-upload-discovery.js";
 import {
   buildXhsSearchLayer2InteractionEvidence,
   type Layer2InteractionEvidence
@@ -1156,6 +1157,67 @@ export const executeXhsSearch = async (
       ),
       layer2Interaction
     );
+  }
+
+  if (
+    input.options.issue_scope === "issue_755" &&
+    input.options.discovery_action === "media_upload_path" &&
+    input.options.target_page === "creator_publish_tab" &&
+    (gate.consumer_gate_result.effective_execution_mode === "dry_run" ||
+      gate.consumer_gate_result.effective_execution_mode === "recon")
+  ) {
+    const mediaUploadDiscovery = env.performMediaUploadDiscovery
+      ? await env.performMediaUploadDiscovery()
+      : buildXhsMediaUploadDiscoveryResult();
+    return {
+      ok: true,
+      payload: {
+        summary: {
+          capability_result: {
+            ability_id: input.abilityId,
+            layer: input.abilityLayer,
+            action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+            outcome: "partial",
+            data_ref: {
+              target_page: "creator_publish_tab",
+              discovery_action: "media_upload_path"
+            },
+            metrics: {
+              duration_ms: Math.max(0, env.now() - startedAt)
+            }
+          },
+          scope_context: gate.scope_context,
+          gate_input: {
+            run_id: auditRecord.run_id,
+            session_id: auditRecord.session_id,
+            profile: auditRecord.profile,
+            ...gate.gate_input
+          },
+          gate_outcome: gate.gate_outcome,
+          read_execution_policy: gate.read_execution_policy,
+          issue_action_matrix: gate.issue_action_matrix,
+          write_interaction_tier: gate.write_interaction_tier,
+          write_action_matrix_decisions: gate.write_action_matrix_decisions,
+          consumer_gate_result: gate.consumer_gate_result,
+          request_admission_result: gate.request_admission_result,
+          execution_audit: gate.execution_audit,
+          approval_record: gate.approval_record,
+          risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+          audit_record: auditRecord,
+          ...layer2InteractionSummary(layer2Interaction),
+          media_upload_discovery: mediaUploadDiscovery,
+          upload_path_catalog: mediaUploadDiscovery.upload_path_catalog
+        },
+        observability: createObservability({
+          href: env.getLocationHref(),
+          title: env.getDocumentTitle(),
+          readyState: env.getReadyState(),
+          requestId: `req-${env.randomId()}`,
+          outcome: "completed",
+          includeKeyRequest: false
+        })
+      }
+    };
   }
 
   if (

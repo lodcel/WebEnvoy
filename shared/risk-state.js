@@ -1,5 +1,5 @@
 const RISK_STATES = ["paused", "limited", "allowed"];
-const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753"];
+const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753", "issue_755"];
 const EXECUTION_MODES = [
   "dry_run",
   "recon",
@@ -182,6 +182,48 @@ const ISSUE_ACTION_MATRIX = [
   },
   {
     issue_scope: "issue_753",
+    state: "allowed",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_755",
+    state: "paused",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_755",
+    state: "limited",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_755",
     state: "allowed",
     allowed_actions: ["dry_run", "recon"],
     conditional_actions: [],
@@ -571,7 +613,8 @@ const buildUnifiedRiskStateOutput = (state, options = {}) => ({
   issue_action_matrix: [
     getIssueActionMatrixEntry("issue_208", state),
     getIssueActionMatrixEntry("issue_209", state),
-    getIssueActionMatrixEntry("issue_753", state)
+    getIssueActionMatrixEntry("issue_753", state),
+    getIssueActionMatrixEntry("issue_755", state)
   ],
   recovery_requirements: getRiskRecoveryRequirements(state)
 });

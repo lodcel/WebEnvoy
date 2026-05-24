@@ -20,6 +20,8 @@ const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
 const XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE = "issue_208";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
+const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
+const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
 const parseSearchInput = (payload, abilityId, options, abilityAction) => {
     const issue208EditorInputValidation = abilityAction === "write" &&
         options.issue_scope === "issue_208" &&
@@ -91,6 +93,23 @@ export const validateXhsCommandInputForExtension = (input) => {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
         }
         return { target_page: "creator_publish_tab" };
+    }
+    if (input.command === XHS_MEDIA_UPLOAD_DISCOVER_COMMAND) {
+        if (input.abilityId !== "xhs.creator.publish.v1" ||
+            input.abilityAction !== "write" ||
+            input.options.issue_scope !== XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE ||
+            input.options.action_type !== "write" ||
+            input.options.discovery_action !== "media_upload_path" ||
+            input.options.target_domain !== "creator.xiaohongshu.com" ||
+            input.options.target_page !== "creator_publish_tab" ||
+            (input.options.requested_execution_mode !== "dry_run" &&
+                input.options.requested_execution_mode !== "recon")) {
+            throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
+        }
+        return {
+            target_page: "creator_publish_tab",
+            discovery_action: "media_upload_path"
+        };
     }
     if (input.command === "xhs.detail") {
         const noteId = asNonEmptyString(input.payload.note_id);

@@ -1476,6 +1476,10 @@ const collectXhsMatrixGateReasons = (input) => {
     state.issueScope === "issue_753" &&
     state.actionType === "write" &&
     (state.requestedExecutionMode === "dry_run" || state.requestedExecutionMode === "recon");
+  const issue755MediaUploadDiscovery =
+    state.issueScope === "issue_755" &&
+    state.actionType === "write" &&
+    (state.requestedExecutionMode === "dry_run" || state.requestedExecutionMode === "recon");
 
   if (gateReasons.length === 0) {
     if (state.isBlockedByStateMatrix) {
@@ -1551,7 +1555,12 @@ const collectXhsMatrixGateReasons = (input) => {
         approval_missing_requirements: approvalRequirementGaps,
         execution_enabled: writeGateOnlyEligible
       };
-    } else if (state.actionType && state.actionType !== "read" && !issue753CreatorPublishAdmission) {
+    } else if (
+      state.actionType &&
+      state.actionType !== "read" &&
+      !issue753CreatorPublishAdmission &&
+      !issue755MediaUploadDiscovery
+    ) {
       if (state.isLiveReadMode) {
         pushReason(gateReasons, "ACTION_TYPE_MODE_MISMATCH");
       }
