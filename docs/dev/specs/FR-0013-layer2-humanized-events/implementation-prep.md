@@ -6,6 +6,7 @@
 
 - 找出真实实现入口、共享对象与测试入口
 - 冻结与 `FR-0014` 的共享边界
+- 冻结 `#737` 所需的完整事件族、事件级 persona/rhythm、页面状态输入和验收矩阵
 - 给出最小可行实现切片
 - 给出 ownership 建议，避免后续实现 PR 与 `FR-0014` 或 `FR-0011` 冲突
 
@@ -32,9 +33,12 @@
 
 交付 `FR-0013` 契约中的默认 Layer 2 对象：
 
+- `event_family_catalog`
 - `event_strategy_profile`
 - `event_chain_policy`
+- `event_persona_profile`
 - `rhythm_profile`
+- `page_state_input`
 - `strategy_selection`
 - `execution_trace`
 
@@ -43,6 +47,7 @@
 - 只新增 Layer 2 对象
 - 只消费 `FR-0011.consumer_gate_result`、`write_interaction_tier`、`issue_action_matrix`
 - 不新增并行 gate result 或 session 真相源
+- persona/rhythm 只在事件链内生效，不形成长期画像或跨 session profile
 
 ### 2. 执行层
 
@@ -60,6 +65,8 @@
 - 真实输入优先
 - 混合路径仅限“真实 focus/click + 合成输入链”
 - `synthetic_chain` 只作为已允许动作内的受限回退
+- 每个 action 必须映射到正式 `event_family`，不得在消费侧发明局部 action/family 名称
+- 执行前必须读取当前目标的 `page_state_input`，但不得写入 session/window 状态
 
 ### 3. 平台覆盖层
 
@@ -74,9 +81,13 @@
 
 把最小 `execution_trace` 接到现有返回 payload 与测试断言中，覆盖：
 
+- `event_family`
 - `selected_path`
 - `event_chain`
+- `persona_profile_source`
 - `rhythm_profile_source`
+- `page_state_input_summary`
+- `required_events_applied`
 - `settled_wait_applied`
 - `settled_wait_result`
 - `failure_category`
@@ -128,11 +139,15 @@
 
 ### FR-0013 只能新增、不能替代的对象
 
+- `event_family_catalog`
 - `event_strategy_profile`
 - `event_chain_policy`
+- `event_persona_profile`
 - `rhythm_profile`
+- `page_state_input`
 - `strategy_selection`
 - `execution_trace`
+- `acceptance_matrix`
 
 ### 推荐落点
 
@@ -165,6 +180,8 @@
 
 - 不回改 `FR-0010/0011` 的 gate / approval / audit / risk_state 正式语义
 - 不把 Layer 2 事件节奏写成 warmup / cooldown / recovery_probe / afterglow 的 session 阶段机
+- 不把事件级 persona 参数写成长期画像、平台行为基线或跨 session profile 绑定
+- 不把 `page_state_input` 写成 session/window 真相源或 `runtime.audit.session_rhythm_status`
 - 不恢复 `#208`
 - 不扩到完整写执行恢复
 - 不引入新的 CLI 契约或 `runtime.audit` 查询面
@@ -203,9 +220,9 @@
 推荐后续正式实现 PR 的第一刀只做以下四件事：
 
 1. 新增 Layer 2 默认对象模块
-   - 提供 `event_strategy_profile` / `event_chain_policy` / `rhythm_profile`
+   - 提供 `event_family_catalog` / `event_strategy_profile` / `event_chain_policy` / `event_persona_profile` / `rhythm_profile`
 2. 新增策略选择器
-   - 输入只吃 `action_kind + FR-0011 gate result + optional platform override`
+   - 输入只吃 `event_family + action_kind + FR-0011 gate result + page_state_input + optional platform override`
    - 输出 `strategy_selection`
 3. 新增事件链编排器
    - 先覆盖 `composition_input`、`keyboard_input`、`hover_click`、`scroll`
@@ -231,6 +248,66 @@
 - 不碰 `runtime.audit` 查询模型
 - 不碰 `FR-0014` 的 session/window 真相源
 - 能直接把 `FR-0013` 契约对象落成可测试代码
+
+## `#737` 后续 issue 验收切片
+
+### `#738`：事件链拟人调度
+
+必须消费：
+
+- `event_family_catalog`
+- `event_strategy_profile`
+- `event_chain_policy`
+- `event_persona_profile`
+- `rhythm_profile`
+
+验收重点：
+
+- 键鼠、滚动、焦点、普通输入、composition 输入均映射到正式事件族。
+- selector/orchestrator 不绕过 `FR-0011` gate。
+- 单元测试覆盖事件族、路径选择、required events 与节奏采样。
+
+### `#739`：页面状态感知 settle/recovery
+
+必须消费：
+
+- `page_state_input`
+- `event_chain_policy.completion_signal`
+- `execution_trace.settled_wait_result`
+
+验收重点：
+
+- 页面状态只作为当前目标/当前链路输入。
+- settle/recovery 不抢 `FR-0014` 的 session/window/cooldown 真相源。
+- 测试覆盖 target drift、layout motion、timeout 与 settled。
+
+### `#740`：写路径安全边界与审计
+
+必须消费：
+
+- `strategy_selection.blocked_by`
+- `execution_trace.failure_category`
+- `required_events_applied`
+
+验收重点：
+
+- 写路径仍以 `FR-0011.write_interaction_tier` 为前置。
+- 合成回退不得绕过已阻断动作等级。
+- trace 可说明阻断来源、回退原因与事件链结果。
+
+### `#741`：行为证据基线与回归门禁
+
+必须消费：
+
+- `acceptance_matrix`
+- `execution_trace`
+- selector/orchestrator 合同测试结果
+
+验收重点：
+
+- 每个事件族至少有一条可回归断言。
+- 回归证据能对应矩阵中的 required path、required events、page state 与 trace 字段。
+- 不要求 real-browser live 证据，除非 readiness/admission 已独立满足。
 
 ## 建议先补的测试
 
