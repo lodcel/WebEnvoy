@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildLayer2EventChainPlan,
   buildLayer2InteractionEvidence,
   buildXhsSearchLayer2InteractionEvidence,
-  getLayer2EventChainPolicies
+  getLayer2EventChainPolicies,
+  resolveLayer2RhythmTiming
 } from "../extension/layer2-humanized-events.js";
 
 describe("FR-0013 layer2 humanized events", () => {
@@ -104,6 +106,62 @@ describe("FR-0013 layer2 humanized events", () => {
         })
       ])
     );
+  });
+
+  it("builds an executable keyboard event-chain plan from selected strategy", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      settledWaitResult: "settled"
+    });
+    const plan = buildLayer2EventChainPlan(evidence);
+
+    expect(plan).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "real_input",
+      event_chain: "keyboard_input",
+      blocked_by: null,
+      requires_settled_wait: true,
+      settled_wait_result: "settled",
+      completion_signal: ["dom_settled", "framework_value_updated"],
+      required_steps: ["focus", "keydown", "input", "keyup", "change", "blur"]
+    });
+  });
+
+  it("keeps blocked event-chain plans non-executable", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "composition_input",
+      writeInteractionTierName: "irreversible_write",
+      executionApplied: true
+    });
+    const plan = buildLayer2EventChainPlan(evidence);
+
+    expect(plan).toMatchObject({
+      action_kind: "composition_input",
+      selected_path: "blocked",
+      event_chain: "composition_input",
+      blocked_by: "FR-0011.write_interaction_tier",
+      requires_settled_wait: false,
+      settled_wait_result: "skipped",
+      required_steps: [],
+      optional_steps: []
+    });
+  });
+
+  it("resolves deterministic rhythm timing ranges without session state", () => {
+    const evidence = buildLayer2InteractionEvidence({ actionKind: "scroll" });
+    const timing = resolveLayer2RhythmTiming(evidence);
+
+    expect(timing).toMatchObject({
+      action_kind: "scroll",
+      rhythm_profile: "default_layer2",
+      hover_confirm_ms: null,
+      typing_delay_ms: null,
+      scroll_segment_px: {
+        min: 120,
+        max: 480
+      },
+      lookback_probability: 0.12
+    });
   });
 
   it("does not emit layer2 evidence for generic xhs recon without recovery probe marker", () => {

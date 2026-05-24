@@ -139,6 +139,60 @@ export const getLayer2EventChainPolicies = () => [
     ...Object.values(EVENT_CHAINS).map((chain) => clone(chain)),
     clone(CHANGE_BLUR_FINALIZE_CHAIN)
 ];
+export const buildLayer2EventChainPlan = (evidence) => {
+    const selectedPath = evidence.strategy_selection.selected_path;
+    const blocked = selectedPath === "blocked";
+    return {
+        action_kind: evidence.strategy_selection.action_kind,
+        selected_path: selectedPath,
+        event_chain: evidence.strategy_selection.event_chain,
+        required_steps: blocked ? [] : [...evidence.event_chain_policy.required_events],
+        optional_steps: blocked ? [] : [...evidence.event_chain_policy.optional_events],
+        completion_signal: blocked ? [] : [...evidence.event_chain_policy.completion_signal],
+        requires_settled_wait: blocked ? false : evidence.event_chain_policy.requires_settled_wait,
+        settled_wait_result: blocked ? "skipped" : evidence.execution_trace.settled_wait_result,
+        blocked_by: evidence.strategy_selection.blocked_by
+    };
+};
+export const resolveLayer2RhythmTiming = (evidence) => {
+    const actionKind = evidence.strategy_selection.action_kind;
+    const rhythm = evidence.rhythm_profile;
+    const requiresHover = evidence.event_strategy_profile.requires_hover_confirm;
+    const requiresClickJitter = actionKind === "click";
+    const requiresTyping = actionKind === "keyboard_input" || actionKind === "composition_input";
+    const requiresScroll = actionKind === "scroll";
+    return {
+        action_kind: actionKind,
+        rhythm_profile: rhythm.profile_name,
+        hover_confirm_ms: requiresHover
+            ? {
+                min: rhythm.hover_confirm_min_ms,
+                max: rhythm.hover_confirm_max_ms
+            }
+            : null,
+        click_jitter_px: requiresClickJitter
+            ? {
+                min: rhythm.click_jitter_min_px,
+                max: rhythm.click_jitter_max_px
+            }
+            : null,
+        typing_delay_ms: requiresTyping
+            ? {
+                min: rhythm.typing_delay_min_ms,
+                max: rhythm.typing_delay_max_ms
+            }
+            : null,
+        scroll_segment_px: requiresScroll
+            ? {
+                min: rhythm.scroll_segment_min_px,
+                max: rhythm.scroll_segment_max_px
+            }
+            : null,
+        punctuation_pause_multiplier: requiresTyping ? rhythm.punctuation_pause_multiplier : null,
+        long_pause_probability: requiresTyping ? rhythm.long_pause_probability : null,
+        lookback_probability: requiresScroll ? rhythm.lookback_probability : null
+    };
+};
 export const buildLayer2InteractionEvidence = (input) => {
     const strategy = clone(STRATEGY_PROFILES[input.actionKind]);
     const chain = clone(EVENT_CHAINS[input.actionKind]);
