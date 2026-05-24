@@ -408,6 +408,82 @@ describe("native messaging loopback content runtime", () => {
     });
   });
 
+  it("does not emit text write proof for xhs.editor_text.write without the explicit marker", async () => {
+    const [left, right] = createPortPair<ContentMessage>();
+
+    new InMemoryContentScriptRuntime(right);
+
+    const resultPromise = new Promise<Record<string, unknown>>((resolve) => {
+      const off = left.onMessage((message) => {
+        if (message.kind === "result") {
+          off();
+          resolve(message as Record<string, unknown>);
+        }
+      });
+    });
+
+    left.postMessage({
+      kind: "forward",
+      id: "xhs-editor-text-write-content-missing-marker",
+      command: "xhs.editor_text.write",
+      runId: "run-editor-text-write-content-missing-marker",
+      sessionId: "session-editor-text-write-content-missing-marker",
+      profile: "loopback_profile",
+      commandParams: {
+        ability: {
+          id: "xhs.editor.input.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {
+          text: "WebEnvoy #754 dry run"
+        },
+        options: {
+          issue_scope: "issue_208",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "dry_run",
+          validation_action: "editor_input",
+          validation_text: "WebEnvoy #754 dry run",
+          risk_state: "allowed",
+          approval_record: {
+            approved: true,
+            approver: "qa-reviewer",
+            approved_at: "2026-05-24T10:00:00Z",
+            checks: {
+              target_domain_confirmed: true,
+              target_tab_confirmed: true,
+              target_page_confirmed: true,
+              risk_state_checked: true,
+              action_type_confirmed: true
+            }
+          }
+        }
+      }
+    });
+
+    const result = await resultPromise;
+    const payload = result.payload as Record<string, unknown>;
+    const details = payload.details as Record<string, unknown>;
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "ERR_EXECUTION_FAILED"
+      },
+      payload: {
+        details: {
+          ability_id: "xhs.editor.input.v1",
+          reason: "EXECUTION_MODE_GATE_BLOCKED"
+        }
+      }
+    });
+    expect(payload).not.toHaveProperty("text_write_result");
+    expect(details).not.toHaveProperty("write_action");
+    expect(details).not.toHaveProperty("input_text");
+  });
+
   it("emits classifier-only account abnormal evidence on the content-script xhs read path", async () => {
     const [left, right] = createPortPair<ContentMessage>();
 

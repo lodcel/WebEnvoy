@@ -483,7 +483,7 @@ class InMemoryContentScriptRuntime {
         ? options.validation_text.trim()
         : "WebEnvoy editor_input validation";
     const textWriteResult =
-      message.command === XHS_EDITOR_TEXT_WRITE_COMMAND || options.editor_text_write === true
+      options.editor_text_write === true
         ? {
             ...interactionResult,
             write_action: "editor_text_write",

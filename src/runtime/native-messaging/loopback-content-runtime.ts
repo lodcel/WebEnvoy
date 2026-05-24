@@ -784,7 +784,7 @@ export class InMemoryContentScriptRuntime {
           : ["EXECUTION_MODE_GATE_BLOCKED"];
         const blockedTextWriteResult =
           isEditorInputValidation &&
-          (commandName === "xhs.editor_text.write" || options.editor_text_write === true)
+          options.editor_text_write === true
             ? {
                 validation_action: "editor_input",
                 write_action: "editor_text_write",
@@ -926,7 +926,7 @@ export class InMemoryContentScriptRuntime {
           out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
         };
         const textWriteResult =
-          commandName === "xhs.editor_text.write" || options.editor_text_write === true
+          options.editor_text_write === true
             ? {
                 ...interactionResult,
                 write_action: "editor_text_write",

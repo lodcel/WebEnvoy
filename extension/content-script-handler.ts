@@ -2516,6 +2516,13 @@ export class ContentScriptHandler {
     }
 
     try {
+      if (message.command === "xhs.editor_text.write" && options.editor_text_write !== true) {
+        throw new ExtensionContractError("ERR_CLI_INVALID_ARGS", "能力输入不合法", {
+          ability_id: String(ability.id ?? "unknown"),
+          stage: "input_validation",
+          reason: "EDITOR_TEXT_WRITE_MARKER_REQUIRED"
+        });
+      }
       const normalizedInput = validateXhsCommandInputForExtension({
         command: message.command,
         abilityId: String(ability.id ?? "unknown"),
@@ -2713,10 +2720,6 @@ export class ContentScriptHandler {
               },
               options: {
                 ...commonInput.options,
-                ...(message.command === "xhs.editor_text.write" &&
-                typeof (normalizedInput as { text?: unknown }).text === "string"
-                  ? { validation_text: (normalizedInput as { text: string }).text }
-                  : {}),
                 __request_context_provenance_confirmed: requestContextProvenanceConfirmed
               }
             },

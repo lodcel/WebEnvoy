@@ -686,7 +686,7 @@ export class InMemoryContentScriptRuntime {
                     ? consumerGateResult.gate_reasons.map((reason) => String(reason))
                     : ["EXECUTION_MODE_GATE_BLOCKED"];
                 const blockedTextWriteResult = isEditorInputValidation &&
-                    (commandName === "xhs.editor_text.write" || options.editor_text_write === true)
+                    options.editor_text_write === true
                     ? {
                         validation_action: "editor_input",
                         write_action: "editor_text_write",
@@ -815,7 +815,7 @@ export class InMemoryContentScriptRuntime {
                     minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
                     out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
                 };
-                const textWriteResult = commandName === "xhs.editor_text.write" || options.editor_text_write === true
+                const textWriteResult = options.editor_text_write === true
                     ? {
                         ...interactionResult,
                         write_action: "editor_text_write",

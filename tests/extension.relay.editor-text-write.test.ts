@@ -7,7 +7,7 @@ import {
   waitForResponse
 } from "./extension.relay.shared.js";
 
-const createRelay = () => {
+const createRelay = (hooks?: { onEditorInputValidation?: () => void }) => {
   const contentScript = new ContentScriptHandler({
     xhsEnv: {
       now: () => 1_000,
@@ -22,27 +22,30 @@ const createRelay = () => {
       fetchJson: async () => {
         throw new Error("editor text write should not hit live fetch");
       },
-      performEditorInputValidation: async (input) => ({
-        ok: true,
-        mode: "controlled_editor_input_validation",
-        attestation: "controlled_real_interaction",
-        editor_locator: "div.tiptap.ProseMirror",
-        input_text: input.text,
-        before_text: "",
-        visible_text: input.text,
-        post_blur_text: input.text,
-        focus_confirmed: true,
-        focus_attestation_source: "chrome_debugger",
-        focus_attestation_reason: null,
-        preserved_after_blur: true,
-        success_signals: [
-          "editor_focus_attested",
-          "text_visible",
-          "text_persisted_after_blur"
-        ],
-        failure_signals: [],
-        minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"]
-      })
+      performEditorInputValidation: async (input) => {
+        hooks?.onEditorInputValidation?.();
+        return {
+          ok: true,
+          mode: "controlled_editor_input_validation",
+          attestation: "controlled_real_interaction",
+          editor_locator: "div.tiptap.ProseMirror",
+          input_text: input.text,
+          before_text: "",
+          visible_text: input.text,
+          post_blur_text: input.text,
+          focus_confirmed: true,
+          focus_attestation_source: "chrome_debugger",
+          focus_attestation_reason: null,
+          preserved_after_blur: true,
+          success_signals: [
+            "editor_focus_attested",
+            "text_visible",
+            "text_persisted_after_blur"
+          ],
+          failure_signals: [],
+          minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"]
+        };
+      }
     }
   });
   return new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
@@ -76,6 +79,7 @@ describe("extension background relay / editor text write", () => {
             action_type: "write",
             requested_execution_mode: "live_write",
             validation_action: "editor_input",
+            validation_text: "WebEnvoy #754 text",
             editor_text_write: true,
             risk_state: "allowed",
             approval_record: completeIssue208ApprovalRecord,
@@ -117,5 +121,64 @@ describe("extension background relay / editor text write", () => {
         validation_action: "editor_input"
       }
     });
+  });
+
+  it("rejects text write requests that omit the explicit controlled marker", async () => {
+    let validationCalls = 0;
+    const relay = createRelay({
+      onEditorInputValidation: () => {
+        validationCalls += 1;
+      }
+    });
+    const responsePromise = waitForResponse(relay);
+    relay.onNativeRequest({
+      id: "forward-xhs-issue-754-text-write-missing-marker",
+      method: "bridge.forward",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-issue-754-text-write-missing-marker",
+        command: "xhs.editor_text.write",
+        command_params: {
+          ability: {
+            id: "xhs.editor.input.v1",
+            layer: "L3",
+            action: "write"
+          },
+          input: {
+            text: "WebEnvoy #754 text"
+          },
+          options: {
+            issue_scope: "issue_208",
+            target_domain: "creator.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "creator_publish_tab",
+            action_type: "write",
+            requested_execution_mode: "live_write",
+            validation_action: "editor_input",
+            validation_text: "WebEnvoy #754 text",
+            risk_state: "allowed",
+            approval_record: completeIssue208ApprovalRecord
+          }
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      profile: "profile-a",
+      timeout_ms: 200
+    });
+
+    const response = await responsePromise;
+    expect(response.status).toBe("error");
+    expect(response.error).toMatchObject({
+      code: "ERR_CLI_INVALID_ARGS"
+    });
+    expect(response.payload).toMatchObject({
+      details: {
+        reason: "EDITOR_TEXT_WRITE_MARKER_REQUIRED"
+      }
+    });
+    const payload = asRecord(response.payload) ?? {};
+    const summary = asRecord(payload.summary) ?? {};
+    expect(summary).not.toHaveProperty("text_write_result");
+    expect(validationCalls).toBe(0);
   });
 });
