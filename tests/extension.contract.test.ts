@@ -1082,7 +1082,23 @@ describe("extension build contract", () => {
         }
       }
     });
-    expect(searchResult.payload.summary).not.toHaveProperty("layer2_interaction");
+    expect(searchResult.payload.summary).toMatchObject({
+      layer2_interaction: {
+        strategy_selection: {
+          action_kind: "keyboard_input",
+          selected_path: "real_input",
+          event_chain: "keyboard_input",
+          blocked_by: null
+        },
+        execution_trace: {
+          action_kind: "keyboard_input",
+          selected_path: "real_input",
+          settled_wait_applied: true,
+          settled_wait_result: "settled",
+          failure_category: null
+        }
+      }
+    });
     expect(bridgeRequests).toHaveLength(3);
     expect(bridgeRequests[0]).toMatchObject({
       type: "captured-request-context-provenance-set",

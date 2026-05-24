@@ -821,7 +821,7 @@ export const executeXhsSearch = async (input, env) => {
     const executionStartedAt = env.now();
     const gate = resolveGate(input.options, input.executionContext, env.getLocationHref());
     const auditRecord = createAuditRecord(input.executionContext, gate, env);
-    const layer2Interaction = buildXhsSearchLayer2InteractionEvidence({
+    let layer2Interaction = buildXhsSearchLayer2InteractionEvidence({
         writeInteractionTierName: gate.write_action_matrix_decisions?.write_interaction_tier ?? null,
         requestedExecutionMode: input.options.requested_execution_mode,
         recoveryProbe: input.options.xhs_recovery_probe === true
@@ -1247,6 +1247,21 @@ export const executeXhsSearch = async (input, env) => {
     let passiveActionEvidence = null;
     let requestContextState;
     const closeoutRequestContextHits = [];
+    const updateLayer2InteractionFromPassiveAction = () => {
+        const actionKind = asString(passiveActionEvidence?.action_kind);
+        const passiveActionError = asString(passiveActionEvidence?.error);
+        const nextLayer2Interaction = buildXhsSearchLayer2InteractionEvidence({
+            writeInteractionTierName: gate.write_action_matrix_decisions?.write_interaction_tier ?? null,
+            requestedExecutionMode: input.options.requested_execution_mode,
+            recoveryProbe: false,
+            humanizedActionKind: actionKind,
+            settledWaitResult: passiveActionError ? "timeout" : "settled",
+            executionApplied: passiveActionEvidence !== null
+        });
+        if (nextLayer2Interaction) {
+            layer2Interaction = nextLayer2Interaction;
+        }
+    };
     const rememberCloseoutRequestContextHit = (state) => {
         if (state.status !== "hit") {
             return;
@@ -1268,6 +1283,7 @@ export const executeXhsSearch = async (input, env) => {
     const runCloseoutPassiveRound = async () => {
         passiveActionStartedAt = env.now();
         passiveActionEvidence = await performSearchPassiveAction(input, env);
+        updateLayer2InteractionFromPassiveAction();
         if (!(await confirmCurrentRequestContextProvenance())) {
             return {
                 status: "miss",
@@ -1338,6 +1354,7 @@ export const executeXhsSearch = async (input, env) => {
     else {
         passiveActionStartedAt = env.now();
         passiveActionEvidence = await performSearchPassiveAction(input, env);
+        updateLayer2InteractionFromPassiveAction();
         if (!(await confirmCurrentRequestContextProvenance())) {
             return createProvenanceUnconfirmedFailure();
         }

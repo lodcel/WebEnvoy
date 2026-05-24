@@ -132,4 +132,77 @@ describe("FR-0013 layer2 humanized events", () => {
 
     expect(evidence).toBeNull();
   });
+
+  it("builds xhs search layer2 evidence from observed passive keyboard action", () => {
+    const evidence = buildXhsSearchLayer2InteractionEvidence({
+      requestedExecutionMode: "live_read_limited",
+      recoveryProbe: false,
+      humanizedActionKind: "keyboard_input",
+      settledWaitResult: "settled",
+      executionApplied: true
+    });
+
+    expect(evidence?.strategy_selection).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "real_input",
+      event_chain: "keyboard_input",
+      blocked_by: null
+    });
+    expect(evidence?.execution_trace).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "real_input",
+      settled_wait_applied: true,
+      settled_wait_result: "settled",
+      failure_category: null
+    });
+  });
+
+  it("does not mark xhs search passive action evidence as applied by default", () => {
+    const evidence = buildXhsSearchLayer2InteractionEvidence({
+      requestedExecutionMode: "live_read_limited",
+      recoveryProbe: false,
+      humanizedActionKind: "keyboard_input"
+    });
+
+    expect(evidence?.strategy_selection).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "blocked",
+      blocked_by: "FR-0013.gate_only_probe_no_event_chain"
+    });
+    expect(evidence?.execution_trace).toMatchObject({
+      selected_path: "blocked",
+      settled_wait_applied: false,
+      settled_wait_result: "skipped"
+    });
+  });
+
+  it("maps observed hover click actions to click strategy without changing gate truth", () => {
+    const evidence = buildXhsSearchLayer2InteractionEvidence({
+      requestedExecutionMode: "live_read_limited",
+      recoveryProbe: false,
+      humanizedActionKind: "hover_click",
+      settledWaitResult: "settled",
+      executionApplied: true
+    });
+
+    expect(evidence?.event_strategy_profile).toMatchObject({
+      action_kind: "click",
+      requires_hover_confirm: true
+    });
+    expect(evidence?.strategy_selection).toMatchObject({
+      selected_path: "real_input",
+      event_chain: "hover_click"
+    });
+  });
+
+  it("does not emit xhs search layer2 evidence for unknown passive action kinds", () => {
+    const evidence = buildXhsSearchLayer2InteractionEvidence({
+      requestedExecutionMode: "live_read_limited",
+      recoveryProbe: false,
+      humanizedActionKind: "existing_passive_exact_hit",
+      executionApplied: true
+    });
+
+    expect(evidence).toBeNull();
+  });
 });
