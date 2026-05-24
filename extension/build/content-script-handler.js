@@ -15,7 +15,12 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     ? value
     : null;
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
-const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const XHS_READ_COMMANDS = new Set([
+    "xhs.search",
+    "xhs.editor_input.validate",
+    "xhs.detail",
+    "xhs.user_home"
+]);
 const DOWNLOAD_COMMANDS = new Set(["download.trigger"]);
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const CONTENT_SCRIPT_DIAGNOSTIC_BUILD_MARKER = "issue650-closeout-deadline-v1";
@@ -2203,7 +2208,7 @@ export class ContentScriptHandler {
                 }
                 return capturedRequestContextProvenanceConfirmed(result, expected);
             };
-            if (message.command === "xhs.search") {
+            if (message.command === "xhs.search" || message.command === "xhs.editor_input.validate") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({

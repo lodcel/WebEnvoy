@@ -22,7 +22,9 @@ import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
 import { readXhsCloseoutValidationGateView, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
-import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseDetailInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
+import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseDetailInputForContract, parseEditorInputValidateInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
+const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
 export { normalizeGateOptionsForContract } from "./xhs-input.js";
 const asObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
@@ -385,6 +387,52 @@ const LIVE_XHS_EXECUTION_MODES = new Set([
 ]);
 const isLiveXhsExecutionMode = (mode) => LIVE_XHS_EXECUTION_MODES.has(mode);
 const isLiveXhsReadExecutionMode = (mode) => mode === "live_read_limited" || mode === "live_read_high_risk";
+const isLegacyXhsSearchEditorInputValidation = (input) => input.command === "xhs.search" &&
+    input.ability.action === "write" &&
+    asString(input.options.issue_scope) === "issue_208" &&
+    asString(input.options.validation_action) === "editor_input";
+const buildXhsCommandAliasDiagnostics = (input) => {
+    if (!isLegacyXhsSearchEditorInputValidation(input)) {
+        return null;
+    }
+    return {
+        status: "deprecated_alias",
+        source_command: "xhs.search",
+        source_ability_id: input.ability.id,
+        canonical_command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+        canonical_ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+        validation_action: "editor_input",
+        issue_scope: "issue_208",
+        replacement: {
+            command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+            ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID
+        },
+        migration_hint: "Use xhs.editor_input.validate with ability.id=xhs.editor.input.v1; keep target and admission options unchanged."
+    };
+};
+const mergeCommandAliasDiagnosticsIntoPayload = (payload, diagnostics) => {
+    if (!diagnostics) {
+        return;
+    }
+    const details = asObject(payload.details);
+    payload.command_alias_diagnostics = diagnostics;
+    payload.details = {
+        ...(details ?? {}),
+        command_alias_diagnostics: diagnostics
+    };
+};
+const attachCommandAliasDiagnosticsToResult = (result, diagnostics) => {
+    if (!diagnostics) {
+        return result;
+    }
+    return {
+        ...result,
+        summary: {
+            ...result.summary,
+            command_alias_diagnostics: diagnostics
+        }
+    };
+};
 const XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS = new Set([
     "xhs.note.search.v1",
     "xhs.search.notes.v1",
@@ -1422,6 +1470,7 @@ const pickGateErrorDetails = (payload, details) => {
         "xhs_closeout_rhythm",
         "anti_detection_validation_view",
         "runtime_stop",
+        "command_alias_diagnostics",
         "status_code",
         "platform_code"
     ];
@@ -2095,6 +2144,12 @@ const xhsSearch = async (context) => {
         parseInput: (envelope, gate) => parseSearchInputForContract(envelope.input, envelope.ability.id, gate.options, envelope.ability.action)
     });
 };
+const xhsEditorInputValidate = async (context) => {
+    return xhsReadCommand(context, {
+        fixtureDataRefKey: "validation_action",
+        parseInput: () => parseEditorInputValidateInputForContract()
+    });
+};
 const xhsDetail = async (context) => {
     return xhsReadCommand(context, {
         fixtureDataRefKey: "note_id",
@@ -2116,6 +2171,11 @@ const xhsReadCommand = async (context, inputConfig) => {
         upstreamAuthorization: envelope.upstreamAuthorization
     });
     const parsedInput = inputConfig.parseInput(envelope, gate);
+    const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
+        command: context.command,
+        ability: envelope.ability,
+        options: gate.options
+    });
     if (process.env.NODE_ENV === "test" &&
         process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS === "1" &&
         gate.options.fixture_success === true) {
@@ -2234,14 +2294,14 @@ const xhsReadCommand = async (context, inputConfig) => {
         if (shouldReturnInProcessGateOnlyResult({
             requestedExecutionMode: gate.requestedExecutionMode
         })) {
-            return buildInProcessGateOnlyResult({
+            return attachCommandAliasDiagnosticsToResult(buildInProcessGateOnlyResult({
                 context,
                 envelope,
                 gate,
                 parsedInput,
                 preparedIssue209LiveRead,
                 dataRefKey: inputConfig.fixtureDataRefKey
-            });
+            }), commandAliasDiagnostics);
         }
         const bridge = resolveRuntimeBridge();
         const fingerprintContext = buildFingerprintContextForMeta(context.profile ?? "unknown", profileMeta, {
@@ -2358,6 +2418,7 @@ const xhsReadCommand = async (context, inputConfig) => {
                 requestedExecutionMode: gate.requestedExecutionMode,
                 payload: bridgeResult.payload
             });
+            mergeCommandAliasDiagnosticsIntoPayload(bridgeResult.payload, commandAliasDiagnostics);
             throw toCliExecutionError(envelope.ability, bridgeResult.payload, bridgeResult.error.message, context.run_id, {
                 cwd: context.cwd,
                 profileRef: context.profile,
@@ -2477,10 +2538,10 @@ const xhsReadCommand = async (context, inputConfig) => {
                 }
             }
         }
-        return {
+        return attachCommandAliasDiagnosticsToResult({
             summary,
             observability: asObservabilityInput(bridgeResult.payload.observability)
-        };
+        }, commandAliasDiagnostics);
     }
     catch (error) {
         if (error instanceof NativeMessagingTransportError) {
@@ -2495,6 +2556,12 @@ export const xhsCommands = () => [
         status: "implemented",
         requiresProfile: true,
         handler: xhsSearch
+    },
+    {
+        name: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+        status: "implemented",
+        requiresProfile: true,
+        handler: xhsEditorInputValidate
     },
     {
         name: "xhs.detail",

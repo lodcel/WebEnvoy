@@ -8933,6 +8933,94 @@ describe("normalizeGateOptionsForContract", () => {
           execution_audit: null,
           audit_record: expect.objectContaining({
             requested_execution_mode: "live_write"
+          }),
+          command_alias_diagnostics: expect.objectContaining({
+            status: "deprecated_alias",
+            source_command: "xhs.search",
+            canonical_command: "xhs.editor_input.validate",
+            canonical_ability_id: "xhs.editor.input.v1",
+            validation_action: "editor_input"
+          })
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("routes xhs.editor_input.validate through the issue_208 editor_input gate without requiring query", async () => {
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd: "/tmp/webenvoy",
+        profile: "profile-loopback-editor-input-alias-001",
+        effectiveExecutionMode: "live_write"
+      });
+      await expect(
+        executeCommand(
+          {
+            cwd: "/tmp/webenvoy",
+            command: "xhs.editor_input.validate",
+            profile: "profile-loopback-editor-input-alias-001",
+            run_id: "run-loopback-editor-input-alias-001",
+            params: {
+              ability: {
+                id: "xhs.editor.input.v1",
+                layer: "L3",
+                action: "write"
+              },
+              input: {},
+              options: {
+                target_domain: "creator.xiaohongshu.com",
+                target_tab_id: 32,
+                target_page: "creator_publish_tab",
+                requested_execution_mode: "live_write",
+                risk_state: "allowed",
+                approval_record: {
+                  approved: true,
+                  approver: "qa-reviewer",
+                  approved_at: "2026-03-23T10:00:00Z",
+                  checks: {
+                    target_domain_confirmed: true,
+                    target_tab_confirmed: true,
+                    target_page_confirmed: true,
+                    risk_state_checked: true,
+                    action_type_confirmed: true
+                  }
+                }
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          gate_reasons: expect.arrayContaining(["EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND"]),
+          validation_action: "editor_input",
+          issue_action_matrix: expect.objectContaining({
+            issue_scope: "issue_208"
+          }),
+          consumer_gate_result: expect.objectContaining({
+            gate_decision: "blocked",
+            action_type: "write",
+            requested_execution_mode: "live_write"
           })
         })
       });

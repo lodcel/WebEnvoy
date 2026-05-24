@@ -119,7 +119,12 @@ const XHS_LIVE_EXECUTION_MODES = new Set([
     "live_read_high_risk",
     "live_write"
 ]);
-const XHS_GATE_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const XHS_GATE_COMMANDS = new Set([
+    "xhs.search",
+    "xhs.editor_input.validate",
+    "xhs.detail",
+    "xhs.user_home"
+]);
 const XHS_REQUIRED_APPROVAL_CHECKS = APPROVAL_CHECK_KEYS;
 const XHS_WRITE_APPROVAL_REQUIREMENTS = [
     "approval_record_approved_true",

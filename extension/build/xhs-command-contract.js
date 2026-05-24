@@ -14,6 +14,7 @@ const invalidAbilityInput = (reason, abilityId = "unknown") => new ExtensionCont
     reason
 });
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const parseSearchInput = (payload, abilityId, options, abilityAction) => {
     const issue208EditorInputValidation = abilityAction === "write" &&
         options.issue_scope === "issue_208" &&
@@ -51,6 +52,9 @@ const parseSearchInput = (payload, abilityId, options, abilityAction) => {
 export const validateXhsCommandInputForExtension = (input) => {
     if (input.command === "xhs.search") {
         return parseSearchInput(input.payload, input.abilityId, input.options, input.abilityAction);
+    }
+    if (input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+        return { validation_action: "editor_input" };
     }
     if (input.command === "xhs.detail") {
         const noteId = asNonEmptyString(input.payload.note_id);

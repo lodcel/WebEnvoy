@@ -9,7 +9,12 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
-const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const XHS_READ_COMMANDS = new Set([
+    "xhs.search",
+    "xhs.editor_input.validate",
+    "xhs.detail",
+    "xhs.user_home"
+]);
 const L2_ALLOWED_ACTIONS = new Set([
     "navigate",
     "locate",
@@ -637,6 +642,10 @@ export class InMemoryContentScriptRuntime {
                 }
             });
             if (consumerGateResult.gate_decision === "blocked") {
+                const isEditorInputValidation = options.validation_action === "editor_input";
+                const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
+                    ? consumerGateResult.gate_reasons.map((reason) => String(reason))
+                    : ["EXECUTION_MODE_GATE_BLOCKED"];
                 return {
                     kind: "result",
                     id: message.id,
@@ -649,7 +658,18 @@ export class InMemoryContentScriptRuntime {
                         details: {
                             ability_id: String(ability.id ?? commandSpec.defaultAbilityId),
                             stage: "execution",
-                            reason: "EXECUTION_MODE_GATE_BLOCKED"
+                            reason: "EXECUTION_MODE_GATE_BLOCKED",
+                            ...(isEditorInputValidation
+                                ? {
+                                    validation_action: "editor_input",
+                                    target_page: "creator_publish_tab",
+                                    focus_confirmed: false,
+                                    preserved_after_blur: false,
+                                    failure_signals: editorInputFailureSignals,
+                                    minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                                    out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+                                }
+                                : {})
                         },
                         ...gateBundle
                     }

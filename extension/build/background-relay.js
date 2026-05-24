@@ -1,5 +1,10 @@
 const defaultForwardTimeoutMs = 3_000;
-const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const XHS_READ_COMMANDS = new Set([
+    "xhs.search",
+    "xhs.editor_input.validate",
+    "xhs.detail",
+    "xhs.user_home"
+]);
 const xhsForwardResponseSafetyMs = 5_000;
 const reserveXhsForwardResponseSafetyMs = (timeoutMs) => timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)

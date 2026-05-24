@@ -43,9 +43,15 @@ const asString = (value: unknown): string | null =>
 const asInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) ? value : null;
 
-const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const XHS_READ_COMMANDS = new Set([
+  "xhs.search",
+  "xhs.editor_input.validate",
+  "xhs.detail",
+  "xhs.user_home"
+]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS: Record<string, string> = {
   "xhs.search": "xhs.note.search.v1",
+  "xhs.editor_input.validate": "xhs.editor.input.v1",
   "xhs.detail": "xhs.note.detail.v1",
   "xhs.user_home": "xhs.user.home.v1"
 };
@@ -77,6 +83,19 @@ const XHS_READ_COMMAND_SPECS: Record<
       search_id: "loopback-search-id"
     }),
     failureSummary: "网关调用失败，当前上下文不足以完成搜索请求"
+  },
+  "xhs.editor_input.validate": {
+    abilityId: "xhs.editor.input.v1",
+    pageKind: "search",
+    pageUrl: "https://creator.xiaohongshu.com/publish/publish",
+    pageTitle: "Creator Publish",
+    requestMethod: "POST",
+    requestUrl: "/web_api/sns/v2/note",
+    dataRefKey: "query",
+    successDataRef: () => ({
+      validation_action: "editor_input"
+    }),
+    failureSummary: "网关调用失败，当前上下文不足以完成 editor_input 验证"
   },
   "xhs.detail": {
     abilityId: "xhs.note.detail.v1",

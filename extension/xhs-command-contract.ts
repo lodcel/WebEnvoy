@@ -44,6 +44,8 @@ const invalidAbilityInput = (
 const asNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
+const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+
 const parseSearchInput = (
   payload: JsonRecord,
   abilityId: string,
@@ -98,6 +100,9 @@ export const validateXhsCommandInputForExtension = (input: {
 }): ExtensionXhsCommandInput => {
   if (input.command === "xhs.search") {
     return parseSearchInput(input.payload, input.abilityId, input.options, input.abilityAction);
+  }
+  if (input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+    return { validation_action: "editor_input" };
   }
   if (input.command === "xhs.detail") {
     const noteId = asNonEmptyString(input.payload.note_id);
