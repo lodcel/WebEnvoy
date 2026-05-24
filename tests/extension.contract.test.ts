@@ -39,12 +39,14 @@ const expectedContentScriptMatches = [
 type BundledXhsModuleVar =
   | "__webenvoy_module_xhs_search"
   | "__webenvoy_module_xhs_detail"
-  | "__webenvoy_module_xhs_user_home";
+  | "__webenvoy_module_xhs_user_home"
+  | "__webenvoy_module_layer2_humanized_events";
 
 type BundledXhsExportName =
   | "executeXhsSearch"
   | "executeXhsDetail"
-  | "executeXhsUserHome";
+  | "executeXhsUserHome"
+  | "buildLayer2RhythmPlan";
 
 type BundledContentScriptHandlerModule = {
   ContentScriptHandler: new (options?: { xhsEnv?: Record<string, unknown> }) => {
@@ -674,6 +676,17 @@ describe("extension build contract", () => {
       runInNewContext(contentScriptBuild, context, { filename: `${contentScriptBuildPath}#b` });
     }).not.toThrow();
     expect(context.__webenvoy_content_script_bundle_modules).toBeDefined();
+  });
+
+  it("exposes bundled layer2 rhythm plan builder for downstream content-script consumers", () => {
+    const bundleExports = loadBundleExports(
+      contentScriptBuildPath,
+      "__webenvoy_module_layer2_humanized_events"
+    );
+    const buildLayer2RhythmPlan =
+      bundleExports.__webenvoy_module_layer2_humanized_events?.buildLayer2RhythmPlan;
+
+    expect(buildLayer2RhythmPlan).toEqual(expect.any(Function));
   });
 
   it("executes bundled xhs.search classic module without unresolved implementation references", async () => {
