@@ -61,6 +61,7 @@ import {
   parseAbilityEnvelopeForContract,
   parseCreatorPublishAdmissionInputForContract,
   parseDetailInputForContract,
+  parseEditorTextWriteInputForContract,
   parseEditorInputValidateInputForContract,
   parseSearchInputForContract,
   parseUserHomeInputForContract,
@@ -73,6 +74,7 @@ type AbilityActionName = AbilityAction;
 type XhsDataRefKey = "query" | "note_id" | "user_id" | "validation_action" | "target_page";
 
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 
@@ -2896,6 +2898,14 @@ const xhsEditorInputValidate = async (context: RuntimeContext): Promise<CommandE
   });
 };
 
+const xhsEditorTextWrite = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
+  return xhsReadCommand(context, {
+    fixtureDataRefKey: "validation_action",
+    parseInput: (envelope) =>
+      parseEditorTextWriteInputForContract(envelope.input, envelope.ability.id)
+  });
+};
+
 const xhsCreatorPublishAdmit = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
   return xhsReadCommand(context, {
     fixtureDataRefKey: "target_page",
@@ -3172,6 +3182,12 @@ const xhsReadCommand = async (
             )
           }
         : {}),
+      ...(context.command === XHS_EDITOR_TEXT_WRITE_COMMAND && typeof parsedInput.text === "string"
+        ? {
+            validation_text: parsedInput.text,
+            editor_text_write: true
+          }
+        : {}),
       ...(context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
         ? {
             profile_readiness: profileReadiness,
@@ -3439,6 +3455,12 @@ export const xhsCommands = (): CommandDefinition[] => [
     status: "implemented",
     requiresProfile: true,
     handler: xhsEditorInputValidate
+  },
+  {
+    name: XHS_EDITOR_TEXT_WRITE_COMMAND,
+    status: "implemented",
+    requiresProfile: true,
+    handler: xhsEditorTextWrite
   },
   {
     name: XHS_CREATOR_PUBLISH_ADMIT_COMMAND,

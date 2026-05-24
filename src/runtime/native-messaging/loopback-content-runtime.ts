@@ -21,6 +21,7 @@ const asInteger = (value: unknown): number | null =>
 const XHS_GATED_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
+  "xhs.editor_text.write",
   "xhs.creator_publish.admit",
   "xhs.detail",
   "xhs.user_home"
@@ -676,6 +677,19 @@ export class InMemoryContentScriptRuntime {
                 validation_action: "editor_input"
               }
             }
+          : commandName === "xhs.editor_text.write"
+            ? {
+                defaultAbilityId: "xhs.editor.input.v1",
+                page_kind: "compose",
+                url: "https://creator.xiaohongshu.com/publish/publish",
+                title: "Creator Publish",
+                request_method: "POST",
+                request_url: "/web_api/sns/v2/note",
+                successDataRef: {
+                  validation_action: "editor_input",
+                  text: String(normalizedInput.text ?? "")
+                }
+              }
           : commandName === "xhs.creator_publish.admit"
             ? {
                 defaultAbilityId: "xhs.creator.publish.v1",
@@ -768,6 +782,24 @@ export class InMemoryContentScriptRuntime {
         const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
           ? consumerGateResult.gate_reasons.map((reason) => String(reason))
           : ["EXECUTION_MODE_GATE_BLOCKED"];
+        const blockedTextWriteResult =
+          isEditorInputValidation &&
+          (commandName === "xhs.editor_text.write" || options.editor_text_write === true)
+            ? {
+                validation_action: "editor_input",
+                write_action: "editor_text_write",
+                target_page: "creator.xiaohongshu.com/publish",
+                input_text: String(normalizedInput.text ?? ""),
+                focus_confirmed: false,
+                preserved_after_blur: false,
+                success_signals: [],
+                failure_signals: editorInputFailureSignals,
+                minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                out_of_scope_actions: ["image_upload", "submit", "publish_confirm"],
+                submitted: false,
+                published: false
+              }
+            : null;
         return {
           kind: "result",
           id: message.id,
@@ -785,6 +817,12 @@ export class InMemoryContentScriptRuntime {
                 ? {
                     validation_action: "editor_input",
                     target_page: "creator_publish_tab",
+                    ...(blockedTextWriteResult
+                      ? {
+                          write_action: "editor_text_write",
+                          input_text: blockedTextWriteResult.input_text
+                        }
+                      : {}),
                     focus_confirmed: false,
                     preserved_after_blur: false,
                     failure_signals: editorInputFailureSignals,
@@ -793,7 +831,8 @@ export class InMemoryContentScriptRuntime {
                   }
                 : {})
             },
-            ...gateBundle
+            ...gateBundle,
+            ...(blockedTextWriteResult ? { text_write_result: blockedTextWriteResult } : {})
           }
         };
       }
@@ -834,7 +873,26 @@ export class InMemoryContentScriptRuntime {
               count: 0
             }
           },
-          commandName === "xhs.creator_publish.admit"
+          commandName === "xhs.editor_text.write"
+            ? {
+                summary: {
+                  text_write_result: {
+                    validation_action: "editor_input",
+                    write_action: "editor_text_write",
+                    target_page: "creator.xiaohongshu.com/publish",
+                    input_text: String(normalizedInput.text ?? ""),
+                    focus_confirmed: false,
+                    preserved_after_blur: false,
+                    success_signals: [],
+                    failure_signals: ["dry_run_or_recon_no_dom_write"],
+                    minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                    out_of_scope_actions: ["image_upload", "submit", "publish_confirm"],
+                    submitted: false,
+                    published: false
+                  }
+                }
+              }
+            : commandName === "xhs.creator_publish.admit"
             ? {
                 summary: {
                   target_admission: {
@@ -859,6 +917,26 @@ export class InMemoryContentScriptRuntime {
           typeof options.validation_text === "string" && options.validation_text.trim().length > 0
             ? options.validation_text.trim()
             : "WebEnvoy editor_input validation";
+        const interactionResult = {
+          validation_action: "editor_input",
+          target_page: "creator.xiaohongshu.com/publish",
+          success_signals: [],
+          failure_signals: ["EDITOR_INPUT_VALIDATION_REQUIRED"],
+          minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+          out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+        };
+        const textWriteResult =
+          commandName === "xhs.editor_text.write" || options.editor_text_write === true
+            ? {
+                ...interactionResult,
+                write_action: "editor_text_write",
+                input_text: validationText,
+                focus_confirmed: false,
+                preserved_after_blur: false,
+                submitted: false,
+                published: false
+              }
+            : null;
         return {
           kind: "result",
           id: message.id,
@@ -878,14 +956,8 @@ export class InMemoryContentScriptRuntime {
                 }
               },
               ...gateBundle,
-              interaction_result: {
-                validation_action: "editor_input",
-                target_page: "creator.xiaohongshu.com/publish",
-                success_signals: [],
-                failure_signals: ["EDITOR_INPUT_VALIDATION_REQUIRED"],
-                minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
-                out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
-              }
+              interaction_result: interactionResult,
+              ...(textWriteResult ? { text_write_result: textWriteResult } : {})
             },
             observability: {
               page_state: {

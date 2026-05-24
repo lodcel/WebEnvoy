@@ -323,6 +323,91 @@ describe("native messaging loopback content runtime", () => {
     });
   });
 
+  it("accepts xhs.editor_text.write and returns a structured non-publish text write block", async () => {
+    const [left, right] = createPortPair<ContentMessage>();
+
+    new InMemoryContentScriptRuntime(right);
+
+    const resultPromise = new Promise<Record<string, unknown>>((resolve) => {
+      const off = left.onMessage((message) => {
+        if (message.kind === "result") {
+          off();
+          resolve(message as Record<string, unknown>);
+        }
+      });
+    });
+
+    left.postMessage({
+      kind: "forward",
+      id: "xhs-editor-text-write-content-001",
+      command: "xhs.editor_text.write",
+      runId: "run-editor-text-write-content-001",
+      sessionId: "session-editor-text-write-content-001",
+      profile: "loopback_profile",
+      commandParams: {
+        ability: {
+          id: "xhs.editor.input.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {
+          text: "WebEnvoy #754 dry run"
+        },
+        options: {
+          issue_scope: "issue_208",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "dry_run",
+          validation_action: "editor_input",
+          editor_text_write: true,
+          risk_state: "allowed",
+          approval_record: {
+            approved: true,
+            approver: "qa-reviewer",
+            approved_at: "2026-05-24T10:00:00Z",
+            checks: {
+              target_domain_confirmed: true,
+              target_tab_confirmed: true,
+              target_page_confirmed: true,
+              risk_state_checked: true,
+              action_type_confirmed: true
+            }
+          }
+        }
+      }
+    });
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "ERR_EXECUTION_FAILED"
+      },
+      payload: {
+        details: {
+          ability_id: "xhs.editor.input.v1",
+          reason: "EXECUTION_MODE_GATE_BLOCKED",
+          write_action: "editor_text_write",
+          input_text: "WebEnvoy #754 dry run",
+          focus_confirmed: false,
+          preserved_after_blur: false,
+          out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+        },
+        text_write_result: {
+          write_action: "editor_text_write",
+          input_text: "WebEnvoy #754 dry run",
+          focus_confirmed: false,
+          preserved_after_blur: false,
+          out_of_scope_actions: ["image_upload", "submit", "publish_confirm"],
+          submitted: false,
+          published: false
+        }
+      }
+    });
+  });
+
   it("emits classifier-only account abnormal evidence on the content-script xhs read path", async () => {
     const [left, right] = createPortPair<ContentMessage>();
 

@@ -15,7 +15,9 @@ const invalidAbilityInput = (reason, abilityId = "unknown") => new ExtensionCont
 });
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
+const XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE = "issue_208";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const parseSearchInput = (payload, abilityId, options, abilityAction) => {
@@ -65,6 +67,19 @@ export const validateXhsCommandInputForExtension = (input) => {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
         }
         return { validation_action: "editor_input" };
+    }
+    if (input.command === XHS_EDITOR_TEXT_WRITE_COMMAND) {
+        const text = asNonEmptyString(input.payload.text);
+        if (input.abilityId !== "xhs.editor.input.v1" ||
+            input.abilityAction !== "write" ||
+            input.options.issue_scope !== XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE ||
+            input.options.action_type !== "write" ||
+            input.options.validation_action !== "editor_input" ||
+            input.options.editor_text_write !== true ||
+            !text) {
+            throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
+        }
+        return { text, validation_action: "editor_input" };
     }
     if (input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND) {
         if (input.abilityId !== "xhs.creator.publish.v1" ||

@@ -1280,6 +1280,17 @@ export const executeXhsSearch = async (
       );
     }
 
+    const editorInputEvidence = buildEditorInputEvidence(validationResult);
+    const editorTextWriteResult =
+      input.options.editor_text_write === true
+        ? {
+            ...editorInputEvidence,
+            write_action: "editor_text_write",
+            submitted: false,
+            published: false
+          }
+        : null;
+
     return {
       ok: true,
       payload: {
@@ -1315,7 +1326,8 @@ export const executeXhsSearch = async (
           risk_state_output: resolveRiskStateOutput(gate, auditRecord),
           audit_record: auditRecord,
           ...layer2InteractionSummary(layer2Interaction),
-          interaction_result: buildEditorInputEvidence(validationResult)
+          interaction_result: editorInputEvidence,
+          ...(editorTextWriteResult ? { text_write_result: editorTextWriteResult } : {})
         },
         observability: createObservability({
           href: env.getLocationHref(),

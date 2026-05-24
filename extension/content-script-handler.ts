@@ -123,6 +123,7 @@ const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk"
 const XHS_PAGE_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
+  "xhs.editor_text.write",
   "xhs.creator_publish.admit",
   "xhs.detail",
   "xhs.user_home"
@@ -2589,6 +2590,7 @@ export class ContentScriptHandler {
           ...(typeof options.validation_text === "string"
             ? { validation_text: options.validation_text }
             : {}),
+          ...(options.editor_text_write === true ? { editor_text_write: true } : {}),
           ...(activeApiFetchFallback
             ? { active_api_fetch_fallback: activeApiFetchFallback }
             : {}),
@@ -2677,6 +2679,7 @@ export class ContentScriptHandler {
       if (
         message.command === "xhs.search" ||
         message.command === "xhs.editor_input.validate" ||
+        message.command === "xhs.editor_text.write" ||
         message.command === "xhs.creator_publish.admit"
       ) {
         const requestContextProvenanceConfirmed =
@@ -2704,13 +2707,16 @@ export class ContentScriptHandler {
                   ? { search_id: searchInput.search_id }
                   : {}),
                 ...(typeof searchInput.sort === "string" ? { sort: searchInput.sort } : {}),
-                ...(typeof searchInput.note_type === "string" ||
-                typeof searchInput.note_type === "number"
+                ...(typeof searchInput.note_type === "string" || typeof searchInput.note_type === "number"
                   ? { note_type: searchInput.note_type }
                   : {})
               },
               options: {
                 ...commonInput.options,
+                ...(message.command === "xhs.editor_text.write" &&
+                typeof (normalizedInput as { text?: unknown }).text === "string"
+                  ? { validation_text: (normalizedInput as { text: string }).text }
+                  : {}),
                 __request_context_provenance_confirmed: requestContextProvenanceConfirmed
               }
             },

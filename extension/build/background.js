@@ -122,6 +122,7 @@ const XHS_LIVE_EXECUTION_MODES = new Set([
 const XHS_GATE_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
+    "xhs.editor_text.write",
     "xhs.creator_publish.admit",
     "xhs.detail",
     "xhs.user_home"

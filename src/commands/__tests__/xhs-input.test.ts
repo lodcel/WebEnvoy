@@ -300,6 +300,47 @@ describe("xhs-input", () => {
     });
   });
 
+  it("parses xhs.editor_text.write as a text write command over the controlled editor_input path", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.editor.input.v1", layer: "L3", action: "write" },
+      input: {
+        text: "  WebEnvoy #754 text write  "
+      },
+      options: {
+        requested_execution_mode: "live_write",
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 11,
+        target_page: "creator_publish_tab"
+      }
+    });
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.editor_text.write",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "local-profile",
+      upstreamAuthorization: envelope.upstreamAuthorization
+    });
+
+    expect(gate.options).toMatchObject({
+      issue_scope: "issue_208",
+      action_type: "write",
+      validation_action: "editor_input",
+      editor_text_write: true,
+      requested_execution_mode: "live_write"
+    });
+    expect(
+      parseXhsCommandInputForContract({
+        command: "xhs.editor_text.write",
+        abilityId: envelope.ability.id,
+        abilityAction: envelope.ability.action,
+        payload: envelope.input,
+        options: gate.options
+      })
+    ).toEqual({
+      text: "WebEnvoy #754 text write",
+      validation_action: "editor_input"
+    });
+  });
+
   it("parses xhs.creator_publish.admit as issue_753 creator publish target admission", () => {
     const envelope = parseAbilityEnvelopeForContract({
       ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },

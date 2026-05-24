@@ -12,6 +12,7 @@ const asInteger = (value) => typeof value === "number" && Number.isInteger(value
 const XHS_GATED_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
+    "xhs.editor_text.write",
     "xhs.creator_publish.admit",
     "xhs.detail",
     "xhs.user_home"
@@ -586,54 +587,67 @@ export class InMemoryContentScriptRuntime {
                         validation_action: "editor_input"
                     }
                 }
-                : commandName === "xhs.creator_publish.admit"
+                : commandName === "xhs.editor_text.write"
                     ? {
-                        defaultAbilityId: "xhs.creator.publish.v1",
+                        defaultAbilityId: "xhs.editor.input.v1",
                         page_kind: "compose",
                         url: "https://creator.xiaohongshu.com/publish/publish",
                         title: "Creator Publish",
                         request_method: "POST",
                         request_url: "/web_api/sns/v2/note",
                         successDataRef: {
-                            target_page: "creator_publish_tab"
+                            validation_action: "editor_input",
+                            text: String(normalizedInput.text ?? "")
                         }
                     }
-                    : commandName === "xhs.detail"
+                    : commandName === "xhs.creator_publish.admit"
                         ? {
-                            defaultAbilityId: "xhs.note.detail.v1",
-                            page_kind: "detail",
-                            url: "https://www.xiaohongshu.com/explore/note-id",
-                            title: "Detail",
+                            defaultAbilityId: "xhs.creator.publish.v1",
+                            page_kind: "compose",
+                            url: "https://creator.xiaohongshu.com/publish/publish",
+                            title: "Creator Publish",
                             request_method: "POST",
-                            request_url: "/api/sns/web/v1/feed",
+                            request_url: "/web_api/sns/v2/note",
                             successDataRef: {
-                                note_id: String(normalizedInput.note_id ?? "")
+                                target_page: "creator_publish_tab"
                             }
                         }
-                        : commandName === "xhs.user_home"
+                        : commandName === "xhs.detail"
                             ? {
-                                defaultAbilityId: "xhs.user.home.v1",
-                                page_kind: "user_home",
-                                url: "https://www.xiaohongshu.com/user/profile/user-id",
-                                title: "User Home",
-                                request_method: "GET",
-                                request_url: "/api/sns/web/v1/user_posted",
+                                defaultAbilityId: "xhs.note.detail.v1",
+                                page_kind: "detail",
+                                url: "https://www.xiaohongshu.com/explore/note-id",
+                                title: "Detail",
+                                request_method: "POST",
+                                request_url: "/api/sns/web/v1/feed",
                                 successDataRef: {
-                                    user_id: String(normalizedInput.user_id ?? "")
+                                    note_id: String(normalizedInput.note_id ?? "")
                                 }
                             }
-                            : {
-                                defaultAbilityId: "xhs.note.search.v1",
-                                page_kind: "search",
-                                url: "https://www.xiaohongshu.com/search_result",
-                                title: "Search Result",
-                                request_method: "POST",
-                                request_url: "/api/sns/web/v1/search/notes",
-                                successDataRef: {
-                                    query: String(normalizedInput.query ?? ""),
-                                    search_id: "loopback-search-id"
+                            : commandName === "xhs.user_home"
+                                ? {
+                                    defaultAbilityId: "xhs.user.home.v1",
+                                    page_kind: "user_home",
+                                    url: "https://www.xiaohongshu.com/user/profile/user-id",
+                                    title: "User Home",
+                                    request_method: "GET",
+                                    request_url: "/api/sns/web/v1/user_posted",
+                                    successDataRef: {
+                                        user_id: String(normalizedInput.user_id ?? "")
+                                    }
                                 }
-                            };
+                                : {
+                                    defaultAbilityId: "xhs.note.search.v1",
+                                    page_kind: "search",
+                                    url: "https://www.xiaohongshu.com/search_result",
+                                    title: "Search Result",
+                                    request_method: "POST",
+                                    request_url: "/api/sns/web/v1/search/notes",
+                                    successDataRef: {
+                                        query: String(normalizedInput.query ?? ""),
+                                        search_id: "loopback-search-id"
+                                    }
+                                };
             const successObservability = {
                 page_state: {
                     page_kind: commandSpec.page_kind,
@@ -671,6 +685,23 @@ export class InMemoryContentScriptRuntime {
                 const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
                     ? consumerGateResult.gate_reasons.map((reason) => String(reason))
                     : ["EXECUTION_MODE_GATE_BLOCKED"];
+                const blockedTextWriteResult = isEditorInputValidation &&
+                    (commandName === "xhs.editor_text.write" || options.editor_text_write === true)
+                    ? {
+                        validation_action: "editor_input",
+                        write_action: "editor_text_write",
+                        target_page: "creator.xiaohongshu.com/publish",
+                        input_text: String(normalizedInput.text ?? ""),
+                        focus_confirmed: false,
+                        preserved_after_blur: false,
+                        success_signals: [],
+                        failure_signals: editorInputFailureSignals,
+                        minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                        out_of_scope_actions: ["image_upload", "submit", "publish_confirm"],
+                        submitted: false,
+                        published: false
+                    }
+                    : null;
                 return {
                     kind: "result",
                     id: message.id,
@@ -688,6 +719,12 @@ export class InMemoryContentScriptRuntime {
                                 ? {
                                     validation_action: "editor_input",
                                     target_page: "creator_publish_tab",
+                                    ...(blockedTextWriteResult
+                                        ? {
+                                            write_action: "editor_text_write",
+                                            input_text: blockedTextWriteResult.input_text
+                                        }
+                                        : {}),
                                     focus_confirmed: false,
                                     preserved_after_blur: false,
                                     failure_signals: editorInputFailureSignals,
@@ -696,7 +733,8 @@ export class InMemoryContentScriptRuntime {
                                 }
                                 : {})
                         },
-                        ...gateBundle
+                        ...gateBundle,
+                        ...(blockedTextWriteResult ? { text_write_result: blockedTextWriteResult } : {})
                     }
                 };
             }
@@ -730,26 +768,64 @@ export class InMemoryContentScriptRuntime {
                     metrics: {
                         count: 0
                     }
-                }, commandName === "xhs.creator_publish.admit"
+                }, commandName === "xhs.editor_text.write"
                     ? {
                         summary: {
-                            target_admission: {
-                                target_domain: options.target_domain ?? null,
-                                target_tab_id: options.target_tab_id ?? null,
-                                target_page: options.target_page ?? null,
-                                profile_readiness: asRecord(options.profile_readiness),
-                                account_readiness: asRecord(options.account_readiness),
-                                out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
+                            text_write_result: {
+                                validation_action: "editor_input",
+                                write_action: "editor_text_write",
+                                target_page: "creator.xiaohongshu.com/publish",
+                                input_text: String(normalizedInput.text ?? ""),
+                                focus_confirmed: false,
+                                preserved_after_blur: false,
+                                success_signals: [],
+                                failure_signals: ["dry_run_or_recon_no_dom_write"],
+                                minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                                out_of_scope_actions: ["image_upload", "submit", "publish_confirm"],
+                                submitted: false,
+                                published: false
                             }
                         }
                     }
-                    : undefined);
+                    : commandName === "xhs.creator_publish.admit"
+                        ? {
+                            summary: {
+                                target_admission: {
+                                    target_domain: options.target_domain ?? null,
+                                    target_tab_id: options.target_tab_id ?? null,
+                                    target_page: options.target_page ?? null,
+                                    profile_readiness: asRecord(options.profile_readiness),
+                                    account_readiness: asRecord(options.account_readiness),
+                                    out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
+                                }
+                            }
+                        }
+                        : undefined);
             }
             if (consumerGateResult.effective_execution_mode === "live_write" &&
                 options.validation_action === "editor_input") {
                 const validationText = typeof options.validation_text === "string" && options.validation_text.trim().length > 0
                     ? options.validation_text.trim()
                     : "WebEnvoy editor_input validation";
+                const interactionResult = {
+                    validation_action: "editor_input",
+                    target_page: "creator.xiaohongshu.com/publish",
+                    success_signals: [],
+                    failure_signals: ["EDITOR_INPUT_VALIDATION_REQUIRED"],
+                    minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                    out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+                };
+                const textWriteResult = commandName === "xhs.editor_text.write" || options.editor_text_write === true
+                    ? {
+                        ...interactionResult,
+                        write_action: "editor_text_write",
+                        input_text: validationText,
+                        focus_confirmed: false,
+                        preserved_after_blur: false,
+                        submitted: false,
+                        published: false
+                    }
+                    : null;
                 return {
                     kind: "result",
                     id: message.id,
@@ -769,14 +845,8 @@ export class InMemoryContentScriptRuntime {
                                 }
                             },
                             ...gateBundle,
-                            interaction_result: {
-                                validation_action: "editor_input",
-                                target_page: "creator.xiaohongshu.com/publish",
-                                success_signals: [],
-                                failure_signals: ["EDITOR_INPUT_VALIDATION_REQUIRED"],
-                                minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
-                                out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
-                            }
+                            interaction_result: interactionResult,
+                            ...(textWriteResult ? { text_write_result: textWriteResult } : {})
                         },
                         observability: {
                             page_state: {

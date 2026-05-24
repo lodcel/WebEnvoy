@@ -44,16 +44,22 @@ const asInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) ? value : null;
 
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS: Record<string, string> = {
   "xhs.search": "xhs.note.search.v1",
   "xhs.detail": "xhs.note.detail.v1",
   "xhs.user_home": "xhs.user.home.v1"
 };
-const XHS_GATE_COMMANDS = new Set([...XHS_READ_COMMANDS, XHS_EDITOR_INPUT_VALIDATE_COMMAND]);
+const XHS_GATE_COMMANDS = new Set([
+  ...XHS_READ_COMMANDS,
+  XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+  XHS_EDITOR_TEXT_WRITE_COMMAND
+]);
 const XHS_GATE_COMMAND_DEFAULT_ABILITY_IDS: Record<string, string> = {
   ...XHS_READ_COMMAND_DEFAULT_ABILITY_IDS,
-  [XHS_EDITOR_INPUT_VALIDATE_COMMAND]: "xhs.editor.input.v1"
+  [XHS_EDITOR_INPUT_VALIDATE_COMMAND]: "xhs.editor.input.v1",
+  [XHS_EDITOR_TEXT_WRITE_COMMAND]: "xhs.editor.input.v1"
 };
 type XhsReadCommand = keyof typeof XHS_READ_COMMAND_DEFAULT_ABILITY_IDS;
 const XHS_READ_COMMAND_SPECS: Record<
@@ -413,7 +419,10 @@ class InMemoryContentScriptRuntime {
       };
     }
 
-    if (message.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+    if (
+      message.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND ||
+      message.command === XHS_EDITOR_TEXT_WRITE_COMMAND
+    ) {
       return this.handleXhsEditorInputValidate(message);
     }
 
@@ -469,6 +478,20 @@ class InMemoryContentScriptRuntime {
       minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
       out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
     };
+    const validationText =
+      typeof options.validation_text === "string" && options.validation_text.trim().length > 0
+        ? options.validation_text.trim()
+        : "WebEnvoy editor_input validation";
+    const textWriteResult =
+      message.command === XHS_EDITOR_TEXT_WRITE_COMMAND || options.editor_text_write === true
+        ? {
+            ...interactionResult,
+            write_action: "editor_text_write",
+            input_text: validationText,
+            submitted: false,
+            published: false
+          }
+        : null;
 
     if (consumerGateResult.gate_decision === "blocked") {
       return {
@@ -531,10 +554,6 @@ class InMemoryContentScriptRuntime {
       };
     }
 
-    const validationText =
-      typeof options.validation_text === "string" && options.validation_text.trim().length > 0
-        ? options.validation_text.trim()
-        : "WebEnvoy editor_input validation";
     return {
       kind: "result",
       id: message.id,

@@ -38,14 +38,17 @@ const XHS_COMMAND_ACTION_NAMES = {
     "xhs.search::xhs.note.search.v1": "xhs.read_search_results",
     "xhs.search::xhs.editor.input.v1": "xhs.write_editor_input",
     "xhs.editor_input.validate::xhs.editor.input.v1": "xhs.write_editor_input",
+    "xhs.editor_text.write::xhs.editor.input.v1": "xhs.write_editor_input",
     "xhs.creator_publish.admit::xhs.creator.publish.v1": "xhs.admit_creator_publish_target",
     "xhs.detail::xhs.note.detail.v1": "xhs.read_note_detail",
     "xhs.user_home::xhs.user.home.v1": "xhs.read_user_home"
 };
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 // #752 adds a clearer command name, while the runtime gate still consumes the #208 editor_input validation scope.
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
+const XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE = "issue_208";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const ISSUE209_LIVE_REQUEST_ID_PREFIX = "issue209-live";
 const ISSUE209_GATE_INVOCATION_ID_PREFIX = "issue209-gate";
@@ -495,6 +498,13 @@ export const parseSearchInputForContract = (input, abilityId, options, abilityAc
 export const parseEditorInputValidateInputForContract = () => ({
     validation_action: "editor_input"
 });
+export const parseEditorTextWriteInputForContract = (input, abilityId) => {
+    const text = parseRequiredStringFieldForContract(input, "text", "EDITOR_TEXT_MISSING", abilityId);
+    return {
+        text,
+        validation_action: "editor_input"
+    };
+};
 export const parseCreatorPublishAdmissionInputForContract = () => ({
     target_page: "creator_publish_tab"
 });
@@ -523,6 +533,9 @@ export const parseXhsCommandInputForContract = (input) => {
     if (input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
         return parseEditorInputValidateInputForContract();
     }
+    if (input.command === XHS_EDITOR_TEXT_WRITE_COMMAND) {
+        return parseEditorTextWriteInputForContract(input.payload, input.abilityId);
+    }
     if (input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND) {
         return parseCreatorPublishAdmissionInputForContract();
     }
@@ -537,7 +550,9 @@ export const parseXhsCommandInputForContract = (input) => {
 export const normalizeGateOptionsForContract = (options, abilityId, input) => {
     const upstreamAuthorization = input?.upstreamAuthorization ?? null;
     const isCreatorPublishAdmissionCommand = input?.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND;
-    if (input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+    const isEditorTextWriteCommand = input?.command === XHS_EDITOR_TEXT_WRITE_COMMAND;
+    const isEditorInputCommand = input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND || isEditorTextWriteCommand;
+    if (isEditorInputCommand) {
         if (abilityId !== "xhs.editor.input.v1" || input.abilityAction !== "write") {
             throw invalidAbilityInput("ABILITY_COMMAND_UNSUPPORTED", abilityId);
         }
@@ -547,7 +562,10 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
             ? asString(options.validation_action)
             : null;
         if (hasOwn(options, "issue_scope") &&
-            explicitIssueScope !== XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE) {
+            explicitIssueScope !==
+                (isEditorTextWriteCommand
+                    ? XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE
+                    : XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE)) {
             throw invalidAbilityInput("ISSUE_SCOPE_CONFLICT", abilityId);
         }
         if (hasOwn(options, "action_type") && explicitActionType !== "write") {
@@ -571,12 +589,15 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
             throw invalidAbilityInput("ACTION_TYPE_CONFLICT", abilityId);
         }
     }
-    const canonicalOptions = input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND
+    const canonicalOptions = isEditorInputCommand
         ? {
             ...options,
-            issue_scope: XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE,
+            issue_scope: isEditorTextWriteCommand
+                ? XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE
+                : XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE,
             action_type: "write",
-            validation_action: "editor_input"
+            validation_action: "editor_input",
+            ...(isEditorTextWriteCommand ? { editor_text_write: true } : {})
         }
         : input?.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
             ? {
