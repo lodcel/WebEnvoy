@@ -17,22 +17,25 @@
 
 ## 待继续的浏览器内复核
 
-- [ ] 富文本编辑器的 DOM 结构、焦点链路与最小事件序列
-- [ ] 富文本输入后页面成功/失败信号与空值提交流转
-- [ ] 图片上传入口属于标准文件输入、拖拽区还是独立上传协议
-- [ ] 上传开始、上传完成、上传失败的页面反馈信号
-- [ ] 上传失败时可复用的 API fallback 或 candidate 路径
-- [ ] 围绕 `editor_input` 收敛可供 `#208` 正式验证使用的最小复现实验，并与 `FR-0010/FR-0011` 当前门禁 / 研究口径保持一致；其余候选仅保留为后续输入
+- [x] 通过 `#752` / PR `#775` 收敛 `editor_input` 独立命名入口，并保留 `xhs.search` 兼容路径
+- [x] 通过 `#753` / PR `#776` 落地 creator publish target binding 与 admission 入口
+- [x] 通过 `#754` / PR `#777` 落地受控文本写入链路，不触发提交或发布
+- [x] 通过 `#755` / PR `#778` 落地媒体上传路径 discovery / dry-run / recon；该路径只输出上传入口与文件选择边界，不上传、不提交、不发布
+- [x] 通过 `#756` closeout comment 与 `#779` 明确 live upload evidence 当前被 readiness/admission 阻断；阻断归属为 runtime/profile/identity/target binding 与 `FR-0012` / `FR-0013` / `FR-0014` anti-detection baseline
+- [ ] `#779` 恢复前，不继续执行受控上传 live evidence，不把历史样本、fallback 或 dry-run/recon discovery 写成 live upload success
 
 ## 当前阻断与暂停条件
 
-- [ ] 若 live 侦察触发账号异常、验证码或明显风控升级，立即暂停并冻结当前证据
+- [x] `#756` 已停在 readiness/admission checkpoint；未执行真实上传、文件选择器、DataTransfer 注入、提交、发布或账号接触
+- [x] `#779` 已承接 `xhs_001` / 等价 XHS managed profile、official Chrome extension identity、managed creator publish target tab、`FR-0012` / `FR-0013` / `FR-0014` baseline 的恢复条件
+- [ ] 若后续 live 侦察触发账号异常、验证码或明显风控升级，立即暂停并冻结当前证据
 - [ ] 若页面入口存在多版本分流，先冻结分流条件，再决定是否继续加样本
-- [ ] 若 `#208` 试图直接消费未冻结结论，先回到本 FR 完成 spec review
+- [ ] 若 `#208` 或后续事项试图消费未冻结结论，先回到对应 FR / blocker 完成 evidence 收口
 
 ## 后续衔接
 
-- [ ] 完成浏览器内复核后，更新 `research.md` 的证据矩阵与双门禁结论
-- [ ] 在 `#208` 中引用 FR-0008 的候选输入，而不是把 FR-0008 直接当关闭依据
-- [ ] 如主路径达到 `admission_ready`，再单独建立“小红书最小写能力 / 发布链路”实现 FR
-- [ ] 为后续实现补充 TDD 范围与验证矩阵
+- [x] 在 `#752` - `#755` 中把 FR-0008 的候选输入拆成可复核的实现切片与 dry-run/recon 证据
+- [x] 在 `#756` 中把 live upload evidence 的失败检查点拆给 `#779`，避免在 closeout issue 内继续 probing
+- [ ] `#757` 收口时必须明确：FR-0008 write/upload spike 已完成非 live 证据闭环，但 live upload evidence 仍由 `#779` 阻断，不能作为 parent 成功证据
+- [ ] `#212` 只能在消费 `#752` - `#757`、`#779`、相关 PR / merge commit / Project 状态后关闭或保持 open；不得只因 #752-#755 已合并就关闭
+- [ ] `#779` 恢复后，如主路径达到 `admission_ready`，再单独建立“小红书最小写能力 / 发布链路”实现 FR 或重启受控 live closeout
