@@ -1,5 +1,10 @@
 const defaultForwardTimeoutMs = 3_000;
-const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const XHS_FORWARD_COMMANDS = new Set([
+    "xhs.search",
+    "xhs.editor_input.validate",
+    "xhs.detail",
+    "xhs.user_home"
+]);
 const xhsForwardResponseSafetyMs = 5_000;
 const reserveXhsForwardResponseSafetyMs = (timeoutMs) => timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
@@ -85,11 +90,11 @@ export class BackgroundRelay {
             });
             return;
         }
-        const pendingTimeoutMs = XHS_READ_COMMANDS.has(command)
+        const pendingTimeoutMs = XHS_FORWARD_COMMANDS.has(command)
             ? reserveXhsForwardResponseSafetyMs(timeoutMs)
             : timeoutMs;
         const timeout = setTimeout(() => {
-            if (!XHS_READ_COMMANDS.has(command)) {
+            if (!XHS_FORWARD_COMMANDS.has(command)) {
                 this.#failPending(request.id, {
                     code: "ERR_TRANSPORT_TIMEOUT",
                     message: "content script forward timed out"
@@ -146,7 +151,7 @@ export class BackgroundRelay {
             runId: String(request.params.run_id ?? request.id),
             tabId: typeof request.params.tab_id === "number" && Number.isInteger(request.params.tab_id)
                 ? request.params.tab_id
-                : XHS_READ_COMMANDS.has(String(request.params.command ?? ""))
+                : XHS_FORWARD_COMMANDS.has(String(request.params.command ?? ""))
                     ? 32
                     : null,
             profile: typeof request.profile === "string" ? request.profile : null,

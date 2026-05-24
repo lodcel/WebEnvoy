@@ -60,6 +60,7 @@ import {
   normalizeGateOptionsForContract,
   parseAbilityEnvelopeForContract,
   parseDetailInputForContract,
+  parseEditorInputValidateInputForContract,
   parseSearchInputForContract,
   parseUserHomeInputForContract,
   prepareIssue209LiveReadEnvelopeForContract,
@@ -68,6 +69,10 @@ import {
 
 type AbilityLayer = "L3" | "L2" | "L1";
 type AbilityActionName = AbilityAction;
+type XhsDataRefKey = "query" | "note_id" | "user_id" | "validation_action";
+
+const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
 
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
 export { normalizeGateOptionsForContract } from "./xhs-input.js";
@@ -491,6 +496,72 @@ const isLiveXhsExecutionMode = (mode: XhsExecutionMode): boolean =>
 
 const isLiveXhsReadExecutionMode = (mode: XhsExecutionMode): boolean =>
   mode === "live_read_limited" || mode === "live_read_high_risk";
+
+const isLegacyXhsSearchEditorInputValidation = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+}): boolean =>
+  input.command === "xhs.search" &&
+  input.ability.action === "write" &&
+  asString(input.options.issue_scope) === "issue_208" &&
+  asString(input.options.validation_action) === "editor_input";
+
+const buildXhsCommandAliasDiagnostics = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+}): JsonObject | null => {
+  if (!isLegacyXhsSearchEditorInputValidation(input)) {
+    return null;
+  }
+  return {
+    status: "deprecated_alias",
+    source_command: "xhs.search",
+    source_ability_id: input.ability.id,
+    canonical_command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+    canonical_ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+    validation_action: "editor_input",
+    issue_scope: "issue_208",
+    replacement: {
+      command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+      ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID
+    },
+    migration_hint:
+      "Use xhs.editor_input.validate with ability.id=xhs.editor.input.v1; keep target and admission options unchanged."
+  };
+};
+
+const mergeCommandAliasDiagnosticsIntoPayload = (
+  payload: Record<string, unknown>,
+  diagnostics: JsonObject | null
+): void => {
+  if (!diagnostics) {
+    return;
+  }
+  const details = asObject(payload.details);
+  payload.command_alias_diagnostics = diagnostics;
+  payload.details = {
+    ...(details ?? {}),
+    command_alias_diagnostics: diagnostics
+  };
+};
+
+const attachCommandAliasDiagnosticsToResult = (
+  result: CommandExecutionResult,
+  diagnostics: JsonObject | null
+): CommandExecutionResult => {
+  if (!diagnostics) {
+    return result;
+  }
+  return {
+    ...result,
+    summary: {
+      ...result.summary,
+      command_alias_diagnostics: diagnostics
+    }
+  };
+};
 
 const XHS_CLOSEOUT_ROUTE_EVIDENCE_ABILITY_IDS = new Set<string>([
   "xhs.note.search.v1",
@@ -1862,6 +1933,7 @@ const pickGateErrorDetails = (
     "xhs_closeout_rhythm",
     "anti_detection_validation_view",
     "runtime_stop",
+    "command_alias_diagnostics",
     "status_code",
     "platform_code"
   ] as const;
@@ -2402,7 +2474,7 @@ const buildInProcessGateOnlyResult = (input: {
   gate: ReturnType<typeof normalizeGateOptionsForContract>;
   parsedInput: JsonObject;
   preparedIssue209LiveRead: ReturnType<typeof prepareIssue209LiveReadEnvelopeForContract>;
-  dataRefKey: "query" | "note_id" | "user_id";
+  dataRefKey: XhsDataRefKey;
 }): CommandExecutionResult => {
   const profile = input.context.profile ?? "gate_only_profile";
   const sessionId = `gate-only-${input.context.run_id}`;
@@ -2509,7 +2581,7 @@ const buildExplicitCloseoutEvidenceResult = (input: {
   preparedIssue209LiveRead: ReturnType<typeof prepareIssue209LiveReadEnvelopeForContract>;
   runtimeGateOptions: JsonObject;
   sessionId: string;
-  dataRefKey: "query" | "note_id" | "user_id";
+  dataRefKey: XhsDataRefKey;
 }): CommandExecutionResult => {
   const profile = input.context.profile ?? "unknown";
   const gateBundle = buildLoopbackGate(
@@ -2815,6 +2887,13 @@ const xhsSearch = async (context: RuntimeContext): Promise<CommandExecutionResul
   });
 };
 
+const xhsEditorInputValidate = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
+  return xhsReadCommand(context, {
+    fixtureDataRefKey: "validation_action",
+    parseInput: () => parseEditorInputValidateInputForContract()
+  });
+};
+
 const xhsDetail = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
   return xhsReadCommand(context, {
     fixtureDataRefKey: "note_id",
@@ -2832,7 +2911,7 @@ const xhsUserHome = async (context: RuntimeContext): Promise<CommandExecutionRes
 const xhsReadCommand = async (
   context: RuntimeContext,
   inputConfig: {
-    fixtureDataRefKey: "query" | "note_id" | "user_id";
+    fixtureDataRefKey: XhsDataRefKey;
     parseInput: (
       envelope: AbilityEnvelope,
       gate: ReturnType<typeof normalizeGateOptionsForContract>
@@ -2847,6 +2926,11 @@ const xhsReadCommand = async (
     upstreamAuthorization: envelope.upstreamAuthorization
   });
   const parsedInput = inputConfig.parseInput(envelope, gate);
+  const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
+    command: context.command,
+    ability: envelope.ability,
+    options: gate.options
+  });
 
   if (
     process.env.NODE_ENV === "test" &&
@@ -2981,14 +3065,17 @@ const xhsReadCommand = async (
         requestedExecutionMode: gate.requestedExecutionMode
       })
     ) {
-      return buildInProcessGateOnlyResult({
-        context,
-        envelope,
-        gate,
-        parsedInput,
-        preparedIssue209LiveRead,
-        dataRefKey: inputConfig.fixtureDataRefKey
-      });
+      return attachCommandAliasDiagnosticsToResult(
+        buildInProcessGateOnlyResult({
+          context,
+          envelope,
+          gate,
+          parsedInput,
+          preparedIssue209LiveRead,
+          dataRefKey: inputConfig.fixtureDataRefKey
+        }),
+        commandAliasDiagnostics
+      );
     }
 
     const bridge = resolveRuntimeBridge();
@@ -3129,6 +3216,10 @@ const xhsReadCommand = async (
         requestedExecutionMode: gate.requestedExecutionMode,
         payload: bridgeResult.payload
       });
+      mergeCommandAliasDiagnosticsIntoPayload(
+        bridgeResult.payload,
+        commandAliasDiagnostics
+      );
       throw toCliExecutionError(
         envelope.ability,
         bridgeResult.payload,
@@ -3288,10 +3379,13 @@ const xhsReadCommand = async (
       }
     }
 
-    return {
-      summary,
-      observability: asObservabilityInput(bridgeResult.payload.observability)
-    };
+    return attachCommandAliasDiagnosticsToResult(
+      {
+        summary,
+        observability: asObservabilityInput(bridgeResult.payload.observability)
+      },
+      commandAliasDiagnostics
+    );
   } catch (error) {
     if (error instanceof NativeMessagingTransportError) {
       throw toTransportCliError(error, envelope.ability);
@@ -3306,6 +3400,12 @@ export const xhsCommands = (): CommandDefinition[] => [
     status: "implemented",
     requiresProfile: true,
     handler: xhsSearch
+  },
+  {
+    name: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+    status: "implemented",
+    requiresProfile: true,
+    handler: xhsEditorInputValidate
   },
   {
     name: "xhs.detail",

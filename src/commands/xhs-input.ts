@@ -140,9 +140,13 @@ const UPSTREAM_AUTHORIZATION_KEYS = [
 const XHS_COMMAND_ACTION_NAMES: Record<string, string> = {
   "xhs.search::xhs.note.search.v1": "xhs.read_search_results",
   "xhs.search::xhs.editor.input.v1": "xhs.write_editor_input",
+  "xhs.editor_input.validate::xhs.editor.input.v1": "xhs.write_editor_input",
   "xhs.detail::xhs.note.detail.v1": "xhs.read_note_detail",
   "xhs.user_home::xhs.user.home.v1": "xhs.read_user_home"
 };
+const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+// #752 adds a clearer command name, while the runtime gate still consumes the #208 editor_input validation scope.
+const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
 const ISSUE209_LIVE_REQUEST_ID_PREFIX = "issue209-live";
 const ISSUE209_GATE_INVOCATION_ID_PREFIX = "issue209-gate";
 export const ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY = "__issue209_admission_draft";
@@ -806,6 +810,10 @@ export const parseSearchInputForContract = (
   return normalized;
 };
 
+export const parseEditorInputValidateInputForContract = (): JsonObject => ({
+  validation_action: "editor_input"
+});
+
 export const parseDetailInputForContract = (
   input: JsonObject,
   abilityId: string
@@ -851,6 +859,9 @@ export const parseXhsCommandInputForContract = (input: {
       input.abilityAction
     );
   }
+  if (input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+    return parseEditorInputValidateInputForContract();
+  }
   if (input.command === "xhs.detail") {
     return parseDetailInputForContract(input.payload, input.abilityId);
   }
@@ -877,6 +888,37 @@ export const normalizeGateOptionsForContract = (
   options: JsonObject;
 } => {
   const upstreamAuthorization = input?.upstreamAuthorization ?? null;
+  if (input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+    if (abilityId !== "xhs.editor.input.v1" || input.abilityAction !== "write") {
+      throw invalidAbilityInput("ABILITY_COMMAND_UNSUPPORTED", abilityId);
+    }
+    const explicitIssueScope = hasOwn(options, "issue_scope") ? asString(options.issue_scope) : null;
+    const explicitActionType = hasOwn(options, "action_type") ? asString(options.action_type) : null;
+    const explicitValidationAction = hasOwn(options, "validation_action")
+      ? asString(options.validation_action)
+      : null;
+    if (
+      hasOwn(options, "issue_scope") &&
+      explicitIssueScope !== XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE
+    ) {
+      throw invalidAbilityInput("ISSUE_SCOPE_CONFLICT", abilityId);
+    }
+    if (hasOwn(options, "action_type") && explicitActionType !== "write") {
+      throw invalidAbilityInput("ACTION_TYPE_CONFLICT", abilityId);
+    }
+    if (hasOwn(options, "validation_action") && explicitValidationAction !== "editor_input") {
+      throw invalidAbilityInput("ACTION_REQUEST_INVALID", abilityId);
+    }
+  }
+  const canonicalOptions =
+    input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND
+      ? {
+          ...options,
+          issue_scope: XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE,
+          action_type: "write",
+          validation_action: "editor_input"
+        }
+      : options;
   const canonicalActionName =
     upstreamAuthorization && input?.command
       ? XHS_COMMAND_ACTION_NAMES[`${input.command}::${abilityId}`] ?? null
@@ -901,8 +943,9 @@ export const normalizeGateOptionsForContract = (
 
   const targetDomain = upstreamAuthorization
     ? upstreamAuthorization.runtime_target.domain
-    : typeof options.target_domain === "string" && options.target_domain.trim().length > 0
-      ? options.target_domain.trim()
+    : typeof canonicalOptions.target_domain === "string" &&
+        canonicalOptions.target_domain.trim().length > 0
+      ? canonicalOptions.target_domain.trim()
       : null;
   if (!targetDomain) {
     throw invalidAbilityInput("TARGET_DOMAIN_INVALID", abilityId);
@@ -910,8 +953,9 @@ export const normalizeGateOptionsForContract = (
 
   const targetTabId = upstreamAuthorization
     ? upstreamAuthorization.runtime_target.tab_id
-    : typeof options.target_tab_id === "number" && Number.isInteger(options.target_tab_id)
-      ? options.target_tab_id
+    : typeof canonicalOptions.target_tab_id === "number" &&
+        Number.isInteger(canonicalOptions.target_tab_id)
+      ? canonicalOptions.target_tab_id
       : null;
   if (targetTabId === null) {
     throw invalidAbilityInput("TARGET_TAB_ID_INVALID", abilityId);
@@ -919,19 +963,21 @@ export const normalizeGateOptionsForContract = (
 
   const targetPage = upstreamAuthorization
     ? upstreamAuthorization.runtime_target.page
-    : typeof options.target_page === "string" && options.target_page.trim().length > 0
-      ? options.target_page.trim()
+    : typeof canonicalOptions.target_page === "string" &&
+        canonicalOptions.target_page.trim().length > 0
+      ? canonicalOptions.target_page.trim()
       : null;
   if (!targetPage) {
     throw invalidAbilityInput("TARGET_PAGE_INVALID", abilityId);
   }
   const issueScope =
-    typeof options.issue_scope === "string" && options.issue_scope.trim().length > 0
-      ? options.issue_scope.trim()
+    typeof canonicalOptions.issue_scope === "string" && canonicalOptions.issue_scope.trim().length > 0
+      ? canonicalOptions.issue_scope.trim()
       : null;
   const validationAction =
-    typeof options.validation_action === "string" && options.validation_action.trim().length > 0
-      ? options.validation_action.trim()
+    typeof canonicalOptions.validation_action === "string" &&
+    canonicalOptions.validation_action.trim().length > 0
+      ? canonicalOptions.validation_action.trim()
       : null;
   if (
     issueScope === "issue_208" &&
@@ -948,9 +994,9 @@ export const normalizeGateOptionsForContract = (
   }
 
   const requestedExecutionMode =
-    typeof options.requested_execution_mode === "string" &&
-    XHS_EXECUTION_MODES.has(options.requested_execution_mode as XhsExecutionMode)
-      ? (options.requested_execution_mode as XhsExecutionMode)
+    typeof canonicalOptions.requested_execution_mode === "string" &&
+    XHS_EXECUTION_MODES.has(canonicalOptions.requested_execution_mode as XhsExecutionMode)
+      ? (canonicalOptions.requested_execution_mode as XhsExecutionMode)
       : null;
   const requestedExecutionModeFromContract = inferRequestedExecutionModeForContract({
     normalizedActionType,
@@ -986,7 +1032,7 @@ export const normalizeGateOptionsForContract = (
     throw invalidAbilityInput("REQUESTED_EXECUTION_MODE_INVALID", abilityId);
   }
   const inferredIssueScope = resolveInferredIssueScopeForContract({
-    ...options,
+    ...canonicalOptions,
     ...(legacyProjectedActionType ? { action_type: legacyProjectedActionType } : {}),
     ...(projectedValidationAction ? { validation_action: projectedValidationAction } : {}),
     target_domain: targetDomain,
@@ -1111,7 +1157,7 @@ export const normalizeGateOptionsForContract = (
     !upstreamAuthorization && inferredIssueScope === "issue_209"
       ? inferredIssueScope
       : explicitIssueScope ?? inferredIssueScope ?? resolveCanonicalIssueScopeForContract({
-          ...options,
+          ...canonicalOptions,
           target_domain: targetDomain,
           target_tab_id: targetTabId,
           target_page: targetPage,
@@ -1124,7 +1170,7 @@ export const normalizeGateOptionsForContract = (
     targetPage,
     requestedExecutionMode: requestedExecutionModeFromContract,
     options: {
-      ...options,
+      ...canonicalOptions,
       ...(legacyProjectedActionType ? { action_type: legacyProjectedActionType } : {}),
       ...(projectedValidationAction ? { validation_action: projectedValidationAction } : {}),
       target_domain: targetDomain,

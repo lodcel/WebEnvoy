@@ -8,11 +8,17 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
+const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS = {
     "xhs.search": "xhs.note.search.v1",
     "xhs.detail": "xhs.note.detail.v1",
     "xhs.user_home": "xhs.user.home.v1"
+};
+const XHS_GATE_COMMANDS = new Set([...XHS_READ_COMMANDS, XHS_EDITOR_INPUT_VALIDATE_COMMAND]);
+const XHS_GATE_COMMAND_DEFAULT_ABILITY_IDS = {
+    ...XHS_READ_COMMAND_DEFAULT_ABILITY_IDS,
+    [XHS_EDITOR_INPUT_VALIDATE_COMMAND]: "xhs.editor.input.v1"
 };
 const XHS_READ_COMMAND_SPECS = {
     "xhs.search": {
@@ -59,7 +65,7 @@ const XHS_READ_COMMAND_SPECS = {
     }
 };
 const resolveApprovalRecord = (options) => asRecord(options.approval_record) ?? asRecord(options.approval);
-const buildLoopbackXhsReadGateBundle = (input) => {
+const buildLoopbackXhsGateBundle = (input) => {
     const decisionId = resolveXhsGateDecisionId({
         runId: input.runId,
         requestId: input.requestId,
@@ -291,6 +297,9 @@ class InMemoryContentScriptRuntime {
                 }
             };
         }
+        if (message.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+            return this.handleXhsEditorInputValidate(message);
+        }
         if (XHS_READ_COMMANDS.has(message.command)) {
             return this.handleXhsRead(message);
         }
@@ -300,6 +309,155 @@ class InMemoryContentScriptRuntime {
             ok: true,
             payload: {
                 message: "pong"
+            }
+        };
+    }
+    handleXhsEditorInputValidate(message) {
+        const ability = typeof message.commandParams.ability === "object" && message.commandParams.ability !== null
+            ? message.commandParams.ability
+            : {};
+        const options = typeof message.commandParams.options === "object" && message.commandParams.options !== null
+            ? message.commandParams.options
+            : {};
+        const gateBundle = buildLoopbackXhsGateBundle({
+            options,
+            abilityAction: asString(ability.action),
+            runId: message.runId,
+            requestId: message.id,
+            commandRequestId: message.commandParams.request_id,
+            gateInvocationId: message.commandParams.gate_invocation_id,
+            sessionId: message.sessionId,
+            profile: message.profile
+        });
+        const consumerGateResult = gateBundle.consumerGateResult;
+        const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
+            ? consumerGateResult.gate_reasons.map((reason) => String(reason))
+            : ["EXECUTION_MODE_GATE_BLOCKED"];
+        const interactionResult = {
+            validation_action: "editor_input",
+            target_page: "creator_publish_tab",
+            focus_confirmed: false,
+            preserved_after_blur: false,
+            success_signals: [],
+            failure_signals: consumerGateResult.gate_decision === "blocked"
+                ? editorInputFailureSignals
+                : ["EDITOR_INPUT_VALIDATION_REQUIRED"],
+            minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+            out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+        };
+        if (consumerGateResult.gate_decision === "blocked") {
+            return {
+                kind: "result",
+                id: message.id,
+                ok: false,
+                error: {
+                    code: "ERR_EXECUTION_FAILED",
+                    message: `执行模式门禁阻断了当前 ${message.command} 请求`
+                },
+                payload: {
+                    details: {
+                        ability_id: String(ability.id ?? "xhs.editor.input.v1"),
+                        stage: "execution",
+                        reason: "EXECUTION_MODE_GATE_BLOCKED",
+                        ...interactionResult
+                    },
+                    ...gateBundle.payload
+                }
+            };
+        }
+        if (consumerGateResult.effective_execution_mode === "dry_run" ||
+            consumerGateResult.effective_execution_mode === "recon") {
+            return {
+                kind: "result",
+                id: message.id,
+                ok: true,
+                payload: {
+                    summary: {
+                        capability_result: {
+                            ability_id: String(ability.id ?? "xhs.editor.input.v1"),
+                            layer: String(ability.layer ?? "L3"),
+                            action: String(consumerGateResult.action_type ?? ability.action ?? "write"),
+                            outcome: "partial",
+                            data_ref: {
+                                validation_action: "editor_input"
+                            },
+                            metrics: {
+                                count: 0
+                            }
+                        },
+                        ...gateBundle.payload,
+                        interaction_result: interactionResult
+                    },
+                    observability: {
+                        page_state: {
+                            page_kind: "compose",
+                            url: "https://creator.xiaohongshu.com/publish/publish",
+                            title: "Creator Publish",
+                            ready_state: "complete",
+                            observation_status: "complete"
+                        },
+                        key_requests: [],
+                        failure_site: null
+                    }
+                }
+            };
+        }
+        const validationText = typeof options.validation_text === "string" && options.validation_text.trim().length > 0
+            ? options.validation_text.trim()
+            : "WebEnvoy editor_input validation";
+        return {
+            kind: "result",
+            id: message.id,
+            ok: false,
+            payload: {
+                details: {
+                    ability_id: String(ability.id ?? "xhs.editor.input.v1"),
+                    stage: "execution",
+                    reason: "EDITOR_INPUT_VALIDATION_REQUIRED",
+                    ...interactionResult,
+                    consumer_gate_result: gateBundle.payload.consumer_gate_result,
+                    request_admission_result: gateBundle.payload.request_admission_result,
+                    execution_audit: gateBundle.payload.execution_audit,
+                    approval_record: gateBundle.payload.approval_record,
+                    audit_record: gateBundle.payload.audit_record
+                },
+                ...gateBundle.payload,
+                summary: {
+                    capability_result: {
+                        ability_id: String(ability.id ?? "xhs.editor.input.v1"),
+                        layer: String(ability.layer ?? "L3"),
+                        action: String(consumerGateResult.action_type ?? ability.action ?? "write"),
+                        outcome: "blocked",
+                        data_ref: {
+                            validation_action: "editor_input"
+                        },
+                        metrics: {
+                            duration_ms: 12
+                        }
+                    },
+                    ...gateBundle.payload,
+                    interaction_result: interactionResult
+                },
+                observability: {
+                    page_state: {
+                        page_kind: "compose",
+                        url: "https://creator.xiaohongshu.com/publish/publish",
+                        title: "Creator Publish",
+                        ready_state: "complete",
+                        observation_status: "complete"
+                    },
+                    key_requests: [],
+                    failure_site: {
+                        stage: "execution",
+                        component: "page",
+                        target: "editor_input",
+                        summary: "loopback transport cannot attest controlled editor_input validation"
+                    }
+                }
+            },
+            error: {
+                code: "ERR_EXECUTION_FAILED",
+                message: `editor_input validation requires a controlled execution surface: ${validationText}`
             }
         };
     }
@@ -320,7 +478,7 @@ class InMemoryContentScriptRuntime {
         const options = typeof message.commandParams.options === "object" && message.commandParams.options !== null
             ? message.commandParams.options
             : {};
-        const gateBundle = buildLoopbackXhsReadGateBundle({
+        const gateBundle = buildLoopbackXhsGateBundle({
             options,
             abilityAction: asString(ability.action),
             runId: message.runId,
@@ -814,14 +972,14 @@ class InMemoryBackgroundRelay {
             const sessionId = String(request.params.session_id ?? this.#sessionId);
             const profile = String(request.profile ?? "loopback_profile");
             let gatePayload;
-            if (XHS_READ_COMMANDS.has(command)) {
+            if (XHS_GATE_COMMANDS.has(command)) {
                 const ability = typeof commandParams.ability === "object" && commandParams.ability !== null
                     ? commandParams.ability
                     : {};
                 const options = typeof commandParams.options === "object" && commandParams.options !== null
                     ? commandParams.options
                     : {};
-                const gateBundle = buildLoopbackXhsReadGateBundle({
+                const gateBundle = buildLoopbackXhsGateBundle({
                     options,
                     abilityAction: asString(ability.action),
                     runId,
@@ -848,7 +1006,7 @@ class InMemoryBackgroundRelay {
                             payload: {
                                 details: {
                                     ability_id: String(ability.id ??
-                                        XHS_READ_COMMAND_DEFAULT_ABILITY_IDS[command] ??
+                                        XHS_GATE_COMMAND_DEFAULT_ABILITY_IDS[command] ??
                                         "xhs.note.search.v1"),
                                     stage: "execution",
                                     reason: "EXECUTION_MODE_GATE_BLOCKED",

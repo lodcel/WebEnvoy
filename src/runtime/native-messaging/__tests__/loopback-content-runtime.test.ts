@@ -266,6 +266,63 @@ describe("native messaging loopback content runtime", () => {
     });
   });
 
+  it("accepts xhs.editor_input.validate without query and returns editor_input gate diagnostics", async () => {
+    const [left, right] = createPortPair<ContentMessage>();
+
+    new InMemoryContentScriptRuntime(right);
+
+    const resultPromise = new Promise<Record<string, unknown>>((resolve) => {
+      const off = left.onMessage((message) => {
+        if (message.kind === "result") {
+          off();
+          resolve(message as Record<string, unknown>);
+        }
+      });
+    });
+
+    left.postMessage({
+      kind: "forward",
+      id: "xhs-editor-input-validate-content-001",
+      command: "xhs.editor_input.validate",
+      runId: "run-editor-input-validate-content-001",
+      sessionId: "session-editor-input-validate-content-001",
+      profile: "loopback_profile",
+      commandParams: {
+        ability: {
+          id: "xhs.editor.input.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {},
+        options: {
+          issue_scope: "issue_208",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          validation_action: "editor_input",
+          risk_state: "allowed"
+        }
+      }
+    });
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "ERR_EXECUTION_FAILED"
+      },
+      payload: {
+        details: expect.objectContaining({
+          validation_action: "editor_input",
+          target_page: "creator_publish_tab",
+          failure_signals: expect.arrayContaining(["WRITE_INTERACTION_TIER_REVERSIBLE_INTERACTION"])
+        })
+      }
+    });
+  });
+
   it("emits classifier-only account abnormal evidence on the content-script xhs read path", async () => {
     const [left, right] = createPortPair<ContentMessage>();
 

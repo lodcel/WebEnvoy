@@ -7,9 +7,15 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     ? value
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
-const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS = {
+const XHS_GATED_COMMANDS = new Set([
+    "xhs.search",
+    "xhs.editor_input.validate",
+    "xhs.detail",
+    "xhs.user_home"
+]);
+const XHS_GATED_COMMAND_DEFAULT_ABILITY_IDS = {
     "xhs.search": "xhs.note.search.v1",
+    "xhs.editor_input.validate": "xhs.editor.input.v1",
     "xhs.detail": "xhs.note.detail.v1",
     "xhs.user_home": "xhs.user.home.v1"
 };
@@ -77,7 +83,7 @@ export class InMemoryBackgroundRelay {
             const sessionId = String(request.params.session_id ?? this.#sessionId);
             const profile = String(request.profile ?? "loopback_profile");
             let gatePayload;
-            if (XHS_READ_COMMANDS.has(command)) {
+            if (XHS_GATED_COMMANDS.has(command)) {
                 const ability = typeof commandParams.ability === "object" && commandParams.ability !== null
                     ? commandParams.ability
                     : {};
@@ -115,6 +121,10 @@ export class InMemoryBackgroundRelay {
                 });
                 const consumerGateResult = asRecord(gatePayload.consumer_gate_result);
                 if (consumerGateResult?.gate_decision === "blocked") {
+                    const isEditorInputValidation = options.validation_action === "editor_input";
+                    const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
+                        ? consumerGateResult.gate_reasons.map((reason) => String(reason))
+                        : ["EXECUTION_MODE_GATE_BLOCKED"];
                     this.hostPort.postMessage({
                         kind: "response",
                         envelope: {
@@ -126,10 +136,21 @@ export class InMemoryBackgroundRelay {
                             payload: {
                                 details: {
                                     ability_id: String(ability.id ??
-                                        XHS_READ_COMMAND_DEFAULT_ABILITY_IDS[command] ??
+                                        XHS_GATED_COMMAND_DEFAULT_ABILITY_IDS[command] ??
                                         "xhs.note.search.v1"),
                                     stage: "execution",
-                                    reason: "EXECUTION_MODE_GATE_BLOCKED"
+                                    reason: "EXECUTION_MODE_GATE_BLOCKED",
+                                    ...(isEditorInputValidation
+                                        ? {
+                                            validation_action: "editor_input",
+                                            target_page: "creator_publish_tab",
+                                            focus_confirmed: false,
+                                            preserved_after_blur: false,
+                                            failure_signals: editorInputFailureSignals,
+                                            minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                                            out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+                                        }
+                                        : {})
                                 },
                                 ...gatePayload
                             },

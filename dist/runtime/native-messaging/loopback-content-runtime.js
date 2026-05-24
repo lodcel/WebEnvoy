@@ -9,7 +9,12 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
-const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
+const XHS_GATED_COMMANDS = new Set([
+    "xhs.search",
+    "xhs.editor_input.validate",
+    "xhs.detail",
+    "xhs.user_home"
+]);
 const L2_ALLOWED_ACTIONS = new Set([
     "navigate",
     "locate",
@@ -493,7 +498,7 @@ export class InMemoryContentScriptRuntime {
                 }
             });
         }
-        if (XHS_READ_COMMANDS.has(message.command)) {
+        if (XHS_GATED_COMMANDS.has(message.command)) {
             const simulated = typeof message.commandParams.options === "object" &&
                 message.commandParams.options !== null &&
                 typeof message.commandParams.options.simulate_result === "string"
@@ -568,42 +573,54 @@ export class InMemoryContentScriptRuntime {
                 }
                 throw error;
             }
-            const commandSpec = commandName === "xhs.detail"
+            const commandSpec = commandName === "xhs.editor_input.validate"
                 ? {
-                    defaultAbilityId: "xhs.note.detail.v1",
-                    page_kind: "detail",
-                    url: "https://www.xiaohongshu.com/explore/note-id",
-                    title: "Detail",
+                    defaultAbilityId: "xhs.editor.input.v1",
+                    page_kind: "compose",
+                    url: "https://creator.xiaohongshu.com/publish/publish",
+                    title: "Creator Publish",
                     request_method: "POST",
-                    request_url: "/api/sns/web/v1/feed",
+                    request_url: "/web_api/sns/v2/note",
                     successDataRef: {
-                        note_id: String(normalizedInput.note_id ?? "")
+                        validation_action: "editor_input"
                     }
                 }
-                : commandName === "xhs.user_home"
+                : commandName === "xhs.detail"
                     ? {
-                        defaultAbilityId: "xhs.user.home.v1",
-                        page_kind: "user_home",
-                        url: "https://www.xiaohongshu.com/user/profile/user-id",
-                        title: "User Home",
-                        request_method: "GET",
-                        request_url: "/api/sns/web/v1/user_posted",
+                        defaultAbilityId: "xhs.note.detail.v1",
+                        page_kind: "detail",
+                        url: "https://www.xiaohongshu.com/explore/note-id",
+                        title: "Detail",
+                        request_method: "POST",
+                        request_url: "/api/sns/web/v1/feed",
                         successDataRef: {
-                            user_id: String(normalizedInput.user_id ?? "")
+                            note_id: String(normalizedInput.note_id ?? "")
                         }
                     }
-                    : {
-                        defaultAbilityId: "xhs.note.search.v1",
-                        page_kind: "search",
-                        url: "https://www.xiaohongshu.com/search_result",
-                        title: "Search Result",
-                        request_method: "POST",
-                        request_url: "/api/sns/web/v1/search/notes",
-                        successDataRef: {
-                            query: String(normalizedInput.query ?? ""),
-                            search_id: "loopback-search-id"
+                    : commandName === "xhs.user_home"
+                        ? {
+                            defaultAbilityId: "xhs.user.home.v1",
+                            page_kind: "user_home",
+                            url: "https://www.xiaohongshu.com/user/profile/user-id",
+                            title: "User Home",
+                            request_method: "GET",
+                            request_url: "/api/sns/web/v1/user_posted",
+                            successDataRef: {
+                                user_id: String(normalizedInput.user_id ?? "")
+                            }
                         }
-                    };
+                        : {
+                            defaultAbilityId: "xhs.note.search.v1",
+                            page_kind: "search",
+                            url: "https://www.xiaohongshu.com/search_result",
+                            title: "Search Result",
+                            request_method: "POST",
+                            request_url: "/api/sns/web/v1/search/notes",
+                            successDataRef: {
+                                query: String(normalizedInput.query ?? ""),
+                                search_id: "loopback-search-id"
+                            }
+                        };
             const successObservability = {
                 page_state: {
                     page_kind: commandSpec.page_kind,
@@ -637,6 +654,10 @@ export class InMemoryContentScriptRuntime {
                 }
             });
             if (consumerGateResult.gate_decision === "blocked") {
+                const isEditorInputValidation = options.validation_action === "editor_input";
+                const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
+                    ? consumerGateResult.gate_reasons.map((reason) => String(reason))
+                    : ["EXECUTION_MODE_GATE_BLOCKED"];
                 return {
                     kind: "result",
                     id: message.id,
@@ -649,7 +670,18 @@ export class InMemoryContentScriptRuntime {
                         details: {
                             ability_id: String(ability.id ?? commandSpec.defaultAbilityId),
                             stage: "execution",
-                            reason: "EXECUTION_MODE_GATE_BLOCKED"
+                            reason: "EXECUTION_MODE_GATE_BLOCKED",
+                            ...(isEditorInputValidation
+                                ? {
+                                    validation_action: "editor_input",
+                                    target_page: "creator_publish_tab",
+                                    focus_confirmed: false,
+                                    preserved_after_blur: false,
+                                    failure_signals: editorInputFailureSignals,
+                                    minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                                    out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
+                                }
+                                : {})
                         },
                         ...gateBundle
                     }

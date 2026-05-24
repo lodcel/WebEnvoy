@@ -263,6 +263,72 @@ describe("xhs-input", () => {
     expect(parseSearchInputForContract(envelope.input, envelope.ability.id, envelope.options, envelope.ability.action)).toEqual({});
   });
 
+  it("parses xhs.editor_input.validate without a search query", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.editor.input.v1", layer: "L3", action: "write" },
+      input: {},
+      options: {
+        requested_execution_mode: "live_write",
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 11,
+        target_page: "creator_publish_tab"
+      }
+    });
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.editor_input.validate",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "local-profile",
+      upstreamAuthorization: envelope.upstreamAuthorization
+    });
+
+    expect(gate.options).toMatchObject({
+      issue_scope: "issue_208",
+      action_type: "write",
+      validation_action: "editor_input",
+      requested_execution_mode: "live_write"
+    });
+    expect(
+      parseXhsCommandInputForContract({
+        command: "xhs.editor_input.validate",
+        abilityId: envelope.ability.id,
+        abilityAction: envelope.ability.action,
+        payload: envelope.input,
+        options: gate.options
+      })
+    ).toEqual({
+      validation_action: "editor_input"
+    });
+  });
+
+  it("rejects xhs.editor_input.validate when callers override the editor_input scope", () => {
+    try {
+      normalizeGateOptionsForContract(
+        {
+          requested_execution_mode: "live_write",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 11,
+          target_page: "creator_publish_tab",
+          validation_action: "upload"
+        },
+        "xhs.editor.input.v1",
+        {
+          command: "xhs.editor_input.validate",
+          abilityAction: "write",
+          runtimeProfile: "local-profile",
+          upstreamAuthorization: null
+        }
+      );
+      throw new Error("expected invalid editor_input override to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: expect.objectContaining({
+          reason: "ACTION_REQUEST_INVALID"
+        })
+      });
+    }
+  });
+
   it("parses xhs.detail input and trims note_id", () => {
     expect(
       parseDetailInputForContract(
