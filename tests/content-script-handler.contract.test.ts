@@ -2039,6 +2039,21 @@ describe("content-script handler contract", () => {
     const payload = results[0]?.payload as Record<string, unknown>;
     const summary = payload?.summary as Record<string, unknown>;
     expect(summary?.request_context).toMatchObject({ status: "exact_hit" });
+    expect(summary?.layer2_interaction).toMatchObject({
+      strategy_selection: {
+        action_kind: "keyboard_input",
+        selected_path: "real_input",
+        event_chain: "keyboard_input",
+        blocked_by: null
+      },
+      execution_trace: {
+        action_kind: "keyboard_input",
+        selected_path: "real_input",
+        settled_wait_applied: true,
+        settled_wait_result: "settled",
+        failure_category: null
+      }
+    });
     expect(summary?.route_evidence).toMatchObject({
       evidence_class: "passive_api_capture",
       profile_ref: "profile-a",

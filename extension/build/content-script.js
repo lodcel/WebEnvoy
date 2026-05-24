@@ -5394,14 +5394,41 @@ const buildLayer2InteractionEvidence = (input) => {
     };
 };
 const buildXhsSearchLayer2InteractionEvidence = (input) => {
-    if (!input.recoveryProbe || input.requestedExecutionMode !== "recon") {
+    if (input.recoveryProbe && input.requestedExecutionMode === "recon") {
+        return buildLayer2InteractionEvidence({
+            actionKind: "scroll",
+            writeInteractionTierName: input.writeInteractionTierName ?? null,
+            executionApplied: input.executionApplied ?? false
+        });
+    }
+    const actionKind = normalizeHumanizedActionKind(input.humanizedActionKind);
+    if (!actionKind) {
         return null;
     }
     return buildLayer2InteractionEvidence({
-        actionKind: "scroll",
+        actionKind,
         writeInteractionTierName: input.writeInteractionTierName ?? null,
+        settledWaitResult: input.settledWaitResult ?? "settled",
         executionApplied: input.executionApplied ?? false
     });
+};
+const normalizeHumanizedActionKind = (value) => {
+    if (!value) {
+        return null;
+    }
+    if (value === "keyboard_input" || value === "composition_input" || value === "scroll") {
+        return value;
+    }
+    if (value === "hover_click") {
+        return "click";
+    }
+    if (value === "focus_acquire") {
+        return "focus";
+    }
+    if (value === "hover_confirm") {
+        return "hover";
+    }
+    return null;
 };
 return { buildLayer2InteractionEvidence, buildXhsSearchLayer2InteractionEvidence, getLayer2EventChainPolicies };
 })();
@@ -6253,7 +6280,7 @@ const executeXhsSearch = async (input, env) => {
     const executionStartedAt = env.now();
     const gate = resolveGate(input.options, input.executionContext, env.getLocationHref());
     const auditRecord = createAuditRecord(input.executionContext, gate, env);
-    const layer2Interaction = buildXhsSearchLayer2InteractionEvidence({
+    let layer2Interaction = buildXhsSearchLayer2InteractionEvidence({
         writeInteractionTierName: gate.write_action_matrix_decisions?.write_interaction_tier ?? null,
         requestedExecutionMode: input.options.requested_execution_mode,
         recoveryProbe: input.options.xhs_recovery_probe === true
@@ -6679,6 +6706,21 @@ const executeXhsSearch = async (input, env) => {
     let passiveActionEvidence = null;
     let requestContextState;
     const closeoutRequestContextHits = [];
+    const updateLayer2InteractionFromPassiveAction = () => {
+        const actionKind = asString(passiveActionEvidence?.action_kind);
+        const passiveActionError = asString(passiveActionEvidence?.error);
+        const nextLayer2Interaction = buildXhsSearchLayer2InteractionEvidence({
+            writeInteractionTierName: gate.write_action_matrix_decisions?.write_interaction_tier ?? null,
+            requestedExecutionMode: input.options.requested_execution_mode,
+            recoveryProbe: false,
+            humanizedActionKind: actionKind,
+            settledWaitResult: passiveActionError ? "timeout" : "settled",
+            executionApplied: passiveActionEvidence !== null
+        });
+        if (nextLayer2Interaction) {
+            layer2Interaction = nextLayer2Interaction;
+        }
+    };
     const rememberCloseoutRequestContextHit = (state) => {
         if (state.status !== "hit") {
             return;
@@ -6700,6 +6742,7 @@ const executeXhsSearch = async (input, env) => {
     const runCloseoutPassiveRound = async () => {
         passiveActionStartedAt = env.now();
         passiveActionEvidence = await performSearchPassiveAction(input, env);
+        updateLayer2InteractionFromPassiveAction();
         if (!(await confirmCurrentRequestContextProvenance())) {
             return {
                 status: "miss",
@@ -6770,6 +6813,7 @@ const executeXhsSearch = async (input, env) => {
     else {
         passiveActionStartedAt = env.now();
         passiveActionEvidence = await performSearchPassiveAction(input, env);
+        updateLayer2InteractionFromPassiveAction();
         if (!(await confirmCurrentRequestContextProvenance())) {
             return createProvenanceUnconfirmedFailure();
         }

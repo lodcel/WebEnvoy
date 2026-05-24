@@ -279,14 +279,46 @@ export const buildXhsSearchLayer2InteractionEvidence = (input: {
   writeInteractionTierName?: string | null;
   requestedExecutionMode?: string | null;
   recoveryProbe?: boolean;
+  humanizedActionKind?: string | null;
+  settledWaitResult?: "settled" | "timeout" | "skipped";
   executionApplied?: boolean;
 }): Layer2InteractionEvidence | null => {
-  if (!input.recoveryProbe || input.requestedExecutionMode !== "recon") {
+  if (input.recoveryProbe && input.requestedExecutionMode === "recon") {
+    return buildLayer2InteractionEvidence({
+      actionKind: "scroll",
+      writeInteractionTierName: input.writeInteractionTierName ?? null,
+      executionApplied: input.executionApplied ?? false
+    });
+  }
+
+  const actionKind = normalizeHumanizedActionKind(input.humanizedActionKind);
+  if (!actionKind) {
     return null;
   }
+
   return buildLayer2InteractionEvidence({
-    actionKind: "scroll",
+    actionKind,
     writeInteractionTierName: input.writeInteractionTierName ?? null,
+    settledWaitResult: input.settledWaitResult ?? "settled",
     executionApplied: input.executionApplied ?? false
   });
+};
+
+const normalizeHumanizedActionKind = (value: string | null | undefined): Layer2ActionKind | null => {
+  if (!value) {
+    return null;
+  }
+  if (value === "keyboard_input" || value === "composition_input" || value === "scroll") {
+    return value;
+  }
+  if (value === "hover_click") {
+    return "click";
+  }
+  if (value === "focus_acquire") {
+    return "focus";
+  }
+  if (value === "hover_confirm") {
+    return "hover";
+  }
+  return null;
 };
