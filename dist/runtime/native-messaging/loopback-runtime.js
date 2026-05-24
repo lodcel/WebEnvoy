@@ -9,16 +9,22 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS = {
     "xhs.search": "xhs.note.search.v1",
     "xhs.detail": "xhs.note.detail.v1",
     "xhs.user_home": "xhs.user.home.v1"
 };
-const XHS_GATE_COMMANDS = new Set([...XHS_READ_COMMANDS, XHS_EDITOR_INPUT_VALIDATE_COMMAND]);
+const XHS_GATE_COMMANDS = new Set([
+    ...XHS_READ_COMMANDS,
+    XHS_EDITOR_INPUT_VALIDATE_COMMAND,
+    XHS_EDITOR_TEXT_WRITE_COMMAND
+]);
 const XHS_GATE_COMMAND_DEFAULT_ABILITY_IDS = {
     ...XHS_READ_COMMAND_DEFAULT_ABILITY_IDS,
-    [XHS_EDITOR_INPUT_VALIDATE_COMMAND]: "xhs.editor.input.v1"
+    [XHS_EDITOR_INPUT_VALIDATE_COMMAND]: "xhs.editor.input.v1",
+    [XHS_EDITOR_TEXT_WRITE_COMMAND]: "xhs.editor.input.v1"
 };
 const XHS_READ_COMMAND_SPECS = {
     "xhs.search": {
@@ -297,7 +303,8 @@ class InMemoryContentScriptRuntime {
                 }
             };
         }
-        if (message.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
+        if (message.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND ||
+            message.command === XHS_EDITOR_TEXT_WRITE_COMMAND) {
             return this.handleXhsEditorInputValidate(message);
         }
         if (XHS_READ_COMMANDS.has(message.command)) {
@@ -345,6 +352,18 @@ class InMemoryContentScriptRuntime {
             minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
             out_of_scope_actions: ["image_upload", "submit", "publish_confirm"]
         };
+        const validationText = typeof options.validation_text === "string" && options.validation_text.trim().length > 0
+            ? options.validation_text.trim()
+            : "WebEnvoy editor_input validation";
+        const textWriteResult = options.editor_text_write === true
+            ? {
+                ...interactionResult,
+                write_action: "editor_text_write",
+                input_text: validationText,
+                submitted: false,
+                published: false
+            }
+            : null;
         if (consumerGateResult.gate_decision === "blocked") {
             return {
                 kind: "result",
@@ -361,7 +380,8 @@ class InMemoryContentScriptRuntime {
                         reason: "EXECUTION_MODE_GATE_BLOCKED",
                         ...interactionResult
                     },
-                    ...gateBundle.payload
+                    ...gateBundle.payload,
+                    ...(textWriteResult ? { text_write_result: textWriteResult } : {})
                 }
             };
         }
@@ -386,7 +406,8 @@ class InMemoryContentScriptRuntime {
                             }
                         },
                         ...gateBundle.payload,
-                        interaction_result: interactionResult
+                        interaction_result: interactionResult,
+                        ...(textWriteResult ? { text_write_result: textWriteResult } : {})
                     },
                     observability: {
                         page_state: {
@@ -402,9 +423,6 @@ class InMemoryContentScriptRuntime {
                 }
             };
         }
-        const validationText = typeof options.validation_text === "string" && options.validation_text.trim().length > 0
-            ? options.validation_text.trim()
-            : "WebEnvoy editor_input validation";
         return {
             kind: "result",
             id: message.id,
@@ -995,6 +1013,26 @@ class InMemoryBackgroundRelay {
                     const editorInputFailureSignals = Array.isArray(gateBundle.consumerGateResult.gate_reasons)
                         ? gateBundle.consumerGateResult.gate_reasons.map((reason) => String(reason))
                         : ["EXECUTION_MODE_GATE_BLOCKED"];
+                    const input = asRecord(commandParams.input) ?? {};
+                    const validationText = typeof options.validation_text === "string" && options.validation_text.trim().length > 0
+                        ? options.validation_text.trim()
+                        : String(input.text ?? "");
+                    const textWriteResult = command === XHS_EDITOR_TEXT_WRITE_COMMAND && options.editor_text_write === true
+                        ? {
+                            validation_action: "editor_input",
+                            write_action: "editor_text_write",
+                            target_page: "creator_publish_tab",
+                            input_text: validationText,
+                            focus_confirmed: false,
+                            preserved_after_blur: false,
+                            success_signals: [],
+                            failure_signals: editorInputFailureSignals,
+                            minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                            out_of_scope_actions: ["image_upload", "submit", "publish_confirm"],
+                            submitted: false,
+                            published: false
+                        }
+                        : null;
                     this.hostPort.postMessage({
                         kind: "response",
                         envelope: {
@@ -1022,7 +1060,8 @@ class InMemoryBackgroundRelay {
                                         }
                                         : {})
                                 },
-                                ...gatePayload
+                                ...gatePayload,
+                                ...(textWriteResult ? { text_write_result: textWriteResult } : {})
                             },
                             error: {
                                 code: "ERR_EXECUTION_FAILED",

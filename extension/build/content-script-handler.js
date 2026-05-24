@@ -18,6 +18,7 @@ const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk"
 const XHS_PAGE_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
+    "xhs.editor_text.write",
     "xhs.creator_publish.admit",
     "xhs.detail",
     "xhs.user_home"
@@ -2070,6 +2071,13 @@ export class ContentScriptHandler {
             return;
         }
         try {
+            if (message.command === "xhs.editor_text.write" && options.editor_text_write !== true) {
+                throw new ExtensionContractError("ERR_CLI_INVALID_ARGS", "能力输入不合法", {
+                    ability_id: String(ability.id ?? "unknown"),
+                    stage: "input_validation",
+                    reason: "EDITOR_TEXT_WRITE_MARKER_REQUIRED"
+                });
+            }
             const normalizedInput = validateXhsCommandInputForExtension({
                 command: message.command,
                 abilityId: String(ability.id ?? "unknown"),
@@ -2142,6 +2150,7 @@ export class ContentScriptHandler {
                     ...(typeof options.validation_text === "string"
                         ? { validation_text: options.validation_text }
                         : {}),
+                    ...(options.editor_text_write === true ? { editor_text_write: true } : {}),
                     ...(activeApiFetchFallback
                         ? { active_api_fetch_fallback: activeApiFetchFallback }
                         : {}),
@@ -2222,6 +2231,7 @@ export class ContentScriptHandler {
             };
             if (message.command === "xhs.search" ||
                 message.command === "xhs.editor_input.validate" ||
+                message.command === "xhs.editor_text.write" ||
                 message.command === "xhs.creator_publish.admit") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
@@ -2238,8 +2248,7 @@ export class ContentScriptHandler {
                             ? { search_id: searchInput.search_id }
                             : {}),
                         ...(typeof searchInput.sort === "string" ? { sort: searchInput.sort } : {}),
-                        ...(typeof searchInput.note_type === "string" ||
-                            typeof searchInput.note_type === "number"
+                        ...(typeof searchInput.note_type === "string" || typeof searchInput.note_type === "number"
                             ? { note_type: searchInput.note_type }
                             : {})
                     },

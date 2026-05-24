@@ -15,6 +15,7 @@ const defaultForwardTimeoutMs = 3_000;
 const XHS_FORWARD_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
+  "xhs.editor_text.write",
   "xhs.creator_publish.admit",
   "xhs.detail",
   "xhs.user_home"

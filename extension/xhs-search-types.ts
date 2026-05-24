@@ -49,6 +49,7 @@ export interface XhsSearchOptions {
   xhs_recovery_probe?: boolean;
   validation_action?: string;
   validation_text?: string;
+  editor_text_write?: boolean;
   __request_context_provenance_confirmed?: boolean;
   explicit_request_context_artifact?: Record<string, unknown>;
   active_api_fetch_fallback?: ActiveApiFetchFallbackGateOptions;

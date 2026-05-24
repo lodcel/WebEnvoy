@@ -22,8 +22,9 @@ import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
 import { readXhsCloseoutValidationGateView, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
-import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseDetailInputForContract, parseEditorInputValidateInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
+import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
@@ -2151,6 +2152,12 @@ const xhsEditorInputValidate = async (context) => {
         parseInput: () => parseEditorInputValidateInputForContract()
     });
 };
+const xhsEditorTextWrite = async (context) => {
+    return xhsReadCommand(context, {
+        fixtureDataRefKey: "validation_action",
+        parseInput: (envelope) => parseEditorTextWriteInputForContract(envelope.input, envelope.ability.id)
+    });
+};
 const xhsCreatorPublishAdmit = async (context) => {
     return xhsReadCommand(context, {
         fixtureDataRefKey: "target_page",
@@ -2381,6 +2388,12 @@ const xhsReadCommand = async (context, inputConfig) => {
                     __runtime_latest_head_sha: resolveXhsCloseoutRuntimeLatestHeadShaForContract(context.cwd)
                 }
                 : {}),
+            ...(context.command === XHS_EDITOR_TEXT_WRITE_COMMAND && typeof parsedInput.text === "string"
+                ? {
+                    validation_text: parsedInput.text,
+                    editor_text_write: true
+                }
+                : {}),
             ...(context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
                 ? {
                     profile_readiness: profileReadiness,
@@ -2592,6 +2605,12 @@ export const xhsCommands = () => [
         status: "implemented",
         requiresProfile: true,
         handler: xhsEditorInputValidate
+    },
+    {
+        name: XHS_EDITOR_TEXT_WRITE_COMMAND,
+        status: "implemented",
+        requiresProfile: true,
+        handler: xhsEditorTextWrite
     },
     {
         name: XHS_CREATOR_PUBLISH_ADMIT_COMMAND,
