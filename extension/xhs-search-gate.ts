@@ -153,6 +153,9 @@ export const resolveGate = (
     auditRecord: options.audit_record,
     admissionContext: options.admission_context,
     limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
+    additionalGateReasons: Array.isArray(options.admission_gate_reasons)
+      ? options.admission_gate_reasons.filter((reason): reason is string => typeof reason === "string")
+      : [],
     decisionId,
     approvalId,
     issue208EditorInputValidation: isIssue208EditorInputValidation(options),
@@ -259,6 +262,7 @@ export const createGateOnlySuccess = (input: {
   abilityLayer: string;
   abilityAction: string;
   params: XhsSearchParams;
+  options?: XhsSearchOptions;
 }, gate: XhsSearchGate, auditRecord: XhsExecutionAuditRecord, env: XhsSearchEnvironment) => ({
   ok: true as const,
   payload: {
@@ -268,13 +272,29 @@ export const createGateOnlySuccess = (input: {
         layer: input.abilityLayer,
         action: gate.consumer_gate_result.action_type ?? input.abilityAction,
         outcome: "partial",
-        data_ref: {
-          query: input.params.query
-        },
+        data_ref: input.params.target_page
+          ? {
+              target_page: input.params.target_page
+            }
+          : {
+              query: input.params.query
+            },
         metrics: {
           count: 0
         }
       },
+      ...(input.params.target_page
+        ? {
+            target_admission: {
+              target_domain: gate.consumer_gate_result.target_domain,
+              target_tab_id: gate.consumer_gate_result.target_tab_id,
+              target_page: gate.consumer_gate_result.target_page,
+              profile_readiness: asRecord(input.options?.profile_readiness),
+              account_readiness: asRecord(input.options?.account_readiness),
+              out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
+            }
+          }
+        : {}),
       scope_context: gate.scope_context,
       gate_input: {
         run_id: auditRecord.run_id,

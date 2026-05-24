@@ -16,6 +16,8 @@ const invalidAbilityInput = (reason, abilityId = "unknown") => new ExtensionCont
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
+const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
+const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const parseSearchInput = (payload, abilityId, options, abilityAction) => {
     const issue208EditorInputValidation = abilityAction === "write" &&
         options.issue_scope === "issue_208" &&
@@ -63,6 +65,17 @@ export const validateXhsCommandInputForExtension = (input) => {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
         }
         return { validation_action: "editor_input" };
+    }
+    if (input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND) {
+        if (input.abilityId !== "xhs.creator.publish.v1" ||
+            input.abilityAction !== "write" ||
+            input.options.issue_scope !== XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE ||
+            input.options.action_type !== "write" ||
+            input.options.target_domain !== "creator.xiaohongshu.com" ||
+            input.options.target_page !== "creator_publish_tab") {
+            throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
+        }
+        return { target_page: "creator_publish_tab" };
     }
     if (input.command === "xhs.detail") {
         const noteId = asNonEmptyString(input.payload.note_id);

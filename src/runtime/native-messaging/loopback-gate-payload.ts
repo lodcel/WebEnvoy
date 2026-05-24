@@ -18,7 +18,7 @@ const asString = (value: unknown): string | null =>
 const resolveLoopbackRiskState = (value: unknown): RiskState => resolveSharedRiskState(value);
 
 const resolveLoopbackIssueScope = (value: unknown): IssueScope =>
-  (value === "issue_208" || value === "issue_209"
+  (value === "issue_208" || value === "issue_209" || value === "issue_753"
     ? value
     : resolveSharedIssueScope(value)) as IssueScope;
 

@@ -143,6 +143,9 @@ export const buildLoopbackGate = (
     auditRecord: options.audit_record,
     admissionContext: boundAdmissionContext,
     limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
+    additionalGateReasons: Array.isArray(options.admission_gate_reasons)
+      ? options.admission_gate_reasons.filter((reason): reason is string => typeof reason === "string")
+      : [],
     gateInvocationId: linkage?.gateInvocationId,
     decisionId: linkage?.decisionId,
     approvalId: linkage?.approvalId,

@@ -59,6 +59,7 @@ import {
   ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY,
   normalizeGateOptionsForContract,
   parseAbilityEnvelopeForContract,
+  parseCreatorPublishAdmissionInputForContract,
   parseDetailInputForContract,
   parseEditorInputValidateInputForContract,
   parseSearchInputForContract,
@@ -69,10 +70,11 @@ import {
 
 type AbilityLayer = "L3" | "L2" | "L1";
 type AbilityActionName = AbilityAction;
-type XhsDataRefKey = "query" | "note_id" | "user_id" | "validation_action";
+type XhsDataRefKey = "query" | "note_id" | "user_id" | "validation_action" | "target_page";
 
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
+const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
 export { normalizeGateOptionsForContract } from "./xhs-input.js";
@@ -2894,6 +2896,13 @@ const xhsEditorInputValidate = async (context: RuntimeContext): Promise<CommandE
   });
 };
 
+const xhsCreatorPublishAdmit = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
+  return xhsReadCommand(context, {
+    fixtureDataRefKey: "target_page",
+    parseInput: () => parseCreatorPublishAdmissionInputForContract()
+  });
+};
+
 const xhsDetail = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
   return xhsReadCommand(context, {
     fixtureDataRefKey: "note_id",
@@ -2963,6 +2972,22 @@ const xhsReadCommand = async (
   const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
   let profileMeta = context.profile ? await profileStore.readMeta(context.profile) : null;
   const accountSafetyStatus = toAccountSafetyStatus(profileMeta?.accountSafety);
+  const profileReadiness = {
+    profile: context.profile ?? null,
+    profile_state: profileMeta?.profileState ?? "missing",
+    ready: profileMeta?.profileState === "ready"
+  };
+  const accountReadiness = {
+    ...accountSafetyStatus,
+    ready: accountSafetyStatus.state === "clear" && accountSafetyStatus.live_commands_blocked !== true
+  };
+  const creatorPublishAdmissionGateReasons =
+    context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
+      ? [
+          ...(profileReadiness.ready ? [] : ["PROFILE_NOT_READY"]),
+          ...(accountReadiness.ready ? [] : ["ACCOUNT_SAFETY_NOT_READY"])
+        ]
+      : [];
   let xhsCloseoutRhythmStatus = toXhsCloseoutRhythmStatus({
     rhythm: profileMeta?.xhsCloseoutRhythm,
     accountSafety: profileMeta?.accountSafety
@@ -3061,6 +3086,7 @@ const xhsReadCommand = async (
       runId: context.run_id
     });
     if (
+      context.command !== XHS_CREATOR_PUBLISH_ADMIT_COMMAND &&
       shouldReturnInProcessGateOnlyResult({
         requestedExecutionMode: gate.requestedExecutionMode
       })
@@ -3144,6 +3170,13 @@ const xhsReadCommand = async (
             __runtime_latest_head_sha: resolveXhsCloseoutRuntimeLatestHeadShaForContract(
               context.cwd
             )
+          }
+        : {}),
+      ...(context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
+        ? {
+            profile_readiness: profileReadiness,
+            account_readiness: accountReadiness,
+            admission_gate_reasons: creatorPublishAdmissionGateReasons
           }
         : {}),
       ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
@@ -3406,6 +3439,12 @@ export const xhsCommands = (): CommandDefinition[] => [
     status: "implemented",
     requiresProfile: true,
     handler: xhsEditorInputValidate
+  },
+  {
+    name: XHS_CREATOR_PUBLISH_ADMIT_COMMAND,
+    status: "implemented",
+    requiresProfile: true,
+    handler: xhsCreatorPublishAdmit
   },
   {
     name: "xhs.detail",

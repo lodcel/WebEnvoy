@@ -122,6 +122,7 @@ const XHS_LIVE_EXECUTION_MODES = new Set([
 const XHS_GATE_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
+    "xhs.creator_publish.admit",
     "xhs.detail",
     "xhs.user_home"
 ]);
@@ -182,6 +183,9 @@ const resolvePreferredXhsReadPage = (command, targetPage) => {
     }
     if (command === "xhs.search") {
         return "search_result_tab";
+    }
+    if (command === "xhs.creator_publish.admit") {
+        return null;
     }
     return null;
 };
@@ -856,6 +860,9 @@ const XHS_FORWARD_OPTION_KEYS = [
     "approval_record",
     "audit_record",
     "admission_context",
+    "profile_readiness",
+    "account_readiness",
+    "admission_gate_reasons",
     "upstream_authorization_request",
     "__legacy_requested_execution_mode",
     "__runtime_profile_ref",
@@ -1267,9 +1274,13 @@ const createBridgeXhsGateOnlyPayload = (request, gatePayload) => {
             ? {
                 user_id: String(normalizedInput.user_id ?? "")
             }
-            : {
-                query: String(normalizedInput.query ?? "")
-            };
+            : command === "xhs.creator_publish.admit"
+                ? {
+                    target_page: "creator_publish_tab"
+                }
+                : {
+                    query: String(normalizedInput.query ?? "")
+                };
     const capabilityResult = {
         ability_id: String(ability.id ?? "xhs.note.search.v1"),
         layer: String(ability.layer ?? "L3"),

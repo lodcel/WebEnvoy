@@ -38,12 +38,15 @@ const XHS_COMMAND_ACTION_NAMES = {
     "xhs.search::xhs.note.search.v1": "xhs.read_search_results",
     "xhs.search::xhs.editor.input.v1": "xhs.write_editor_input",
     "xhs.editor_input.validate::xhs.editor.input.v1": "xhs.write_editor_input",
+    "xhs.creator_publish.admit::xhs.creator.publish.v1": "xhs.admit_creator_publish_target",
     "xhs.detail::xhs.note.detail.v1": "xhs.read_note_detail",
     "xhs.user_home::xhs.user.home.v1": "xhs.read_user_home"
 };
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 // #752 adds a clearer command name, while the runtime gate still consumes the #208 editor_input validation scope.
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
+const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const ISSUE209_LIVE_REQUEST_ID_PREFIX = "issue209-live";
 const ISSUE209_GATE_INVOCATION_ID_PREFIX = "issue209-gate";
 export const ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY = "__issue209_admission_draft";
@@ -101,6 +104,12 @@ const inferRequestedExecutionModeForContract = (input) => {
     if (!input.upstreamAuthorization) {
         return input.explicitRequestedExecutionMode;
     }
+    if (input.admissionOnlyWrite) {
+        return input.explicitRequestedExecutionMode === "dry_run" ||
+            input.explicitRequestedExecutionMode === "recon"
+            ? input.explicitRequestedExecutionMode
+            : null;
+    }
     if (input.normalizedActionType === "write" || input.normalizedActionType === "irreversible_write") {
         return "live_write";
     }
@@ -123,6 +132,7 @@ const inferRequestedExecutionModeForContract = (input) => {
     return "dry_run";
 };
 const resolveInferredIssueScopeForContract = (options) => {
+    const explicitIssueScope = asString(options.issue_scope);
     if (asString(options.validation_action) === "editor_input" &&
         asString(options.action_type) === "write" &&
         asString(options.target_domain) === XHS_WRITE_DOMAIN &&
@@ -130,7 +140,13 @@ const resolveInferredIssueScopeForContract = (options) => {
         options.requested_execution_mode === "live_write") {
         return "issue_208";
     }
-    const explicitIssueScope = asString(options.issue_scope);
+    if (explicitIssueScope === "issue_753" &&
+        asString(options.action_type) === "write" &&
+        asString(options.target_domain) === XHS_WRITE_DOMAIN &&
+        asString(options.target_page) === "creator_publish_tab" &&
+        (options.requested_execution_mode === "dry_run" || options.requested_execution_mode === "recon")) {
+        return "issue_753";
+    }
     if (explicitIssueScope === "issue_209") {
         return "issue_209";
     }
@@ -148,6 +164,13 @@ const resolveInferredIssueScopeForContract = (options) => {
 };
 const resolveCanonicalIssueScopeForContract = (options) => {
     const explicitIssueScope = asString(options.issue_scope);
+    if (explicitIssueScope === "issue_753" &&
+        asString(options.action_type) === "write" &&
+        asString(options.target_domain) === XHS_WRITE_DOMAIN &&
+        asString(options.target_page) === "creator_publish_tab" &&
+        (options.requested_execution_mode === "dry_run" || options.requested_execution_mode === "recon")) {
+        return "issue_753";
+    }
     if (explicitIssueScope === "issue_209") {
         return "issue_209";
     }
@@ -472,6 +495,9 @@ export const parseSearchInputForContract = (input, abilityId, options, abilityAc
 export const parseEditorInputValidateInputForContract = () => ({
     validation_action: "editor_input"
 });
+export const parseCreatorPublishAdmissionInputForContract = () => ({
+    target_page: "creator_publish_tab"
+});
 export const parseDetailInputForContract = (input, abilityId) => {
     const noteId = typeof input.note_id === "string" && input.note_id.trim().length > 0 ? input.note_id.trim() : null;
     if (!noteId) {
@@ -497,6 +523,9 @@ export const parseXhsCommandInputForContract = (input) => {
     if (input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
         return parseEditorInputValidateInputForContract();
     }
+    if (input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND) {
+        return parseCreatorPublishAdmissionInputForContract();
+    }
     if (input.command === "xhs.detail") {
         return parseDetailInputForContract(input.payload, input.abilityId);
     }
@@ -507,6 +536,7 @@ export const parseXhsCommandInputForContract = (input) => {
 };
 export const normalizeGateOptionsForContract = (options, abilityId, input) => {
     const upstreamAuthorization = input?.upstreamAuthorization ?? null;
+    const isCreatorPublishAdmissionCommand = input?.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND;
     if (input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND) {
         if (abilityId !== "xhs.editor.input.v1" || input.abilityAction !== "write") {
             throw invalidAbilityInput("ABILITY_COMMAND_UNSUPPORTED", abilityId);
@@ -527,6 +557,20 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", abilityId);
         }
     }
+    if (isCreatorPublishAdmissionCommand) {
+        if (abilityId !== "xhs.creator.publish.v1" || input.abilityAction !== "write") {
+            throw invalidAbilityInput("ABILITY_COMMAND_UNSUPPORTED", abilityId);
+        }
+        const explicitIssueScope = hasOwn(options, "issue_scope") ? asString(options.issue_scope) : null;
+        const explicitActionType = hasOwn(options, "action_type") ? asString(options.action_type) : null;
+        if (hasOwn(options, "issue_scope") &&
+            explicitIssueScope !== XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE) {
+            throw invalidAbilityInput("ISSUE_SCOPE_CONFLICT", abilityId);
+        }
+        if (hasOwn(options, "action_type") && explicitActionType !== "write") {
+            throw invalidAbilityInput("ACTION_TYPE_CONFLICT", abilityId);
+        }
+    }
     const canonicalOptions = input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND
         ? {
             ...options,
@@ -534,7 +578,13 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
             action_type: "write",
             validation_action: "editor_input"
         }
-        : options;
+        : input?.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
+            ? {
+                ...options,
+                issue_scope: XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE,
+                action_type: "write"
+            }
+            : options;
     const canonicalActionName = upstreamAuthorization && input?.command
         ? XHS_COMMAND_ACTION_NAMES[`${input.command}::${abilityId}`] ?? null
         : null;
@@ -605,7 +655,8 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
         normalizedActionType,
         explicitRequestedExecutionMode: requestedExecutionMode,
         targetDomain,
-        upstreamAuthorization
+        upstreamAuthorization,
+        admissionOnlyWrite: isCreatorPublishAdmissionCommand
     });
     const projectedRiskState = upstreamAuthorization && requestedExecutionModeFromContract !== null
         ? projectRiskStateForContract(upstreamAuthorization.authorization_grant.resource_state_snapshot) ??
@@ -668,7 +719,8 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
     if (upstreamAuthorization &&
         hasOwn(options, "issue_scope") &&
         explicitIssueScope !== "issue_208" &&
-        explicitIssueScope !== "issue_209") {
+        explicitIssueScope !== "issue_209" &&
+        explicitIssueScope !== "issue_753") {
         throw invalidAbilityInput("ISSUE_SCOPE_INVALID", abilityId);
     }
     if (upstreamAuthorization && legacyActionType && legacyActionType !== legacyProjectedActionType) {
@@ -698,6 +750,7 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
             throw invalidAbilityInput("REQUESTED_EXECUTION_MODE_CONFLICT", abilityId);
         }
         if (normalizedActionType !== "read" &&
+            !isCreatorPublishAdmissionCommand &&
             requestedExecutionModeFromContract !== "live_write") {
             throw invalidAbilityInput("REQUESTED_EXECUTION_MODE_CONFLICT", abilityId);
         }
@@ -707,6 +760,14 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
         }
         if (inferredIssueScope === "issue_208" && requestedExecutionModeFromContract !== "live_write") {
             throw invalidAbilityInput("REQUESTED_EXECUTION_MODE_CONFLICT", abilityId);
+        }
+        if (isCreatorPublishAdmissionCommand &&
+            (inferredIssueScope !== "issue_753" ||
+                targetDomain !== XHS_WRITE_DOMAIN ||
+                targetPage !== "creator_publish_tab" ||
+                (requestedExecutionModeFromContract !== "dry_run" &&
+                    requestedExecutionModeFromContract !== "recon"))) {
+            throw invalidAbilityInput("TARGET_PAGE_INVALID", abilityId);
         }
         const allowedResourceKinds = asStringArray(upstreamAuthorization.authorization_grant.binding_scope.allowed_resource_kinds);
         const allowedProfileRefs = asStringArray(upstreamAuthorization.authorization_grant.binding_scope.allowed_profile_refs);
@@ -728,7 +789,7 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
         explicitIssueScope !== inferredIssueScope) {
         throw invalidAbilityInput("ISSUE_SCOPE_CONFLICT", abilityId);
     }
-    const canonicalIssueScope = !upstreamAuthorization && inferredIssueScope === "issue_209"
+    const canonicalIssueScope = !upstreamAuthorization && (inferredIssueScope === "issue_209" || inferredIssueScope === "issue_753")
         ? inferredIssueScope
         : explicitIssueScope ?? inferredIssueScope ?? resolveCanonicalIssueScopeForContract({
             ...canonicalOptions,

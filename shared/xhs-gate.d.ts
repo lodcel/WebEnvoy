@@ -203,6 +203,7 @@ export interface XhsGateCoreInput {
   decisionId?: unknown;
   approvalId?: unknown;
   issue208EditorInputValidation?: boolean;
+  additionalGateReasons?: string[];
   includeWriteInteractionTierReason?: boolean;
   treatMissingEditorValidationAsUnsupported?: boolean;
   writeGateOnlyEligibleBehavior?: "allow" | "block";

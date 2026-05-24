@@ -1,5 +1,5 @@
 export type RiskState = "paused" | "limited" | "allowed";
-export type IssueScope = "issue_208" | "issue_209";
+export type IssueScope = "issue_208" | "issue_209" | "issue_753";
 export type ExecutionMode =
   | "dry_run"
   | "recon"
@@ -154,6 +154,6 @@ export declare const buildUnifiedRiskStateOutput: (
     transitions: RiskStateTransition[];
     hard_block_when_paused: string[];
   };
-  issue_action_matrix: [IssueActionMatrixEntry, IssueActionMatrixEntry];
+  issue_action_matrix: [IssueActionMatrixEntry, IssueActionMatrixEntry, IssueActionMatrixEntry];
   recovery_requirements: string[];
 };

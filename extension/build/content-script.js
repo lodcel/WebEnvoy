@@ -3,7 +3,7 @@
 
 const __webenvoy_module_risk_state = (() => {
 const RISK_STATES = ["paused", "limited", "allowed"];
-const ISSUE_SCOPES = ["issue_208", "issue_209"];
+const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753"];
 const EXECUTION_MODES = [
   "dry_run",
   "recon",
@@ -155,6 +155,48 @@ const ISSUE_ACTION_MATRIX = [
       }
     ],
     blocked_actions: ["live_write", "irreversible_write", "expand_new_live_surface_without_gate"]
+  },
+  {
+    issue_scope: "issue_753",
+    state: "paused",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_753",
+    state: "limited",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_753",
+    state: "allowed",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
   }
 ];
 const SESSION_RHYTHM_POLICY = {
@@ -532,7 +574,8 @@ const buildUnifiedRiskStateOutput = (state, options = {}) => ({
   },
   issue_action_matrix: [
     getIssueActionMatrixEntry("issue_208", state),
-    getIssueActionMatrixEntry("issue_209", state)
+    getIssueActionMatrixEntry("issue_209", state),
+    getIssueActionMatrixEntry("issue_753", state)
   ],
   recovery_requirements: getRiskRecoveryRequirements(state)
 });
@@ -3813,6 +3856,10 @@ const collectXhsMatrixGateReasons = (input) => {
   );
   let writeGateOnlyEligible = false;
   let writeGateOnlyDecision = null;
+  const issue753CreatorPublishAdmission =
+    state.issueScope === "issue_753" &&
+    state.actionType === "write" &&
+    (state.requestedExecutionMode === "dry_run" || state.requestedExecutionMode === "recon");
 
   if (gateReasons.length === 0) {
     if (state.isBlockedByStateMatrix) {
@@ -3888,7 +3935,7 @@ const collectXhsMatrixGateReasons = (input) => {
         approval_missing_requirements: approvalRequirementGaps,
         execution_enabled: writeGateOnlyEligible
       };
-    } else if (state.actionType && state.actionType !== "read") {
+    } else if (state.actionType && state.actionType !== "read" && !issue753CreatorPublishAdmission) {
       if (state.isLiveReadMode) {
         pushReason(gateReasons, "ACTION_TYPE_MODE_MISMATCH");
       }
@@ -4950,6 +4997,9 @@ const resolveGate = (options, context, actualTargetUrl) => {
         auditRecord: options.audit_record,
         admissionContext: options.admission_context,
         limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
+        additionalGateReasons: Array.isArray(options.admission_gate_reasons)
+            ? options.admission_gate_reasons.filter((reason) => typeof reason === "string")
+            : [],
         decisionId,
         approvalId,
         issue208EditorInputValidation: isIssue208EditorInputValidation(options),
@@ -5044,13 +5094,29 @@ const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                 layer: input.abilityLayer,
                 action: gate.consumer_gate_result.action_type ?? input.abilityAction,
                 outcome: "partial",
-                data_ref: {
-                    query: input.params.query
-                },
+                data_ref: input.params.target_page
+                    ? {
+                        target_page: input.params.target_page
+                    }
+                    : {
+                        query: input.params.query
+                    },
                 metrics: {
                     count: 0
                 }
             },
+            ...(input.params.target_page
+                ? {
+                    target_admission: {
+                        target_domain: gate.consumer_gate_result.target_domain,
+                        target_tab_id: gate.consumer_gate_result.target_tab_id,
+                        target_page: gate.consumer_gate_result.target_page,
+                        profile_readiness: asRecord(input.options?.profile_readiness),
+                        account_readiness: asRecord(input.options?.account_readiness),
+                        out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
+                    }
+                }
+                : {}),
             scope_context: gate.scope_context,
             gate_input: {
                 run_id: auditRecord.run_id,
@@ -10101,6 +10167,8 @@ const invalidAbilityInput = (reason, abilityId = "unknown") => new ExtensionCont
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
+const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
+const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const parseSearchInput = (payload, abilityId, options, abilityAction) => {
     const issue208EditorInputValidation = abilityAction === "write" &&
         options.issue_scope === "issue_208" &&
@@ -10148,6 +10216,17 @@ const validateXhsCommandInputForExtension = (input) => {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
         }
         return { validation_action: "editor_input" };
+    }
+    if (input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND) {
+        if (input.abilityId !== "xhs.creator.publish.v1" ||
+            input.abilityAction !== "write" ||
+            input.options.issue_scope !== XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE ||
+            input.options.action_type !== "write" ||
+            input.options.target_domain !== "creator.xiaohongshu.com" ||
+            input.options.target_page !== "creator_publish_tab") {
+            throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
+        }
+        return { target_page: "creator_publish_tab" };
     }
     if (input.command === "xhs.detail") {
         const noteId = asNonEmptyString(input.payload.note_id);
@@ -10857,6 +10936,7 @@ const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk"
 const XHS_PAGE_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
+    "xhs.creator_publish.admit",
     "xhs.detail",
     "xhs.user_home"
 ]);
@@ -12997,6 +13077,17 @@ class ContentScriptHandler {
                     ...(asRecord(options.admission_context)
                         ? { admission_context: asRecord(options.admission_context) ?? {} }
                         : {}),
+                    ...(asRecord(options.profile_readiness)
+                        ? { profile_readiness: asRecord(options.profile_readiness) ?? {} }
+                        : {}),
+                    ...(asRecord(options.account_readiness)
+                        ? { account_readiness: asRecord(options.account_readiness) ?? {} }
+                        : {}),
+                    ...(Array.isArray(options.admission_gate_reasons)
+                        ? {
+                            admission_gate_reasons: options.admission_gate_reasons.filter((reason) => typeof reason === "string")
+                        }
+                        : {}),
                     ...(asRecord(options.approval) ? { approval: asRecord(options.approval) ?? {} } : {}),
                     ...(actualTargetDomain === XHS_READ_DOMAIN
                         ? {
@@ -13047,13 +13138,18 @@ class ContentScriptHandler {
                 }
                 return capturedRequestContextProvenanceConfirmed(result, expected);
             };
-            if (message.command === "xhs.search" || message.command === "xhs.editor_input.validate") {
+            if (message.command === "xhs.search" ||
+                message.command === "xhs.editor_input.validate" ||
+                message.command === "xhs.creator_publish.admit") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({
                     ...commonInput,
                     params: {
                         query: searchInput.query,
+                        ...(message.command === "xhs.creator_publish.admit"
+                            ? { target_page: "creator_publish_tab" }
+                            : {}),
                         ...(typeof searchInput.limit === "number" ? { limit: searchInput.limit } : {}),
                         ...(typeof searchInput.page === "number" ? { page: searchInput.page } : {}),
                         ...(typeof searchInput.search_id === "string"

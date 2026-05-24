@@ -300,6 +300,205 @@ describe("xhs-input", () => {
     });
   });
 
+  it("parses xhs.creator_publish.admit as issue_753 creator publish target admission", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
+      input: {},
+      options: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "dry_run",
+        risk_state: "allowed"
+      }
+    });
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.creator_publish.admit",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "profile-a"
+    });
+
+    expect(parseXhsCommandInputForContract({
+      command: "xhs.creator_publish.admit",
+      abilityId: envelope.ability.id,
+      abilityAction: envelope.ability.action,
+      payload: envelope.input,
+      options: gate.options
+    })).toEqual({
+      target_page: "creator_publish_tab"
+    });
+    expect(gate).toMatchObject({
+      targetDomain: "creator.xiaohongshu.com",
+      targetTabId: 32,
+      targetPage: "creator_publish_tab",
+      requestedExecutionMode: "dry_run",
+      options: {
+        issue_scope: "issue_753",
+        action_type: "write"
+      }
+    });
+  });
+
+  it("rejects xhs.creator_publish.admit when callers override the issue_753 scope", () => {
+    try {
+      normalizeGateOptionsForContract(
+        {
+          issue_scope: "issue_208",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "dry_run",
+          risk_state: "allowed"
+        },
+        "xhs.creator.publish.v1",
+        {
+          command: "xhs.creator_publish.admit",
+          abilityAction: "write",
+          runtimeProfile: "profile-a"
+        }
+      );
+      throw new Error("expected invalid creator publish scope override to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: {
+          reason: "ISSUE_SCOPE_CONFLICT"
+        }
+      });
+    }
+  });
+
+  it("normalizes xhs.creator_publish.admit upstream authorization without upgrading to live_write", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
+      input: {},
+      options: {
+        issue_scope: "issue_753",
+        action_type: "write",
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "dry_run",
+        risk_state: "allowed"
+      },
+      action_request: {
+        request_ref: "upstream_req_creator_admit_001",
+        action_name: "xhs.admit_creator_publish_target",
+        action_category: "write"
+      },
+      resource_binding: {
+        binding_ref: "binding_creator_admit_001",
+        resource_kind: "profile_session",
+        profile_ref: "profile-a"
+      },
+      authorization_grant: {
+        grant_ref: "grant_creator_admit_001",
+        allowed_actions: ["xhs.admit_creator_publish_target"],
+        binding_scope: {
+          allowed_resource_kinds: ["profile_session"],
+          allowed_profile_refs: ["profile-a"]
+        },
+        target_scope: {
+          allowed_domains: ["creator.xiaohongshu.com"],
+          allowed_pages: ["creator_publish_tab"]
+        },
+        resource_state_snapshot: "active"
+      },
+      runtime_target: {
+        target_ref: "target_creator_publish_001",
+        domain: "creator.xiaohongshu.com",
+        page: "creator_publish_tab",
+        tab_id: 32
+      }
+    });
+
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.creator_publish.admit",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "profile-a",
+      upstreamAuthorization: envelope.upstreamAuthorization
+    });
+
+    expect(gate).toMatchObject({
+      targetDomain: "creator.xiaohongshu.com",
+      targetTabId: 32,
+      targetPage: "creator_publish_tab",
+      requestedExecutionMode: "dry_run",
+      options: {
+        issue_scope: "issue_753",
+        action_type: "write",
+        upstream_authorization_request: {
+          action_request: {
+            action_name: "xhs.admit_creator_publish_target",
+            action_category: "write"
+          }
+        }
+      }
+    });
+  });
+
+  it("rejects xhs.creator_publish.admit upstream authorization for a non-creator target page", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
+      input: {},
+      options: {
+        issue_scope: "issue_753",
+        action_type: "write",
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "search_result_tab",
+        requested_execution_mode: "dry_run",
+        risk_state: "allowed"
+      },
+      action_request: {
+        request_ref: "upstream_req_creator_admit_invalid_page_001",
+        action_name: "xhs.admit_creator_publish_target",
+        action_category: "write"
+      },
+      resource_binding: {
+        binding_ref: "binding_creator_admit_invalid_page_001",
+        resource_kind: "profile_session",
+        profile_ref: "profile-a"
+      },
+      authorization_grant: {
+        grant_ref: "grant_creator_admit_invalid_page_001",
+        allowed_actions: ["xhs.admit_creator_publish_target"],
+        binding_scope: {
+          allowed_resource_kinds: ["profile_session"],
+          allowed_profile_refs: ["profile-a"]
+        },
+        target_scope: {
+          allowed_domains: ["creator.xiaohongshu.com"],
+          allowed_pages: ["creator_publish_tab"]
+        },
+        resource_state_snapshot: "active"
+      },
+      runtime_target: {
+        target_ref: "target_creator_publish_invalid_page_001",
+        domain: "creator.xiaohongshu.com",
+        page: "search_result_tab",
+        tab_id: 32
+      }
+    });
+
+    try {
+      normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+        command: "xhs.creator_publish.admit",
+        abilityAction: envelope.ability.action,
+        runtimeProfile: "profile-a",
+        upstreamAuthorization: envelope.upstreamAuthorization
+      });
+      throw new Error("expected invalid creator publish upstream target page to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: {
+          reason: "TARGET_PAGE_INVALID"
+        }
+      });
+    }
+  });
+
   it("rejects xhs.editor_input.validate when callers override the editor_input scope", () => {
     try {
       normalizeGateOptionsForContract(
