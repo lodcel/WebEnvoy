@@ -63,6 +63,7 @@ import {
   parseDetailInputForContract,
   parseEditorTextWriteInputForContract,
   parseEditorInputValidateInputForContract,
+  parseMediaUploadDiscoveryInputForContract,
   parseSearchInputForContract,
   parseUserHomeInputForContract,
   prepareIssue209LiveReadEnvelopeForContract,
@@ -77,6 +78,7 @@ const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
+const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
 export { normalizeGateOptionsForContract } from "./xhs-input.js";
@@ -2913,6 +2915,13 @@ const xhsCreatorPublishAdmit = async (context: RuntimeContext): Promise<CommandE
   });
 };
 
+const xhsMediaUploadDiscover = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
+  return xhsReadCommand(context, {
+    fixtureDataRefKey: "target_page",
+    parseInput: () => parseMediaUploadDiscoveryInputForContract()
+  });
+};
+
 const xhsDetail = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
   return xhsReadCommand(context, {
     fixtureDataRefKey: "note_id",
@@ -3097,6 +3106,7 @@ const xhsReadCommand = async (
     });
     if (
       context.command !== XHS_CREATOR_PUBLISH_ADMIT_COMMAND &&
+      context.command !== XHS_MEDIA_UPLOAD_DISCOVER_COMMAND &&
       shouldReturnInProcessGateOnlyResult({
         requestedExecutionMode: gate.requestedExecutionMode
       })
@@ -3467,6 +3477,12 @@ export const xhsCommands = (): CommandDefinition[] => [
     status: "implemented",
     requiresProfile: true,
     handler: xhsCreatorPublishAdmit
+  },
+  {
+    name: XHS_MEDIA_UPLOAD_DISCOVER_COMMAND,
+    status: "implemented",
+    requiresProfile: true,
+    handler: xhsMediaUploadDiscover
   },
   {
     name: "xhs.detail",

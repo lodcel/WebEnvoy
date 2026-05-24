@@ -485,6 +485,81 @@ describe("native messaging loopback content runtime", () => {
     expect(details).not.toHaveProperty("input_text");
   });
 
+  it("accepts xhs.media_upload.discover and returns dry-run upload path evidence", async () => {
+    const [left, right] = createPortPair<ContentMessage>();
+
+    new InMemoryContentScriptRuntime(right);
+
+    const resultPromise = new Promise<Record<string, unknown>>((resolve) => {
+      const off = left.onMessage((message) => {
+        if (message.kind === "result") {
+          off();
+          resolve(message as Record<string, unknown>);
+        }
+      });
+    });
+
+    left.postMessage({
+      kind: "forward",
+      id: "xhs-media-upload-discover-content-001",
+      command: "xhs.media_upload.discover",
+      runId: "run-media-upload-discover-content-001",
+      sessionId: "session-media-upload-discover-content-001",
+      profile: "loopback_profile",
+      commandParams: {
+        ability: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {},
+        options: {
+          issue_scope: "issue_755",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "dry_run",
+          discovery_action: "media_upload_path",
+          risk_state: "allowed"
+        }
+      }
+    });
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      ok: true,
+      payload: {
+        summary: {
+          capability_result: {
+            ability_id: "xhs.creator.publish.v1",
+            outcome: "partial",
+            data_ref: {
+              target_page: "creator_publish_tab",
+              discovery_action: "media_upload_path"
+            }
+          },
+          media_upload_discovery: {
+            discovery_action: "media_upload_path",
+            submitted: false,
+            published: false,
+            file_selection_boundary: {
+              file_bytes_read: false,
+              native_picker_opened: false,
+              data_transfer_injected: false,
+              real_upload_attempted: false
+            }
+          }
+        }
+      }
+    });
+    const payload = result.payload as Record<string, unknown>;
+    const summary = payload.summary as Record<string, unknown>;
+    expect(summary.upload_path_catalog).toEqual(
+      (summary.media_upload_discovery as Record<string, unknown>).upload_path_catalog
+    );
+  });
+
   it("emits classifier-only account abnormal evidence on the content-script xhs read path", async () => {
     const [left, right] = createPortPair<ContentMessage>();
 

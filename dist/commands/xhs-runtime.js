@@ -22,11 +22,12 @@ import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
 import { readXhsCloseoutValidationGateView, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
-import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
+import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
+const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
 export { normalizeGateOptionsForContract } from "./xhs-input.js";
 const asObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
@@ -2164,6 +2165,12 @@ const xhsCreatorPublishAdmit = async (context) => {
         parseInput: () => parseCreatorPublishAdmissionInputForContract()
     });
 };
+const xhsMediaUploadDiscover = async (context) => {
+    return xhsReadCommand(context, {
+        fixtureDataRefKey: "target_page",
+        parseInput: () => parseMediaUploadDiscoveryInputForContract()
+    });
+};
 const xhsDetail = async (context) => {
     return xhsReadCommand(context, {
         fixtureDataRefKey: "note_id",
@@ -2321,6 +2328,7 @@ const xhsReadCommand = async (context, inputConfig) => {
             runId: context.run_id
         });
         if (context.command !== XHS_CREATOR_PUBLISH_ADMIT_COMMAND &&
+            context.command !== XHS_MEDIA_UPLOAD_DISCOVER_COMMAND &&
             shouldReturnInProcessGateOnlyResult({
                 requestedExecutionMode: gate.requestedExecutionMode
             })) {
@@ -2617,6 +2625,12 @@ export const xhsCommands = () => [
         status: "implemented",
         requiresProfile: true,
         handler: xhsCreatorPublishAdmit
+    },
+    {
+        name: XHS_MEDIA_UPLOAD_DISCOVER_COMMAND,
+        status: "implemented",
+        requiresProfile: true,
+        handler: xhsMediaUploadDiscover
     },
     {
         name: "xhs.detail",

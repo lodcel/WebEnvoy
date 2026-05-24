@@ -3,7 +3,7 @@
 
 const __webenvoy_module_risk_state = (() => {
 const RISK_STATES = ["paused", "limited", "allowed"];
-const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753"];
+const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753", "issue_755"];
 const EXECUTION_MODES = [
   "dry_run",
   "recon",
@@ -186,6 +186,48 @@ const ISSUE_ACTION_MATRIX = [
   },
   {
     issue_scope: "issue_753",
+    state: "allowed",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_755",
+    state: "paused",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_755",
+    state: "limited",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_755",
     state: "allowed",
     allowed_actions: ["dry_run", "recon"],
     conditional_actions: [],
@@ -575,7 +617,8 @@ const buildUnifiedRiskStateOutput = (state, options = {}) => ({
   issue_action_matrix: [
     getIssueActionMatrixEntry("issue_208", state),
     getIssueActionMatrixEntry("issue_209", state),
-    getIssueActionMatrixEntry("issue_753", state)
+    getIssueActionMatrixEntry("issue_753", state),
+    getIssueActionMatrixEntry("issue_755", state)
   ],
   recovery_requirements: getRiskRecoveryRequirements(state)
 });
@@ -3860,6 +3903,10 @@ const collectXhsMatrixGateReasons = (input) => {
     state.issueScope === "issue_753" &&
     state.actionType === "write" &&
     (state.requestedExecutionMode === "dry_run" || state.requestedExecutionMode === "recon");
+  const issue755MediaUploadDiscovery =
+    state.issueScope === "issue_755" &&
+    state.actionType === "write" &&
+    (state.requestedExecutionMode === "dry_run" || state.requestedExecutionMode === "recon");
 
   if (gateReasons.length === 0) {
     if (state.isBlockedByStateMatrix) {
@@ -3935,7 +3982,12 @@ const collectXhsMatrixGateReasons = (input) => {
         approval_missing_requirements: approvalRequirementGaps,
         execution_enabled: writeGateOnlyEligible
       };
-    } else if (state.actionType && state.actionType !== "read" && !issue753CreatorPublishAdmission) {
+    } else if (
+      state.actionType &&
+      state.actionType !== "read" &&
+      !issue753CreatorPublishAdmission &&
+      !issue755MediaUploadDiscovery
+    ) {
       if (state.isLiveReadMode) {
         pushReason(gateReasons, "ACTION_TYPE_MODE_MISMATCH");
       }
@@ -6229,6 +6281,64 @@ const executeXhsSearch = async (input, env) => {
             reason: "EXECUTION_MODE_GATE_BLOCKED",
             summary: "执行模式门禁阻断"
         }), gate, auditRecord), gate.execution_audit), layer2Interaction);
+    }
+    if (input.options.issue_scope === "issue_755" &&
+        input.options.discovery_action === "media_upload_path" &&
+        input.options.target_page === "creator_publish_tab" &&
+        (gate.consumer_gate_result.effective_execution_mode === "dry_run" ||
+            gate.consumer_gate_result.effective_execution_mode === "recon")) {
+        const mediaUploadDiscovery = env.performMediaUploadDiscovery
+            ? await env.performMediaUploadDiscovery()
+            : buildXhsMediaUploadDiscoveryResult();
+        return {
+            ok: true,
+            payload: {
+                summary: {
+                    capability_result: {
+                        ability_id: input.abilityId,
+                        layer: input.abilityLayer,
+                        action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+                        outcome: "partial",
+                        data_ref: {
+                            target_page: "creator_publish_tab",
+                            discovery_action: "media_upload_path"
+                        },
+                        metrics: {
+                            duration_ms: Math.max(0, env.now() - startedAt)
+                        }
+                    },
+                    scope_context: gate.scope_context,
+                    gate_input: {
+                        run_id: auditRecord.run_id,
+                        session_id: auditRecord.session_id,
+                        profile: auditRecord.profile,
+                        ...gate.gate_input
+                    },
+                    gate_outcome: gate.gate_outcome,
+                    read_execution_policy: gate.read_execution_policy,
+                    issue_action_matrix: gate.issue_action_matrix,
+                    write_interaction_tier: gate.write_interaction_tier,
+                    write_action_matrix_decisions: gate.write_action_matrix_decisions,
+                    consumer_gate_result: gate.consumer_gate_result,
+                    request_admission_result: gate.request_admission_result,
+                    execution_audit: gate.execution_audit,
+                    approval_record: gate.approval_record,
+                    risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+                    audit_record: auditRecord,
+                    ...layer2InteractionSummary(layer2Interaction),
+                    media_upload_discovery: mediaUploadDiscovery,
+                    upload_path_catalog: mediaUploadDiscovery.upload_path_catalog
+                },
+                observability: createObservability({
+                    href: env.getLocationHref(),
+                    title: env.getDocumentTitle(),
+                    readyState: env.getReadyState(),
+                    requestId: `req-${env.randomId()}`,
+                    outcome: "completed",
+                    includeKeyRequest: false
+                })
+            }
+        };
     }
     if (gate.consumer_gate_result.effective_execution_mode === "dry_run" ||
         gate.consumer_gate_result.effective_execution_mode === "recon") {
@@ -10181,6 +10291,8 @@ const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
 const XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE = "issue_208";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
+const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
+const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
 const parseSearchInput = (payload, abilityId, options, abilityAction) => {
     const issue208EditorInputValidation = abilityAction === "write" &&
         options.issue_scope === "issue_208" &&
@@ -10252,6 +10364,23 @@ const validateXhsCommandInputForExtension = (input) => {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
         }
         return { target_page: "creator_publish_tab" };
+    }
+    if (input.command === XHS_MEDIA_UPLOAD_DISCOVER_COMMAND) {
+        if (input.abilityId !== "xhs.creator.publish.v1" ||
+            input.abilityAction !== "write" ||
+            input.options.issue_scope !== XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE ||
+            input.options.action_type !== "write" ||
+            input.options.discovery_action !== "media_upload_path" ||
+            input.options.target_domain !== "creator.xiaohongshu.com" ||
+            input.options.target_page !== "creator_publish_tab" ||
+            (input.options.requested_execution_mode !== "dry_run" &&
+                input.options.requested_execution_mode !== "recon")) {
+            throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
+        }
+        return {
+            target_page: "creator_publish_tab",
+            discovery_action: "media_upload_path"
+        };
     }
     if (input.command === "xhs.detail") {
         const noteId = asNonEmptyString(input.payload.note_id);
@@ -10963,6 +11092,7 @@ const XHS_PAGE_COMMANDS = new Set([
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
     "xhs.creator_publish.admit",
+    "xhs.media_upload.discover",
     "xhs.detail",
     "xhs.user_home"
 ]);
@@ -12299,7 +12429,8 @@ const createBrowserEnvironment = () => ({
             clearTimeout(timer);
         }
     },
-    performEditorInputValidation: async (input) => await performEditorInputValidation(input)
+    performEditorInputValidation: async (input) => await performEditorInputValidation(input),
+    performMediaUploadDiscovery: async () => buildXhsMediaUploadDiscoveryResult()
 });
 const resolveTargetDomainFromHref = (href) => {
     try {
@@ -13094,6 +13225,9 @@ class ContentScriptHandler {
                         ? { validation_text: options.validation_text }
                         : {}),
                     ...(options.editor_text_write === true ? { editor_text_write: true } : {}),
+                    ...(typeof options.discovery_action === "string"
+                        ? { discovery_action: options.discovery_action }
+                        : {}),
                     ...(activeApiFetchFallback
                         ? { active_api_fetch_fallback: activeApiFetchFallback }
                         : {}),
@@ -13175,7 +13309,8 @@ class ContentScriptHandler {
             if (message.command === "xhs.search" ||
                 message.command === "xhs.editor_input.validate" ||
                 message.command === "xhs.editor_text.write" ||
-                message.command === "xhs.creator_publish.admit") {
+                message.command === "xhs.creator_publish.admit" ||
+                message.command === "xhs.media_upload.discover") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({
@@ -13183,6 +13318,9 @@ class ContentScriptHandler {
                     params: {
                         query: searchInput.query,
                         ...(message.command === "xhs.creator_publish.admit"
+                            ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(message.command === "xhs.media_upload.discover"
                             ? { target_page: "creator_publish_tab" }
                             : {}),
                         ...(typeof searchInput.limit === "number" ? { limit: searchInput.limit } : {}),

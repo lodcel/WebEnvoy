@@ -11,6 +11,7 @@ const XHS_GATED_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
+    "xhs.media_upload.discover",
     "xhs.detail",
     "xhs.user_home"
 ]);
@@ -18,6 +19,7 @@ const XHS_GATED_COMMAND_DEFAULT_ABILITY_IDS = {
     "xhs.search": "xhs.note.search.v1",
     "xhs.editor_input.validate": "xhs.editor.input.v1",
     "xhs.editor_text.write": "xhs.editor.input.v1",
+    "xhs.media_upload.discover": "xhs.creator.publish.v1",
     "xhs.detail": "xhs.note.detail.v1",
     "xhs.user_home": "xhs.user.home.v1"
 };

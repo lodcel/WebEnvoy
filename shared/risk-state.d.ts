@@ -1,5 +1,5 @@
 export type RiskState = "paused" | "limited" | "allowed";
-export type IssueScope = "issue_208" | "issue_209" | "issue_753";
+export type IssueScope = "issue_208" | "issue_209" | "issue_753" | "issue_755";
 export type ExecutionMode =
   | "dry_run"
   | "recon"

@@ -3,6 +3,7 @@ import { SEARCH_ENDPOINT, createPageContextNamespace, createSearchRequestShape, 
 import { executeXhsDetail } from "./xhs-detail.js";
 import { executeXhsUserHome } from "./xhs-user-home.js";
 import { performEditorInputValidation } from "./xhs-editor-input.js";
+import { buildXhsMediaUploadDiscoveryResult } from "./xhs-media-upload-discovery.js";
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { buildFailedFingerprintInjectionContext, hasInstalledFingerprintInjection, installFingerprintRuntimeWithVerification, resolveFingerprintContextForContract, resolveFingerprintContextFromMessage, resolveMissingRequiredFingerprintPatches, summarizeFingerprintRuntimeContext } from "./content-script-fingerprint.js";
 import { encodeMainWorldPayload, configureCapturedRequestContextProvenanceViaMainWorld, installMainWorldEventChannelSecret, installFingerprintRuntimeViaMainWorld, MAIN_WORLD_EVENT_BOOTSTRAP, readCapturedRequestContextViaMainWorld, readPageStateViaMainWorld, requestXhsSearchJsonViaMainWorld, resetMainWorldEventChannelForContract, resolveMainWorldEventNamesForSecret } from "./content-script-main-world.js";
@@ -20,6 +21,7 @@ const XHS_PAGE_COMMANDS = new Set([
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
     "xhs.creator_publish.admit",
+    "xhs.media_upload.discover",
     "xhs.detail",
     "xhs.user_home"
 ]);
@@ -1356,7 +1358,8 @@ const createBrowserEnvironment = () => ({
             clearTimeout(timer);
         }
     },
-    performEditorInputValidation: async (input) => await performEditorInputValidation(input)
+    performEditorInputValidation: async (input) => await performEditorInputValidation(input),
+    performMediaUploadDiscovery: async () => buildXhsMediaUploadDiscoveryResult()
 });
 const resolveTargetDomainFromHref = (href) => {
     try {
@@ -2151,6 +2154,9 @@ export class ContentScriptHandler {
                         ? { validation_text: options.validation_text }
                         : {}),
                     ...(options.editor_text_write === true ? { editor_text_write: true } : {}),
+                    ...(typeof options.discovery_action === "string"
+                        ? { discovery_action: options.discovery_action }
+                        : {}),
                     ...(activeApiFetchFallback
                         ? { active_api_fetch_fallback: activeApiFetchFallback }
                         : {}),
@@ -2232,7 +2238,8 @@ export class ContentScriptHandler {
             if (message.command === "xhs.search" ||
                 message.command === "xhs.editor_input.validate" ||
                 message.command === "xhs.editor_text.write" ||
-                message.command === "xhs.creator_publish.admit") {
+                message.command === "xhs.creator_publish.admit" ||
+                message.command === "xhs.media_upload.discover") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({
@@ -2240,6 +2247,9 @@ export class ContentScriptHandler {
                     params: {
                         query: searchInput.query,
                         ...(message.command === "xhs.creator_publish.admit"
+                            ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(message.command === "xhs.media_upload.discover"
                             ? { target_page: "creator_publish_tab" }
                             : {}),
                         ...(typeof searchInput.limit === "number" ? { limit: searchInput.limit } : {}),

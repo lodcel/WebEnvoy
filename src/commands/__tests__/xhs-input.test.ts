@@ -409,6 +409,75 @@ describe("xhs-input", () => {
     }
   });
 
+  it("parses xhs.media_upload.discover as issue_755 dry-run upload path discovery", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
+      input: {},
+      options: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "recon",
+        risk_state: "allowed"
+      }
+    });
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.media_upload.discover",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "profile-a"
+    });
+
+    expect(parseXhsCommandInputForContract({
+      command: "xhs.media_upload.discover",
+      abilityId: envelope.ability.id,
+      abilityAction: envelope.ability.action,
+      payload: envelope.input,
+      options: gate.options
+    })).toEqual({
+      target_page: "creator_publish_tab",
+      discovery_action: "media_upload_path"
+    });
+    expect(gate).toMatchObject({
+      targetDomain: "creator.xiaohongshu.com",
+      targetTabId: 32,
+      targetPage: "creator_publish_tab",
+      requestedExecutionMode: "recon",
+      options: {
+        issue_scope: "issue_755",
+        action_type: "write",
+        discovery_action: "media_upload_path"
+      }
+    });
+  });
+
+  it("rejects xhs.media_upload.discover when callers attempt live_write", () => {
+    try {
+      normalizeGateOptionsForContract(
+        {
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "live_write",
+          risk_state: "allowed"
+        },
+        "xhs.creator.publish.v1",
+        {
+          command: "xhs.media_upload.discover",
+          abilityAction: "write",
+          runtimeProfile: "profile-a"
+        }
+      );
+      throw new Error("expected live media upload discovery to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: {
+          reason: "REQUESTED_EXECUTION_MODE_INVALID"
+        }
+      });
+    }
+  });
+
   it("normalizes xhs.creator_publish.admit upstream authorization without upgrading to live_write", () => {
     const envelope = parseAbilityEnvelopeForContract({
       ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
