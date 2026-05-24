@@ -509,7 +509,8 @@ class InMemoryContentScriptRuntime {
             reason: "EXECUTION_MODE_GATE_BLOCKED",
             ...interactionResult
           },
-          ...gateBundle.payload
+          ...gateBundle.payload,
+          ...(textWriteResult ? { text_write_result: textWriteResult } : {})
         }
       };
     }
@@ -537,7 +538,8 @@ class InMemoryContentScriptRuntime {
               }
             },
             ...gateBundle.payload,
-            interaction_result: interactionResult
+            interaction_result: interactionResult,
+            ...(textWriteResult ? { text_write_result: textWriteResult } : {})
           },
           observability: {
             page_state: {
@@ -1202,6 +1204,28 @@ class InMemoryBackgroundRelay {
           const editorInputFailureSignals = Array.isArray(gateBundle.consumerGateResult.gate_reasons)
             ? gateBundle.consumerGateResult.gate_reasons.map((reason) => String(reason))
             : ["EXECUTION_MODE_GATE_BLOCKED"];
+          const input = asRecord(commandParams.input) ?? {};
+          const validationText =
+            typeof options.validation_text === "string" && options.validation_text.trim().length > 0
+              ? options.validation_text.trim()
+              : String(input.text ?? "");
+          const textWriteResult =
+            command === XHS_EDITOR_TEXT_WRITE_COMMAND && options.editor_text_write === true
+              ? {
+                  validation_action: "editor_input",
+                  write_action: "editor_text_write",
+                  target_page: "creator_publish_tab",
+                  input_text: validationText,
+                  focus_confirmed: false,
+                  preserved_after_blur: false,
+                  success_signals: [],
+                  failure_signals: editorInputFailureSignals,
+                  minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
+                  out_of_scope_actions: ["image_upload", "submit", "publish_confirm"],
+                  submitted: false,
+                  published: false
+                }
+              : null;
           this.hostPort.postMessage({
             kind: "response",
             envelope: {
@@ -1231,7 +1255,8 @@ class InMemoryBackgroundRelay {
                       }
                     : {})
                 },
-                ...gatePayload
+                ...gatePayload,
+                ...(textWriteResult ? { text_write_result: textWriteResult } : {})
               },
               error: {
                 code: "ERR_EXECUTION_FAILED",

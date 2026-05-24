@@ -122,6 +122,65 @@ const buildCanonicalReadAuthorizationRequest = (input: {
 });
 
 describe("native messaging legacy loopback runtime", () => {
+  it("emits blocked text write proof for xhs.editor_text.write dry_run with the explicit marker", async () => {
+    const bridge = new NativeMessagingBridge({
+      transport: createInMemoryLoopbackTransport("host>background>content-script>background>host")
+    });
+
+    const result = await bridge.runCommand({
+      runId: "run-loopback-editor-text-write-marker",
+      profile: "profile-a",
+      cwd: "/tmp",
+      command: "xhs.editor_text.write",
+      params: {
+        ability: {
+          id: "xhs.editor.input.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {
+          text: "WebEnvoy #754 text"
+        },
+        options: {
+          issue_scope: "issue_208",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "dry_run",
+          validation_action: "editor_input",
+          validation_text: "WebEnvoy #754 text",
+          editor_text_write: true,
+          risk_state: "allowed",
+          approval_record: {
+            approved: true,
+            approver: "qa-reviewer",
+            approved_at: "2026-05-24T10:00:00Z",
+            checks: {
+              target_domain_confirmed: true,
+              target_tab_confirmed: true,
+              target_page_confirmed: true,
+              risk_state_checked: true,
+              action_type_confirmed: true
+            }
+          }
+        }
+      }
+    });
+
+    const payload = result.payload as Record<string, unknown>;
+    expect(result.ok).toBe(false);
+    expect(payload.text_write_result).toMatchObject({
+      write_action: "editor_text_write",
+      target_page: "creator_publish_tab",
+      input_text: "WebEnvoy #754 text",
+      focus_confirmed: false,
+      preserved_after_blur: false,
+      submitted: false,
+      published: false
+    });
+  });
+
   it("does not emit text write proof for xhs.editor_text.write without the explicit marker", async () => {
     const bridge = new NativeMessagingBridge({
       transport: createInMemoryLoopbackTransport("host>background>content-script>background>host")

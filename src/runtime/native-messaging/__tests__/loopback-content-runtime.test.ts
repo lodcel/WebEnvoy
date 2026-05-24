@@ -397,6 +397,7 @@ describe("native messaging loopback content runtime", () => {
         },
         text_write_result: {
           write_action: "editor_text_write",
+          target_page: "creator_publish_tab",
           input_text: "WebEnvoy #754 dry run",
           focus_confirmed: false,
           preserved_after_blur: false,

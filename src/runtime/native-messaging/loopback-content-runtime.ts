@@ -788,7 +788,7 @@ export class InMemoryContentScriptRuntime {
             ? {
                 validation_action: "editor_input",
                 write_action: "editor_text_write",
-                target_page: "creator.xiaohongshu.com/publish",
+                target_page: "creator_publish_tab",
                 input_text: String(normalizedInput.text ?? ""),
                 focus_confirmed: false,
                 preserved_after_blur: false,
@@ -873,13 +873,13 @@ export class InMemoryContentScriptRuntime {
               count: 0
             }
           },
-          commandName === "xhs.editor_text.write"
+          options.editor_text_write === true
             ? {
                 summary: {
                   text_write_result: {
                     validation_action: "editor_input",
                     write_action: "editor_text_write",
-                    target_page: "creator.xiaohongshu.com/publish",
+                    target_page: "creator_publish_tab",
                     input_text: String(normalizedInput.text ?? ""),
                     focus_confirmed: false,
                     preserved_after_blur: false,
@@ -919,7 +919,7 @@ export class InMemoryContentScriptRuntime {
             : "WebEnvoy editor_input validation";
         const interactionResult = {
           validation_action: "editor_input",
-          target_page: "creator.xiaohongshu.com/publish",
+          target_page: "creator_publish_tab",
           success_signals: [],
           failure_signals: ["EDITOR_INPUT_VALIDATION_REQUIRED"],
           minimum_replay: ["focus_editor", "type_short_text", "blur_or_reobserve"],
