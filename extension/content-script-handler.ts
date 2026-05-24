@@ -123,6 +123,7 @@ const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk"
 const XHS_PAGE_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
+  "xhs.creator_publish.admit",
   "xhs.detail",
   "xhs.user_home"
 ]);
@@ -2606,6 +2607,19 @@ export class ContentScriptHandler {
           ...(asRecord(options.admission_context)
             ? { admission_context: asRecord(options.admission_context) ?? {} }
             : {}),
+          ...(asRecord(options.profile_readiness)
+            ? { profile_readiness: asRecord(options.profile_readiness) ?? {} }
+            : {}),
+          ...(asRecord(options.account_readiness)
+            ? { account_readiness: asRecord(options.account_readiness) ?? {} }
+            : {}),
+          ...(Array.isArray(options.admission_gate_reasons)
+            ? {
+                admission_gate_reasons: options.admission_gate_reasons.filter(
+                  (reason): reason is string => typeof reason === "string"
+                )
+              }
+            : {}),
           ...(asRecord(options.approval) ? { approval: asRecord(options.approval) ?? {} } : {}),
           ...(actualTargetDomain === XHS_READ_DOMAIN
             ? {
@@ -2660,7 +2674,11 @@ export class ContentScriptHandler {
         }
         return capturedRequestContextProvenanceConfirmed(result, expected);
       };
-      if (message.command === "xhs.search" || message.command === "xhs.editor_input.validate") {
+      if (
+        message.command === "xhs.search" ||
+        message.command === "xhs.editor_input.validate" ||
+        message.command === "xhs.creator_publish.admit"
+      ) {
         const requestContextProvenanceConfirmed =
           await configureReadRequestContextProvenance();
         const searchInput = normalizedInput as {
@@ -2677,6 +2695,9 @@ export class ContentScriptHandler {
               ...commonInput,
               params: {
                 query: searchInput.query,
+                ...(message.command === "xhs.creator_publish.admit"
+                  ? { target_page: "creator_publish_tab" }
+                  : {}),
                 ...(typeof searchInput.limit === "number" ? { limit: searchInput.limit } : {}),
                 ...(typeof searchInput.page === "number" ? { page: searchInput.page } : {}),
                 ...(typeof searchInput.search_id === "string"

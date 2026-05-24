@@ -21,6 +21,7 @@ const asInteger = (value: unknown): number | null =>
 const XHS_GATED_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
+  "xhs.creator_publish.admit",
   "xhs.detail",
   "xhs.user_home"
 ]);
@@ -675,6 +676,18 @@ export class InMemoryContentScriptRuntime {
                 validation_action: "editor_input"
               }
             }
+          : commandName === "xhs.creator_publish.admit"
+            ? {
+                defaultAbilityId: "xhs.creator.publish.v1",
+                page_kind: "compose",
+                url: "https://creator.xiaohongshu.com/publish/publish",
+                title: "Creator Publish",
+                request_method: "POST",
+                request_url: "/web_api/sns/v2/note",
+                successDataRef: {
+                  target_page: "creator_publish_tab"
+                }
+              }
           : commandName === "xhs.detail"
             ? {
                 defaultAbilityId: "xhs.note.detail.v1",
@@ -810,16 +823,32 @@ export class InMemoryContentScriptRuntime {
             }
           );
         }
-        return buildSuccessfulResult({
-          ability_id: String(ability.id ?? commandSpec.defaultAbilityId),
-          layer: String(ability.layer ?? "L3"),
-          action: String(consumerGateResult.action_type ?? ability.action ?? "read"),
-          outcome: "partial",
-          data_ref: commandSpec.successDataRef,
-          metrics: {
-            count: 0
-          }
-        });
+        return buildSuccessfulResult(
+          {
+            ability_id: String(ability.id ?? commandSpec.defaultAbilityId),
+            layer: String(ability.layer ?? "L3"),
+            action: String(consumerGateResult.action_type ?? ability.action ?? "read"),
+            outcome: "partial",
+            data_ref: commandSpec.successDataRef,
+            metrics: {
+              count: 0
+            }
+          },
+          commandName === "xhs.creator_publish.admit"
+            ? {
+                summary: {
+                  target_admission: {
+                    target_domain: options.target_domain ?? null,
+                    target_tab_id: options.target_tab_id ?? null,
+                    target_page: options.target_page ?? null,
+                    profile_readiness: asRecord(options.profile_readiness),
+                    account_readiness: asRecord(options.account_readiness),
+                    out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
+                  }
+                }
+              }
+            : undefined
+        );
       }
 
       if (

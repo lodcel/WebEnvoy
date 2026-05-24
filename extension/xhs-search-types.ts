@@ -8,6 +8,7 @@ export type JsonRecord = Record<string, unknown>;
 
 export interface XhsSearchParams {
   query: string;
+  target_page?: string;
   limit?: number;
   page?: number;
   search_id?: string;
@@ -52,6 +53,9 @@ export interface XhsSearchOptions {
   explicit_request_context_artifact?: Record<string, unknown>;
   active_api_fetch_fallback?: ActiveApiFetchFallbackGateOptions;
   editor_focus_attestation?: EditorInputFocusAttestation | Record<string, unknown>;
+  profile_readiness?: Record<string, unknown>;
+  account_readiness?: Record<string, unknown>;
+  admission_gate_reasons?: string[];
 }
 
 export interface ActiveApiFetchFallbackGateOptions {

@@ -8,7 +8,7 @@ const EXECUTION_MODES = new Set([
 ]);
 const GATE_RISK_STATES = new Set(["paused", "limited", "allowed"]);
 const GATE_DECISIONS = new Set(["allowed", "blocked"]);
-const GATE_ISSUE_SCOPES = new Set(["issue_208", "issue_209"]);
+const GATE_ISSUE_SCOPES = new Set(["issue_208", "issue_209", "issue_753"]);
 const REQUIRED_APPROVAL_CHECKS = new Set([
     "target_domain_confirmed",
     "target_tab_confirmed",

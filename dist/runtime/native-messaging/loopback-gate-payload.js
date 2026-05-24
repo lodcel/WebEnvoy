@@ -3,7 +3,7 @@ import { LOOPBACK_PLUGIN_GATE_OWNERSHIP } from "./loopback-gate.js";
 import { buildLoopbackGateObservability } from "./loopback-gate-observability.js";
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const resolveLoopbackRiskState = (value) => resolveSharedRiskState(value);
-const resolveLoopbackIssueScope = (value) => (value === "issue_208" || value === "issue_209"
+const resolveLoopbackIssueScope = (value) => (value === "issue_208" || value === "issue_209" || value === "issue_753"
     ? value
     : resolveSharedIssueScope(value));
 const resolveLoopbackIssueActionMatrixEntry = (issueScope, riskState) => getIssueActionMatrixEntry(issueScope, riskState);
