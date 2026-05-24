@@ -193,6 +193,98 @@ export const resolveLayer2RhythmTiming = (evidence) => {
         lookback_probability: requiresScroll ? rhythm.lookback_probability : null
     };
 };
+export const buildLayer2RhythmPlan = (evidence, input) => {
+    const selectedPath = evidence.strategy_selection.selected_path;
+    if (selectedPath === "blocked") {
+        return {
+            action_kind: evidence.strategy_selection.action_kind,
+            selected_path: selectedPath,
+            rhythm_profile: "default_layer2",
+            steps: [],
+            blocked_by: evidence.strategy_selection.blocked_by
+        };
+    }
+    const timing = resolveLayer2RhythmTiming(evidence);
+    const steps = [];
+    if (timing.hover_confirm_ms) {
+        steps.push({
+            step_kind: "hover_confirm",
+            event_ref: "mouseover",
+            delay_ms: timing.hover_confirm_ms,
+            offset_px: null,
+            delta_px: null,
+            probability: null
+        });
+    }
+    if (timing.click_jitter_px) {
+        steps.push({
+            step_kind: "click_jitter",
+            event_ref: "click",
+            delay_ms: null,
+            offset_px: timing.click_jitter_px,
+            delta_px: null,
+            probability: null
+        });
+    }
+    if (timing.typing_delay_ms) {
+        const text = input?.text;
+        if (typeof text === "string" && text.length > 0) {
+            for (const character of text) {
+                const punctuationPause = isLayer2Punctuation(character);
+                steps.push({
+                    step_kind: punctuationPause ? "punctuation_pause" : "typing_delay",
+                    event_ref: "input",
+                    delay_ms: punctuationPause
+                        ? scaleRange(timing.typing_delay_ms, timing.punctuation_pause_multiplier ?? 1)
+                        : timing.typing_delay_ms,
+                    offset_px: null,
+                    delta_px: null,
+                    probability: null
+                });
+            }
+            if (timing.long_pause_probability !== null) {
+                steps.push({
+                    step_kind: "long_pause",
+                    event_ref: "input",
+                    delay_ms: scaleRange(timing.typing_delay_ms, 3),
+                    offset_px: null,
+                    delta_px: null,
+                    probability: timing.long_pause_probability
+                });
+            }
+        }
+    }
+    if (timing.scroll_segment_px) {
+        const segmentCount = clampLayer2SegmentCount(input?.scrollSegmentCount ?? 1);
+        for (let index = 0; index < segmentCount; index += 1) {
+            steps.push({
+                step_kind: "scroll_segment",
+                event_ref: "wheel",
+                delay_ms: null,
+                offset_px: null,
+                delta_px: timing.scroll_segment_px,
+                probability: null
+            });
+        }
+        if (input?.includeLookback && timing.lookback_probability !== null) {
+            steps.push({
+                step_kind: "lookback",
+                event_ref: "wheel",
+                delay_ms: null,
+                offset_px: null,
+                delta_px: reverseRange(timing.scroll_segment_px),
+                probability: timing.lookback_probability
+            });
+        }
+    }
+    return {
+        action_kind: evidence.strategy_selection.action_kind,
+        selected_path: selectedPath,
+        rhythm_profile: "default_layer2",
+        steps,
+        blocked_by: null
+    };
+};
 export const buildLayer2InteractionEvidence = (input) => {
     const strategy = clone(STRATEGY_PROFILES[input.actionKind]);
     const chain = clone(EVENT_CHAINS[input.actionKind]);
@@ -271,3 +363,18 @@ const normalizeHumanizedActionKind = (value) => {
     }
     return null;
 };
+const scaleRange = (range, multiplier) => ({
+    min: Math.round(range.min * multiplier),
+    max: Math.round(range.max * multiplier)
+});
+const reverseRange = (range) => ({
+    min: -range.max,
+    max: -range.min
+});
+const clampLayer2SegmentCount = (value) => {
+    if (!Number.isFinite(value)) {
+        return 1;
+    }
+    return Math.max(1, Math.min(8, Math.trunc(value)));
+};
+const isLayer2Punctuation = (value) => /[,.!?;:，。！？；：]/u.test(value);

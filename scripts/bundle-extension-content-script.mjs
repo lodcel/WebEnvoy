@@ -7,6 +7,7 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const extensionRoot = join(repoRoot, "extension");
 const buildRoot = join(extensionRoot, "build");
 const sharedRoot = join(extensionRoot, "shared");
+const LAYER2_HUMANIZED_EVENTS_MODULE_VAR = "__webenvoy_module_layer2_humanized_events";
 
 const stripEsmSyntaxForClassicScript = (source) => {
   let transformed = source;
@@ -298,10 +299,11 @@ const buildContentScriptBundle = async () => {
   });
 
   const layer2HumanizedEventsModule = renderClassicModule({
-    moduleVar: "__webenvoy_module_layer2_humanized_events",
+    moduleVar: LAYER2_HUMANIZED_EVENTS_MODULE_VAR,
     sourceBody: layer2HumanizedEventsSource,
     exports: [
       "buildLayer2InteractionEvidence",
+      "buildLayer2RhythmPlan",
       "buildXhsSearchLayer2InteractionEvidence",
       "getLayer2EventChainPolicies"
     ]
@@ -548,6 +550,7 @@ const buildContentScriptBundle = async () => {
     "  __webenvoy_module_xhs_detail,",
     "  __webenvoy_module_xhs_user_home,",
     "  __webenvoy_module_xhs_search_gate,",
+    `  ${LAYER2_HUMANIZED_EVENTS_MODULE_VAR},`,
     "  __webenvoy_module_content_script_handler",
     "};"
   ].join("\n");
