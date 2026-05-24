@@ -145,6 +145,8 @@ const XHS_COMMAND_ACTION_NAMES: Record<string, string> = {
   "xhs.user_home::xhs.user.home.v1": "xhs.read_user_home"
 };
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
+// #752 adds a clearer command name, while the runtime gate still consumes the #208 editor_input validation scope.
+const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
 const ISSUE209_LIVE_REQUEST_ID_PREFIX = "issue209-live";
 const ISSUE209_GATE_INVOCATION_ID_PREFIX = "issue209-gate";
 export const ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY = "__issue209_admission_draft";
@@ -895,7 +897,10 @@ export const normalizeGateOptionsForContract = (
     const explicitValidationAction = hasOwn(options, "validation_action")
       ? asString(options.validation_action)
       : null;
-    if (hasOwn(options, "issue_scope") && explicitIssueScope !== "issue_208") {
+    if (
+      hasOwn(options, "issue_scope") &&
+      explicitIssueScope !== XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE
+    ) {
       throw invalidAbilityInput("ISSUE_SCOPE_CONFLICT", abilityId);
     }
     if (hasOwn(options, "action_type") && explicitActionType !== "write") {
@@ -909,7 +914,7 @@ export const normalizeGateOptionsForContract = (
     input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND
       ? {
           ...options,
-          issue_scope: "issue_208",
+          issue_scope: XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE,
           action_type: "write",
           validation_action: "editor_input"
         }
