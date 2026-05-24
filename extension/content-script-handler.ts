@@ -120,7 +120,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     : null;
 
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
-const XHS_READ_COMMANDS = new Set([
+const XHS_PAGE_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
   "xhs.detail",
@@ -1901,7 +1901,7 @@ export class ContentScriptHandler {
       return true;
     }
 
-    if (XHS_READ_COMMANDS.has(message.command)) {
+    if (XHS_PAGE_COMMANDS.has(message.command)) {
       this.#handleXhsReadCommandWithDeadline(message);
       return true;
     }

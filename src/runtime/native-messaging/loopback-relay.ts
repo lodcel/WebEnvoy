@@ -14,13 +14,13 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
-const XHS_READ_COMMANDS = new Set([
+const XHS_GATED_COMMANDS = new Set([
   "xhs.search",
   "xhs.editor_input.validate",
   "xhs.detail",
   "xhs.user_home"
 ]);
-const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS: Record<string, string> = {
+const XHS_GATED_COMMAND_DEFAULT_ABILITY_IDS: Record<string, string> = {
   "xhs.search": "xhs.note.search.v1",
   "xhs.editor_input.validate": "xhs.editor.input.v1",
   "xhs.detail": "xhs.note.detail.v1",
@@ -106,7 +106,7 @@ export class InMemoryBackgroundRelay {
       const profile = String(request.profile ?? "loopback_profile");
       let gatePayload: Record<string, unknown> | undefined;
 
-      if (XHS_READ_COMMANDS.has(command)) {
+      if (XHS_GATED_COMMANDS.has(command)) {
         const ability =
           typeof commandParams.ability === "object" && commandParams.ability !== null
             ? (commandParams.ability as Record<string, unknown>)
@@ -165,8 +165,8 @@ export class InMemoryBackgroundRelay {
               payload: {
                 details: {
                   ability_id: String(
-                    ability.id ??
-                      XHS_READ_COMMAND_DEFAULT_ABILITY_IDS[command] ??
+                      ability.id ??
+                      XHS_GATED_COMMAND_DEFAULT_ABILITY_IDS[command] ??
                       "xhs.note.search.v1"
                   ),
                   stage: "execution",

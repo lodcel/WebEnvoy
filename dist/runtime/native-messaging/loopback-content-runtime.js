@@ -9,7 +9,7 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
-const XHS_READ_COMMANDS = new Set([
+const XHS_GATED_COMMANDS = new Set([
     "xhs.search",
     "xhs.editor_input.validate",
     "xhs.detail",
@@ -498,7 +498,7 @@ export class InMemoryContentScriptRuntime {
                 }
             });
         }
-        if (XHS_READ_COMMANDS.has(message.command)) {
+        if (XHS_GATED_COMMANDS.has(message.command)) {
             const simulated = typeof message.commandParams.options === "object" &&
                 message.commandParams.options !== null &&
                 typeof message.commandParams.options.simulate_result === "string"
@@ -573,42 +573,54 @@ export class InMemoryContentScriptRuntime {
                 }
                 throw error;
             }
-            const commandSpec = commandName === "xhs.detail"
+            const commandSpec = commandName === "xhs.editor_input.validate"
                 ? {
-                    defaultAbilityId: "xhs.note.detail.v1",
-                    page_kind: "detail",
-                    url: "https://www.xiaohongshu.com/explore/note-id",
-                    title: "Detail",
+                    defaultAbilityId: "xhs.editor.input.v1",
+                    page_kind: "compose",
+                    url: "https://creator.xiaohongshu.com/publish/publish",
+                    title: "Creator Publish",
                     request_method: "POST",
-                    request_url: "/api/sns/web/v1/feed",
+                    request_url: "/web_api/sns/v2/note",
                     successDataRef: {
-                        note_id: String(normalizedInput.note_id ?? "")
+                        validation_action: "editor_input"
                     }
                 }
-                : commandName === "xhs.user_home"
+                : commandName === "xhs.detail"
                     ? {
-                        defaultAbilityId: "xhs.user.home.v1",
-                        page_kind: "user_home",
-                        url: "https://www.xiaohongshu.com/user/profile/user-id",
-                        title: "User Home",
-                        request_method: "GET",
-                        request_url: "/api/sns/web/v1/user_posted",
+                        defaultAbilityId: "xhs.note.detail.v1",
+                        page_kind: "detail",
+                        url: "https://www.xiaohongshu.com/explore/note-id",
+                        title: "Detail",
+                        request_method: "POST",
+                        request_url: "/api/sns/web/v1/feed",
                         successDataRef: {
-                            user_id: String(normalizedInput.user_id ?? "")
+                            note_id: String(normalizedInput.note_id ?? "")
                         }
                     }
-                    : {
-                        defaultAbilityId: "xhs.note.search.v1",
-                        page_kind: "search",
-                        url: "https://www.xiaohongshu.com/search_result",
-                        title: "Search Result",
-                        request_method: "POST",
-                        request_url: "/api/sns/web/v1/search/notes",
-                        successDataRef: {
-                            query: String(normalizedInput.query ?? ""),
-                            search_id: "loopback-search-id"
+                    : commandName === "xhs.user_home"
+                        ? {
+                            defaultAbilityId: "xhs.user.home.v1",
+                            page_kind: "user_home",
+                            url: "https://www.xiaohongshu.com/user/profile/user-id",
+                            title: "User Home",
+                            request_method: "GET",
+                            request_url: "/api/sns/web/v1/user_posted",
+                            successDataRef: {
+                                user_id: String(normalizedInput.user_id ?? "")
+                            }
                         }
-                    };
+                        : {
+                            defaultAbilityId: "xhs.note.search.v1",
+                            page_kind: "search",
+                            url: "https://www.xiaohongshu.com/search_result",
+                            title: "Search Result",
+                            request_method: "POST",
+                            request_url: "/api/sns/web/v1/search/notes",
+                            successDataRef: {
+                                query: String(normalizedInput.query ?? ""),
+                                search_id: "loopback-search-id"
+                            }
+                        };
             const successObservability = {
                 page_state: {
                     page_kind: commandSpec.page_kind,
