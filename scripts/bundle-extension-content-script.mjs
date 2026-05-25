@@ -308,6 +308,7 @@ const buildContentScriptBundle = async () => {
       "buildLayer2WriteBoundaryAudit",
       "buildXhsSearchLayer2InteractionEvidence",
       "dispatchLayer2ScheduledEventChain",
+      "getLayer2BehaviorEvidenceBaseline",
       "getLayer2EventChainPolicies",
       "resolveLayer2SettleRecovery"
     ]
