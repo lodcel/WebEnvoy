@@ -4,6 +4,7 @@ import {
   buildLayer2EventChainPlan,
   buildLayer2InteractionEvidence,
   buildLayer2RhythmPlan,
+  buildLayer2ScheduledEventChain,
   buildXhsSearchLayer2InteractionEvidence,
   getLayer2EventChainPolicies,
   resolveLayer2RhythmTiming
@@ -145,6 +146,93 @@ describe("FR-0013 layer2 humanized events", () => {
       settled_wait_result: "skipped",
       required_steps: [],
       optional_steps: []
+    });
+  });
+
+  it("builds a scheduled keyboard event chain with rhythm steps attached to input events", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "ok!" });
+
+    expect(schedule).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "real_input",
+      event_chain: "keyboard_input",
+      completion_signal: ["dom_settled", "framework_value_updated"],
+      requires_settled_wait: true,
+      blocked_by: null
+    });
+    expect(schedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "focus",
+      "keydown",
+      "input",
+      "keyup",
+      "change",
+      "blur"
+    ]);
+    expect(schedule.scheduled_events).toContainEqual(
+      expect.objectContaining({
+        sequence_index: 2,
+        event_ref: "input",
+        required: true,
+        rhythm_steps: [
+          expect.objectContaining({ step_kind: "typing_delay" }),
+          expect.objectContaining({ step_kind: "typing_delay" }),
+          expect.objectContaining({ step_kind: "punctuation_pause" }),
+          expect.objectContaining({ step_kind: "long_pause" })
+        ]
+      })
+    );
+  });
+
+  it("builds a scheduled click event chain with hover and click rhythm attached to event refs", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+
+    expect(schedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "mousemove",
+      "mouseover",
+      "mousedown",
+      "mouseup",
+      "click"
+    ]);
+    expect(schedule.scheduled_events).toContainEqual(
+      expect.objectContaining({
+        event_ref: "mouseover",
+        rhythm_steps: [expect.objectContaining({ step_kind: "hover_confirm" })]
+      })
+    );
+    expect(schedule.scheduled_events).toContainEqual(
+      expect.objectContaining({
+        event_ref: "click",
+        rhythm_steps: [expect.objectContaining({ step_kind: "click_jitter" })]
+      })
+    );
+  });
+
+  it("keeps blocked scheduled event chains non-executable", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "composition_input",
+      writeInteractionTierName: "irreversible_write",
+      executionApplied: true
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "blocked" });
+
+    expect(schedule).toMatchObject({
+      action_kind: "composition_input",
+      selected_path: "blocked",
+      event_chain: "composition_input",
+      scheduled_events: [],
+      completion_signal: [],
+      requires_settled_wait: false,
+      blocked_by: "FR-0011.write_interaction_tier"
     });
   });
 

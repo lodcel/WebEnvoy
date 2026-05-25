@@ -131,6 +131,23 @@ export interface Layer2RhythmPlan {
   blocked_by: string | null;
 }
 
+export interface Layer2ScheduledEvent {
+  sequence_index: number;
+  event_ref: string;
+  required: boolean;
+  rhythm_steps: Layer2RhythmStep[];
+}
+
+export interface Layer2ScheduledEventChain {
+  action_kind: Layer2ActionKind;
+  selected_path: Layer2SelectedPath;
+  event_chain: string;
+  scheduled_events: Layer2ScheduledEvent[];
+  completion_signal: string[];
+  requires_settled_wait: boolean;
+  blocked_by: string | null;
+}
+
 const DEFAULT_RHYTHM_PROFILE: RhythmProfile = {
   profile_name: "default_layer2",
   hover_confirm_min_ms: 80,
@@ -442,6 +459,53 @@ export const buildLayer2RhythmPlan = (
     selected_path: selectedPath,
     rhythm_profile: "default_layer2",
     steps,
+    blocked_by: null
+  };
+};
+
+export const buildLayer2ScheduledEventChain = (
+  evidence: Layer2InteractionEvidence,
+  input?: {
+    text?: string | null;
+    scrollSegmentCount?: number | null;
+    includeLookback?: boolean | null;
+  }
+): Layer2ScheduledEventChain => {
+  const eventChain = buildLayer2EventChainPlan(evidence);
+  if (eventChain.blocked_by) {
+    return {
+      action_kind: eventChain.action_kind,
+      selected_path: eventChain.selected_path,
+      event_chain: eventChain.event_chain,
+      scheduled_events: [],
+      completion_signal: [],
+      requires_settled_wait: false,
+      blocked_by: eventChain.blocked_by
+    };
+  }
+
+  const rhythmPlan = buildLayer2RhythmPlan(evidence, input);
+  const stepsByEvent = new Map<string, Layer2RhythmStep[]>();
+  for (const step of rhythmPlan.steps) {
+    const current = stepsByEvent.get(step.event_ref) ?? [];
+    current.push(step);
+    stepsByEvent.set(step.event_ref, current);
+  }
+
+  const scheduledEvents = eventChain.required_steps.map((eventRef, index) => ({
+    sequence_index: index,
+    event_ref: eventRef,
+    required: true,
+    rhythm_steps: stepsByEvent.get(eventRef) ?? []
+  }));
+
+  return {
+    action_kind: eventChain.action_kind,
+    selected_path: eventChain.selected_path,
+    event_chain: eventChain.event_chain,
+    scheduled_events: scheduledEvents,
+    completion_signal: eventChain.completion_signal,
+    requires_settled_wait: eventChain.requires_settled_wait,
     blocked_by: null
   };
 };
