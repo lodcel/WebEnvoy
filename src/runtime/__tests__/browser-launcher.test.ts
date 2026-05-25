@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -34,6 +34,65 @@ let browserForceLaunchServicesBeforeTest: string | undefined;
 let openPathBeforeTest: string | undefined;
 let pathBeforeTest: string | undefined;
 let platformBeforeTest: NodeJS.Platform;
+const createFingerprintRuntimeContext = () => ({
+  profile: "launch-audit-profile",
+  source: "profile_meta" as const,
+  fingerprint_profile_bundle: {
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.154 Safari/537.36",
+    hardwareConcurrency: 8,
+    deviceMemory: 8,
+    screen: {
+      width: 1440,
+      height: 900,
+      colorDepth: 30,
+      pixelDepth: 30
+    },
+    battery: {
+      level: 0.73,
+      charging: false
+    },
+    timezone: "Asia/Shanghai",
+    audioNoiseSeed: 0.000047231,
+    canvasNoiseSeed: 0.000083154,
+    environment: {
+      os_family: "macos",
+      os_version: "15.0",
+      arch: "arm64"
+    }
+  },
+  fingerprint_patch_manifest: {
+    profile: "launch-audit-profile",
+    manifest_version: "1",
+    required_patches: ["audio_context", "battery"],
+    optional_patches: ["navigator_connection"],
+    field_dependencies: {
+      audio_context: ["audioNoiseSeed"],
+      battery: ["battery.level", "battery.charging"]
+    },
+    unsupported_reason_codes: []
+  },
+  fingerprint_consistency_check: {
+    profile: "launch-audit-profile",
+    expected_environment: {
+      os_family: "macos",
+      os_version: "15.0",
+      arch: "arm64"
+    },
+    actual_environment: {
+      os_family: "macos",
+      os_version: "15.0",
+      arch: "arm64"
+    },
+    decision: "match" as const,
+    reason_codes: []
+  },
+  execution: {
+    live_allowed: true,
+    live_decision: "allowed" as const,
+    allowed_execution_modes: ["dry_run", "recon", "live_read_limited"],
+    reason_codes: []
+  }
+});
 const restoreEnv = (
   key:
     | "WEBENVOY_BROWSER_PATH"
@@ -1376,6 +1435,179 @@ describe("browser-launcher", () => {
       runId: "run-launcher-startup-trust-001"
     });
   });
+
+  it("persists launch surface audit with fingerprint profile and unsupported browser surfaces", async () => {
+    const { scriptPath, logPath } = await createMockBrowserExecutable();
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-surface-audit-"));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = scriptPath;
+    process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
+    const fingerprintRuntime = createFingerprintRuntimeContext();
+    const fingerprintRuntimeWithExtraFields = {
+      ...fingerprintRuntime,
+      unbounded_secret_blob: "SHOULD_NOT_PERSIST_IN_LAUNCH_AUDIT"
+    };
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: "http://127.0.0.1:8080",
+      runId: "run-launcher-surface-audit-001",
+      params: {
+        startUrl: "https://example.com/",
+        headless: false
+      },
+      extensionBootstrap: {
+        run_id: "run-launcher-surface-audit-001",
+        fingerprint_runtime: fingerprintRuntimeWithExtraFields
+      }
+    });
+
+    expect("launchSurfaceAudit" in launched).toBe(false);
+
+    const stateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
+    const state = JSON.parse(stateRaw) as { launchSurfaceAudit?: unknown };
+    expect(state.launchSurfaceAudit).toMatchObject({
+      schemaVersion: 1,
+      namespace: "webenvoy.browser_launch_surface_audit",
+      executionSurface: "real_browser",
+      headless: false,
+      extensionBootstrapPresent: true,
+      launchArgs: {
+        userDataDirMatchesProfile: true,
+        profileDirectoryIsDefault: true,
+        headlessFlagPresent: false,
+        loadExtensionPresent: true,
+        disableExtensionsExceptPresent: true
+      },
+      fingerprintContext: {
+        present: true,
+        source: "extension_bootstrap",
+        uaPresent: true,
+        timezonePresent: true,
+        environmentPresent: true
+      },
+      mismatchSurfaces: []
+    });
+    expect((state.launchSurfaceAudit as { unsupportedSurfaces?: unknown }).unsupportedSurfaces).toEqual(
+      expect.arrayContaining([
+        "ua_client_hints",
+        "locale_launch_arg",
+        "timezone_launch_arg",
+        "navigator_connection",
+        "webrtc_network"
+      ])
+    );
+    expect((state.launchSurfaceAudit as { surfaceChecks?: unknown }).surfaceChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          surface: "ua_client_hints",
+          decision: "unsupported"
+        })
+      ])
+    );
+    expect(JSON.stringify(state.launchSurfaceAudit)).not.toContain(profileDir);
+    expect(JSON.stringify(state.launchSurfaceAudit)).not.toContain(scriptPath);
+    expect(JSON.stringify(state.launchSurfaceAudit)).not.toContain("https://example.com/");
+    expect(JSON.stringify(state.launchSurfaceAudit)).not.toContain("Chrome/146.0.7680.154");
+    expect(JSON.stringify(state.launchSurfaceAudit)).not.toContain(
+      "SHOULD_NOT_PERSIST_IN_LAUNCH_AUDIT"
+    );
+
+    await writeFile(
+      join(profileDir, BROWSER_STATE_FILENAME),
+      `${JSON.stringify(
+        {
+          ...(JSON.parse(stateRaw) as Record<string, unknown>),
+          launchSurfaceAudit: {
+            ...(state.launchSurfaceAudit as Record<string, unknown>),
+            browserPath: scriptPath,
+            profileDir,
+            launchArgs: {
+              ...((state.launchSurfaceAudit as { launchArgs: Record<string, unknown> })
+                .launchArgs),
+              startUrl: "https://example.com/"
+            },
+            fingerprintContext: {
+              ...((state.launchSurfaceAudit as { fingerprintContext: Record<string, unknown> })
+                .fingerprintContext),
+              ua: fingerprintRuntime.fingerprint_profile_bundle.ua
+            }
+          },
+          runId: "run-launcher-surface-audit-002"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const reused = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: "http://127.0.0.1:8080",
+      runId: "run-launcher-surface-audit-002",
+      params: {
+        startUrl: "https://example.com/",
+        headless: false
+      },
+      extensionBootstrap: {
+        run_id: "run-launcher-surface-audit-002",
+        fingerprint_runtime: fingerprintRuntimeWithExtraFields
+      }
+    });
+    expect("launchSurfaceAudit" in reused).toBe(false);
+    const reusedStateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
+    const reusedState = JSON.parse(reusedStateRaw) as { launchSurfaceAudit?: unknown };
+    expect(JSON.stringify(reusedState.launchSurfaceAudit)).not.toContain(profileDir);
+    expect(JSON.stringify(reusedState.launchSurfaceAudit)).not.toContain(scriptPath);
+    expect(JSON.stringify(reusedState.launchSurfaceAudit)).not.toContain("https://example.com/");
+    expect(JSON.stringify(reusedState.launchSurfaceAudit)).not.toContain("Chrome/146.0.7680.154");
+    expect(JSON.stringify(reusedState.launchSurfaceAudit)).not.toContain(
+      "SHOULD_NOT_PERSIST_IN_LAUNCH_AUDIT"
+    );
+    expect((await readdir(profileDir)).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
+
+    await writeFile(
+      join(profileDir, BROWSER_STATE_FILENAME),
+      `${JSON.stringify(
+        {
+          ...(JSON.parse(reusedStateRaw) as Record<string, unknown>),
+          launchSurfaceAudit: {
+            schemaVersion: 1,
+            malformed: true
+          },
+          runId: "run-launcher-surface-audit-003"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const reusedWithInvalidAudit = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: "http://127.0.0.1:8080",
+      runId: "run-launcher-surface-audit-003",
+      params: {
+        startUrl: "https://example.com/",
+        headless: false
+      },
+      extensionBootstrap: {
+        run_id: "run-launcher-surface-audit-003",
+        fingerprint_runtime: fingerprintRuntimeWithExtraFields
+      }
+    });
+    expect("launchSurfaceAudit" in reusedWithInvalidAudit).toBe(false);
+    const invalidAuditStateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
+    const invalidAuditState = JSON.parse(invalidAuditStateRaw) as { launchSurfaceAudit?: unknown };
+    expect(JSON.stringify(invalidAuditState.launchSurfaceAudit)).not.toContain("malformed");
+
+    await shutdownBrowserSession({
+      profileDir,
+      controllerPid: reusedWithInvalidAudit.controllerPid,
+      runId: "run-launcher-surface-audit-003"
+    });
+  }, 10_000);
 
   it("generates unique bridge secret for each staged run", async () => {
     const { scriptPath: scriptPathA, logPath: logPathA } = await createMockBrowserExecutable();
