@@ -5,6 +5,7 @@ import {
   buildLayer2InteractionEvidence,
   buildLayer2RhythmPlan,
   buildLayer2ScheduledEventChain,
+  buildLayer2WriteBoundaryAudit,
   buildXhsSearchLayer2InteractionEvidence,
   dispatchLayer2ScheduledEventChain,
   getLayer2EventChainPolicies,
@@ -554,6 +555,146 @@ describe("FR-0013 layer2 humanized events", () => {
       text_applied: null,
       blocked_by: "FR-0011.write_interaction_tier"
     });
+  });
+
+  it("audits FR-0011 write tier blocks without synthetic fallback execution", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      writeInteractionTierName: "irreversible_write",
+      executionApplied: true
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "blocked" });
+    const dispatchResult = dispatchLayer2ScheduledEventChain(
+      new Layer2MockDispatchTarget(),
+      schedule,
+      { text: "blocked" }
+    );
+    const audit = buildLayer2WriteBoundaryAudit({
+      evidence,
+      schedule,
+      dispatchResult,
+      writeInteractionTierName: "irreversible_write",
+      approvalRecordRef: "approval-740-001",
+      auditRecordRef: "audit-740-001"
+    });
+
+    expect(audit).toMatchObject({
+      action_kind: "keyboard_input",
+      write_interaction_tier: "irreversible_write",
+      boundary_decision: "block",
+      blocked_by: "FR-0011.write_interaction_tier",
+      approval_record_ref: "approval-740-001",
+      audit_record_ref: "audit-740-001",
+      synthetic_fallback_blocked: true,
+      required_events_applied: [],
+      required_events_missing: [],
+      dispatch_failure_events: [],
+      settled_wait_result: "skipped",
+      recovery_action: null,
+      failure_category: "blocked_by_fr0011"
+    });
+    expect(audit.audit_reasons).toEqual([
+      "FR-0011.write_interaction_tier",
+      "blocked_by_fr0011"
+    ]);
+  });
+
+  it("audits applied write chains with required events and settle result refs", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      writeInteractionTierName: "reversible_interaction",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "hello" });
+    const dispatchResult = dispatchLayer2ScheduledEventChain(
+      new Layer2MockDispatchTarget(),
+      schedule,
+      { text: "hello" }
+    );
+    const settleRecoveryResult = resolveLayer2SettleRecovery({
+      pageStateInput: settledPageState,
+      completionSignal: schedule.completion_signal,
+      observedSignals: ["framework_value_updated"],
+      elapsedMs: 80,
+      timeoutMs: 500
+    });
+    const audit = buildLayer2WriteBoundaryAudit({
+      evidence,
+      schedule,
+      dispatchResult,
+      settleRecoveryResult,
+      writeInteractionTierName: "reversible_interaction",
+      approvalRecordRef: "approval-740-allowed",
+      auditRecordRef: "audit-740-allowed"
+    });
+
+    expect(audit).toMatchObject({
+      boundary_decision: "allow",
+      blocked_by: null,
+      approval_record_ref: "approval-740-allowed",
+      audit_record_ref: "audit-740-allowed",
+      required_events_applied: ["focus", "keydown", "input", "keyup", "change", "blur"],
+      required_events_missing: [],
+      dispatch_failure_events: [],
+      settled_wait_result: "settled",
+      recovery_action: "none",
+      failure_category: null,
+      audit_reasons: []
+    });
+  });
+
+  it("fail-closes write boundary audit when required events are not applied", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+    const dispatchResult = dispatchLayer2ScheduledEventChain(
+      new Layer2MockDispatchTarget(["mouseover"]),
+      schedule
+    );
+    const audit = buildLayer2WriteBoundaryAudit({
+      evidence,
+      schedule,
+      dispatchResult,
+      writeInteractionTierName: "reversible_interaction",
+      auditRecordRef: "audit-740-missing-event"
+    });
+
+    expect(audit).toMatchObject({
+      boundary_decision: "fail_closed",
+      blocked_by: null,
+      required_events_missing: ["mouseover"],
+      dispatch_failure_events: ["mouseover"],
+      failure_category: "required_event_not_applied"
+    });
+    expect(audit.audit_reasons).toEqual(["required_event_not_applied"]);
+  });
+
+  it("blocks out-of-scope write actions before treating them as layer2 fallback", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "composition_input",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const audit = buildLayer2WriteBoundaryAudit({
+      evidence,
+      writeInteractionTierName: "reversible_interaction",
+      outOfScopeActions: ["publish", "upload"]
+    });
+
+    expect(audit).toMatchObject({
+      boundary_decision: "block",
+      blocked_by: "FR-0013.out_of_scope_action",
+      out_of_scope_actions: ["publish", "upload"],
+      required_events_applied: [],
+      required_events_missing: [],
+      dispatch_failure_events: [],
+      failure_category: null
+    });
+    expect(audit.audit_reasons).toEqual(["FR-0013.out_of_scope_action", "out_of_scope_action"]);
   });
 
   it("keeps blocked accounting separate from dispatch skip accounting", () => {
