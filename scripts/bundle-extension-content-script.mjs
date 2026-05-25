@@ -304,7 +304,9 @@ const buildContentScriptBundle = async () => {
     exports: [
       "buildLayer2InteractionEvidence",
       "buildLayer2RhythmPlan",
+      "buildLayer2ScheduledEventChain",
       "buildXhsSearchLayer2InteractionEvidence",
+      "dispatchLayer2ScheduledEventChain",
       "getLayer2EventChainPolicies"
     ]
   });
