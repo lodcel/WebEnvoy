@@ -39,7 +39,7 @@
 | fonts | P2 | 待追加字段：`fonts.profile` 或等价稳定枚举 | 未冻结字段 | 后续 blocker/deferred | 不在 Phase 2 中伪装完整覆盖；如实现需先 spec review |
 | media devices | P2 | 待追加字段：device label/count policy | 未冻结字段 | 后续 blocker/deferred | 只允许保守空值或真实浏览器一致值；不得生成不可信虚假设备 |
 | WebRTC / local network 暴露 | P2 | 启动参数、profile/network policy | 未冻结为 FR-0012 正式对象 | `#735` 或后续 blocker | Phase 2 仅审计与阻断明显失配，不承诺完整网络伪装 |
-| worker / service worker 指纹面 | P2 | 待定义跨上下文注入策略 | 明确保留盲区 | `#733` 后续 blocker/deferred | 不能把 main-world patch 误报为 worker 覆盖；需在验证基线中单独标记 |
+| worker / service worker 指纹面 | P2 | 待定义跨上下文注入策略 | 明确保留盲区 | `#802` deferred | Phase 2 不声明 worker/service-worker 指纹一致性完成；不能把 main-world patch 误报为 worker 覆盖；后续如实现需先冻结跨 worker 注入策略 |
 
 ## 后续 work item 归属
 
@@ -59,10 +59,16 @@
 | integration/real-browser | official Chrome 启动与 extension 注入路径、profile 绑定 fail-closed | 仅在 readiness/admission 满足后执行检测站点 |
 | closeout 证据 | PR、merge commit、GitHub checks、guardian、命令输出、剩余风险 | 历史 minimum slice 只能作为背景，不可单独关闭完整能力 |
 
+## Phase 2 deferred 口径
+
+| 范围 | Issue | Phase 2 结论 | 后续重新进入条件 |
+| --- | --- | --- | --- |
+| worker / service worker 指纹面 | `#802` | deferred；Phase 2 只要求验证基线显式标记盲区，不要求实现 dedicated worker、shared worker 或 service worker 指纹补丁 | 先冻结跨 worker 注入策略、作用域、权限、回滚方式、unsupported reason 与验证夹具；不得直接复用 main-world patch 作为 worker 覆盖证据 |
+
 ## Stop-ship 条件
 
 - profile 缺少 P0 字段却继续高风险 live。
 - `fingerprint_patch_manifest.required_patches` 缺少 P0 patch 仍声明 Layer 1 完整能力通过。
 - 环境 mismatch 时没有 fail-closed 或结构化 reason code。
-- main world patch 被误报为 worker/service worker 覆盖。
+- main world patch 被误报为 worker/service worker 覆盖，或 #802 的 deferred 盲区未在 #733/#265 closeout 中披露。
 - 实现 PR 隐式新增 WebGL/fonts/media/WebRTC 等字段而未先冻结契约。
