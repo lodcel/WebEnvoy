@@ -30,6 +30,11 @@ import {
   resolveRuntimeStorePath
 } from "../../runtime/store/sqlite-runtime-store.js";
 import { persistXhsCloseoutValidationSignals } from "../../runtime/anti-detection-validation.js";
+import {
+  buildSessionRhythmFormalView,
+  markXhsCloseoutSingleProbeFailed,
+  toSessionRhythmStatusView
+} from "../../runtime/xhs-closeout-rhythm.js";
 import type { RuntimeContext } from "../../core/types.js";
 
 type DatabaseSyncCtor = new (path: string) => {
@@ -241,6 +246,209 @@ const createSchemaMismatchRuntimeStore = async (cwd: string): Promise<void> => {
     db.close();
   }
 };
+
+describe("buildSessionRhythmFormalView", () => {
+  it("keeps shared session rhythm status view compatible with the issue_209 default", () => {
+    expect(
+      toSessionRhythmStatusView({
+        profile: "xhs_missing_issue_scope_profile",
+        rhythm: {
+          state: "single_probe_passed",
+          cooldownUntil: null,
+          operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+          singleProbeRequired: false,
+          singleProbePassedAt: "2026-04-25T10:50:00.000Z",
+          probeRunId: "run-missing-scope-default-probe",
+          fullBundleBlocked: true,
+          reasonCodes: ["XHS_RECOVERY_SINGLE_PROBE_PASSED"]
+        },
+        sessionId: "nm-session-missing-scope-default"
+      })
+    ).toMatchObject({
+      issue_scope: "issue_209",
+      session_rhythm_window_state: expect.objectContaining({
+        window_id: "rhythm_win_xhs_missing_issue_scope_profile_issue_209"
+      })
+    });
+  });
+
+  it("keeps historical recovery-probe failure reasons from overriding current account risk events", () => {
+    const rhythm = {
+      state: "cooldown" as const,
+      cooldownUntil: "2026-04-25T11:20:00.000Z",
+      operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+      singleProbeRequired: true,
+      singleProbePassedAt: null,
+      probeRunId: "run-old-recovery-probe",
+      fullBundleBlocked: true,
+      reasonCodes: [
+        "XHS_RECOVERY_SINGLE_PROBE_FAILED",
+        "XHS_CLOSEOUT_COOLDOWN_EXTENDED",
+        "ACCOUNT_ABNORMAL",
+        "ACCOUNT_RISK_BLOCKED"
+      ]
+    };
+    const accountSafety = {
+      state: "account_risk_blocked" as const,
+      platform: "xhs",
+      reason: "ACCOUNT_ABNORMAL" as const,
+      observedAt: "2026-04-25T10:50:00.000Z",
+      cooldownUntil: "2026-04-25T11:20:00.000Z",
+      sourceRunId: "run-current-risk",
+      sourceCommand: "xhs.search",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 33,
+      pageUrl: "https://www.xiaohongshu.com/search_result",
+      statusCode: null,
+      platformCode: null
+    };
+
+    expect(
+      buildSessionRhythmFormalView({
+        profile: "xhs_risk_priority_profile",
+        rhythm,
+        accountSafety,
+        issueScope: "issue_209",
+        sessionId: "nm-session-risk-priority",
+        sourceRunId: "run-current-risk",
+        now: new Date("2026-04-25T10:51:00.000Z")
+      }).event
+    ).toMatchObject({
+      event_id: "rhythm_evt_run-current-risk",
+      event_type: "risk_signal",
+      reason: "XHS_CLOSEOUT_COOLDOWN_ACTIVE"
+    });
+    expect(
+      buildSessionRhythmFormalView({
+        profile: "xhs_risk_priority_profile",
+        rhythm,
+        accountSafety,
+        issueScope: "issue_209",
+        sessionId: "nm-session-risk-priority",
+        sourceRunId: "run-current-risk",
+        now: new Date("2026-04-25T10:51:00.000Z")
+      }).decision
+    ).toMatchObject({
+      decision_id: "rhythm_decision_run-current-risk",
+      run_id: "run-current-risk"
+    });
+
+    expect(
+      buildSessionRhythmFormalView({
+        profile: "xhs_risk_priority_profile",
+        rhythm,
+        accountSafety,
+        issueScope: "issue_209",
+        sessionId: "nm-session-risk-priority",
+        sourceRunId: "run-old-recovery-probe",
+        eventTypeOverride: "recovery_probe_failed",
+        eventReasonOverride: "ACCOUNT_ABNORMAL",
+        now: new Date("2026-04-25T10:51:00.000Z")
+      }).event
+    ).toMatchObject({
+      event_type: "recovery_probe_failed",
+      reason: "ACCOUNT_ABNORMAL"
+    });
+  });
+
+  it("keeps recovery failure reason codes bounded while preserving the latest failure reason", () => {
+    const record = markXhsCloseoutSingleProbeFailed({
+      current: {
+        state: "single_probe_required",
+        cooldownUntil: null,
+        operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+        singleProbeRequired: true,
+        singleProbePassedAt: null,
+        probeRunId: null,
+        fullBundleBlocked: true,
+        reasonCodes: Array.from({ length: 40 }, (_, index) => `HISTORICAL_REASON_${index}`)
+      },
+      failedAt: "2026-04-25T10:50:00.000Z",
+      probeRunId: "run-bounded-recovery-probe",
+      reasonCode: "ACCOUNT_ABNORMAL"
+    });
+
+    expect(record.reasonCodes.length).toBeLessThanOrEqual(24);
+    expect(record.reasonCodes).toEqual(
+      expect.arrayContaining([
+        "XHS_RECOVERY_SINGLE_PROBE_FAILED",
+        "XHS_CLOSEOUT_COOLDOWN_EXTENDED",
+        "ACCOUNT_ABNORMAL"
+      ])
+    );
+    expect(record.reasonCodes).not.toContain("HISTORICAL_REASON_0");
+  });
+
+  it("preserves the latest duplicate recovery failure reason for formal event overrides", () => {
+    const record = markXhsCloseoutSingleProbeFailed({
+      current: {
+        state: "single_probe_required",
+        cooldownUntil: null,
+        operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+        singleProbeRequired: true,
+        singleProbePassedAt: null,
+        probeRunId: null,
+        fullBundleBlocked: true,
+        reasonCodes: [
+          "ACCOUNT_ABNORMAL",
+          ...Array.from({ length: 40 }, (_, index) => `HISTORICAL_REASON_${index}`)
+        ]
+      },
+      failedAt: "2026-04-25T10:50:00.000Z",
+      probeRunId: "run-duplicate-recovery-probe",
+      reasonCode: "ACCOUNT_ABNORMAL"
+    });
+
+    expect(record.reasonCodes.length).toBeLessThanOrEqual(24);
+    expect(record.reasonCodes).toContain("ACCOUNT_ABNORMAL");
+    expect(
+      toSessionRhythmStatusView({
+        profile: "xhs_duplicate_reason_profile",
+        rhythm: record,
+        issueScope: "issue_209",
+        sessionId: "nm-session-duplicate-reason",
+        sourceRunId: "run-duplicate-recovery-probe",
+        eventTypeOverride: "recovery_probe_failed",
+        eventReasonOverride: "ACCOUNT_ABNORMAL",
+        now: new Date("2026-04-25T10:51:00.000Z")
+      })
+    ).toMatchObject({
+      latest_reason: "ACCOUNT_ABNORMAL",
+      session_rhythm_event: expect.objectContaining({
+        event_type: "recovery_probe_failed",
+        reason: "ACCOUNT_ABNORMAL"
+      })
+    });
+  });
+
+  it("uses an explicit event reason override even when the reason is diagnostic-only", () => {
+    expect(
+      toSessionRhythmStatusView({
+        profile: "xhs_diagnostic_reason_profile",
+        rhythm: {
+          state: "cooldown",
+          cooldownUntil: "2026-04-25T11:20:00.000Z",
+          operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+          singleProbeRequired: true,
+          singleProbePassedAt: null,
+          probeRunId: "run-diagnostic-recovery-probe",
+          fullBundleBlocked: true,
+          reasonCodes: ["XHS_RECOVERY_SINGLE_PROBE_FAILED", "XHS_CLOSEOUT_COOLDOWN_EXTENDED"]
+        },
+        issueScope: "issue_209",
+        sessionId: "nm-session-diagnostic-reason",
+        eventTypeOverride: "recovery_probe_failed",
+        eventReasonOverride: "ACCOUNT_ABNORMAL",
+        now: new Date("2026-04-25T10:51:00.000Z")
+      })
+    ).toMatchObject({
+      latest_reason: "ACCOUNT_ABNORMAL",
+      session_rhythm_event: expect.objectContaining({
+        reason: "ACCOUNT_ABNORMAL"
+      })
+    });
+  });
+});
 
 describe("ensureOfficialChromeRuntimeReady", () => {
   it("does not forward persistent extension identity into runtime.status params", () => {
@@ -7607,6 +7815,311 @@ describe("normalizeGateOptionsForContract", () => {
         reason: "ACCOUNT_ABNORMAL",
         sourceRunId: runId
       });
+      expect(persisted?.xhsCloseoutRhythm).toMatchObject({
+        state: "cooldown",
+        probeRunId: runId,
+        reasonCodes: expect.arrayContaining([
+          "XHS_RECOVERY_SINGLE_PROBE_FAILED",
+          "XHS_CLOSEOUT_COOLDOWN_EXTENDED"
+        ])
+      });
+      const verificationStore = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
+      try {
+        await expect(
+          verificationStore.getSessionRhythmStatusView({
+            profile: "xhs_rhythm_probe_risk_profile",
+            platform: "xhs",
+            issueScope: "issue_209",
+            runId
+          })
+        ).resolves.toMatchObject({
+          event: {
+            event_id: `rhythm_evt_${runId}`,
+            event_type: "recovery_probe_failed",
+            reason: "ACCOUNT_ABNORMAL"
+          },
+          decision: {
+            decision_id: `rhythm_decision_${runId}`,
+            decision: "blocked",
+            reason_codes: expect.arrayContaining([
+              "XHS_RECOVERY_SINGLE_PROBE_FAILED",
+              "XHS_CLOSEOUT_COOLDOWN_EXTENDED",
+              "ACCOUNT_ABNORMAL"
+            ]),
+            requires: ["session_rhythm_window_not_ready"]
+          }
+        });
+      } finally {
+        verificationStore.close();
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("keeps account-safety recovery probe failure stable when rhythm status persistence fails", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-rhythm-probe-risk-store-fail-"));
+    const runId = "run-rhythm-probe-risk-store-fail-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+    try {
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.initializeMeta(
+        "xhs_rhythm_probe_risk_store_fail_profile",
+        "2026-04-25T10:00:00.000Z",
+        { allowUnsupportedExtensionBrowser: true }
+      );
+      await profileStore.writeMeta("xhs_rhythm_probe_risk_store_fail_profile", {
+        ...meta,
+        accountSafety: {
+          state: "clear",
+          platform: null,
+          reason: null,
+          observedAt: null,
+          cooldownUntil: null,
+          sourceRunId: null,
+          sourceCommand: null,
+          targetDomain: null,
+          targetTabId: null,
+          pageUrl: null,
+          statusCode: null,
+          platformCode: null
+        },
+        xhsCloseoutRhythm: {
+          state: "single_probe_required",
+          cooldownUntil: "2000-01-01T00:30:00.000Z",
+          operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+          singleProbeRequired: true,
+          singleProbePassedAt: null,
+          probeRunId: null,
+          fullBundleBlocked: true,
+          reasonCodes: ["XHS_RECOVERY_SINGLE_PROBE_REQUIRED"]
+        }
+      });
+      const originalRecordSessionRhythmStatusView =
+        SQLiteRuntimeStore.prototype.recordSessionRhythmStatusView;
+      const recordSessionRhythmStatusViewSpy = vi
+        .spyOn(SQLiteRuntimeStore.prototype, "recordSessionRhythmStatusView")
+        .mockImplementation(function (
+          this: SQLiteRuntimeStore,
+          input: Parameters<SQLiteRuntimeStore["recordSessionRhythmStatusView"]>[0]
+        ) {
+          if (input.event.event_type === "recovery_probe_failed") {
+            return Promise.reject(new Error("simulated rhythm status write failure"));
+          }
+          return originalRecordSessionRhythmStatusView.call(this, input);
+        });
+      try {
+        await expect(
+          executeCommand(
+            {
+              cwd,
+              command: "xhs.search",
+              profile: "xhs_rhythm_probe_risk_store_fail_profile",
+              run_id: runId,
+              params: {
+                ability: {
+                  id: "xhs.note.search.v1",
+                  layer: "L3",
+                  action: "read"
+                },
+                input: {
+                  query: "露营"
+                },
+                options: {
+                  xhs_recovery_probe: true,
+                  simulate_result: "account_abnormal",
+                  issue_scope: "issue_209",
+                  target_domain: "www.xiaohongshu.com",
+                  target_tab_id: 32,
+                  target_page: "search_result_tab",
+                  action_type: "read",
+                  requested_execution_mode: "recon",
+                  risk_state: "allowed"
+                }
+              }
+            } as RuntimeContext,
+            createCommandRegistry()
+          )
+        ).rejects.toMatchObject({
+          code: "ERR_EXECUTION_FAILED",
+          details: {
+            reason: "ACCOUNT_ABNORMAL",
+            account_safety: expect.objectContaining({
+              state: "account_risk_blocked",
+              reason: "ACCOUNT_ABNORMAL",
+              source_run_id: runId,
+              live_commands_blocked: true
+            }),
+            xhs_closeout_rhythm: expect.objectContaining({
+              state: "cooldown",
+              full_bundle_blocked: true,
+              session_rhythm_status_view_skipped_reason: "sqlite_write_failed"
+            })
+          }
+        });
+      } finally {
+        recordSessionRhythmStatusViewSpy.mockRestore();
+      }
+
+      const persisted = await profileStore.readMeta("xhs_rhythm_probe_risk_store_fail_profile");
+      expect(persisted?.xhsCloseoutRhythm).toMatchObject({
+        state: "cooldown",
+        probeRunId: runId,
+        reasonCodes: expect.arrayContaining([
+          "XHS_RECOVERY_SINGLE_PROBE_FAILED",
+          "XHS_CLOSEOUT_COOLDOWN_EXTENDED",
+          "ACCOUNT_ABNORMAL"
+        ])
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("skips recovery probe failure rhythm status view when issue scope is not explicit", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-rhythm-probe-risk-missing-scope-"));
+    const runId = "run-rhythm-probe-risk-missing-scope-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+    try {
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.initializeMeta(
+        "xhs_rhythm_probe_risk_missing_scope_profile",
+        "2026-04-25T10:00:00.000Z",
+        { allowUnsupportedExtensionBrowser: true }
+      );
+      await profileStore.writeMeta("xhs_rhythm_probe_risk_missing_scope_profile", {
+        ...meta,
+        accountSafety: {
+          state: "clear",
+          platform: null,
+          reason: null,
+          observedAt: null,
+          cooldownUntil: null,
+          sourceRunId: null,
+          sourceCommand: null,
+          targetDomain: null,
+          targetTabId: null,
+          pageUrl: null,
+          statusCode: null,
+          platformCode: null
+        },
+        xhsCloseoutRhythm: {
+          state: "single_probe_required",
+          cooldownUntil: "2000-01-01T00:30:00.000Z",
+          operatorConfirmedAt: "2026-04-25T10:35:00.000Z",
+          singleProbeRequired: true,
+          singleProbePassedAt: null,
+          probeRunId: null,
+          fullBundleBlocked: true,
+          reasonCodes: ["XHS_RECOVERY_SINGLE_PROBE_REQUIRED"]
+        }
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.search",
+            profile: "xhs_rhythm_probe_risk_missing_scope_profile",
+            run_id: runId,
+            params: {
+              ability: {
+                id: "xhs.note.search.v1",
+                layer: "L3",
+                action: "read"
+              },
+              input: {
+                query: "露营"
+              },
+              options: {
+                xhs_recovery_probe: true,
+                simulate_result: "account_abnormal",
+                target_domain: "www.xiaohongshu.com",
+                target_tab_id: 32,
+                target_page: "search_result_tab",
+                action_type: "read",
+                requested_execution_mode: "recon",
+                risk_state: "allowed"
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: {
+          reason: "ACCOUNT_ABNORMAL",
+          xhs_closeout_rhythm: expect.objectContaining({
+            state: "cooldown",
+            session_rhythm_status_view_skipped_reason: "issue_scope_missing"
+          })
+        }
+      });
+
+      const verificationStore = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
+      try {
+        await expect(
+          verificationStore.getSessionRhythmStatusView({
+            profile: "xhs_rhythm_probe_risk_missing_scope_profile",
+            platform: "xhs",
+            issueScope: "issue_209",
+            runId
+          })
+        ).resolves.toMatchObject({
+          event: {
+            event_type: "recovery_probe_started"
+          },
+          decision: {
+            reason_codes: expect.not.arrayContaining([
+              "XHS_RECOVERY_SINGLE_PROBE_FAILED",
+              "XHS_CLOSEOUT_COOLDOWN_EXTENDED",
+              "ACCOUNT_ABNORMAL"
+            ])
+          }
+        });
+      } finally {
+        verificationStore.close();
+      }
     } finally {
       await rm(cwd, { recursive: true, force: true });
       if (previousTransport === undefined) {

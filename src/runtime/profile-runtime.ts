@@ -69,6 +69,7 @@ import {
   buildBlockedXhsCloseoutRhythmRecord,
   claimXhsCloseoutSingleProbe,
   markXhsCloseoutOperatorConfirmed,
+  markXhsCloseoutSingleProbeFailed,
   markXhsCloseoutSingleProbePassed,
   toXhsCloseoutRhythmStatus
 } from "./xhs-closeout-rhythm.js";
@@ -191,6 +192,9 @@ export interface MarkAccountSafetyBlockedInput extends RuntimeActionInput {
 }
 
 export interface MarkXhsCloseoutSingleProbePassedInput extends RuntimeActionInput {}
+export interface MarkXhsCloseoutSingleProbeFailedInput extends RuntimeActionInput {
+  reasonCode?: string | null;
+}
 export interface ClaimXhsCloseoutSingleProbeInput extends RuntimeActionInput {}
 
 interface ProfileStoreLike {
@@ -1611,6 +1615,46 @@ export class ProfileRuntimeService {
 
     return {
       profile: input.profile,
+      xhs_closeout_rhythm: toXhsCloseoutRhythmStatus({
+        rhythm: xhsCloseoutRhythm,
+        accountSafety: nextMeta.accountSafety
+      })
+    };
+  }
+
+  async markXhsCloseoutSingleProbeFailed(
+    input: MarkXhsCloseoutSingleProbeFailedInput
+  ): Promise<JsonObject> {
+    const failedAt = isoNow();
+    const store = this.#createStore(input.cwd);
+    const profileDir = this.#resolveProfileDir(store, input.profile);
+    await store.ensureProfileDir(input.profile);
+    const existingMeta =
+      await this.#readMeta(store, input.profile, { mode: "readonly" }) ??
+      this.#buildMinimalProfileMeta({
+        profile: input.profile,
+        profileDir,
+        nowIso: failedAt
+      });
+    const xhsCloseoutRhythm = markXhsCloseoutSingleProbeFailed({
+      current: existingMeta.xhsCloseoutRhythm,
+      failedAt,
+      probeRunId: input.runId,
+      reasonCode: input.reasonCode
+    });
+    const nextMeta: ProfileMeta = {
+      ...existingMeta,
+      profileName: input.profile,
+      profileDir,
+      xhsCloseoutRhythm,
+      updatedAt: failedAt
+    };
+    await store.writeMeta(input.profile, nextMeta);
+
+    return {
+      profile: input.profile,
+      account_safety_record: nextMeta.accountSafety as unknown as JsonObject,
+      xhs_closeout_rhythm_record: xhsCloseoutRhythm as unknown as JsonObject,
       xhs_closeout_rhythm: toXhsCloseoutRhythmStatus({
         rhythm: xhsCloseoutRhythm,
         accountSafety: nextMeta.accountSafety
