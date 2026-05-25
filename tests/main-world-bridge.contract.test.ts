@@ -521,16 +521,219 @@ describe("main-world bridge contract", () => {
         "navigator_mime_types",
         "hardware_concurrency",
         "device_memory",
+        "performance_memory",
         "screen_color_depth",
         "screen_pixel_depth"
       ])
     );
-    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["performance_memory"]));
     expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["permissions_api"]));
     expect((mockWindow.navigator as Navigator).hardwareConcurrency).toBe(10);
     expect((mockWindow.navigator as Navigator & { deviceMemory?: number }).deviceMemory).toBe(8);
+    expect(
+      (mockWindow.performance as Performance & {
+        memory?: {
+          jsHeapSizeLimit: number;
+          totalJSHeapSize: number;
+          usedJSHeapSize: number;
+        };
+      }).memory
+    ).toMatchObject({
+      jsHeapSizeLimit: 8 * 1024 ** 3,
+      totalJSHeapSize: 4 * 1024 ** 3,
+      usedJSHeapSize: 2 * 1024 ** 3
+    });
     expect((mockWindow.screen as Screen).colorDepth).toBe(30);
     expect((mockWindow.screen as Screen).pixelDepth).toBe(24);
+  });
+
+  it("skips performance memory optional patch when deviceMemory is unavailable", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-performance-memory-missing-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {},
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["performance_memory"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["performance_memory"]));
+    expect((mockWindow.performance as Performance & { memory?: unknown }).memory).toBeUndefined();
+  });
+
+  it("skips performance memory optional patch when the host property is not configurable", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    const existingMemory = {
+      jsHeapSizeLimit: 123,
+      totalJSHeapSize: 45,
+      usedJSHeapSize: 6
+    };
+    Object.defineProperty(mockWindow.performance, "memory", {
+      configurable: false,
+      value: existingMemory
+    });
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-performance-memory-locked-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              deviceMemory: 8
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["performance_memory"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["performance_memory"]));
+    expect((mockWindow.performance as Performance & { memory?: unknown }).memory).toBe(
+      existingMemory
+    );
+  });
+
+  it("skips performance memory optional patch when the host prototype property is not configurable", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    const existingMemory = {
+      jsHeapSizeLimit: 321,
+      totalJSHeapSize: 54,
+      usedJSHeapSize: 7
+    };
+    const performancePrototype = {};
+    Object.defineProperty(performancePrototype, "memory", {
+      configurable: false,
+      get: () => existingMemory
+    });
+    Object.setPrototypeOf(mockWindow.performance, performancePrototype);
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-performance-memory-prototype-locked-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              deviceMemory: 8
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["performance_memory"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["performance_memory"]));
+    expect((mockWindow.performance as Performance & { memory?: unknown }).memory).toBe(
+      existingMemory
+    );
+  });
+
+  it("skips performance memory optional patch when performance is unavailable", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    delete (mockWindow as Record<string, unknown>).performance;
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-performance-unavailable-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              deviceMemory: 8
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["performance_memory"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["performance_memory"]));
   });
 
   it("skips screen optional patches when screen is unavailable without failing required install", async () => {

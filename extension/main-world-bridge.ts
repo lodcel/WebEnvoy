@@ -810,6 +810,26 @@ const defineGetter = (target: object, property: string, getter: () => unknown): 
   });
 };
 
+const findPropertyDescriptor = (
+  target: object,
+  property: string
+): PropertyDescriptor | undefined => {
+  let current: object | null = target;
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, property);
+    if (descriptor) {
+      return descriptor;
+    }
+    current = Object.getPrototypeOf(current);
+  }
+  return undefined;
+};
+
+const canDefineGetter = (target: object, property: string): boolean => {
+  const descriptor = findPropertyDescriptor(target, property);
+  return descriptor === undefined || descriptor.configurable === true;
+};
+
 const createPluginAndMimeTypeArrays = () => {
   const defineValue = (
     target: object,
@@ -1122,6 +1142,36 @@ const installNavigatorDeviceMemoryPatch = (context: FingerprintPatchInstallConte
   markFingerprintPatchApplied(context, "device_memory");
 };
 
+const installPerformanceMemoryPatch = (context: FingerprintPatchInstallContext): void => {
+  if (!context.bundle || !shouldInstallFingerprintPatch(context, "performance_memory")) {
+    return;
+  }
+
+  const deviceMemory = asNumber(context.bundle.deviceMemory);
+  const performanceTarget = window.performance;
+  if (deviceMemory === null || deviceMemory <= 0 || !performanceTarget) {
+    return;
+  }
+  if (!canDefineGetter(performanceTarget, "memory")) {
+    return;
+  }
+
+  const gib = 1024 ** 3;
+  const jsHeapSizeLimit = Math.trunc(Math.min(Math.max(deviceMemory, 1), 8) * gib);
+  const memory = Object.freeze({
+    jsHeapSizeLimit,
+    totalJSHeapSize: Math.trunc(jsHeapSizeLimit * 0.5),
+    usedJSHeapSize: Math.trunc(jsHeapSizeLimit * 0.25)
+  });
+
+  try {
+    defineGetter(performanceTarget, "memory", () => memory);
+  } catch {
+    return;
+  }
+  markFingerprintPatchApplied(context, "performance_memory");
+};
+
 const installScreenDepthPatch = (
   context: FingerprintPatchInstallContext,
   patchName: "screen_color_depth" | "screen_pixel_depth",
@@ -1165,6 +1215,7 @@ const installFingerprintRuntime = (runtime: RecordValue | null): RecordValue => 
   installNavigatorMimeTypesPatch(context);
   installNavigatorHardwareConcurrencyPatch(context);
   installNavigatorDeviceMemoryPatch(context);
+  installPerformanceMemoryPatch(context);
   installScreenDepthPatch(context, "screen_color_depth", "colorDepth");
   installScreenDepthPatch(context, "screen_pixel_depth", "pixelDepth");
 
