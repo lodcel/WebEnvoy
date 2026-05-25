@@ -30,9 +30,11 @@ import { ProfileStore } from "../runtime/profile-store.js";
 import {
   isAccountSafetyReason,
   toAccountSafetyStatus,
+  type AccountSafetyRecord,
   type AccountSafetyReason
 } from "../runtime/account-safety.js";
 import {
+  type XhsCloseoutRhythmRecord,
   toSessionRhythmStatusView,
   toXhsCloseoutRhythmStatus
 } from "../runtime/xhs-closeout-rhythm.js";
@@ -185,6 +187,12 @@ export const resolveForwardTimeoutMsForContract = (params: JsonObject): number |
 const toSessionRhythmIdPart = (value: string): string =>
   value.replace(/[^A-Za-z0-9._-]+/gu, "_");
 
+const SESSION_RHYTHM_STORE_ISSUE_SCOPES = new Set(["issue_208", "issue_209", "issue_753", "issue_755"]);
+
+const resolveSessionRhythmStoreIssueScope = (issueScope: string | null): string | null => {
+  return issueScope && SESSION_RHYTHM_STORE_ISSUE_SCOPES.has(issueScope) ? issueScope : null;
+};
+
 const buildSessionRhythmAdmissionForRuntime = async (input: {
   cwd: string;
   profile: string | null;
@@ -192,14 +200,15 @@ const buildSessionRhythmAdmissionForRuntime = async (input: {
   sessionId: string;
   profileMeta: Awaited<ReturnType<ProfileStore["readMeta"]>> | null;
   gate: ReturnType<typeof normalizeGateOptionsForContract>;
+  issueScope: string | null;
 }): Promise<JsonObject | null> => {
-  if (!input.profile) {
+  const issueScope = resolveSessionRhythmStoreIssueScope(input.issueScope ?? "issue_209");
+  if (!input.profile || !issueScope) {
     return null;
   }
   let store: SQLiteRuntimeStore | null = null;
   try {
     store = new SQLiteRuntimeStore(resolveRuntimeStorePath(input.cwd));
-    const issueScope = asString(input.gate.options.issue_scope) ?? "issue_209";
     const persisted = await store.getSessionRhythmStatusView({
       profile: input.profile,
       platform: "xhs",
@@ -342,7 +351,8 @@ const readPersistedSessionRhythmBlockStatus = async (input: {
   issueScope: string | null;
   profileMeta: Awaited<ReturnType<ProfileStore["readMeta"]>> | null;
 }): Promise<JsonObject | null> => {
-  if (!input.profile) {
+  const issueScope = resolveSessionRhythmStoreIssueScope(input.issueScope ?? "issue_209");
+  if (!input.profile || !issueScope) {
     return null;
   }
   let store: SQLiteRuntimeStore | null = null;
@@ -351,7 +361,7 @@ const readPersistedSessionRhythmBlockStatus = async (input: {
     const persisted = await store.getSessionRhythmStatusView({
       profile: input.profile,
       platform: "xhs",
-      issueScope: input.issueScope ?? "issue_209"
+      issueScope
     });
     const windowState = persisted?.window_state;
     const persistedDecision = persisted?.decision;
@@ -2787,6 +2797,81 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   });
 };
 
+const recordXhsRecoveryProbeFailure = async (input: {
+  cwd: string;
+  profile: string;
+  runId: string;
+  sessionId: string;
+  issueScope: string | null;
+  effectiveExecutionMode: string | null;
+  reasonCode: string | null;
+  profileRuntime: ProfileRuntimeService;
+}): Promise<JsonObject | null> => {
+  const failureStatus = await input.profileRuntime.markXhsCloseoutSingleProbeFailed({
+    cwd: input.cwd,
+    profile: input.profile,
+    runId: input.runId,
+    params: {},
+    reasonCode: input.reasonCode
+  });
+  const xhsCloseoutRhythm = asObject(failureStatus.xhs_closeout_rhythm);
+  const accountSafetyRecord = asObject(failureStatus.account_safety_record) as AccountSafetyRecord | null;
+  const xhsCloseoutRhythmRecord = asObject(
+    failureStatus.xhs_closeout_rhythm_record
+  ) as XhsCloseoutRhythmRecord | null;
+  const storeIssueScope = resolveSessionRhythmStoreIssueScope(input.issueScope);
+  if (!storeIssueScope) {
+    return {
+      ...(xhsCloseoutRhythm ?? {}),
+      session_rhythm_status_view_skipped_reason: input.issueScope
+        ? "issue_scope_unsupported"
+        : "issue_scope_missing"
+    };
+  }
+  const recoveryRhythmView = toSessionRhythmStatusView({
+    profile: input.profile,
+    rhythm: xhsCloseoutRhythmRecord ?? undefined,
+    accountSafety: accountSafetyRecord ?? undefined,
+    issueScope: storeIssueScope,
+    sessionId: input.sessionId,
+    sourceRunId: input.runId,
+    effectiveExecutionMode: input.effectiveExecutionMode ?? "recon",
+    eventTypeOverride: "recovery_probe_failed",
+    eventReasonOverride: input.reasonCode ?? "XHS_RECOVERY_SINGLE_PROBE_FAILED"
+  });
+  const windowState = asObject(recoveryRhythmView.session_rhythm_window_state);
+  const event = asObject(recoveryRhythmView.session_rhythm_event);
+  const decision = asObject(recoveryRhythmView.session_rhythm_decision);
+  if (windowState && event && decision) {
+    let store: SQLiteRuntimeStore | null = null;
+    try {
+      store = new SQLiteRuntimeStore(resolveRuntimeStorePath(input.cwd));
+      await store.recordSessionRhythmStatusView({
+        profile: input.profile,
+        platform: "xhs",
+        issueScope: storeIssueScope,
+        windowState,
+        event,
+        decision
+      });
+    } catch (error) {
+      return {
+        ...(xhsCloseoutRhythm ?? {}),
+        session_rhythm_status_view_skipped_reason: "sqlite_write_failed",
+        session_rhythm_status_view_skip_error_code:
+          error instanceof RuntimeStoreError ? error.code : "UNKNOWN"
+      };
+    } finally {
+      try {
+        store?.close();
+      } catch {
+        // Recovery probe failure payload must keep the original account-safety error stable.
+      }
+    }
+  }
+  return xhsCloseoutRhythm;
+};
+
 const prepareXhsOfficialChromeRuntime = async (
   context: RuntimeContext,
   ability: AbilityRef,
@@ -2974,6 +3059,7 @@ const xhsReadCommand = async (
     runtimeProfile: context.profile ?? null,
     upstreamAuthorization: envelope.upstreamAuthorization
   });
+  const explicitIssueScope = asString(envelope.options.issue_scope);
   const parsedInput = inputConfig.parseInput(envelope, gate);
   const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
     command: context.command,
@@ -3036,7 +3122,7 @@ const xhsReadCommand = async (
     (await readPersistedSessionRhythmBlockStatus({
       cwd: context.cwd,
       profile: context.profile,
-      issueScope: asString(gate.options.issue_scope),
+      issueScope: explicitIssueScope,
       profileMeta
     })) ?? xhsCloseoutRhythmStatus;
   const profileRuntime = new ProfileRuntimeService();
@@ -3052,12 +3138,16 @@ const xhsReadCommand = async (
     options: gate.options,
     requestedExecutionMode: gate.requestedExecutionMode
   });
+  const sessionRhythmGateApplies = context.command !== XHS_EDITOR_INPUT_VALIDATE_COMMAND;
+  const closeoutValidationReadinessApplies =
+    context.command !== XHS_EDITOR_INPUT_VALIDATE_COMMAND;
   const accountSafetyBlockedLiveCommand =
     accountSafetyStatus.state === "account_risk_blocked" &&
     (liveXhsCommandRequested || recoveryProbeRequested);
   let antiDetectionValidationGate: XhsCloseoutValidationGateView | null = null;
   if (
     context.profile &&
+    sessionRhythmGateApplies &&
     (liveXhsCommandRequested || recoveryProbeRequested || accountSafetyBlockedLiveCommand)
   ) {
     const rhythmState = asString(xhsCloseoutRhythmStatus.state);
@@ -3070,6 +3160,7 @@ const xhsReadCommand = async (
       if (
         !recoveryProbeRequested &&
         liveXhsCommandRequested &&
+        closeoutValidationReadinessApplies &&
         rhythmState === "single_probe_passed"
       ) {
         let store: SQLiteRuntimeStore | null = null;
@@ -3181,14 +3272,17 @@ const xhsReadCommand = async (
       target_site_logged_in: targetSiteLoggedIn,
       ...preparedGateOptions
     } = preparedIssue209LiveRead.options;
-    const sessionRhythmAdmission = await buildSessionRhythmAdmissionForRuntime({
-      cwd: context.cwd,
-      profile: context.profile,
-      runId: context.run_id,
-      sessionId: bridgeSessionId,
-      profileMeta,
-      gate
-    });
+    const sessionRhythmAdmission = sessionRhythmGateApplies
+      ? await buildSessionRhythmAdmissionForRuntime({
+          cwd: context.cwd,
+          profile: context.profile,
+          runId: context.run_id,
+          sessionId: bridgeSessionId,
+          profileMeta,
+          gate,
+          issueScope: explicitIssueScope
+        })
+      : null;
     const forwardTimeoutMs = resolveForwardTimeoutMsForContract(context.params);
     const runtimeGateOptions = {
       ...injectActiveApiFetchFallbackRuntimeAttestation({
@@ -3280,7 +3374,18 @@ const xhsReadCommand = async (
           signal: accountSafetySignal
         });
         const accountSafety = asObject(accountSafetyResult.account_safety);
-        const xhsCloseoutRhythm = asObject(accountSafetyResult.xhs_closeout_rhythm);
+        const xhsCloseoutRhythm = recoveryProbeRequested
+          ? await recordXhsRecoveryProbeFailure({
+              cwd: context.cwd,
+              profile: context.profile,
+              runId: context.run_id,
+              sessionId: bridgeSessionId,
+              issueScope: explicitIssueScope,
+              effectiveExecutionMode: gate.requestedExecutionMode,
+              reasonCode: accountSafetySignal.reason,
+              profileRuntime
+            })
+          : asObject(accountSafetyResult.xhs_closeout_rhythm);
         const runtimeStop = asObject(accountSafetyResult.runtime_stop);
         if (accountSafety) {
           mergeAccountSafetyIntoFailurePayload(
@@ -3331,7 +3436,16 @@ const xhsReadCommand = async (
         signal: recoveryProbeRiskSignal
       });
       const accountSafety = asObject(accountSafetyResult.account_safety);
-      const xhsCloseoutRhythm = asObject(accountSafetyResult.xhs_closeout_rhythm);
+      const xhsCloseoutRhythm = await recordXhsRecoveryProbeFailure({
+        cwd: context.cwd,
+        profile: context.profile,
+        runId: context.run_id,
+        sessionId: bridgeSessionId,
+        issueScope: explicitIssueScope,
+        effectiveExecutionMode: gate.requestedExecutionMode,
+        reasonCode: recoveryProbeRiskSignal.reason,
+        profileRuntime
+      });
       const runtimeStop = asObject(accountSafetyResult.runtime_stop);
       if (accountSafety) {
         mergeAccountSafetyIntoFailurePayload(
@@ -3430,25 +3544,30 @@ const xhsReadCommand = async (
       }
       const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
       const latestMeta = await profileStore.readMeta(context.profile, { mode: "readonly" });
-      const recoveryRhythmView = toSessionRhythmStatusView({
-        profile: context.profile,
-        rhythm: latestMeta?.xhsCloseoutRhythm,
-        accountSafety: latestMeta?.accountSafety,
-        issueScope: asString(gate.options.issue_scope) ?? "issue_209",
-        sessionId: bridgeSessionId,
-        sourceRunId: context.run_id,
-        effectiveExecutionMode: gate.requestedExecutionMode
-      });
-      const windowState = asObject(recoveryRhythmView.session_rhythm_window_state);
-      const event = asObject(recoveryRhythmView.session_rhythm_event);
-      const decision = asObject(recoveryRhythmView.session_rhythm_decision);
-      if (windowState && event && decision) {
+      const recoveryStoreIssueScope = resolveSessionRhythmStoreIssueScope(
+        explicitIssueScope ?? "issue_209"
+      );
+      const recoveryRhythmView = recoveryStoreIssueScope
+        ? toSessionRhythmStatusView({
+            profile: context.profile,
+            rhythm: latestMeta?.xhsCloseoutRhythm,
+            accountSafety: latestMeta?.accountSafety,
+            issueScope: recoveryStoreIssueScope,
+            sessionId: bridgeSessionId,
+            sourceRunId: context.run_id,
+            effectiveExecutionMode: gate.requestedExecutionMode
+          })
+        : null;
+      const windowState = asObject(recoveryRhythmView?.session_rhythm_window_state);
+      const event = asObject(recoveryRhythmView?.session_rhythm_event);
+      const decision = asObject(recoveryRhythmView?.session_rhythm_decision);
+      if (windowState && event && decision && recoveryStoreIssueScope) {
         const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(context.cwd));
         try {
           await store.recordSessionRhythmStatusView({
             profile: context.profile,
             platform: "xhs",
-            issueScope: asString(gate.options.issue_scope) ?? "issue_209",
+            issueScope: recoveryStoreIssueScope,
             windowState,
             event,
             decision

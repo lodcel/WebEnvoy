@@ -3795,20 +3795,21 @@ process.stdin.on("data", (chunk) => {
           current_phase: "steady",
           current_risk_state: "limited",
           window_state: "stability",
-          latest_event_id: "rhythm_evt_run-session-audit-probe-001",
+          latest_event_id: `rhythm_evt_${runId}`,
           latest_reason: "ANTI_DETECTION_BASELINE_REQUIRED",
           derived_at: expect.any(String),
           session_rhythm_window_state: expect.objectContaining({
             window_id: `rhythm_win_${auditProfile}_issue_209`,
+            issue_scope: "issue_209",
             current_phase: "steady",
-            source_run_id: "run-session-audit-probe-001"
+            source_run_id: runId
           }),
           session_rhythm_event: expect.objectContaining({
-            event_id: "rhythm_evt_run-session-audit-probe-001",
+            event_id: `rhythm_evt_${runId}`,
             event_type: "recovery_probe_passed"
           }),
           session_rhythm_decision: expect.objectContaining({
-            decision_id: "rhythm_decision_run-session-audit-probe-001",
+            decision_id: `rhythm_decision_${runId}`,
             decision: "deferred"
           })
         }
