@@ -5650,7 +5650,8 @@ const resolveLayer2SettleRecovery = (input) => {
         pageState.layout_motion === "animating" ||
         pageState.layout_motion === "loading";
     const timedOut = timeoutMs !== null && elapsedMs !== null && elapsedMs >= timeoutMs;
-    const completionObserved = input.completionSignal.some((signal) => observedSignals.includes(signal));
+    const completionSignalsObserved = observedSignals.filter((signal) => input.completionSignal.includes(signal));
+    const completionObserved = completionSignalsObserved.length > 0;
     const pageSettled = pageState.viewport_state === "stable" &&
         pageState.occlusion_state === "clear" &&
         pageState.layout_motion === "idle" &&
@@ -5658,8 +5659,9 @@ const resolveLayer2SettleRecovery = (input) => {
     if (targetDrifted) {
         return buildLayer2SettleRecoveryResult({
             pageState,
-            observedSignals,
-            settledWaitResult: "timeout",
+            completionSignalsObserved,
+            settledWaitApplied: false,
+            settledWaitResult: "skipped",
             recoveryAction: "fail_closed",
             failureCategory: "target_drifted",
             targetDrifted,
@@ -5670,8 +5672,9 @@ const resolveLayer2SettleRecovery = (input) => {
     if (layoutMotionBlocking) {
         return buildLayer2SettleRecoveryResult({
             pageState,
-            observedSignals,
-            settledWaitResult: "timeout",
+            completionSignalsObserved,
+            settledWaitApplied: false,
+            settledWaitResult: "skipped",
             recoveryAction: "reobserve",
             failureCategory: null,
             targetDrifted,
@@ -5682,7 +5685,7 @@ const resolveLayer2SettleRecovery = (input) => {
     if (completionObserved || pageSettled) {
         return buildLayer2SettleRecoveryResult({
             pageState,
-            observedSignals,
+            completionSignalsObserved,
             settledWaitResult: "settled",
             recoveryAction: "none",
             failureCategory: null,
@@ -5693,7 +5696,7 @@ const resolveLayer2SettleRecovery = (input) => {
     }
     return buildLayer2SettleRecoveryResult({
         pageState,
-        observedSignals,
+        completionSignalsObserved,
         settledWaitResult: "timeout",
         recoveryAction: timedOut ? "fail_closed" : "retry",
         failureCategory: timedOut ? "framework_state_not_updated" : null,
@@ -5799,11 +5802,11 @@ const normalizeLayer2ObservedSignals = (value) => Array.isArray(value) ? value.f
 const normalizeLayer2Timeout = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
 const normalizeLayer2Elapsed = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
 const buildLayer2SettleRecoveryResult = (input) => ({
-    settled_wait_applied: true,
+    settled_wait_applied: input.settledWaitApplied ?? true,
     settled_wait_result: input.settledWaitResult,
     recovery_action: input.recoveryAction,
     page_state_input_summary: summarizeLayer2PageStateInput(input.pageState),
-    completion_signal_observed: input.observedSignals,
+    completion_signal_observed: input.completionSignalsObserved,
     failure_category: input.failureCategory,
     target_drifted: input.targetDrifted,
     layout_motion_blocking: input.layoutMotionBlocking,
