@@ -21,6 +21,7 @@
       ],
       "js": ["build/main-world-bridge.js"],
       "run_at": "document_start",
+      "all_frames": true,
       "world": "MAIN"
     },
     {
@@ -31,7 +32,8 @@
         "http://localhost/*"
       ],
       "js": ["build/content-script.js"],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
   "permissions": ["nativeMessaging", "storage", "scripting", "tabs", "debugger"]

@@ -474,6 +474,7 @@ describe("extension build contract", () => {
         matches?: string[];
         js: string[];
         run_at?: string;
+        all_frames?: boolean;
         world?: string;
       }>;
     };
@@ -488,10 +489,12 @@ describe("extension build contract", () => {
     expect(bridgeEntry).toBeDefined();
     expect(bridgeEntry?.matches).toEqual(expectedMainWorldBridgeMatches);
     expect(bridgeEntry?.run_at).toBe("document_start");
+    expect(bridgeEntry?.all_frames).toBe(true);
     expect(bridgeEntry?.world).toBe("MAIN");
     expect(contentScriptEntry).toBeDefined();
     expect(contentScriptEntry?.matches).toEqual(expectedContentScriptMatches);
     expect(contentScriptEntry?.run_at).toBe("document_start");
+    expect(contentScriptEntry?.all_frames).toBe(true);
     expect(manifest.permissions).toEqual(expect.arrayContaining(["debugger"]));
     expect(fs.existsSync(backgroundBuildPath)).toBe(true);
     expect(fs.existsSync(mainWorldBridgeBuildPath)).toBe(true);
