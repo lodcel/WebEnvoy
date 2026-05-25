@@ -904,15 +904,60 @@ const installNavigatorMimeTypesPatch = (context) => {
     defineGetter(window.navigator, "mimeTypes", () => context.pluginAndMimeTypes.mimeTypes);
     context.appliedPatches.push("navigator_mime_types");
 };
+const shouldInstallFingerprintPatch = (context, patchName) => context.requiredPatches.has(patchName) || context.optionalPatches.has(patchName);
+const markFingerprintPatchApplied = (context, patchName) => {
+    if (!context.appliedPatches.includes(patchName)) {
+        context.appliedPatches.push(patchName);
+    }
+};
+const installNavigatorHardwareConcurrencyPatch = (context) => {
+    if (!context.bundle || !shouldInstallFingerprintPatch(context, "hardware_concurrency")) {
+        return;
+    }
+    const hardwareConcurrency = asNumber(context.bundle.hardwareConcurrency);
+    if (hardwareConcurrency === null || hardwareConcurrency <= 0) {
+        return;
+    }
+    defineGetter(window.navigator, "hardwareConcurrency", () => Math.trunc(hardwareConcurrency));
+    markFingerprintPatchApplied(context, "hardware_concurrency");
+};
+const installNavigatorDeviceMemoryPatch = (context) => {
+    if (!context.bundle || !shouldInstallFingerprintPatch(context, "device_memory")) {
+        return;
+    }
+    const deviceMemory = asNumber(context.bundle.deviceMemory);
+    if (deviceMemory === null || deviceMemory <= 0) {
+        return;
+    }
+    defineGetter(window.navigator, "deviceMemory", () => deviceMemory);
+    markFingerprintPatchApplied(context, "device_memory");
+};
+const installScreenDepthPatch = (context, patchName, property) => {
+    if (!context.bundle || !shouldInstallFingerprintPatch(context, patchName)) {
+        return;
+    }
+    const screen = asRecord(context.bundle.screen);
+    const depth = asNumber(screen?.[property]);
+    const screenTarget = window.screen;
+    if (depth === null || depth <= 0 || !screenTarget) {
+        return;
+    }
+    defineGetter(screenTarget, property, () => Math.trunc(depth));
+    markFingerprintPatchApplied(context, patchName);
+};
 const installFingerprintRuntime = (runtime) => {
     const bundle = asRecord(runtime?.fingerprint_profile_bundle ?? null);
-    const requiredPatches = asStringArray(asRecord(runtime?.fingerprint_patch_manifest ?? null)?.required_patches);
+    const manifest = asRecord(runtime?.fingerprint_patch_manifest ?? null);
+    const requiredPatches = asStringArray(manifest?.required_patches);
+    const optionalPatches = asStringArray(manifest?.optional_patches);
     const requiredPatchNames = new Set(requiredPatches);
+    const optionalPatchNames = new Set(optionalPatches);
     const appliedPatches = [];
     const pluginAndMimeTypes = createPluginAndMimeTypeArrays();
     const context = {
         bundle,
         requiredPatches: requiredPatchNames,
+        optionalPatches: optionalPatchNames,
         appliedPatches,
         pluginAndMimeTypes
     };
@@ -920,6 +965,10 @@ const installFingerprintRuntime = (runtime) => {
     installBatteryPatch(context);
     installNavigatorPluginsPatch(context);
     installNavigatorMimeTypesPatch(context);
+    installNavigatorHardwareConcurrencyPatch(context);
+    installNavigatorDeviceMemoryPatch(context);
+    installScreenDepthPatch(context, "screen_color_depth", "colorDepth");
+    installScreenDepthPatch(context, "screen_pixel_depth", "pixelDepth");
     const missingRequiredPatches = requiredPatches.filter((patchName) => !appliedPatches.includes(patchName));
     return {
         installed: missingRequiredPatches.length === 0,
