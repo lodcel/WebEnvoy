@@ -7,6 +7,7 @@ export type Layer2ActionKind =
   | "scroll";
 
 export type Layer2SelectedPath = "real_input" | "mixed_input" | "synthetic_chain" | "blocked";
+export type Layer2EvidencePath = Exclude<Layer2SelectedPath, "blocked">;
 export type Layer2RhythmProfileSource = "default" | "platform_override";
 export type Layer2FailureCategory =
   | "focus_not_acquired"
@@ -232,8 +233,8 @@ export interface Layer2WriteBoundaryAudit {
 export interface Layer2BehaviorEvidenceBaselineRow {
   event_family: Layer2EvidenceEventFamily;
   action_kind: Layer2ActionKind;
-  required_path: Layer2SelectedPath;
-  allowed_fallback_path: Layer2SelectedPath | null;
+  required_path: Layer2EvidencePath;
+  allowed_fallback_path: Layer2EvidencePath | null;
   required_events_or_signals: string[];
   page_state_input: string[];
   trace_fields: string[];
