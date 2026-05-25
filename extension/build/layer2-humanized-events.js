@@ -321,6 +321,87 @@ export const buildLayer2ScheduledEventChain = (evidence, input) => {
         blocked_by: null
     };
 };
+export const dispatchLayer2ScheduledEventChain = (target, schedule, input) => {
+    if (schedule.blocked_by) {
+        return {
+            action_kind: schedule.action_kind,
+            selected_path: schedule.selected_path,
+            event_chain: schedule.event_chain,
+            dispatched_events: [],
+            required_events_applied: [],
+            skipped_events: schedule.scheduled_events.map((event) => event.event_ref),
+            text_applied: null,
+            scroll_delta_applied: null,
+            blocked_by: schedule.blocked_by
+        };
+    }
+    const dispatchedEvents = [];
+    const skippedEvents = [];
+    const text = typeof input?.text === "string" ? input.text : null;
+    const scrollDeltaY = resolveLayer2ScrollDelta(schedule.action_kind, input?.scrollDeltaY ?? null);
+    const textWasApplied = text !== null && appliesLayer2Text(schedule.action_kind);
+    for (const scheduledEvent of schedule.scheduled_events) {
+        const eventRef = scheduledEvent.event_ref;
+        if (eventRef === "focus") {
+            target.focus?.();
+            dispatchLayer2Event(target, eventRef);
+            dispatchedEvents.push(eventRef);
+            continue;
+        }
+        if (eventRef === "blur") {
+            target.blur?.();
+            dispatchLayer2Event(target, eventRef);
+            dispatchedEvents.push(eventRef);
+            continue;
+        }
+        if (eventRef === "input" && text !== null && appliesLayer2Text(schedule.action_kind)) {
+            applyLayer2TextValue(target, text);
+            dispatchLayer2Event(target, eventRef, { text });
+            dispatchedEvents.push(eventRef);
+            continue;
+        }
+        if (eventRef === "change" && textWasApplied) {
+            dispatchLayer2Event(target, eventRef);
+            dispatchedEvents.push(eventRef);
+            continue;
+        }
+        if (eventRef === "click" && schedule.selected_path === "real_input") {
+            dispatchLayer2Event(target, eventRef);
+            dispatchedEvents.push(eventRef);
+            continue;
+        }
+        if ((eventRef === "wheel" || eventRef === "scroll") && scrollDeltaY !== null) {
+            if (eventRef === "wheel") {
+                dispatchLayer2Event(target, eventRef, { deltaY: scrollDeltaY });
+            }
+            else {
+                input?.windowLike?.scrollBy?.({ top: scrollDeltaY, left: 0, behavior: "auto" });
+                dispatchLayer2Event(target, eventRef);
+            }
+            dispatchedEvents.push(eventRef);
+            continue;
+        }
+        if (dispatchLayer2Event(target, eventRef, { text })) {
+            dispatchedEvents.push(eventRef);
+        }
+        else {
+            skippedEvents.push(eventRef);
+        }
+    }
+    return {
+        action_kind: schedule.action_kind,
+        selected_path: schedule.selected_path,
+        event_chain: schedule.event_chain,
+        dispatched_events: dispatchedEvents,
+        required_events_applied: schedule.scheduled_events
+            .filter((event) => event.required && dispatchedEvents.includes(event.event_ref))
+            .map((event) => event.event_ref),
+        skipped_events: skippedEvents,
+        text_applied: textWasApplied ? text : null,
+        scroll_delta_applied: scrollDeltaY,
+        blocked_by: null
+    };
+};
 export const buildLayer2InteractionEvidence = (input) => {
     const strategy = clone(STRATEGY_PROFILES[input.actionKind]);
     const chain = clone(EVENT_CHAINS[input.actionKind]);
@@ -414,3 +495,90 @@ const clampLayer2SegmentCount = (value) => {
     return Math.max(1, Math.min(8, Math.trunc(value)));
 };
 const isLayer2Punctuation = (value) => /[,.!?;:，。！？；：]/u.test(value);
+const appliesLayer2Text = (actionKind) => actionKind === "keyboard_input" || actionKind === "composition_input";
+const applyLayer2TextValue = (target, text) => {
+    if ("value" in target) {
+        target.value = text;
+    }
+};
+const resolveLayer2ScrollDelta = (actionKind, requestedDelta) => {
+    if (actionKind !== "scroll") {
+        return null;
+    }
+    if (typeof requestedDelta === "number" && Number.isFinite(requestedDelta)) {
+        return Math.trunc(requestedDelta);
+    }
+    return DEFAULT_RHYTHM_PROFILE.scroll_segment_min_px;
+};
+const dispatchLayer2Event = (target, eventRef, input) => target.dispatchEvent(createLayer2DomEvent(eventRef, input));
+const createLayer2DomEvent = (eventRef, input) => {
+    if (eventRef === "keydown" || eventRef === "keyup") {
+        return createLayer2KeyboardEvent(eventRef);
+    }
+    if (eventRef === "compositionstart" ||
+        eventRef === "compositionupdate" ||
+        eventRef === "compositionend") {
+        return createLayer2CompositionEvent(eventRef, input?.text ?? "");
+    }
+    if (eventRef === "input") {
+        return createLayer2InputEvent(eventRef, input?.text ?? "");
+    }
+    if (eventRef === "mousemove" ||
+        eventRef === "mouseover" ||
+        eventRef === "mousedown" ||
+        eventRef === "mouseup" ||
+        eventRef === "click") {
+        return createLayer2MouseEvent(eventRef);
+    }
+    if (eventRef === "wheel") {
+        return createLayer2WheelEvent(input?.deltaY ?? DEFAULT_RHYTHM_PROFILE.scroll_segment_min_px);
+    }
+    return new Event(eventRef, { bubbles: true, cancelable: true });
+};
+const createLayer2KeyboardEvent = (type) => {
+    if (typeof KeyboardEvent === "function") {
+        return new KeyboardEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true
+        });
+    }
+    return new Event(type, { bubbles: true, cancelable: true });
+};
+const createLayer2CompositionEvent = (type, text) => {
+    if (typeof CompositionEvent === "function") {
+        return new CompositionEvent(type, { bubbles: true, cancelable: true, data: text });
+    }
+    return new Event(type, { bubbles: true, cancelable: true });
+};
+const createLayer2InputEvent = (type, text) => {
+    if (typeof InputEvent === "function") {
+        return new InputEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            data: text,
+            inputType: "insertText"
+        });
+    }
+    return new Event(type, { bubbles: true, cancelable: true });
+};
+const createLayer2MouseEvent = (type) => {
+    if (typeof MouseEvent === "function") {
+        return new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true
+        });
+    }
+    return new Event(type, { bubbles: true, cancelable: true });
+};
+const createLayer2WheelEvent = (deltaY) => {
+    if (typeof WheelEvent === "function") {
+        return new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            deltaY
+        });
+    }
+    return new Event("wheel", { bubbles: true, cancelable: true });
+};
