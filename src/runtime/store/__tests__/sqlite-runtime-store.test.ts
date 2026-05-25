@@ -65,6 +65,91 @@ const getGeneratedSessionRhythmView = (input: {
     stability_window_until?: string | null;
   };
 
+type SessionRhythmStoreInput = Parameters<SQLiteRuntimeStore["recordSessionRhythmStatusView"]>[0];
+
+const buildSessionRhythmStoreInput = (input: {
+  profile: string;
+  runId: string;
+  sessionId: string;
+  phase: string;
+  riskState: string;
+  eventType: string;
+  eventReason: string;
+  recordedAt: string;
+  decision: string;
+  requires: string[];
+  issueScope?: string;
+  phaseBefore?: string;
+  riskStateBefore?: string;
+  sourceAuditEventId?: string | null;
+  cooldownUntil?: string | null;
+  recoveryProbeDueAt?: string | null;
+  stabilityWindowUntil?: string | null;
+  riskSignalCount?: number;
+}): SessionRhythmStoreInput => {
+  const issueScope = input.issueScope ?? "issue_209";
+  const windowId = `rhythm_win_${input.profile}_${issueScope}`;
+  const eventId = `rhythm_evt_${input.runId}`;
+  const decisionId = `rhythm_decision_${input.runId}`;
+  const phaseBefore = input.phaseBefore ?? input.phase;
+  const riskStateBefore = input.riskStateBefore ?? input.riskState;
+  return {
+    profile: input.profile,
+    platform: "xhs",
+    issueScope,
+    windowState: {
+      window_id: windowId,
+      profile: input.profile,
+      platform: "xhs",
+      issue_scope: issueScope,
+      session_id: input.sessionId,
+      current_phase: input.phase,
+      risk_state: input.riskState,
+      window_started_at: "2026-04-25T10:00:00.000Z",
+      window_deadline_at: input.cooldownUntil ?? input.stabilityWindowUntil ?? input.recordedAt,
+      cooldown_until: input.cooldownUntil ?? null,
+      recovery_probe_due_at: input.recoveryProbeDueAt ?? null,
+      stability_window_until: input.stabilityWindowUntil ?? null,
+      risk_signal_count: input.riskSignalCount ?? 0,
+      last_event_id: eventId,
+      source_run_id: input.runId,
+      updated_at: input.recordedAt
+    },
+    event: {
+      event_id: eventId,
+      profile: input.profile,
+      platform: "xhs",
+      issue_scope: issueScope,
+      session_id: input.sessionId,
+      window_id: windowId,
+      event_type: input.eventType,
+      phase_before: phaseBefore,
+      phase_after: input.phase,
+      risk_state_before: riskStateBefore,
+      risk_state_after: input.riskState,
+      source_audit_event_id: input.sourceAuditEventId ?? null,
+      reason: input.eventReason,
+      recorded_at: input.recordedAt
+    },
+    decision: {
+      decision_id: decisionId,
+      window_id: windowId,
+      run_id: input.runId,
+      session_id: input.sessionId,
+      profile: input.profile,
+      current_phase: input.phase,
+      current_risk_state: input.riskState,
+      next_phase: input.phase,
+      next_risk_state: input.riskState,
+      effective_execution_mode: "recon",
+      decision: input.decision,
+      reason_codes: [input.eventReason],
+      requires: input.requires,
+      decided_at: input.recordedAt
+    }
+  };
+};
+
 const expectLegacyMigrationAllowsNullActionTypeWrite = async (
   store: SQLiteRuntimeStore,
   input: {
@@ -582,6 +667,190 @@ describeWithSqlite("sqlite-runtime-store", () => {
             decision_id: "rhythm_decision_history_001",
             decision: "blocked",
             requires: ["cooldown_until_elapsed"]
+          })
+        ]
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("keeps #746 multi-run rhythm baselines isolated by profile and preserves run-specific decisions", async () => {
+    const cwd = await createTempCwd();
+    const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
+    const profileA = "xhs_746_profile_a";
+    const profileB = "xhs_746_profile_b";
+    try {
+      await store.recordSessionRhythmStatusView(buildSessionRhythmStoreInput({
+        profile: profileA,
+        runId: "run-746-a-cooldown",
+        sessionId: "nm-session-746-a-1",
+        phase: "cooldown",
+        riskState: "paused",
+        eventType: "cooldown_started",
+        eventReason: "SESSION_RHYTHM_COOLDOWN_OBSERVED",
+        recordedAt: "2026-04-25T10:10:00.000Z",
+        decision: "blocked",
+        requires: ["session_rhythm_window_not_ready"],
+        cooldownUntil: "2026-04-25T10:40:00.000Z",
+        recoveryProbeDueAt: "2026-04-25T10:40:00.000Z",
+        riskSignalCount: 1
+      }));
+      await store.recordSessionRhythmStatusView(buildSessionRhythmStoreInput({
+        profile: profileA,
+        runId: "run-746-a-recovery-failed",
+        sessionId: "nm-session-746-a-2",
+        phase: "cooldown",
+        phaseBefore: "recovery_probe",
+        riskState: "paused",
+        riskStateBefore: "limited",
+        eventType: "recovery_probe_failed",
+        eventReason: "SESSION_RHYTHM_RECOVERY_PROBE_FAILED",
+        recordedAt: "2026-04-25T10:42:00.000Z",
+        decision: "blocked",
+        requires: ["session_rhythm_window_not_ready"],
+        cooldownUntil: "2026-04-25T11:12:00.000Z",
+        recoveryProbeDueAt: "2026-04-25T11:12:00.000Z",
+        riskSignalCount: 2
+      }));
+      await store.recordSessionRhythmStatusView(buildSessionRhythmStoreInput({
+        profile: profileA,
+        runId: "run-746-a-recovery-passed",
+        sessionId: "nm-session-746-a-3",
+        phase: "steady",
+        phaseBefore: "recovery_probe",
+        riskState: "limited",
+        eventType: "recovery_probe_passed",
+        eventReason: "SESSION_RHYTHM_RECOVERY_PROBE_PASSED",
+        recordedAt: "2026-04-25T11:15:00.000Z",
+        decision: "deferred",
+        requires: ["session_rhythm_window_not_ready"],
+        sourceAuditEventId: "audit-link-run-746-a-recovery-passed",
+        stabilityWindowUntil: "2026-04-25T11:35:00.000Z",
+        riskSignalCount: 2
+      }));
+      await store.recordSessionRhythmStatusView(buildSessionRhythmStoreInput({
+        profile: profileB,
+        runId: "run-746-b-cooldown",
+        sessionId: "nm-session-746-b-1",
+        phase: "cooldown",
+        riskState: "paused",
+        eventType: "cooldown_started",
+        eventReason: "SESSION_RHYTHM_PROFILE_B_COOLDOWN",
+        recordedAt: "2026-04-25T10:20:00.000Z",
+        decision: "blocked",
+        requires: ["session_rhythm_window_not_ready"],
+        cooldownUntil: "2026-04-25T10:50:00.000Z",
+        recoveryProbeDueAt: "2026-04-25T10:50:00.000Z",
+        riskSignalCount: 1
+      }));
+
+      await expect(
+        store.getSessionRhythmStatusView({
+          profile: profileA,
+          platform: "xhs",
+          issueScope: "issue_209"
+        })
+      ).resolves.toMatchObject({
+        window_state: {
+          profile: profileA,
+          current_phase: "steady",
+          source_run_id: "run-746-a-recovery-passed"
+        },
+        event: {
+          event_id: "rhythm_evt_run-746-a-recovery-passed",
+          source_audit_event_id: "audit-link-run-746-a-recovery-passed"
+        },
+        decision: {
+          decision_id: "rhythm_decision_run-746-a-recovery-passed",
+          decision: "deferred",
+          requires: ["session_rhythm_window_not_ready"]
+        }
+      });
+      await expect(
+        store.getSessionRhythmStatusView({
+          profile: profileA,
+          platform: "xhs",
+          issueScope: "issue_209",
+          runId: "run-746-a-recovery-failed"
+        })
+      ).resolves.toMatchObject({
+        event: {
+          event_id: "rhythm_evt_run-746-a-recovery-passed"
+        },
+        decision: {
+          decision_id: "rhythm_decision_run-746-a-recovery-failed",
+          decision: "blocked",
+          requires: ["session_rhythm_window_not_ready"]
+        }
+      });
+      await expect(
+        store.getSessionRhythmProfileHistory({
+          profile: profileA,
+          platform: "xhs",
+          issueScope: "issue_209",
+          limit: 10
+        })
+      ).resolves.toMatchObject({
+        profile: profileA,
+        current_phase: "steady",
+        current_risk_state: "limited",
+        cooldown_budget: expect.objectContaining({
+          cooldown_until: null,
+          stability_window_until: "2026-04-25T11:35:00.000Z",
+          risk_signal_count: 2
+        }),
+        continuous_execution: expect.objectContaining({
+          latest_session_id: "nm-session-746-a-3",
+          latest_run_id: "run-746-a-recovery-passed",
+          event_count: 3,
+          decision_count: 3
+        }),
+        events: [
+          expect.objectContaining({
+            event_id: "rhythm_evt_run-746-a-recovery-passed",
+            source_audit_event_id: "audit-link-run-746-a-recovery-passed"
+          }),
+          expect.objectContaining({
+            event_id: "rhythm_evt_run-746-a-recovery-failed",
+            event_type: "recovery_probe_failed"
+          }),
+          expect.objectContaining({
+            event_id: "rhythm_evt_run-746-a-cooldown",
+            event_type: "cooldown_started"
+          })
+        ],
+        decisions: [
+          expect.objectContaining({
+            decision_id: "rhythm_decision_run-746-a-recovery-passed"
+          }),
+          expect.objectContaining({
+            decision_id: "rhythm_decision_run-746-a-recovery-failed"
+          }),
+          expect.objectContaining({
+            decision_id: "rhythm_decision_run-746-a-cooldown"
+          })
+        ]
+      });
+      await expect(
+        store.getSessionRhythmProfileHistory({
+          profile: profileB,
+          platform: "xhs",
+          issueScope: "issue_209",
+          limit: 10
+        })
+      ).resolves.toMatchObject({
+        profile: profileB,
+        current_phase: "cooldown",
+        continuous_execution: expect.objectContaining({
+          latest_run_id: "run-746-b-cooldown",
+          event_count: 1,
+          decision_count: 1
+        }),
+        events: [
+          expect.objectContaining({
+            event_id: "rhythm_evt_run-746-b-cooldown",
+            reason: "SESSION_RHYTHM_PROFILE_B_COOLDOWN"
           })
         ]
       });
