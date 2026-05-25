@@ -285,6 +285,8 @@ describe("FR-0013 layer2 humanized events", () => {
       expect(row.trace_fields.length).toBeGreaterThan(0);
       expect(row.test_type.length).toBeGreaterThan(0);
       expect(row.downstream_issue.length).toBeGreaterThan(0);
+      expect(row.required_path).not.toBe("blocked");
+      expect(row.allowed_fallback_path).not.toBe("blocked");
     }
   });
 
@@ -294,6 +296,7 @@ describe("FR-0013 layer2 humanized events", () => {
     expect(baseline).toContainEqual(
       expect.objectContaining({
         event_family: "pointer_click",
+        action_kind: "click",
         required_path: "real_input",
         allowed_fallback_path: "synthetic_chain",
         required_events_or_signals: expect.arrayContaining(["mousedown", "mouseup", "click"]),
@@ -303,6 +306,7 @@ describe("FR-0013 layer2 humanized events", () => {
     expect(baseline).toContainEqual(
       expect.objectContaining({
         event_family: "composition_text",
+        action_kind: "composition_input",
         required_path: "mixed_input",
         required_events_or_signals: expect.arrayContaining([
           "compositionstart",
@@ -315,6 +319,7 @@ describe("FR-0013 layer2 humanized events", () => {
     expect(baseline).toContainEqual(
       expect.objectContaining({
         event_family: "scroll_viewport",
+        action_kind: "scroll",
         required_events_or_signals: expect.arrayContaining(["wheel", "scroll"]),
         test_type: expect.arrayContaining(["rhythm_contract", "settle_contract"])
       })
