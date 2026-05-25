@@ -16,7 +16,7 @@
 - [x] reviewer 确认 `#235` 在 Phase 2 -> FR-0012 主树中的定位已表述清楚。
 - [x] reviewer 确认 FR-0012 未改写 `FR-0010/0011` 的既有对象语义。
 - [x] reviewer 确认 Worker 线程盲区被明确保留，不存在过度承诺。
-- [ ] reviewer 确认 P0/P1/P2 分阶段范围与“何时算完成 #235”口径已一致（见 `coverage-matrix.md`）。
+- [x] reviewer 确认 P0/P1/P2 分阶段范围与“何时算完成 #235”口径已一致（见 `coverage-matrix.md`；PR `#795` guardian APPROVE）。
 
 ## spec 通过后的实施清单（非本 PR）
 
@@ -33,3 +33,10 @@
 - [x] Refs #427
 - [x] Refs #265
 - [x] Refs #235
+- [x] Refs #732
+
+## Closeout 证据
+
+- `#732` 的覆盖面、优先级、验收矩阵和后续 work item 归属已由 PR `#795` 合入，merge commit `06b69f2935c3d0f137eb591ca81b7c2bf417b717`。
+- PR `#795` 的 guardian verdict 为 `APPROVE`，确认 `coverage-matrix.md` 作为 FR-0012 补充规约材料清晰度足以进入后续实现拆分与验收对齐。
+- 当前 closeout 口径仅关闭 `#732` 矩阵冻结项；`#235/#265` 仍需等待 `#733`-`#736` 完成实现、验证和 closeout。
