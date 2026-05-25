@@ -587,11 +587,6 @@ export const dispatchLayer2ScheduledEventChain = (
       dispatchedEvents.push(eventRef);
       continue;
     }
-    if (eventRef === "click" && schedule.selected_path === "real_input") {
-      dispatchLayer2Event(target, eventRef);
-      dispatchedEvents.push(eventRef);
-      continue;
-    }
     if ((eventRef === "wheel" || eventRef === "scroll") && scrollDeltaY !== null) {
       if (eventRef === "wheel") {
         dispatchLayer2Event(target, eventRef, { deltaY: scrollDeltaY });
