@@ -17,6 +17,10 @@ class Layer2MockDispatchTarget extends EventTarget {
   blurred = false;
   readonly dispatched: string[] = [];
 
+  constructor(private readonly failingEvents: string[] = []) {
+    super();
+  }
+
   focus() {
     this.focused = true;
   }
@@ -27,6 +31,9 @@ class Layer2MockDispatchTarget extends EventTarget {
 
   dispatchEvent(event: Event): boolean {
     this.dispatched.push(event.type);
+    if (this.failingEvents.includes(event.type)) {
+      return false;
+    }
     return super.dispatchEvent(event);
   }
 }
@@ -391,9 +398,26 @@ describe("FR-0013 layer2 humanized events", () => {
     expect(result).toMatchObject({
       dispatched_events: [],
       required_events_applied: [],
+      skipped_events: [],
       text_applied: null,
       blocked_by: "FR-0011.write_interaction_tier"
     });
+  });
+
+  it("reports required event dispatch failures without marking them applied", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+    const target = new Layer2MockDispatchTarget(["mouseover"]);
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(target.dispatched).toEqual(["mousemove", "mouseover", "mousedown", "mouseup", "click"]);
+    expect(result.dispatched_events).toEqual(["mousemove", "mousedown", "mouseup", "click"]);
+    expect(result.required_events_applied).toEqual(["mousemove", "mousedown", "mouseup", "click"]);
+    expect(result.skipped_events).toEqual(["mouseover"]);
   });
 
   it("resolves deterministic rhythm timing ranges without session state", () => {
