@@ -490,6 +490,53 @@ export const resolveLayer2SettleRecovery = (input) => {
         timeoutMs
     });
 };
+export const buildLayer2WriteBoundaryAudit = (input) => {
+    const outOfScopeActions = normalizeLayer2StringList(input.outOfScopeActions);
+    const appliedRequiredEvents = normalizeLayer2StringList(input.dispatchResult?.required_events_applied);
+    const blockedBy = outOfScopeActions.length > 0
+        ? "FR-0013.out_of_scope_action"
+        : input.evidence.strategy_selection.blocked_by ?? input.dispatchResult?.blocked_by ?? null;
+    const requiredEvents = resolveLayer2AuditRequiredEvents(input.evidence, input.schedule ?? null);
+    const requiredEventsMissing = blockedBy !== null
+        ? []
+        : requiredEvents.filter((eventRef) => !appliedRequiredEvents.includes(eventRef));
+    const dispatchFailureEvents = normalizeLayer2StringList(input.dispatchResult?.skipped_events);
+    const dispatchFailed = requiredEventsMissing.length > 0 || dispatchFailureEvents.length > 0;
+    const recoveryAction = input.settleRecoveryResult?.recovery_action ?? null;
+    const boundaryDecision = blockedBy !== null
+        ? "block"
+        : dispatchFailed || recoveryAction === "fail_closed"
+            ? "fail_closed"
+            : "allow";
+    const failureCategory = input.settleRecoveryResult?.failure_category ??
+        input.evidence.execution_trace.failure_category ??
+        (dispatchFailed ? "required_event_not_applied" : null);
+    return {
+        action_kind: input.evidence.strategy_selection.action_kind,
+        write_interaction_tier: normalizeLayer2String(input.writeInteractionTierName),
+        boundary_decision: boundaryDecision,
+        blocked_by: blockedBy,
+        approval_record_ref: normalizeLayer2String(input.approvalRecordRef),
+        audit_record_ref: normalizeLayer2String(input.auditRecordRef),
+        out_of_scope_actions: outOfScopeActions,
+        synthetic_fallback_blocked: blockedBy === "FR-0011.write_interaction_tier" &&
+            input.evidence.event_strategy_profile.fallback_path === "synthetic_chain",
+        required_events_applied: appliedRequiredEvents,
+        required_events_missing: requiredEventsMissing,
+        dispatch_failure_events: dispatchFailureEvents,
+        settled_wait_result: input.settleRecoveryResult?.settled_wait_result ??
+            input.evidence.execution_trace.settled_wait_result,
+        recovery_action: recoveryAction,
+        failure_category: failureCategory,
+        audit_reasons: buildLayer2WriteBoundaryAuditReasons({
+            blockedBy,
+            dispatchFailed,
+            outOfScopeActions,
+            recoveryAction,
+            failureCategory
+        })
+    };
+};
 export const buildLayer2InteractionEvidence = (input) => {
     const strategy = clone(STRATEGY_PROFILES[input.actionKind]);
     const chain = clone(EVENT_CHAINS[input.actionKind]);
@@ -584,6 +631,8 @@ const clampLayer2SegmentCount = (value) => {
 };
 const isLayer2Punctuation = (value) => /[,.!?;:，。！？；：]/u.test(value);
 const normalizeLayer2ObservedSignals = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
+const normalizeLayer2String = (value) => typeof value === "string" && value.length > 0 ? value : null;
+const normalizeLayer2StringList = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
 const normalizeLayer2Timeout = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
 const normalizeLayer2Elapsed = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
 const buildLayer2SettleRecoveryResult = (input) => ({
@@ -597,6 +646,33 @@ const buildLayer2SettleRecoveryResult = (input) => ({
     layout_motion_blocking: input.layoutMotionBlocking,
     timeout_ms: input.timeoutMs
 });
+const resolveLayer2AuditRequiredEvents = (evidence, schedule) => {
+    if (schedule) {
+        return schedule.scheduled_events
+            .filter((event) => event.required)
+            .map((event) => event.event_ref);
+    }
+    return evidence.event_chain_policy.required_events;
+};
+const buildLayer2WriteBoundaryAuditReasons = (input) => {
+    const reasons = [];
+    if (input.blockedBy) {
+        reasons.push(input.blockedBy);
+    }
+    if (input.outOfScopeActions.length > 0) {
+        reasons.push("out_of_scope_action");
+    }
+    if (input.dispatchFailed) {
+        reasons.push("required_event_not_applied");
+    }
+    if (input.recoveryAction === "fail_closed") {
+        reasons.push("settle_recovery_fail_closed");
+    }
+    if (input.failureCategory) {
+        reasons.push(input.failureCategory);
+    }
+    return [...new Set(reasons)];
+};
 const summarizeLayer2PageStateInput = (pageState) => [
     pageState.target_visible ? "target_visible" : "target_hidden",
     pageState.target_interactable ? "interactable" : "not_interactable",

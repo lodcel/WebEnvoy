@@ -305,6 +305,7 @@ const buildContentScriptBundle = async () => {
       "buildLayer2InteractionEvidence",
       "buildLayer2RhythmPlan",
       "buildLayer2ScheduledEventChain",
+      "buildLayer2WriteBoundaryAudit",
       "buildXhsSearchLayer2InteractionEvidence",
       "dispatchLayer2ScheduledEventChain",
       "getLayer2EventChainPolicies",

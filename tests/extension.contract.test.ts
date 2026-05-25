@@ -48,6 +48,7 @@ type BundledXhsExportName =
   | "executeXhsUserHome"
   | "buildLayer2RhythmPlan"
   | "buildLayer2ScheduledEventChain"
+  | "buildLayer2WriteBoundaryAudit"
   | "dispatchLayer2ScheduledEventChain"
   | "resolveLayer2SettleRecovery";
 
@@ -693,6 +694,7 @@ describe("extension build contract", () => {
 
     expect(layer2Module?.buildLayer2RhythmPlan).toEqual(expect.any(Function));
     expect(layer2Module?.buildLayer2ScheduledEventChain).toEqual(expect.any(Function));
+    expect(layer2Module?.buildLayer2WriteBoundaryAudit).toEqual(expect.any(Function));
     expect(layer2Module?.dispatchLayer2ScheduledEventChain).toEqual(expect.any(Function));
     expect(layer2Module?.resolveLayer2SettleRecovery).toEqual(expect.any(Function));
   });
