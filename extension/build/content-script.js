@@ -638,6 +638,7 @@ const OPTIONAL_PATCHES = [
   "performance_memory",
   "screen_color_depth",
   "screen_pixel_depth",
+  "canvas_noise",
   "permissions_api",
   "navigator_connection"
 ];
@@ -652,6 +653,7 @@ const FIELD_DEPENDENCIES = {
   performance_memory: ["deviceMemory"],
   screen_color_depth: ["screen.colorDepth"],
   screen_pixel_depth: ["screen.pixelDepth"],
+  canvas_noise: ["canvasNoiseSeed"],
   permissions_api: [],
   navigator_connection: []
 };

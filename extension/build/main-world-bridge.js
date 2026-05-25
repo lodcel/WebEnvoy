@@ -211,6 +211,12 @@ const resolveMainWorldBridgeSharedState = () => {
         activeMainWorldBootstrapListener: null,
         patchedAudioContextPrototypes: new WeakSet(),
         audioNoiseSeedByPrototype: new WeakMap(),
+        patchedCanvasElementPrototypes: new WeakSet(),
+        patchedCanvasToBlobPrototypes: new WeakSet(),
+        patchedCanvasRenderingContext2DPrototypes: new WeakSet(),
+        canvasNoiseSeedByCanvasElementPrototype: new WeakMap(),
+        canvasNoiseSeedByCanvasRenderingContext2DPrototype: new WeakMap(),
+        originalCanvasGetImageDataByPrototype: new WeakMap(),
         capturedRequestContextBucketsByNamespace: new Map(),
         capturedRequestContextIncompatibleByNamespace: new Map(),
         capturedRequestContextCaptureInstalled: false,
@@ -710,6 +716,12 @@ const canDefineGetter = (target, property) => {
     const descriptor = findPropertyDescriptor(target, property);
     return descriptor === undefined || descriptor.configurable === true;
 };
+const canReplaceMethod = (target, property) => {
+    const descriptor = findPropertyDescriptor(target, property);
+    return (descriptor === undefined ||
+        descriptor.writable === true ||
+        descriptor.configurable === true);
+};
 const createPluginAndMimeTypeArrays = () => {
     const defineValue = (target, property, value) => {
         Object.defineProperty(target, property, {
@@ -974,6 +986,152 @@ const installPerformanceMemoryPatch = (context) => {
     }
     markFingerprintPatchApplied(context, "performance_memory");
 };
+const resolveCanvasNoiseDelta = (seed) => {
+    const bucket = Math.trunc(Math.abs(seed) * 1_000_000_000);
+    return bucket % 2 === 0 ? 1 : -1;
+};
+const perturbPixelData = (data, seed) => {
+    if (!data ||
+        typeof data !== "object" ||
+        typeof data.length !== "number" ||
+        data.length < 1) {
+        return;
+    }
+    const bytes = data;
+    const current = typeof bytes[0] === "number" ? bytes[0] : 0;
+    const delta = resolveCanvasNoiseDelta(seed);
+    bytes[0] = Math.min(255, Math.max(0, current + delta));
+};
+const cloneImageDataWithCanvasNoise = (imageData, seed) => {
+    const record = asRecord(imageData);
+    const sourceData = record?.data;
+    if (!sourceData ||
+        typeof sourceData !== "object" ||
+        typeof sourceData.length !== "number") {
+        return imageData;
+    }
+    const sourceBytes = sourceData;
+    const patchedData = new Uint8ClampedArray(sourceBytes);
+    perturbPixelData(patchedData, seed);
+    const width = asNumber(record?.width);
+    const height = asNumber(record?.height);
+    if (typeof ImageData === "function" && width !== null && height !== null) {
+        try {
+            return new ImageData(patchedData, Math.trunc(width), Math.trunc(height));
+        }
+        catch {
+            return {
+                ...record,
+                data: patchedData
+            };
+        }
+    }
+    return {
+        ...record,
+        data: patchedData
+    };
+};
+const withCanvasNoise = (canvas, seed, operation) => {
+    const context = canvas.getContext?.("2d");
+    if (!context ||
+        typeof context.getImageData !== "function" ||
+        typeof context.putImageData !== "function") {
+        return operation();
+    }
+    const contextPrototype = Object.getPrototypeOf(context);
+    const originalGetImageData = contextPrototype === null
+        ? null
+        : mainWorldBridgeSharedState.originalCanvasGetImageDataByPrototype.get(contextPrototype) ??
+            null;
+    const readImageData = typeof originalGetImageData === "function"
+        ? originalGetImageData.bind(context)
+        : context.getImageData.bind(context);
+    let imageData = null;
+    try {
+        imageData = readImageData(0, 0, 1, 1);
+        const patched = cloneImageDataWithCanvasNoise(imageData, seed);
+        context.putImageData(patched, 0, 0);
+        return operation();
+    }
+    catch {
+        return operation();
+    }
+    finally {
+        if (imageData) {
+            try {
+                context.putImageData(imageData, 0, 0);
+            }
+            catch {
+                // Best-effort restore only; serialization must not fail because restore is unavailable.
+            }
+        }
+    }
+};
+const installCanvasNoisePatch = (context) => {
+    if (!context.bundle || !shouldInstallFingerprintPatch(context, "canvas_noise")) {
+        return;
+    }
+    const canvasNoiseSeed = asNumber(context.bundle.canvasNoiseSeed);
+    if (canvasNoiseSeed === null) {
+        return;
+    }
+    let installed = false;
+    const canvasCtor = window
+        .HTMLCanvasElement;
+    const context2DCtor = window.CanvasRenderingContext2D;
+    if (typeof context2DCtor === "function") {
+        const prototype = context2DCtor.prototype;
+        mainWorldBridgeSharedState.canvasNoiseSeedByCanvasRenderingContext2DPrototype.set(prototype, canvasNoiseSeed);
+        const originalGetImageData = prototype.getImageData;
+        if (typeof originalGetImageData === "function" &&
+            canReplaceMethod(prototype, "getImageData")) {
+            installed = true;
+            if (!mainWorldBridgeSharedState.patchedCanvasRenderingContext2DPrototypes.has(prototype)) {
+                mainWorldBridgeSharedState.originalCanvasGetImageDataByPrototype.set(prototype, originalGetImageData);
+                const originalGetImageDataFn = originalGetImageData;
+                prototype.getImageData = function (...args) {
+                    const result = originalGetImageDataFn.apply(this, args);
+                    const noiseSeed = mainWorldBridgeSharedState.canvasNoiseSeedByCanvasRenderingContext2DPrototype.get(prototype) ?? canvasNoiseSeed;
+                    return cloneImageDataWithCanvasNoise(result, noiseSeed);
+                };
+                mainWorldBridgeSharedState.patchedCanvasRenderingContext2DPrototypes.add(prototype);
+            }
+        }
+    }
+    if (typeof canvasCtor === "function") {
+        const prototype = canvasCtor.prototype;
+        mainWorldBridgeSharedState.canvasNoiseSeedByCanvasElementPrototype.set(prototype, canvasNoiseSeed);
+        const originalToDataURL = prototype.toDataURL;
+        if (typeof originalToDataURL === "function" && canReplaceMethod(prototype, "toDataURL")) {
+            installed = true;
+            if (!mainWorldBridgeSharedState.patchedCanvasElementPrototypes.has(prototype)) {
+                const originalToDataURLFn = originalToDataURL;
+                prototype.toDataURL = function (...args) {
+                    const noiseSeed = mainWorldBridgeSharedState.canvasNoiseSeedByCanvasElementPrototype.get(prototype) ??
+                        canvasNoiseSeed;
+                    return withCanvasNoise(this, noiseSeed, () => originalToDataURLFn.apply(this, args));
+                };
+                mainWorldBridgeSharedState.patchedCanvasElementPrototypes.add(prototype);
+            }
+        }
+        const originalToBlob = prototype.toBlob;
+        if (typeof originalToBlob === "function" && canReplaceMethod(prototype, "toBlob")) {
+            installed = true;
+            if (!mainWorldBridgeSharedState.patchedCanvasToBlobPrototypes.has(prototype)) {
+                const originalToBlobFn = originalToBlob;
+                prototype.toBlob = function (...args) {
+                    const noiseSeed = mainWorldBridgeSharedState.canvasNoiseSeedByCanvasElementPrototype.get(prototype) ??
+                        canvasNoiseSeed;
+                    return withCanvasNoise(this, noiseSeed, () => originalToBlobFn.apply(this, args));
+                };
+                mainWorldBridgeSharedState.patchedCanvasToBlobPrototypes.add(prototype);
+            }
+        }
+    }
+    if (installed) {
+        markFingerprintPatchApplied(context, "canvas_noise");
+    }
+};
 const installScreenDepthPatch = (context, patchName, property) => {
     if (!context.bundle || !shouldInstallFingerprintPatch(context, patchName)) {
         return;
@@ -1010,6 +1168,7 @@ const installFingerprintRuntime = (runtime) => {
     installNavigatorHardwareConcurrencyPatch(context);
     installNavigatorDeviceMemoryPatch(context);
     installPerformanceMemoryPatch(context);
+    installCanvasNoisePatch(context);
     installScreenDepthPatch(context, "screen_color_depth", "colorDepth");
     installScreenDepthPatch(context, "screen_pixel_depth", "pixelDepth");
     const missingRequiredPatches = requiredPatches.filter((patchName) => !appliedPatches.includes(patchName));
