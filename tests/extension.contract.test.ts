@@ -48,7 +48,8 @@ type BundledXhsExportName =
   | "executeXhsUserHome"
   | "buildLayer2RhythmPlan"
   | "buildLayer2ScheduledEventChain"
-  | "dispatchLayer2ScheduledEventChain";
+  | "dispatchLayer2ScheduledEventChain"
+  | "resolveLayer2SettleRecovery";
 
 type BundledContentScriptHandlerModule = {
   ContentScriptHandler: new (options?: { xhsEnv?: Record<string, unknown> }) => {
@@ -693,6 +694,7 @@ describe("extension build contract", () => {
     expect(layer2Module?.buildLayer2RhythmPlan).toEqual(expect.any(Function));
     expect(layer2Module?.buildLayer2ScheduledEventChain).toEqual(expect.any(Function));
     expect(layer2Module?.dispatchLayer2ScheduledEventChain).toEqual(expect.any(Function));
+    expect(layer2Module?.resolveLayer2SettleRecovery).toEqual(expect.any(Function));
   });
 
   it("executes bundled xhs.search classic module without unresolved implementation references", async () => {

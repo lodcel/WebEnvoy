@@ -422,6 +422,71 @@ export const dispatchLayer2ScheduledEventChain = (target, schedule, input) => {
         blocked_by: null
     };
 };
+export const resolveLayer2SettleRecovery = (input) => {
+    const pageState = input.pageStateInput;
+    const observedSignals = normalizeLayer2ObservedSignals(input.observedSignals);
+    const timeoutMs = normalizeLayer2Timeout(input.timeoutMs);
+    const elapsedMs = normalizeLayer2Elapsed(input.elapsedMs);
+    const targetDrifted = !pageState.target_visible ||
+        !pageState.target_interactable ||
+        pageState.occlusion_state === "blocked" ||
+        pageState.last_chain_result === "target_drifted";
+    const layoutMotionBlocking = pageState.viewport_state === "resizing" ||
+        pageState.layout_motion === "animating" ||
+        pageState.layout_motion === "loading";
+    const timedOut = timeoutMs !== null && elapsedMs !== null && elapsedMs >= timeoutMs;
+    const completionObserved = input.completionSignal.some((signal) => observedSignals.includes(signal));
+    const pageSettled = pageState.viewport_state === "stable" &&
+        pageState.occlusion_state === "clear" &&
+        pageState.layout_motion === "idle" &&
+        pageState.last_chain_result === "settled";
+    if (targetDrifted) {
+        return buildLayer2SettleRecoveryResult({
+            pageState,
+            observedSignals,
+            settledWaitResult: "timeout",
+            recoveryAction: "fail_closed",
+            failureCategory: "target_drifted",
+            targetDrifted,
+            layoutMotionBlocking,
+            timeoutMs
+        });
+    }
+    if (layoutMotionBlocking) {
+        return buildLayer2SettleRecoveryResult({
+            pageState,
+            observedSignals,
+            settledWaitResult: "timeout",
+            recoveryAction: "reobserve",
+            failureCategory: null,
+            targetDrifted,
+            layoutMotionBlocking,
+            timeoutMs
+        });
+    }
+    if (completionObserved || pageSettled) {
+        return buildLayer2SettleRecoveryResult({
+            pageState,
+            observedSignals,
+            settledWaitResult: "settled",
+            recoveryAction: "none",
+            failureCategory: null,
+            targetDrifted,
+            layoutMotionBlocking,
+            timeoutMs
+        });
+    }
+    return buildLayer2SettleRecoveryResult({
+        pageState,
+        observedSignals,
+        settledWaitResult: "timeout",
+        recoveryAction: timedOut ? "fail_closed" : "retry",
+        failureCategory: timedOut ? "framework_state_not_updated" : null,
+        targetDrifted,
+        layoutMotionBlocking,
+        timeoutMs
+    });
+};
 export const buildLayer2InteractionEvidence = (input) => {
     const strategy = clone(STRATEGY_PROFILES[input.actionKind]);
     const chain = clone(EVENT_CHAINS[input.actionKind]);
@@ -515,6 +580,31 @@ const clampLayer2SegmentCount = (value) => {
     return Math.max(1, Math.min(8, Math.trunc(value)));
 };
 const isLayer2Punctuation = (value) => /[,.!?;:，。！？；：]/u.test(value);
+const normalizeLayer2ObservedSignals = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
+const normalizeLayer2Timeout = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+const normalizeLayer2Elapsed = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+const buildLayer2SettleRecoveryResult = (input) => ({
+    settled_wait_applied: true,
+    settled_wait_result: input.settledWaitResult,
+    recovery_action: input.recoveryAction,
+    page_state_input_summary: summarizeLayer2PageStateInput(input.pageState),
+    completion_signal_observed: input.observedSignals,
+    failure_category: input.failureCategory,
+    target_drifted: input.targetDrifted,
+    layout_motion_blocking: input.layoutMotionBlocking,
+    timeout_ms: input.timeoutMs
+});
+const summarizeLayer2PageStateInput = (pageState) => [
+    pageState.target_visible ? "target_visible" : "target_hidden",
+    pageState.target_interactable ? "interactable" : "not_interactable",
+    pageState.target_focused ? "focused" : "not_focused",
+    pageState.target_disabled ? "disabled" : "enabled",
+    pageState.target_readonly ? "readonly" : "editable",
+    `viewport_${pageState.viewport_state}`,
+    `occlusion_${pageState.occlusion_state}`,
+    `layout_${pageState.layout_motion}`,
+    `last_${pageState.last_chain_result}`
+].join("_");
 const appliesLayer2Text = (actionKind) => actionKind === "keyboard_input" || actionKind === "composition_input";
 const applyLayer2TextValue = (target, text) => {
     if ("value" in target) {
