@@ -148,6 +148,29 @@ export interface Layer2ScheduledEventChain {
   blocked_by: string | null;
 }
 
+export interface Layer2DispatchTarget {
+  dispatchEvent(event: Event): boolean;
+  focus?: () => void;
+  blur?: () => void;
+  value?: string;
+}
+
+export interface Layer2DispatchWindowLike {
+  scrollBy?: (options: { top: number; left: number; behavior: "auto" }) => void;
+}
+
+export interface Layer2DispatchResult {
+  action_kind: Layer2ActionKind;
+  selected_path: Layer2SelectedPath;
+  event_chain: string;
+  dispatched_events: string[];
+  required_events_applied: string[];
+  skipped_events: string[];
+  text_applied: string | null;
+  scroll_delta_applied: number | null;
+  blocked_by: string | null;
+}
+
 const DEFAULT_RHYTHM_PROFILE: RhythmProfile = {
   profile_name: "default_layer2",
   hover_confirm_min_ms: 80,
@@ -510,6 +533,97 @@ export const buildLayer2ScheduledEventChain = (
   };
 };
 
+export const dispatchLayer2ScheduledEventChain = (
+  target: Layer2DispatchTarget,
+  schedule: Layer2ScheduledEventChain,
+  input?: {
+    text?: string | null;
+    scrollDeltaY?: number | null;
+    windowLike?: Layer2DispatchWindowLike | null;
+  }
+): Layer2DispatchResult => {
+  if (schedule.blocked_by) {
+    return {
+      action_kind: schedule.action_kind,
+      selected_path: schedule.selected_path,
+      event_chain: schedule.event_chain,
+      dispatched_events: [],
+      required_events_applied: [],
+      skipped_events: schedule.scheduled_events.map((event) => event.event_ref),
+      text_applied: null,
+      scroll_delta_applied: null,
+      blocked_by: schedule.blocked_by
+    };
+  }
+
+  const dispatchedEvents: string[] = [];
+  const skippedEvents: string[] = [];
+  const text = typeof input?.text === "string" ? input.text : null;
+  const scrollDeltaY = resolveLayer2ScrollDelta(schedule.action_kind, input?.scrollDeltaY ?? null);
+  const textWasApplied = text !== null && appliesLayer2Text(schedule.action_kind);
+
+  for (const scheduledEvent of schedule.scheduled_events) {
+    const eventRef = scheduledEvent.event_ref;
+    if (eventRef === "focus") {
+      target.focus?.();
+      dispatchLayer2Event(target, eventRef);
+      dispatchedEvents.push(eventRef);
+      continue;
+    }
+    if (eventRef === "blur") {
+      target.blur?.();
+      dispatchLayer2Event(target, eventRef);
+      dispatchedEvents.push(eventRef);
+      continue;
+    }
+    if (eventRef === "input" && text !== null && appliesLayer2Text(schedule.action_kind)) {
+      applyLayer2TextValue(target, text);
+      dispatchLayer2Event(target, eventRef, { text });
+      dispatchedEvents.push(eventRef);
+      continue;
+    }
+    if (eventRef === "change" && textWasApplied) {
+      dispatchLayer2Event(target, eventRef);
+      dispatchedEvents.push(eventRef);
+      continue;
+    }
+    if (eventRef === "click" && schedule.selected_path === "real_input") {
+      dispatchLayer2Event(target, eventRef);
+      dispatchedEvents.push(eventRef);
+      continue;
+    }
+    if ((eventRef === "wheel" || eventRef === "scroll") && scrollDeltaY !== null) {
+      if (eventRef === "wheel") {
+        dispatchLayer2Event(target, eventRef, { deltaY: scrollDeltaY });
+      } else {
+        input?.windowLike?.scrollBy?.({ top: scrollDeltaY, left: 0, behavior: "auto" });
+        dispatchLayer2Event(target, eventRef);
+      }
+      dispatchedEvents.push(eventRef);
+      continue;
+    }
+    if (dispatchLayer2Event(target, eventRef, { text })) {
+      dispatchedEvents.push(eventRef);
+    } else {
+      skippedEvents.push(eventRef);
+    }
+  }
+
+  return {
+    action_kind: schedule.action_kind,
+    selected_path: schedule.selected_path,
+    event_chain: schedule.event_chain,
+    dispatched_events: dispatchedEvents,
+    required_events_applied: schedule.scheduled_events
+      .filter((event) => event.required && dispatchedEvents.includes(event.event_ref))
+      .map((event) => event.event_ref),
+    skipped_events: skippedEvents,
+    text_applied: textWasApplied ? text : null,
+    scroll_delta_applied: scrollDeltaY,
+    blocked_by: null
+  };
+};
+
 export const buildLayer2InteractionEvidence = (input: {
   actionKind: Layer2ActionKind;
   writeInteractionTierName?: string | null;
@@ -628,3 +742,115 @@ const clampLayer2SegmentCount = (value: number): number => {
 };
 
 const isLayer2Punctuation = (value: string): boolean => /[,.!?;:，。！？；：]/u.test(value);
+
+const appliesLayer2Text = (actionKind: Layer2ActionKind): boolean =>
+  actionKind === "keyboard_input" || actionKind === "composition_input";
+
+const applyLayer2TextValue = (target: Layer2DispatchTarget, text: string): void => {
+  if ("value" in target) {
+    target.value = text;
+  }
+};
+
+const resolveLayer2ScrollDelta = (
+  actionKind: Layer2ActionKind,
+  requestedDelta: number | null
+): number | null => {
+  if (actionKind !== "scroll") {
+    return null;
+  }
+  if (typeof requestedDelta === "number" && Number.isFinite(requestedDelta)) {
+    return Math.trunc(requestedDelta);
+  }
+  return DEFAULT_RHYTHM_PROFILE.scroll_segment_min_px;
+};
+
+const dispatchLayer2Event = (
+  target: Layer2DispatchTarget,
+  eventRef: string,
+  input?: { text?: string | null; deltaY?: number | null }
+): boolean => target.dispatchEvent(createLayer2DomEvent(eventRef, input));
+
+const createLayer2DomEvent = (
+  eventRef: string,
+  input?: { text?: string | null; deltaY?: number | null }
+): Event => {
+  if (eventRef === "keydown" || eventRef === "keyup") {
+    return createLayer2KeyboardEvent(eventRef);
+  }
+  if (
+    eventRef === "compositionstart" ||
+    eventRef === "compositionupdate" ||
+    eventRef === "compositionend"
+  ) {
+    return createLayer2CompositionEvent(eventRef, input?.text ?? "");
+  }
+  if (eventRef === "input") {
+    return createLayer2InputEvent(eventRef, input?.text ?? "");
+  }
+  if (
+    eventRef === "mousemove" ||
+    eventRef === "mouseover" ||
+    eventRef === "mousedown" ||
+    eventRef === "mouseup" ||
+    eventRef === "click"
+  ) {
+    return createLayer2MouseEvent(eventRef);
+  }
+  if (eventRef === "wheel") {
+    return createLayer2WheelEvent(input?.deltaY ?? DEFAULT_RHYTHM_PROFILE.scroll_segment_min_px);
+  }
+  return new Event(eventRef, { bubbles: true, cancelable: true });
+};
+
+const createLayer2KeyboardEvent = (type: string): Event => {
+  if (typeof KeyboardEvent === "function") {
+    return new KeyboardEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    });
+  }
+  return new Event(type, { bubbles: true, cancelable: true });
+};
+
+const createLayer2CompositionEvent = (type: string, text: string): Event => {
+  if (typeof CompositionEvent === "function") {
+    return new CompositionEvent(type, { bubbles: true, cancelable: true, data: text });
+  }
+  return new Event(type, { bubbles: true, cancelable: true });
+};
+
+const createLayer2InputEvent = (type: string, text: string): Event => {
+  if (typeof InputEvent === "function") {
+    return new InputEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      data: text,
+      inputType: "insertText"
+    });
+  }
+  return new Event(type, { bubbles: true, cancelable: true });
+};
+
+const createLayer2MouseEvent = (type: string): Event => {
+  if (typeof MouseEvent === "function") {
+    return new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    });
+  }
+  return new Event(type, { bubbles: true, cancelable: true });
+};
+
+const createLayer2WheelEvent = (deltaY: number): Event => {
+  if (typeof WheelEvent === "function") {
+    return new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY
+    });
+  }
+  return new Event("wheel", { bubbles: true, cancelable: true });
+};

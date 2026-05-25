@@ -6,9 +6,30 @@ import {
   buildLayer2RhythmPlan,
   buildLayer2ScheduledEventChain,
   buildXhsSearchLayer2InteractionEvidence,
+  dispatchLayer2ScheduledEventChain,
   getLayer2EventChainPolicies,
   resolveLayer2RhythmTiming
 } from "../extension/layer2-humanized-events.js";
+
+class Layer2MockDispatchTarget extends EventTarget {
+  value = "";
+  focused = false;
+  blurred = false;
+  readonly dispatched: string[] = [];
+
+  focus() {
+    this.focused = true;
+  }
+
+  blur() {
+    this.blurred = true;
+  }
+
+  dispatchEvent(event: Event): boolean {
+    this.dispatched.push(event.type);
+    return super.dispatchEvent(event);
+  }
+}
 
 describe("FR-0013 layer2 humanized events", () => {
   it("builds default keyboard interaction evidence with stable contract objects", () => {
@@ -232,6 +253,145 @@ describe("FR-0013 layer2 humanized events", () => {
       scheduled_events: [],
       completion_signal: [],
       requires_settled_wait: false,
+      blocked_by: "FR-0011.write_interaction_tier"
+    });
+  });
+
+  it("dispatches the keyboard input event chain and applies text without session state", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "hello" });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, { text: "hello" });
+
+    expect(target.focused).toBe(true);
+    expect(target.blurred).toBe(true);
+    expect(target.value).toBe("hello");
+    expect(target.dispatched).toEqual(["focus", "keydown", "input", "keyup", "change", "blur"]);
+    expect(result).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "real_input",
+      event_chain: "keyboard_input",
+      dispatched_events: ["focus", "keydown", "input", "keyup", "change", "blur"],
+      required_events_applied: ["focus", "keydown", "input", "keyup", "change", "blur"],
+      text_applied: "hello",
+      blocked_by: null
+    });
+  });
+
+  it("dispatches composition input with composition lifecycle before input finalize", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "composition_input",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "中文" });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, { text: "中文" });
+
+    expect(target.value).toBe("中文");
+    expect(target.dispatched).toEqual([
+      "focus",
+      "compositionstart",
+      "compositionupdate",
+      "compositionend",
+      "input",
+      "change",
+      "blur"
+    ]);
+    expect(result.required_events_applied).toEqual([
+      "focus",
+      "compositionstart",
+      "compositionupdate",
+      "compositionend",
+      "input",
+      "change",
+      "blur"
+    ]);
+  });
+
+  it("dispatches hover and click through the scheduled pointer chain", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(target.dispatched).toEqual(["mousemove", "mouseover", "mousedown", "mouseup", "click"]);
+    expect(result.required_events_applied).toEqual([
+      "mousemove",
+      "mouseover",
+      "mousedown",
+      "mouseup",
+      "click"
+    ]);
+  });
+
+  it("dispatches focus/blur acquisition as its own chain", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "focus",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(target.focused).toBe(true);
+    expect(target.dispatched).toEqual(["focus"]);
+    expect(result.required_events_applied).toEqual(["focus"]);
+  });
+
+  it("dispatches scroll with bounded default delta and optional window scroll hook", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "scroll",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { scrollSegmentCount: 1 });
+    const target = new Layer2MockDispatchTarget();
+    const scrollCalls: Array<{ top: number; left: number; behavior: "auto" }> = [];
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, {
+      windowLike: {
+        scrollBy: (options) => {
+          scrollCalls.push(options);
+        }
+      }
+    });
+
+    expect(target.dispatched).toEqual(["wheel", "scroll"]);
+    expect(scrollCalls).toEqual([{ top: 120, left: 0, behavior: "auto" }]);
+    expect(result).toMatchObject({
+      action_kind: "scroll",
+      dispatched_events: ["wheel", "scroll"],
+      required_events_applied: ["wheel", "scroll"],
+      scroll_delta_applied: 120,
+      blocked_by: null
+    });
+  });
+
+  it("does not dispatch blocked scheduled event chains", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      writeInteractionTierName: "irreversible_write",
+      executionApplied: true
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "blocked" });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, { text: "blocked" });
+
+    expect(target.dispatched).toEqual([]);
+    expect(target.value).toBe("");
+    expect(result).toMatchObject({
+      dispatched_events: [],
+      required_events_applied: [],
+      text_applied: null,
       blocked_by: "FR-0011.write_interaction_tier"
     });
   });
