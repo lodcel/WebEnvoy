@@ -185,7 +185,7 @@ export const resolveForwardTimeoutMsForContract = (params: JsonObject): number |
 const toSessionRhythmIdPart = (value: string): string =>
   value.replace(/[^A-Za-z0-9._-]+/gu, "_");
 
-const buildSessionRhythmCompatibilityRefsForRuntime = async (input: {
+const buildSessionRhythmAdmissionForRuntime = async (input: {
   cwd: string;
   profile: string | null;
   runId: string;
@@ -241,6 +241,44 @@ const buildSessionRhythmCompatibilityRefsForRuntime = async (input: {
     const currentSourceKey = toSessionRhythmIdPart(input.runId);
     const currentEventId = `rhythm_evt_preflight_${currentSourceKey}`;
     const currentDecisionId = `rhythm_decision_preflight_${currentSourceKey}`;
+    const admissionDecision: JsonObject = {
+      ...decisionForRecord,
+      decision_id: currentDecisionId,
+      window_id: windowId,
+      run_id: input.runId,
+      session_id: input.sessionId,
+      profile: input.profile,
+      current_phase:
+        asString(windowStateForRecord.current_phase) ??
+        asString(decisionForRecord.current_phase) ??
+        "warmup",
+      current_risk_state:
+        asString(windowStateForRecord.risk_state) ??
+        asString(decisionForRecord.current_risk_state) ??
+        "paused",
+      next_phase:
+        asString(windowStateForRecord.current_phase) ??
+        asString(decisionForRecord.next_phase) ??
+        "warmup",
+      next_risk_state:
+        asString(windowStateForRecord.risk_state) ??
+        asString(decisionForRecord.next_risk_state) ??
+        "paused",
+      effective_execution_mode: input.gate.requestedExecutionMode,
+      decision: liveRunPendingExecutionAudit
+        ? "deferred"
+        : (asString(decisionForRecord.decision) ?? "blocked"),
+      reason_codes: liveRunPendingExecutionAudit
+        ? ["XHS_LIVE_ADMISSION_PENDING_EXECUTION_AUDIT"]
+        : Array.isArray(decisionForRecord.reason_codes)
+          ? decisionForRecord.reason_codes
+          : [],
+      requires: liveRunPendingExecutionAudit
+        ? ["execution_audit_appended"]
+        : Array.isArray(decisionForRecord.requires)
+          ? decisionForRecord.requires
+          : []
+    };
     await store.recordSessionRhythmStatusView({
       profile: input.profile,
       platform: "xhs",
@@ -258,44 +296,7 @@ const buildSessionRhythmCompatibilityRefsForRuntime = async (input: {
         window_id: windowId,
         source_audit_event_id: asString(persistedEvent?.source_audit_event_id)
       },
-      decision: {
-        ...decisionForRecord,
-        decision_id: currentDecisionId,
-        window_id: windowId,
-        run_id: input.runId,
-        session_id: input.sessionId,
-        profile: input.profile,
-        current_phase:
-          asString(windowStateForRecord.current_phase) ??
-          asString(decisionForRecord.current_phase) ??
-          "warmup",
-        current_risk_state:
-          asString(windowStateForRecord.risk_state) ??
-          asString(decisionForRecord.current_risk_state) ??
-          "paused",
-        next_phase:
-          asString(windowStateForRecord.current_phase) ??
-          asString(decisionForRecord.next_phase) ??
-          "warmup",
-        next_risk_state:
-          asString(windowStateForRecord.risk_state) ??
-          asString(decisionForRecord.next_risk_state) ??
-          "paused",
-        effective_execution_mode: input.gate.requestedExecutionMode,
-        decision: liveRunPendingExecutionAudit
-          ? "deferred"
-          : (asString(decisionForRecord.decision) ?? "blocked"),
-        reason_codes: liveRunPendingExecutionAudit
-          ? ["XHS_LIVE_ADMISSION_PENDING_EXECUTION_AUDIT"]
-          : Array.isArray(decisionForRecord.reason_codes)
-            ? decisionForRecord.reason_codes
-            : [],
-        requires: liveRunPendingExecutionAudit
-          ? ["execution_audit_appended"]
-          : Array.isArray(decisionForRecord.requires)
-            ? decisionForRecord.requires
-            : []
-      }
+      decision: admissionDecision
     });
     const current = await store.getSessionRhythmStatusView({
       profile: input.profile,
@@ -329,7 +330,7 @@ const buildSessionRhythmCompatibilityRefsForRuntime = async (input: {
     try {
       store?.close();
     } catch {
-      // Compatibility refs are best-effort read-only after the query finishes.
+      // Rhythm admission is best-effort after the write/query finishes.
     }
   }
   return null;
@@ -2736,7 +2737,18 @@ const assertXhsLivePreflightAllowsCommand = (input: {
         ? "ANTI_DETECTION_VALIDATION_BASELINE_BLOCKED"
       : fullBundleBlocked || singleProbeRequired
         ? "XHS_CLOSEOUT_RHYTHM_BLOCKED"
-        : "XHS_CLOSEOUT_RHYTHM_UNAVAILABLE";
+      : "XHS_CLOSEOUT_RHYTHM_UNAVAILABLE";
+  const issueScope = asString(input.options.issue_scope) ?? "issue_209";
+  const actionType = asString(input.options.action_type) ?? input.ability.action;
+  const reasonCodes =
+    Array.isArray(input.xhsCloseoutRhythm.reason_codes) &&
+    input.xhsCloseoutRhythm.reason_codes.every((reason) => typeof reason === "string")
+      ? input.xhsCloseoutRhythm.reason_codes
+      : [blockReason];
+  const admissionRequires =
+    blockReason === "ANTI_DETECTION_VALIDATION_BASELINE_BLOCKED"
+      ? ["anti_detection_validation_baseline_ready"]
+      : ["session_rhythm_window_not_ready"];
   const preflightHardStopRisk = classifyCloseoutHardStopRisk({
     statusCode: input.accountSafety.status_code ?? input.accountSafety.statusCode,
     platformCode: input.accountSafety.platform_code ?? input.accountSafety.platformCode,
@@ -2750,6 +2762,15 @@ const assertXhsLivePreflightAllowsCommand = (input: {
       ability_id: input.ability.id,
       stage: "execution",
       reason: blockReason,
+      session_rhythm_admission_summary: {
+        decision: "blocked",
+        reason_codes: reasonCodes,
+        requires: admissionRequires,
+        requested_execution_mode: input.requestedExecutionMode,
+        action_type: actionType,
+        issue_scope: issueScope,
+        risk_state: asString(input.options.risk_state) ?? "paused"
+      },
       account_safety: input.accountSafety,
       xhs_closeout_rhythm: input.xhsCloseoutRhythm,
       ...(preflightHardStopRisk.hard_stop
@@ -3160,7 +3181,7 @@ const xhsReadCommand = async (
       target_site_logged_in: targetSiteLoggedIn,
       ...preparedGateOptions
     } = preparedIssue209LiveRead.options;
-    const sessionRhythmCompatibilityRefs = await buildSessionRhythmCompatibilityRefsForRuntime({
+    const sessionRhythmAdmission = await buildSessionRhythmAdmissionForRuntime({
       cwd: context.cwd,
       profile: context.profile,
       runId: context.run_id,
@@ -3178,7 +3199,7 @@ const xhsReadCommand = async (
           sessionId: bridgeSessionId
         })
       }),
-      ...(sessionRhythmCompatibilityRefs ?? {}),
+      ...(sessionRhythmAdmission ?? {}),
       ...(transportIsLoopback && typeof anonymousIsolationVerified === "boolean"
         ? { __anonymous_isolation_verified: anonymousIsolationVerified }
         : {}),
