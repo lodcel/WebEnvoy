@@ -32,7 +32,7 @@
 | hardware concurrency | P1 | `hardwareConcurrency`、`optional_patches.hardware_concurrency` | 字段与 optional patch 名称已存在 | `#733` | `navigator.hardwareConcurrency` 与 profile bundle 一致，缺字段 fail-closed 或降级 |
 | device memory / performance memory | P1 | `deviceMemory`、`optional_patches.device_memory`、`optional_patches.performance_memory` | 字段与 optional patch 名称已存在 | `#733` | `navigator.deviceMemory` 与 `performance.memory` 口径可解释，不跨 run 漂移 |
 | timezone / locale | P1 | `timezone`、启动环境/locale 参数 | bundle 字段已有，patch 覆盖不足 | `#735` | browser timezone/locale、UA、profile 环境不互相冲突；缺少可控面时必须记录 unsupported reason |
-| permissions API | P1 | `optional_patches.permissions_api` | optional patch 名称已存在 | `#733` | 常见权限查询返回稳定、保守且与真实 Chrome 行为接近的结果 |
+| permissions API | P1 | `optional_patches.permissions_api` | optional patch 名称已存在；语义未冻结 | `#799` deferred | Phase 2 不声明 permissions API patch 完成；不得用固定 `prompt` / `granted` / `denied` 伪装真实 Chrome 权限行为；后续如实现需先冻结允许列表、状态来源与异常语义 |
 | navigator connection | P1 | `optional_patches.navigator_connection` | optional patch 名称已存在 | `#735` | network 暴露面与 profile/启动环境不冲突；不可控时记录 `PATCH_NOT_AVAILABLE` |
 | WebGL renderer/vendor | P1 | 待追加字段：`webgl.vendor`、`webgl.renderer` | 未冻结字段 | `#801` deferred | Phase 2 不声明 WebGL renderer/vendor patch 完成；不得在实现 PR 中隐式新增字段；后续如实现需先冻结 bundle 字段、来源与验收 |
 | Canvas seed | P1 | `canvasNoiseSeed` | bundle 字段已有，patch 覆盖不足 | `#733` | canvas 噪声 profile 级稳定；不得 run 级随机 |
@@ -63,6 +63,7 @@
 
 | 范围 | Issue | Phase 2 结论 | 后续重新进入条件 |
 | --- | --- | --- | --- |
+| permissions API | `#799` | deferred；Phase 2 不要求实现 `navigator.permissions.query()` wrapper，不把 `optional_patches.permissions_api` 视为完成覆盖 | 先冻结常见 permission name 允许列表、未知 name 处理、`PermissionStatus.state` 来源、真实 query 透传策略、invalid descriptor / unsupported name 异常语义，以及 required/optional install 行为测试 |
 | WebGL renderer/vendor | `#801` | deferred；Phase 2 不要求实现 WebGL renderer/vendor patch，不新增未冻结的 `fingerprint_profile_bundle.webgl.*` 字段 | 先冻结 `webgl.vendor` / `webgl.renderer` 字段结构、真实 Chrome/硬件探测或 profile policy 来源、API 不可用时的 unsupported reason，以及 main world / iframe / isolated world 验收夹具 |
 | worker / service worker 指纹面 | `#802` | deferred；Phase 2 只要求验证基线显式标记盲区，不要求实现 dedicated worker、shared worker 或 service worker 指纹补丁 | 先冻结跨 worker 注入策略、作用域、权限、回滚方式、unsupported reason 与验证夹具；不得直接复用 main-world patch 作为 worker 覆盖证据 |
 
@@ -71,5 +72,6 @@
 - profile 缺少 P0 字段却继续高风险 live。
 - `fingerprint_patch_manifest.required_patches` 缺少 P0 patch 仍声明 Layer 1 完整能力通过。
 - 环境 mismatch 时没有 fail-closed 或结构化 reason code。
+- permissions API 被固定 stub 为 `prompt` / `granted` / `denied` 并声明为可信覆盖，或 #799 的 deferred 口径未在 #733/#265 closeout 中披露。
 - main world patch 被误报为 worker/service worker 覆盖，或 #802 的 deferred 盲区未在 #733/#265 closeout 中披露。
 - 实现 PR 隐式新增 WebGL/fonts/media/WebRTC 等字段而未先冻结契约，或 #801 的 WebGL deferred 口径未在 #733/#265 closeout 中披露。
