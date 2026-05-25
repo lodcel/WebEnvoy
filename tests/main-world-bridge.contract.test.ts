@@ -171,7 +171,21 @@ const createMockMainWorldEnvironment = (href = SEARCH_PAGE_HREF) => {
     location: {
       href
     },
-    navigator: {},
+    navigator: {
+      permissions: {
+        query: vi.fn(async () => ({
+          state: "granted",
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          dispatchEvent() {
+            return true;
+          }
+        }))
+      }
+    },
+    screen: {},
+    performance: {},
     XMLHttpRequest: MockXMLHttpRequest
   };
   const updateHref = (url?: string | URL | null): void => {
@@ -446,6 +460,121 @@ describe("main-world bridge contract", () => {
       id: "verify-request-001",
       ok: true
     });
+  });
+
+  it("applies declared optional fingerprint patches without making them required", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-optional-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              hardwareConcurrency: 10,
+              deviceMemory: 8,
+              screen: {
+                width: 1440,
+                height: 900,
+                colorDepth: 30,
+                pixelDepth: 24
+              }
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: [
+                "hardware_concurrency",
+                "device_memory",
+                "screen_color_depth",
+                "screen_pixel_depth",
+                "performance_memory",
+                "permissions_api"
+              ]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      required_patches: ["navigator_plugins", "navigator_mime_types"],
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).toEqual(
+      expect.arrayContaining([
+        "navigator_plugins",
+        "navigator_mime_types",
+        "hardware_concurrency",
+        "device_memory",
+        "screen_color_depth",
+        "screen_pixel_depth"
+      ])
+    );
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["performance_memory"]));
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["permissions_api"]));
+    expect((mockWindow.navigator as Navigator).hardwareConcurrency).toBe(10);
+    expect((mockWindow.navigator as Navigator & { deviceMemory?: number }).deviceMemory).toBe(8);
+    expect((mockWindow.screen as Screen).colorDepth).toBe(30);
+    expect((mockWindow.screen as Screen).pixelDepth).toBe(24);
+  });
+
+  it("skips screen optional patches when screen is unavailable without failing required install", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    delete (mockWindow as Record<string, unknown>).screen;
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-screen-unavailable-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              screen: {
+                colorDepth: 30
+              }
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["screen_color_depth"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["screen_color_depth"]));
   });
 
   it("resolves bare explore search capture after an SPA transition enters a search page", async () => {
