@@ -124,6 +124,25 @@ describe("FR-0013 layer2 humanized events", () => {
     expect(result.page_state_input_summary).toContain("target_visible_interactable_focused");
   });
 
+  it("reports only the completion signals that were actually observed", () => {
+    const result = resolveLayer2SettleRecovery({
+      pageStateInput: {
+        ...settledPageState,
+        last_chain_result: "timeout"
+      },
+      completionSignal: ["framework_value_updated"],
+      observedSignals: ["dom_mutated", "framework_value_updated", "paint_stable"],
+      elapsedMs: 90,
+      timeoutMs: 500
+    });
+
+    expect(result).toMatchObject({
+      settled_wait_result: "settled",
+      recovery_action: "none",
+      completion_signal_observed: ["framework_value_updated"]
+    });
+  });
+
   it("fails closed when the current target drifts before settle", () => {
     const result = resolveLayer2SettleRecovery({
       pageStateInput: {
@@ -138,7 +157,8 @@ describe("FR-0013 layer2 humanized events", () => {
     });
 
     expect(result).toMatchObject({
-      settled_wait_result: "timeout",
+      settled_wait_applied: false,
+      settled_wait_result: "skipped",
       recovery_action: "fail_closed",
       failure_category: "target_drifted",
       target_drifted: true,
@@ -161,7 +181,8 @@ describe("FR-0013 layer2 humanized events", () => {
     });
 
     expect(result).toMatchObject({
-      settled_wait_result: "timeout",
+      settled_wait_applied: false,
+      settled_wait_result: "skipped",
       recovery_action: "reobserve",
       failure_category: null,
       target_drifted: false,
