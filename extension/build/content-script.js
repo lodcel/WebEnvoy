@@ -5851,7 +5851,7 @@ const createLayer2EventWithFallback = (type, createSpecificEvent, fields = {}) =
     }
     return event;
 };
-return { buildLayer2InteractionEvidence, buildLayer2RhythmPlan, buildXhsSearchLayer2InteractionEvidence, getLayer2EventChainPolicies };
+return { buildLayer2InteractionEvidence, buildLayer2RhythmPlan, buildLayer2ScheduledEventChain, buildXhsSearchLayer2InteractionEvidence, dispatchLayer2ScheduledEventChain, getLayer2EventChainPolicies };
 })();
 const __webenvoy_module_xhs_search_execution = (() => {
 const {
