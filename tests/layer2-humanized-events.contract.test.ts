@@ -16,6 +16,7 @@ class Layer2MockDispatchTarget extends EventTarget {
   focused = false;
   blurred = false;
   readonly dispatched: string[] = [];
+  readonly eventObjects: Event[] = [];
 
   constructor(private readonly failingEvents: string[] = []) {
     super();
@@ -31,6 +32,7 @@ class Layer2MockDispatchTarget extends EventTarget {
 
   dispatchEvent(event: Event): boolean {
     this.dispatched.push(event.type);
+    this.eventObjects.push(event);
     if (this.failingEvents.includes(event.type)) {
       return false;
     }
@@ -378,7 +380,32 @@ describe("FR-0013 layer2 humanized events", () => {
       action_kind: "scroll",
       dispatched_events: ["wheel", "scroll"],
       required_events_applied: ["wheel", "scroll"],
-      scroll_delta_applied: 120,
+      scroll_delta_applied: [120],
+      blocked_by: null
+    });
+  });
+
+  it("expands multiple scroll rhythm segments into repeated wheel scheduled events", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "scroll",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { scrollSegmentCount: 2 });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(schedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "wheel",
+      "wheel",
+      "scroll"
+    ]);
+    expect(schedule.scheduled_events.map((event) => event.sequence_index)).toEqual([0, 1, 2]);
+    expect(target.dispatched).toEqual(["wheel", "wheel", "scroll"]);
+    expect(result).toMatchObject({
+      dispatched_events: ["wheel", "wheel", "scroll"],
+      required_events_applied: ["wheel", "wheel", "scroll"],
+      scroll_delta_applied: [120, 120],
       blocked_by: null
     });
   });
@@ -418,6 +445,93 @@ describe("FR-0013 layer2 humanized events", () => {
     expect(result.dispatched_events).toEqual(["mousemove", "mousedown", "mouseup", "click"]);
     expect(result.required_events_applied).toEqual(["mousemove", "mousedown", "mouseup", "click"]);
     expect(result.skipped_events).toEqual(["mouseover"]);
+  });
+
+  it("keeps required duplicate event accounting precise when one repeated event fails", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "scroll",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { scrollSegmentCount: 2 });
+    let wheelCount = 0;
+    const target = new Layer2MockDispatchTarget();
+    target.dispatchEvent = (event: Event): boolean => {
+      target.dispatched.push(event.type);
+      target.eventObjects.push(event);
+      if (event.type === "wheel") {
+        wheelCount += 1;
+        return wheelCount !== 2;
+      }
+      return true;
+    };
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(result.dispatched_events).toEqual(["wheel", "scroll"]);
+    expect(result.required_events_applied).toEqual(["wheel", "scroll"]);
+    expect(result.skipped_events).toEqual(["wheel"]);
+    expect(result.scroll_delta_applied).toEqual([120]);
+  });
+
+  it("falls back to observable generic events when specialized constructors throw", () => {
+    const previousInputEvent = (globalThis as { InputEvent?: unknown }).InputEvent;
+    const previousCompositionEvent = (globalThis as { CompositionEvent?: unknown }).CompositionEvent;
+    const previousWheelEvent = (globalThis as { WheelEvent?: unknown }).WheelEvent;
+    (globalThis as { InputEvent?: unknown }).InputEvent = class {
+      constructor() {
+        throw new Error("InputEvent unavailable");
+      }
+    };
+    (globalThis as { CompositionEvent?: unknown }).CompositionEvent = class {
+      constructor() {
+        throw new Error("CompositionEvent unavailable");
+      }
+    };
+    (globalThis as { WheelEvent?: unknown }).WheelEvent = class {
+      constructor() {
+        throw new Error("WheelEvent unavailable");
+      }
+    };
+    try {
+      const compositionEvidence = buildLayer2InteractionEvidence({
+        actionKind: "composition_input",
+        executionApplied: true,
+        settledWaitResult: "settled"
+      });
+      const compositionTarget = new Layer2MockDispatchTarget();
+      dispatchLayer2ScheduledEventChain(
+        compositionTarget,
+        buildLayer2ScheduledEventChain(compositionEvidence, { text: "回退" }),
+        { text: "回退" }
+      );
+
+      const compositionUpdate = compositionTarget.eventObjects.find(
+        (event) => event.type === "compositionupdate"
+      ) as Event & { data?: string };
+      const input = compositionTarget.eventObjects.find((event) => event.type === "input") as
+        | (Event & { data?: string; inputType?: string })
+        | undefined;
+      expect(compositionUpdate?.data).toBe("回退");
+      expect(input?.data).toBe("回退");
+      expect(input?.inputType).toBe("insertText");
+
+      const scrollEvidence = buildLayer2InteractionEvidence({
+        actionKind: "scroll",
+        executionApplied: true,
+        settledWaitResult: "settled"
+      });
+      const scrollTarget = new Layer2MockDispatchTarget();
+      dispatchLayer2ScheduledEventChain(scrollTarget, buildLayer2ScheduledEventChain(scrollEvidence));
+
+      const wheel = scrollTarget.eventObjects.find((event) => event.type === "wheel") as
+        | (Event & { deltaY?: number })
+        | undefined;
+      expect(wheel?.deltaY).toBe(120);
+    } finally {
+      (globalThis as { InputEvent?: unknown }).InputEvent = previousInputEvent;
+      (globalThis as { CompositionEvent?: unknown }).CompositionEvent = previousCompositionEvent;
+      (globalThis as { WheelEvent?: unknown }).WheelEvent = previousWheelEvent;
+    }
   });
 
   it("resolves deterministic rhythm timing ranges without session state", () => {
