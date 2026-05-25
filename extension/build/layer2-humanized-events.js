@@ -346,7 +346,7 @@ export const dispatchLayer2ScheduledEventChain = (target, schedule, input) => {
             event_chain: schedule.event_chain,
             dispatched_events: [],
             required_events_applied: [],
-            skipped_events: schedule.scheduled_events.map((event) => event.event_ref),
+            skipped_events: [],
             text_applied: null,
             scroll_delta_applied: null,
             blocked_by: schedule.blocked_by

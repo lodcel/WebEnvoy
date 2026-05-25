@@ -431,6 +431,37 @@ describe("FR-0013 layer2 humanized events", () => {
     });
   });
 
+  it("keeps blocked accounting separate from dispatch skip accounting", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const allowedSchedule = buildLayer2ScheduledEventChain(evidence);
+    const blockedSchedule = {
+      ...allowedSchedule,
+      selected_path: "blocked" as const,
+      blocked_by: "FR-0011.write_interaction_tier"
+    };
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, blockedSchedule);
+
+    expect(blockedSchedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "mousemove",
+      "mouseover",
+      "mousedown",
+      "mouseup",
+      "click"
+    ]);
+    expect(target.dispatched).toEqual([]);
+    expect(result).toMatchObject({
+      dispatched_events: [],
+      required_events_applied: [],
+      skipped_events: [],
+      blocked_by: "FR-0011.write_interaction_tier"
+    });
+  });
+
   it("reports required event dispatch failures without marking them applied", () => {
     const evidence = buildLayer2InteractionEvidence({
       actionKind: "click",
