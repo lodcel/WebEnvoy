@@ -14,6 +14,12 @@ export type Layer2FailureCategory =
   | "target_drifted"
   | "blocked_by_fr0011";
 
+export type Layer2ViewportState = "stable" | "scrolling" | "resizing";
+export type Layer2OcclusionState = "clear" | "partial" | "blocked";
+export type Layer2LayoutMotion = "idle" | "animating" | "loading" | "unknown";
+export type Layer2LastChainResult = "not_run" | "settled" | "timeout" | "target_drifted";
+export type Layer2RecoveryAction = "none" | "retry" | "reobserve" | "fail_closed";
+
 export interface EventStrategyProfile {
   action_kind: Layer2ActionKind;
   preferred_path: "real_input" | "mixed_input";
@@ -66,6 +72,18 @@ export interface ExecutionTrace {
   settled_wait_applied: boolean;
   settled_wait_result: "settled" | "timeout" | "skipped";
   failure_category: Layer2FailureCategory | null;
+}
+
+export interface Layer2PageStateInput {
+  target_visible: boolean;
+  target_interactable: boolean;
+  target_focused: boolean;
+  target_disabled: boolean;
+  target_readonly: boolean;
+  viewport_state: Layer2ViewportState;
+  occlusion_state: Layer2OcclusionState;
+  layout_motion: Layer2LayoutMotion;
+  last_chain_result: Layer2LastChainResult;
 }
 
 export interface Layer2InteractionEvidence {
@@ -169,6 +187,18 @@ export interface Layer2DispatchResult {
   text_applied: string | null;
   scroll_delta_applied: number[] | null;
   blocked_by: string | null;
+}
+
+export interface Layer2SettleRecoveryResult {
+  settled_wait_applied: boolean;
+  settled_wait_result: ExecutionTrace["settled_wait_result"];
+  recovery_action: Layer2RecoveryAction;
+  page_state_input_summary: string;
+  completion_signal_observed: string[];
+  failure_category: Layer2FailureCategory | null;
+  target_drifted: boolean;
+  layout_motion_blocking: boolean;
+  timeout_ms: number | null;
 }
 
 const DEFAULT_RHYTHM_PROFILE: RhythmProfile = {
@@ -648,6 +678,87 @@ export const dispatchLayer2ScheduledEventChain = (
   };
 };
 
+export const resolveLayer2SettleRecovery = (input: {
+  pageStateInput: Layer2PageStateInput;
+  completionSignal: string[];
+  observedSignals?: string[] | null;
+  elapsedMs?: number | null;
+  timeoutMs?: number | null;
+}): Layer2SettleRecoveryResult => {
+  const pageState = input.pageStateInput;
+  const observedSignals = normalizeLayer2ObservedSignals(input.observedSignals);
+  const timeoutMs = normalizeLayer2Timeout(input.timeoutMs);
+  const elapsedMs = normalizeLayer2Elapsed(input.elapsedMs);
+  const targetDrifted =
+    !pageState.target_visible ||
+    !pageState.target_interactable ||
+    pageState.occlusion_state === "blocked" ||
+    pageState.last_chain_result === "target_drifted";
+  const layoutMotionBlocking =
+    pageState.viewport_state === "resizing" ||
+    pageState.layout_motion === "animating" ||
+    pageState.layout_motion === "loading";
+  const timedOut = timeoutMs !== null && elapsedMs !== null && elapsedMs >= timeoutMs;
+  const completionObserved = input.completionSignal.some((signal) =>
+    observedSignals.includes(signal)
+  );
+  const pageSettled =
+    pageState.viewport_state === "stable" &&
+    pageState.occlusion_state === "clear" &&
+    pageState.layout_motion === "idle" &&
+    pageState.last_chain_result === "settled";
+
+  if (targetDrifted) {
+    return buildLayer2SettleRecoveryResult({
+      pageState,
+      observedSignals,
+      settledWaitResult: "timeout",
+      recoveryAction: "fail_closed",
+      failureCategory: "target_drifted",
+      targetDrifted,
+      layoutMotionBlocking,
+      timeoutMs
+    });
+  }
+
+  if (layoutMotionBlocking) {
+    return buildLayer2SettleRecoveryResult({
+      pageState,
+      observedSignals,
+      settledWaitResult: "timeout",
+      recoveryAction: "reobserve",
+      failureCategory: null,
+      targetDrifted,
+      layoutMotionBlocking,
+      timeoutMs
+    });
+  }
+
+  if (completionObserved || pageSettled) {
+    return buildLayer2SettleRecoveryResult({
+      pageState,
+      observedSignals,
+      settledWaitResult: "settled",
+      recoveryAction: "none",
+      failureCategory: null,
+      targetDrifted,
+      layoutMotionBlocking,
+      timeoutMs
+    });
+  }
+
+  return buildLayer2SettleRecoveryResult({
+    pageState,
+    observedSignals,
+    settledWaitResult: "timeout",
+    recoveryAction: timedOut ? "fail_closed" : "retry",
+    failureCategory: timedOut ? "framework_state_not_updated" : null,
+    targetDrifted,
+    layoutMotionBlocking,
+    timeoutMs
+  });
+};
+
 export const buildLayer2InteractionEvidence = (input: {
   actionKind: Layer2ActionKind;
   writeInteractionTierName?: string | null;
@@ -766,6 +877,49 @@ const clampLayer2SegmentCount = (value: number): number => {
 };
 
 const isLayer2Punctuation = (value: string): boolean => /[,.!?;:，。！？；：]/u.test(value);
+
+const normalizeLayer2ObservedSignals = (value: string[] | null | undefined): string[] =>
+  Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
+
+const normalizeLayer2Timeout = (value: number | null | undefined): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+
+const normalizeLayer2Elapsed = (value: number | null | undefined): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+
+const buildLayer2SettleRecoveryResult = (input: {
+  pageState: Layer2PageStateInput;
+  observedSignals: string[];
+  settledWaitResult: ExecutionTrace["settled_wait_result"];
+  recoveryAction: Layer2RecoveryAction;
+  failureCategory: Layer2FailureCategory | null;
+  targetDrifted: boolean;
+  layoutMotionBlocking: boolean;
+  timeoutMs: number | null;
+}): Layer2SettleRecoveryResult => ({
+  settled_wait_applied: true,
+  settled_wait_result: input.settledWaitResult,
+  recovery_action: input.recoveryAction,
+  page_state_input_summary: summarizeLayer2PageStateInput(input.pageState),
+  completion_signal_observed: input.observedSignals,
+  failure_category: input.failureCategory,
+  target_drifted: input.targetDrifted,
+  layout_motion_blocking: input.layoutMotionBlocking,
+  timeout_ms: input.timeoutMs
+});
+
+const summarizeLayer2PageStateInput = (pageState: Layer2PageStateInput): string =>
+  [
+    pageState.target_visible ? "target_visible" : "target_hidden",
+    pageState.target_interactable ? "interactable" : "not_interactable",
+    pageState.target_focused ? "focused" : "not_focused",
+    pageState.target_disabled ? "disabled" : "enabled",
+    pageState.target_readonly ? "readonly" : "editable",
+    `viewport_${pageState.viewport_state}`,
+    `occlusion_${pageState.occlusion_state}`,
+    `layout_${pageState.layout_motion}`,
+    `last_${pageState.last_chain_result}`
+  ].join("_");
 
 const appliesLayer2Text = (actionKind: Layer2ActionKind): boolean =>
   actionKind === "keyboard_input" || actionKind === "composition_input";
