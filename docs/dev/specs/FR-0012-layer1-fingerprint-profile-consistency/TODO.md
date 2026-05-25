@@ -16,7 +16,7 @@
 - [x] reviewer 确认 `#235` 在 Phase 2 -> FR-0012 主树中的定位已表述清楚。
 - [x] reviewer 确认 FR-0012 未改写 `FR-0010/0011` 的既有对象语义。
 - [x] reviewer 确认 Worker 线程盲区被明确保留，不存在过度承诺。
-- [ ] reviewer 确认 P0/P1/P2 分阶段范围与“何时算完成 #235”口径已一致。
+- [ ] reviewer 确认 P0/P1/P2 分阶段范围与“何时算完成 #235”口径已一致（见 `coverage-matrix.md`）。
 
 ## spec 通过后的实施清单（非本 PR）
 
