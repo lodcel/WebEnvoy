@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, lstat, mkdir, readFile, readlink, stat, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readlink, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanupStagedExtensions, EXTENSION_BOOTSTRAP_FILENAME, EXTENSION_BOOTSTRAP_SCRIPT_FILENAME, EXTENSION_STAGING_DIRNAME, resolveExtensionBootstrapPayload, stageExtensionForRun } from "./browser-extension-staging.js";
@@ -147,6 +147,17 @@ const cleanupSupervisorArtifacts = async (profileDir) => {
     await deleteFileQuietly(artifactPaths.stateFilePath);
     await deleteFileQuietly(artifactPaths.controlFilePath);
 };
+const writeBrowserInstanceStateAtomic = async (stateFilePath, state) => {
+    const tempStateFilePath = `${stateFilePath}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+        await writeFile(tempStateFilePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+        await rename(tempStateFilePath, stateFilePath);
+    }
+    catch (error) {
+        await deleteFileQuietly(tempStateFilePath).catch(() => undefined);
+        throw error;
+    }
+};
 const CHROME_SINGLETON_FILENAMES = ["SingletonLock", "SingletonCookie", "SingletonSocket"];
 const readProfileSingletonLockOwnerPid = async (profileDir) => {
     try {
@@ -167,6 +178,9 @@ const cleanupStaleProfileSingletonLock = async (profileDir) => {
 };
 const parseBrowserInstanceState = (raw) => {
     const parsed = JSON.parse(raw);
+    const launchSurfaceAudit = parsed.launchSurfaceAudit === undefined
+        ? undefined
+        : parseBrowserLaunchSurfaceAudit(parsed.launchSurfaceAudit);
     if (parsed.schemaVersion !== 1 ||
         typeof parsed.launchToken !== "string" ||
         typeof parsed.profileDir !== "string" ||
@@ -177,7 +191,10 @@ const parseBrowserInstanceState = (raw) => {
         typeof parsed.launchedAt !== "string") {
         return null;
     }
-    return parsed;
+    return {
+        ...parsed,
+        launchSurfaceAudit: launchSurfaceAudit ?? undefined
+    };
 };
 const readBrowserInstanceState = async (path) => {
     try {
@@ -195,6 +212,212 @@ const readBrowserInstanceState = async (path) => {
 const stringArraysEqual = (left, right) => Array.isArray(left) &&
     left.length === right.length &&
     left.every((value, index) => value === right[index]);
+const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value
+    : null;
+const stringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+const isBrowserLaunchAuditSurface = (value) => value === "profile_binding" ||
+    value === "ua_profile" ||
+    value === "ua_client_hints" ||
+    value === "timezone_profile" ||
+    value === "timezone_locale" ||
+    value === "locale_launch_arg" ||
+    value === "timezone_launch_arg" ||
+    value === "navigator_connection" ||
+    value === "network_webrtc" ||
+    value === "webrtc_network";
+const auditSurfaceArray = (value) => Array.isArray(value) ? value.filter(isBrowserLaunchAuditSurface) : [];
+const parseSurfaceCheck = (value) => {
+    const record = asRecord(value);
+    if (!record ||
+        !isBrowserLaunchAuditSurface(record.surface) ||
+        (record.decision !== "match" &&
+            record.decision !== "mismatch" &&
+            record.decision !== "unsupported")) {
+        return null;
+    }
+    return {
+        surface: record.surface,
+        decision: record.decision
+    };
+};
+const parseBrowserLaunchSurfaceAudit = (value) => {
+    const record = asRecord(value);
+    const launchArgs = asRecord(record?.launchArgs);
+    const fingerprintContext = asRecord(record?.fingerprintContext);
+    if (!record ||
+        record.schemaVersion !== 1 ||
+        record.namespace !== "webenvoy.browser_launch_surface_audit" ||
+        (record.launchMode !== "load_extension" &&
+            record.launchMode !== "official_chrome_persistent_extension") ||
+        (record.executionSurface !== "headless_browser" && record.executionSurface !== "real_browser") ||
+        typeof record.headless !== "boolean" ||
+        typeof record.extensionBootstrapPresent !== "boolean" ||
+        !launchArgs ||
+        typeof launchArgs.userDataDirMatchesProfile !== "boolean" ||
+        typeof launchArgs.profileDirectoryIsDefault !== "boolean" ||
+        typeof launchArgs.headlessFlagPresent !== "boolean" ||
+        typeof launchArgs.loadExtensionPresent !== "boolean" ||
+        typeof launchArgs.disableExtensionsExceptPresent !== "boolean" ||
+        typeof launchArgs.langPresent !== "boolean" ||
+        typeof launchArgs.timezonePresent !== "boolean" ||
+        !fingerprintContext ||
+        typeof fingerprintContext.present !== "boolean" ||
+        (fingerprintContext.source !== "input" &&
+            fingerprintContext.source !== "extension_bootstrap" &&
+            fingerprintContext.source !== "none") ||
+        typeof fingerprintContext.uaPresent !== "boolean" ||
+        typeof fingerprintContext.timezonePresent !== "boolean" ||
+        typeof fingerprintContext.environmentPresent !== "boolean" ||
+        !Array.isArray(record.surfaceChecks) ||
+        !Array.isArray(record.unsupportedSurfaces) ||
+        !Array.isArray(record.mismatchSurfaces)) {
+        return null;
+    }
+    const surfaceChecks = record.surfaceChecks.map(parseSurfaceCheck);
+    if (surfaceChecks.some((check) => check === null)) {
+        return null;
+    }
+    return {
+        schemaVersion: 1,
+        namespace: "webenvoy.browser_launch_surface_audit",
+        launchMode: record.launchMode,
+        executionSurface: record.executionSurface,
+        headless: record.headless,
+        extensionBootstrapPresent: record.extensionBootstrapPresent,
+        launchArgs: {
+            userDataDirMatchesProfile: launchArgs.userDataDirMatchesProfile,
+            profileDirectoryIsDefault: launchArgs.profileDirectoryIsDefault,
+            headlessFlagPresent: launchArgs.headlessFlagPresent,
+            loadExtensionPresent: launchArgs.loadExtensionPresent,
+            disableExtensionsExceptPresent: launchArgs.disableExtensionsExceptPresent,
+            langPresent: launchArgs.langPresent,
+            timezonePresent: launchArgs.timezonePresent
+        },
+        fingerprintContext: {
+            present: fingerprintContext.present,
+            source: fingerprintContext.source,
+            uaPresent: fingerprintContext.uaPresent,
+            timezonePresent: fingerprintContext.timezonePresent,
+            environmentPresent: fingerprintContext.environmentPresent
+        },
+        surfaceChecks: surfaceChecks,
+        unsupportedSurfaces: auditSurfaceArray(record.unsupportedSurfaces),
+        mismatchSurfaces: auditSurfaceArray(record.mismatchSurfaces)
+    };
+};
+const emptyFingerprintAuditContext = () => ({
+    present: false,
+    source: "none",
+    uaPresent: false,
+    timezoneKnown: false,
+    environmentPresent: false
+});
+const parseFingerprintAuditContext = (value, source) => {
+    const runtime = asRecord(value);
+    if (!runtime) {
+        return emptyFingerprintAuditContext();
+    }
+    const bundle = asRecord(runtime.fingerprint_profile_bundle);
+    const timezoneValue = typeof bundle?.timezone === "string" ? bundle.timezone : null;
+    return {
+        present: true,
+        source,
+        uaPresent: typeof bundle?.ua === "string" && bundle.ua.length > 0 && bundle.ua.length <= 1_024,
+        timezoneKnown: timezoneValue !== null && timezoneValue !== "unknown",
+        environmentPresent: asRecord(bundle?.environment) !== null
+    };
+};
+const resolveFingerprintAuditContext = (input) => {
+    if (input.fingerprintRuntime !== null) {
+        return parseFingerprintAuditContext(input.fingerprintRuntime, "input");
+    }
+    const bootstrap = asRecord(input.extensionBootstrap);
+    return parseFingerprintAuditContext(bootstrap?.fingerprint_runtime, "extension_bootstrap");
+};
+const findArgValue = (args, prefix) => {
+    const matched = args.find((arg) => arg.startsWith(prefix));
+    return matched ? matched.slice(prefix.length) : null;
+};
+const buildBrowserLaunchSurfaceAudit = (input) => {
+    const fingerprintAudit = input.fingerprintAuditContext;
+    const userDataDir = findArgValue(input.launchArgs, "--user-data-dir=");
+    const profileDirectory = findArgValue(input.launchArgs, "--profile-directory=");
+    const lang = findArgValue(input.launchArgs, "--lang=");
+    const timezone = findArgValue(input.launchArgs, "--timezone=");
+    const unsupportedSurfaces = new Set();
+    const mismatchSurfaces = new Set();
+    if (userDataDir !== input.profileDir) {
+        mismatchSurfaces.add("profile_binding");
+    }
+    if (profileDirectory !== "Default") {
+        mismatchSurfaces.add("profile_binding");
+    }
+    if (!fingerprintAudit.uaPresent) {
+        unsupportedSurfaces.add("ua_profile");
+    }
+    if (!fingerprintAudit.timezoneKnown) {
+        unsupportedSurfaces.add("timezone_profile");
+    }
+    if (lang === null) {
+        unsupportedSurfaces.add("locale_launch_arg");
+    }
+    if (timezone === null) {
+        unsupportedSurfaces.add("timezone_launch_arg");
+    }
+    unsupportedSurfaces.add("ua_client_hints");
+    unsupportedSurfaces.add("navigator_connection");
+    unsupportedSurfaces.add("webrtc_network");
+    const surfaceChecks = [
+        {
+            surface: "profile_binding",
+            decision: mismatchSurfaces.has("profile_binding") ? "mismatch" : "match"
+        },
+        {
+            surface: "ua_client_hints",
+            decision: "unsupported"
+        },
+        {
+            surface: "timezone_locale",
+            decision: unsupportedSurfaces.has("timezone_profile") ||
+                unsupportedSurfaces.has("locale_launch_arg") ||
+                unsupportedSurfaces.has("timezone_launch_arg")
+                ? "unsupported"
+                : "match"
+        },
+        {
+            surface: "network_webrtc",
+            decision: "unsupported"
+        }
+    ];
+    return {
+        schemaVersion: 1,
+        namespace: "webenvoy.browser_launch_surface_audit",
+        launchMode: input.launchMode,
+        executionSurface: input.executionSurface,
+        headless: input.headless,
+        extensionBootstrapPresent: input.extensionBootstrap !== null,
+        launchArgs: {
+            userDataDirMatchesProfile: userDataDir === input.profileDir,
+            profileDirectoryIsDefault: profileDirectory === "Default",
+            headlessFlagPresent: input.launchArgs.includes("--headless=new"),
+            loadExtensionPresent: findArgValue(input.launchArgs, "--load-extension=") !== null,
+            disableExtensionsExceptPresent: findArgValue(input.launchArgs, "--disable-extensions-except=") !== null,
+            langPresent: lang !== null,
+            timezonePresent: timezone !== null
+        },
+        fingerprintContext: {
+            present: fingerprintAudit.present,
+            source: fingerprintAudit.source,
+            uaPresent: fingerprintAudit.uaPresent,
+            timezonePresent: fingerprintAudit.timezoneKnown,
+            environmentPresent: fingerprintAudit.environmentPresent
+        },
+        surfaceChecks,
+        unsupportedSurfaces: [...unsupportedSurfaces],
+        mismatchSurfaces: [...mismatchSurfaces]
+    };
+};
 const resolveSupervisorScriptPath = async () => {
     const moduleDir = dirname(fileURLToPath(import.meta.url));
     const candidates = [
@@ -341,9 +564,11 @@ const resolveReusableBrowserInstance = async (input) => {
         !isProcessAlive(state.browserPid)) {
         return null;
     }
-    if (state.runId !== input.runId) {
-        await writeFile(input.stateFilePath, `${JSON.stringify({ ...state, runId: input.runId }, null, 2)}\n`, "utf8");
-    }
+    await writeBrowserInstanceStateAtomic(input.stateFilePath, {
+        ...state,
+        runId: input.runId,
+        launchSurfaceAudit: input.launchSurfaceAudit
+    });
     return {
         browserPath: state.browserPath,
         browserPid: state.browserPid,
@@ -371,7 +596,6 @@ const pinExternalBrowserPidFromProfileLock = async (input) => {
         ...input.fallbackState,
         browserPid: ownerPid
     };
-    await writeFile(input.stateFilePath, `${JSON.stringify(pinnedState, null, 2)}\n`, "utf8");
     return pinnedState;
 };
 const assertProfileLaunchBoundaryClear = async (profileDir) => {
@@ -428,6 +652,7 @@ export const launchBrowser = async (input) => {
     });
     const supervisorScriptPath = await resolveSupervisorScriptPath();
     const startUrl = parseStartUrl(input.params);
+    let extensionBootstrap = null;
     const launchArgs = [
         `--user-data-dir=${input.profileDir}`,
         "--profile-directory=Default",
@@ -436,7 +661,7 @@ export const launchBrowser = async (input) => {
         "--no-default-browser-check"
     ];
     if (launchMode === "load_extension") {
-        const extensionBootstrap = resolveExtensionBootstrapPayload(input);
+        extensionBootstrap = resolveExtensionBootstrapPayload(input);
         const extensionStaging = await stageExtensionForRun({
             profileDir: input.profileDir,
             runId: input.runId,
@@ -453,6 +678,19 @@ export const launchBrowser = async (input) => {
         launchArgs.push("--headless=new");
     }
     launchArgs.push(startUrl);
+    const fingerprintAuditContext = resolveFingerprintAuditContext({
+        extensionBootstrap,
+        fingerprintRuntime: input.fingerprintRuntime ?? null
+    });
+    const launchSurfaceAudit = buildBrowserLaunchSurfaceAudit({
+        launchMode,
+        profileDir: input.profileDir,
+        launchArgs,
+        headless: shouldHeadless,
+        executionSurface,
+        extensionBootstrap,
+        fingerprintAuditContext
+    });
     const launchToken = randomUUID();
     const artifactPaths = getBrowserInstanceArtifactPaths(input.profileDir);
     let controllerPid = null;
@@ -465,6 +703,7 @@ export const launchBrowser = async (input) => {
             headless: shouldHeadless,
             executionSurface,
             launchArgs,
+            launchSurfaceAudit,
             stateFilePath: artifactPaths.stateFilePath
         });
         if (reusable) {
@@ -488,20 +727,24 @@ export const launchBrowser = async (input) => {
         await waitForBrowserReady(input.profileDir, state.browserPid, launched.launchedAtMs, artifactPaths.stateFilePath, state.processOwnership, state.controllerPid);
         const pinnedState = await pinExternalBrowserPidFromProfileLock({
             profileDir: input.profileDir,
-            stateFilePath: artifactPaths.stateFilePath,
             fallbackState: state
         });
+        const pinnedStateWithAudit = {
+            ...pinnedState,
+            launchSurfaceAudit
+        };
+        await writeBrowserInstanceStateAtomic(artifactPaths.stateFilePath, pinnedStateWithAudit);
         launchSucceeded = true;
         return {
             browserPath: executablePath,
-            browserPid: pinnedState.browserPid,
-            controllerPid: pinnedState.controllerPid,
+            browserPid: pinnedStateWithAudit.browserPid,
+            controllerPid: pinnedStateWithAudit.controllerPid,
             launchArgs: [...launchArgs],
             launchedAt: launched.launchedAt,
             headless: shouldHeadless,
             executionSurface,
-            launchSurface: pinnedState.launchSurface,
-            processOwnership: pinnedState.processOwnership
+            launchSurface: pinnedStateWithAudit.launchSurface,
+            processOwnership: pinnedStateWithAudit.processOwnership
         };
     }
     catch (error) {
