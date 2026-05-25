@@ -3980,6 +3980,47 @@ process.stdin.on("data", (chunk) => {
             current_phase: "cooldown",
             session_id: "nm-session-persisted-rhythm",
             decision: "blocked"
+          }),
+          profile_session_rhythm_history: expect.objectContaining({
+            profile,
+            platform: "xhs",
+            issue_scope: "issue_209",
+            current_window_id: `rhythm_win_${profile}_issue_209`,
+            current_phase: "cooldown",
+            current_risk_state: "paused",
+            cooldown_budget: expect.objectContaining({
+              cooldown_strategy: "exponential_backoff",
+              cooldown_until: "2026-04-25T11:20:00.000Z",
+              recovery_probe_due_at: "2026-04-25T11:20:00.000Z",
+              risk_signal_count: 1,
+              active_block_until: "2026-04-25T11:20:00.000Z"
+            }),
+            run_spacing: expect.objectContaining({
+              min_action_interval_ms: 3000,
+              min_experiment_interval_ms: 30000,
+              latest_activity_at: "2026-04-25T10:51:00.000Z",
+              next_action_not_before: "2026-04-25T10:51:03.000Z",
+              next_experiment_not_before: "2026-04-25T10:51:30.000Z"
+            }),
+            continuous_execution: expect.objectContaining({
+              latest_session_id: "nm-session-persisted-rhythm",
+              latest_run_id: "run-persisted-block",
+              event_count: 1,
+              decision_count: 1
+            }),
+            events: [
+              expect.objectContaining({
+                event_id: "rhythm_evt_persisted_block",
+                event_type: "risk_signal"
+              })
+            ],
+            decisions: [
+              expect.objectContaining({
+                decision_id: "rhythm_decision_persisted_block",
+                decision: "blocked",
+                requires: ["cooldown_until_elapsed"]
+              })
+            ]
           })
         }
       }

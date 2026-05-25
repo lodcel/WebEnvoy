@@ -410,6 +410,186 @@ describeWithSqlite("sqlite-runtime-store", () => {
     }
   });
 
+  it("projects profile scoped session rhythm history and cooldown budget", async () => {
+    const cwd = await createTempCwd();
+    const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
+    try {
+      await store.recordSessionRhythmStatusView({
+        profile: "xhs_history_001",
+        platform: "xhs",
+        issueScope: "issue_209",
+        windowState: {
+          window_id: "rhythm_win_xhs_history_001_issue_209",
+          profile: "xhs_history_001",
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-history-001",
+          current_phase: "cooldown",
+          risk_state: "paused",
+          window_started_at: "2026-04-25T10:00:00.000Z",
+          window_deadline_at: "2026-04-25T10:30:00.000Z",
+          cooldown_until: "2026-04-25T10:30:00.000Z",
+          recovery_probe_due_at: "2026-04-25T10:30:00.000Z",
+          stability_window_until: null,
+          risk_signal_count: 2,
+          last_event_id: "rhythm_evt_history_001",
+          source_run_id: "run-history-001",
+          updated_at: "2026-04-25T10:10:00.000Z"
+        },
+        event: {
+          event_id: "rhythm_evt_history_001",
+          profile: "xhs_history_001",
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-history-001",
+          window_id: "rhythm_win_xhs_history_001_issue_209",
+          event_type: "cooldown_started",
+          phase_before: "steady",
+          phase_after: "cooldown",
+          risk_state_before: "limited",
+          risk_state_after: "paused",
+          source_audit_event_id: "gate_evt_history_001",
+          reason: "ACCOUNT_RISK_RECOVERY_REQUIRED",
+          recorded_at: "2026-04-25T10:10:00.000Z"
+        },
+        decision: {
+          decision_id: "rhythm_decision_history_001",
+          window_id: "rhythm_win_xhs_history_001_issue_209",
+          run_id: "run-history-001",
+          session_id: "nm-session-history-001",
+          profile: "xhs_history_001",
+          current_phase: "cooldown",
+          current_risk_state: "paused",
+          next_phase: "cooldown",
+          next_risk_state: "paused",
+          effective_execution_mode: "recon",
+          decision: "blocked",
+          reason_codes: ["ACCOUNT_RISK_RECOVERY_REQUIRED"],
+          requires: ["cooldown_until_elapsed"],
+          decided_at: "2026-04-25T10:10:00.000Z"
+        }
+      });
+
+      await store.recordSessionRhythmStatusView({
+        profile: "xhs_history_001",
+        platform: "xhs",
+        issueScope: "issue_209",
+        windowState: {
+          window_id: "rhythm_win_xhs_history_001_issue_209",
+          profile: "xhs_history_001",
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-history-002",
+          current_phase: "recovery_probe",
+          risk_state: "limited",
+          window_started_at: "2026-04-25T10:00:00.000Z",
+          window_deadline_at: "2026-04-25T10:35:00.000Z",
+          cooldown_until: null,
+          recovery_probe_due_at: "2026-04-25T10:30:00.000Z",
+          stability_window_until: "2026-04-25T10:55:00.000Z",
+          risk_signal_count: 2,
+          last_event_id: "rhythm_evt_history_002",
+          source_run_id: "run-history-002",
+          updated_at: "2026-04-25T10:31:00.000Z"
+        },
+        event: {
+          event_id: "rhythm_evt_history_002",
+          profile: "xhs_history_001",
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-history-002",
+          window_id: "rhythm_win_xhs_history_001_issue_209",
+          event_type: "recovery_probe_started",
+          phase_before: "cooldown",
+          phase_after: "recovery_probe",
+          risk_state_before: "paused",
+          risk_state_after: "limited",
+          source_audit_event_id: "gate_evt_history_002",
+          reason: "COOLDOWN_BACKOFF_WINDOW_PASSED",
+          recorded_at: "2026-04-25T10:31:00.000Z"
+        },
+        decision: {
+          decision_id: "rhythm_decision_history_002",
+          window_id: "rhythm_win_xhs_history_001_issue_209",
+          run_id: "run-history-002",
+          session_id: "nm-session-history-002",
+          profile: "xhs_history_001",
+          current_phase: "recovery_probe",
+          current_risk_state: "limited",
+          next_phase: "recovery_probe",
+          next_risk_state: "limited",
+          effective_execution_mode: "recon",
+          decision: "deferred",
+          reason_codes: ["COOLDOWN_BACKOFF_WINDOW_PASSED"],
+          requires: ["session_rhythm_window_not_ready"],
+          decided_at: "2026-04-25T10:31:00.000Z"
+        }
+      });
+
+      await expect(
+        store.getSessionRhythmProfileHistory({
+          profile: "xhs_history_001",
+          platform: "xhs",
+          issueScope: "issue_209",
+          limit: 10
+        })
+      ).resolves.toMatchObject({
+        profile: "xhs_history_001",
+        current_window_id: "rhythm_win_xhs_history_001_issue_209",
+        current_phase: "recovery_probe",
+        current_risk_state: "limited",
+        cooldown_budget: {
+          cooldown_strategy: "exponential_backoff",
+          cooldown_until: null,
+          recovery_probe_due_at: "2026-04-25T10:30:00.000Z",
+          stability_window_until: "2026-04-25T10:55:00.000Z",
+          risk_signal_count: 2,
+          active_block_until: "2026-04-25T10:30:00.000Z"
+        },
+        run_spacing: {
+          min_action_interval_ms: 3000,
+          min_experiment_interval_ms: 30000,
+          latest_activity_at: "2026-04-25T10:31:00.000Z",
+          next_action_not_before: "2026-04-25T10:31:03.000Z",
+          next_experiment_not_before: "2026-04-25T10:31:30.000Z"
+        },
+        continuous_execution: {
+          latest_session_id: "nm-session-history-002",
+          latest_run_id: "run-history-002",
+          source_run_id: "run-history-002",
+          event_count: 2,
+          decision_count: 2,
+          history_window_started_at: "2026-04-25T10:00:00.000Z",
+          history_updated_at: "2026-04-25T10:31:00.000Z"
+        },
+        events: [
+          expect.objectContaining({
+            event_id: "rhythm_evt_history_002",
+            event_type: "recovery_probe_started"
+          }),
+          expect.objectContaining({
+            event_id: "rhythm_evt_history_001",
+            event_type: "cooldown_started"
+          })
+        ],
+        decisions: [
+          expect.objectContaining({
+            decision_id: "rhythm_decision_history_002",
+            decision: "deferred",
+            reason_codes: ["COOLDOWN_BACKOFF_WINDOW_PASSED"]
+          }),
+          expect.objectContaining({
+            decision_id: "rhythm_decision_history_001",
+            decision: "blocked",
+            requires: ["cooldown_until_elapsed"]
+          })
+        ]
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it("migrates v12 rhythm windows into profile-scoped writable windows", async () => {
     const DatabaseSyncCtor = DatabaseSync;
     expect(DatabaseSyncCtor).toBeTruthy();
