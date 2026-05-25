@@ -226,7 +226,16 @@ const isBrowserLaunchAuditSurface = (value) => value === "profile_binding" ||
     value === "navigator_connection" ||
     value === "network_webrtc" ||
     value === "webrtc_network";
+const isBrowserLaunchAuditReasonCode = (value) => value === "CLIENT_HINTS_NOT_AUDITED" ||
+    value === "FINGERPRINT_BUNDLE_FIELD_MISSING" ||
+    value === "FINGERPRINT_CONTEXT_MISSING" ||
+    value === "LAUNCH_ARG_NOT_CONFIGURED" ||
+    value === "NETWORK_WEBRTC_NOT_AUDITED" ||
+    value === "PATCH_NOT_AVAILABLE" ||
+    value === "PROFILE_BINDING_MISMATCH" ||
+    value === "PROFILE_IDENTITY_MISSING";
 const auditSurfaceArray = (value) => Array.isArray(value) ? value.filter(isBrowserLaunchAuditSurface) : [];
+const auditReasonCodeArray = (value) => Array.isArray(value) ? value.filter(isBrowserLaunchAuditReasonCode) : [];
 const parseSurfaceCheck = (value) => {
     const record = asRecord(value);
     if (!record ||
@@ -238,7 +247,8 @@ const parseSurfaceCheck = (value) => {
     }
     return {
         surface: record.surface,
-        decision: record.decision
+        decision: record.decision,
+        reasonCodes: auditReasonCodeArray(record.reasonCodes)
     };
 };
 const parseBrowserLaunchSurfaceAudit = (value) => {
@@ -297,11 +307,15 @@ const parseBrowserLaunchSurfaceAudit = (value) => {
         fingerprintContext: {
             present: fingerprintContext.present,
             source: fingerprintContext.source,
+            profileIdentityPresent: fingerprintContext.profileIdentityPresent === true,
+            patchManifestPresent: fingerprintContext.patchManifestPresent === true,
+            consistencyCheckPresent: fingerprintContext.consistencyCheckPresent === true,
             uaPresent: fingerprintContext.uaPresent,
             timezonePresent: fingerprintContext.timezonePresent,
             environmentPresent: fingerprintContext.environmentPresent
         },
         surfaceChecks: surfaceChecks,
+        reasonCodes: auditReasonCodeArray(record.reasonCodes),
         unsupportedSurfaces: auditSurfaceArray(record.unsupportedSurfaces),
         mismatchSurfaces: auditSurfaceArray(record.mismatchSurfaces)
     };
@@ -309,9 +323,13 @@ const parseBrowserLaunchSurfaceAudit = (value) => {
 const emptyFingerprintAuditContext = () => ({
     present: false,
     source: "none",
+    profileIdentityPresent: false,
+    patchManifestPresent: false,
+    consistencyCheckPresent: false,
     uaPresent: false,
     timezoneKnown: false,
-    environmentPresent: false
+    environmentPresent: false,
+    navigatorConnectionPatchPresent: false
 });
 const parseFingerprintAuditContext = (value, source) => {
     const runtime = asRecord(value);
@@ -319,13 +337,21 @@ const parseFingerprintAuditContext = (value, source) => {
         return emptyFingerprintAuditContext();
     }
     const bundle = asRecord(runtime.fingerprint_profile_bundle);
+    const patchManifest = asRecord(runtime.fingerprint_patch_manifest);
+    const requiredPatches = stringArray(patchManifest?.required_patches);
+    const optionalPatches = stringArray(patchManifest?.optional_patches);
     const timezoneValue = typeof bundle?.timezone === "string" ? bundle.timezone : null;
     return {
         present: true,
         source,
+        profileIdentityPresent: typeof runtime.profile === "string" && runtime.profile.length > 0,
+        patchManifestPresent: patchManifest !== null,
+        consistencyCheckPresent: asRecord(runtime.fingerprint_consistency_check) !== null,
         uaPresent: typeof bundle?.ua === "string" && bundle.ua.length > 0 && bundle.ua.length <= 1_024,
         timezoneKnown: timezoneValue !== null && timezoneValue !== "unknown",
-        environmentPresent: asRecord(bundle?.environment) !== null
+        environmentPresent: asRecord(bundle?.environment) !== null,
+        navigatorConnectionPatchPresent: requiredPatches.includes("navigator_connection") ||
+            optionalPatches.includes("navigator_connection")
     };
 };
 const resolveFingerprintAuditContext = (input) => {
@@ -347,35 +373,96 @@ const buildBrowserLaunchSurfaceAudit = (input) => {
     const timezone = findArgValue(input.launchArgs, "--timezone=");
     const unsupportedSurfaces = new Set();
     const mismatchSurfaces = new Set();
+    const surfaceReasonCodes = new Map();
+    const addReasonCode = (surface, reasonCode) => {
+        const reasonCodes = surfaceReasonCodes.get(surface) ?? new Set();
+        reasonCodes.add(reasonCode);
+        surfaceReasonCodes.set(surface, reasonCodes);
+    };
+    const addUnsupportedSurface = (surface, reasonCode) => {
+        unsupportedSurfaces.add(surface);
+        addReasonCode(surface, reasonCode);
+    };
+    const addMismatchSurface = (surface, reasonCode) => {
+        mismatchSurfaces.add(surface);
+        addReasonCode(surface, reasonCode);
+    };
     if (userDataDir !== input.profileDir) {
-        mismatchSurfaces.add("profile_binding");
+        addMismatchSurface("profile_binding", "PROFILE_BINDING_MISMATCH");
     }
     if (profileDirectory !== "Default") {
-        mismatchSurfaces.add("profile_binding");
+        addMismatchSurface("profile_binding", "PROFILE_BINDING_MISMATCH");
+    }
+    if (!fingerprintAudit.present) {
+        addUnsupportedSurface("profile_binding", "FINGERPRINT_CONTEXT_MISSING");
+        addUnsupportedSurface("profile_binding", "PROFILE_IDENTITY_MISSING");
+        addUnsupportedSurface("ua_profile", "FINGERPRINT_CONTEXT_MISSING");
+        addUnsupportedSurface("timezone_profile", "FINGERPRINT_CONTEXT_MISSING");
+        addUnsupportedSurface("navigator_connection", "FINGERPRINT_CONTEXT_MISSING");
+    }
+    else if (!fingerprintAudit.profileIdentityPresent) {
+        addUnsupportedSurface("profile_binding", "PROFILE_IDENTITY_MISSING");
     }
     if (!fingerprintAudit.uaPresent) {
-        unsupportedSurfaces.add("ua_profile");
+        addUnsupportedSurface("ua_profile", "FINGERPRINT_BUNDLE_FIELD_MISSING");
     }
     if (!fingerprintAudit.timezoneKnown) {
-        unsupportedSurfaces.add("timezone_profile");
+        addUnsupportedSurface("timezone_profile", "FINGERPRINT_BUNDLE_FIELD_MISSING");
     }
     if (lang === null) {
-        unsupportedSurfaces.add("locale_launch_arg");
+        addUnsupportedSurface("locale_launch_arg", "LAUNCH_ARG_NOT_CONFIGURED");
     }
     if (timezone === null) {
-        unsupportedSurfaces.add("timezone_launch_arg");
+        addUnsupportedSurface("timezone_launch_arg", "LAUNCH_ARG_NOT_CONFIGURED");
     }
-    unsupportedSurfaces.add("ua_client_hints");
-    unsupportedSurfaces.add("navigator_connection");
-    unsupportedSurfaces.add("webrtc_network");
+    addUnsupportedSurface("ua_client_hints", "CLIENT_HINTS_NOT_AUDITED");
+    if (!fingerprintAudit.navigatorConnectionPatchPresent) {
+        addUnsupportedSurface("navigator_connection", "PATCH_NOT_AVAILABLE");
+    }
+    addUnsupportedSurface("network_webrtc", "NETWORK_WEBRTC_NOT_AUDITED");
+    addUnsupportedSurface("webrtc_network", "NETWORK_WEBRTC_NOT_AUDITED");
+    const resolveDecision = (surface) => {
+        if (mismatchSurfaces.has(surface)) {
+            return "mismatch";
+        }
+        if (unsupportedSurfaces.has(surface)) {
+            return "unsupported";
+        }
+        return "match";
+    };
+    const resolveReasonCodes = (surface) => [
+        ...(surfaceReasonCodes.get(surface) ?? [])
+    ];
     const surfaceChecks = [
         {
             surface: "profile_binding",
-            decision: mismatchSurfaces.has("profile_binding") ? "mismatch" : "match"
+            decision: resolveDecision("profile_binding"),
+            reasonCodes: resolveReasonCodes("profile_binding")
+        },
+        {
+            surface: "ua_profile",
+            decision: resolveDecision("ua_profile"),
+            reasonCodes: resolveReasonCodes("ua_profile")
         },
         {
             surface: "ua_client_hints",
-            decision: "unsupported"
+            decision: resolveDecision("ua_client_hints"),
+            reasonCodes: resolveReasonCodes("ua_client_hints")
+        },
+        {
+            surface: "timezone_profile",
+            decision: resolveDecision("timezone_profile"),
+            reasonCodes: resolveReasonCodes("timezone_profile")
+        },
+        {
+            surface: "locale_launch_arg",
+            decision: resolveDecision("locale_launch_arg"),
+            reasonCodes: resolveReasonCodes("locale_launch_arg")
+        },
+        {
+            surface: "timezone_launch_arg",
+            decision: resolveDecision("timezone_launch_arg"),
+            reasonCodes: resolveReasonCodes("timezone_launch_arg")
         },
         {
             surface: "timezone_locale",
@@ -383,13 +470,32 @@ const buildBrowserLaunchSurfaceAudit = (input) => {
                 unsupportedSurfaces.has("locale_launch_arg") ||
                 unsupportedSurfaces.has("timezone_launch_arg")
                 ? "unsupported"
-                : "match"
+                : "match",
+            reasonCodes: [
+                ...new Set([
+                    ...resolveReasonCodes("timezone_profile"),
+                    ...resolveReasonCodes("locale_launch_arg"),
+                    ...resolveReasonCodes("timezone_launch_arg")
+                ])
+            ]
+        },
+        {
+            surface: "navigator_connection",
+            decision: resolveDecision("navigator_connection"),
+            reasonCodes: resolveReasonCodes("navigator_connection")
         },
         {
             surface: "network_webrtc",
-            decision: "unsupported"
+            decision: resolveDecision("network_webrtc"),
+            reasonCodes: resolveReasonCodes("network_webrtc")
+        },
+        {
+            surface: "webrtc_network",
+            decision: resolveDecision("webrtc_network"),
+            reasonCodes: resolveReasonCodes("webrtc_network")
         }
     ];
+    const reasonCodes = [...new Set(surfaceChecks.flatMap((check) => check.reasonCodes))];
     return {
         schemaVersion: 1,
         namespace: "webenvoy.browser_launch_surface_audit",
@@ -409,11 +515,15 @@ const buildBrowserLaunchSurfaceAudit = (input) => {
         fingerprintContext: {
             present: fingerprintAudit.present,
             source: fingerprintAudit.source,
+            profileIdentityPresent: fingerprintAudit.profileIdentityPresent,
+            patchManifestPresent: fingerprintAudit.patchManifestPresent,
+            consistencyCheckPresent: fingerprintAudit.consistencyCheckPresent,
             uaPresent: fingerprintAudit.uaPresent,
             timezonePresent: fingerprintAudit.timezoneKnown,
             environmentPresent: fingerprintAudit.environmentPresent
         },
         surfaceChecks,
+        reasonCodes,
         unsupportedSurfaces: [...unsupportedSurfaces],
         mismatchSurfaces: [...mismatchSurfaces]
     };

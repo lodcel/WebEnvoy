@@ -1483,18 +1483,31 @@ describe("browser-launcher", () => {
       fingerprintContext: {
         present: true,
         source: "extension_bootstrap",
+        profileIdentityPresent: true,
+        patchManifestPresent: true,
+        consistencyCheckPresent: true,
         uaPresent: true,
         timezonePresent: true,
         environmentPresent: true
       },
       mismatchSurfaces: []
     });
+    expect((state.launchSurfaceAudit as { reasonCodes?: unknown }).reasonCodes).toEqual(
+      expect.arrayContaining([
+        "CLIENT_HINTS_NOT_AUDITED",
+        "LAUNCH_ARG_NOT_CONFIGURED",
+        "NETWORK_WEBRTC_NOT_AUDITED"
+      ])
+    );
+    expect((state.launchSurfaceAudit as { reasonCodes?: unknown }).reasonCodes).not.toContain(
+      "PATCH_NOT_AVAILABLE"
+    );
     expect((state.launchSurfaceAudit as { unsupportedSurfaces?: unknown }).unsupportedSurfaces).toEqual(
       expect.arrayContaining([
         "ua_client_hints",
         "locale_launch_arg",
         "timezone_launch_arg",
-        "navigator_connection",
+        "network_webrtc",
         "webrtc_network"
       ])
     );
@@ -1502,7 +1515,18 @@ describe("browser-launcher", () => {
       expect.arrayContaining([
         expect.objectContaining({
           surface: "ua_client_hints",
-          decision: "unsupported"
+          decision: "unsupported",
+          reasonCodes: ["CLIENT_HINTS_NOT_AUDITED"]
+        }),
+        expect.objectContaining({
+          surface: "navigator_connection",
+          decision: "match",
+          reasonCodes: []
+        }),
+        expect.objectContaining({
+          surface: "timezone_locale",
+          decision: "unsupported",
+          reasonCodes: ["LAUNCH_ARG_NOT_CONFIGURED"]
         })
       ])
     );
@@ -1567,15 +1591,33 @@ describe("browser-launcher", () => {
     );
     expect((await readdir(profileDir)).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
 
+    const legacyAudit = JSON.parse(JSON.stringify(reusedState.launchSurfaceAudit)) as Record<
+      string,
+      unknown
+    >;
+    delete legacyAudit.reasonCodes;
+    if (
+      typeof legacyAudit.fingerprintContext === "object" &&
+      legacyAudit.fingerprintContext !== null &&
+      !Array.isArray(legacyAudit.fingerprintContext)
+    ) {
+      delete (legacyAudit.fingerprintContext as Record<string, unknown>).profileIdentityPresent;
+      delete (legacyAudit.fingerprintContext as Record<string, unknown>).patchManifestPresent;
+      delete (legacyAudit.fingerprintContext as Record<string, unknown>).consistencyCheckPresent;
+    }
+    if (Array.isArray(legacyAudit.surfaceChecks)) {
+      for (const check of legacyAudit.surfaceChecks) {
+        if (typeof check === "object" && check !== null && !Array.isArray(check)) {
+          delete (check as Record<string, unknown>).reasonCodes;
+        }
+      }
+    }
     await writeFile(
       join(profileDir, BROWSER_STATE_FILENAME),
       `${JSON.stringify(
         {
           ...(JSON.parse(reusedStateRaw) as Record<string, unknown>),
-          launchSurfaceAudit: {
-            schemaVersion: 1,
-            malformed: true
-          },
+          launchSurfaceAudit: legacyAudit,
           runId: "run-launcher-surface-audit-003"
         },
         null,
@@ -1583,7 +1625,7 @@ describe("browser-launcher", () => {
       )}\n`,
       "utf8"
     );
-    const reusedWithInvalidAudit = await launchBrowser({
+    const reusedWithLegacyAudit = await launchBrowser({
       command: "runtime.start",
       profileDir,
       proxyUrl: "http://127.0.0.1:8080",
@@ -1597,6 +1639,48 @@ describe("browser-launcher", () => {
         fingerprint_runtime: fingerprintRuntimeWithExtraFields
       }
     });
+    expect("launchSurfaceAudit" in reusedWithLegacyAudit).toBe(false);
+    const legacyAuditStateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
+    const legacyAuditState = JSON.parse(legacyAuditStateRaw) as { launchSurfaceAudit?: unknown };
+    expect(legacyAuditState.launchSurfaceAudit).toMatchObject({
+      fingerprintContext: {
+        profileIdentityPresent: true,
+        patchManifestPresent: true,
+        consistencyCheckPresent: true
+      },
+      reasonCodes: expect.arrayContaining(["CLIENT_HINTS_NOT_AUDITED"])
+    });
+
+    await writeFile(
+      join(profileDir, BROWSER_STATE_FILENAME),
+      `${JSON.stringify(
+        {
+          ...(JSON.parse(legacyAuditStateRaw) as Record<string, unknown>),
+          launchSurfaceAudit: {
+            schemaVersion: 1,
+            malformed: true
+          },
+          runId: "run-launcher-surface-audit-004"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const reusedWithInvalidAudit = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: "http://127.0.0.1:8080",
+      runId: "run-launcher-surface-audit-004",
+      params: {
+        startUrl: "https://example.com/",
+        headless: false
+      },
+      extensionBootstrap: {
+        run_id: "run-launcher-surface-audit-004",
+        fingerprint_runtime: fingerprintRuntimeWithExtraFields
+      }
+    });
     expect("launchSurfaceAudit" in reusedWithInvalidAudit).toBe(false);
     const invalidAuditStateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
     const invalidAuditState = JSON.parse(invalidAuditStateRaw) as { launchSurfaceAudit?: unknown };
@@ -1605,7 +1689,70 @@ describe("browser-launcher", () => {
     await shutdownBrowserSession({
       profileDir,
       controllerPid: reusedWithInvalidAudit.controllerPid,
-      runId: "run-launcher-surface-audit-003"
+      runId: "run-launcher-surface-audit-004"
+    });
+  }, 10_000);
+
+  it("records controlled launch audit reasons when fingerprint profile context is absent", async () => {
+    const { scriptPath, logPath } = await createMockBrowserExecutable();
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-audit-absent-"));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = scriptPath;
+    process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: null,
+      runId: "run-launcher-surface-audit-absent-001",
+      params: {
+        headless: false
+      }
+    });
+
+    const stateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
+    const state = JSON.parse(stateRaw) as { launchSurfaceAudit?: unknown };
+    expect(state.launchSurfaceAudit).toMatchObject({
+      fingerprintContext: {
+        present: false,
+        source: "none",
+        profileIdentityPresent: false,
+        patchManifestPresent: false,
+        consistencyCheckPresent: false,
+        uaPresent: false,
+        timezonePresent: false,
+        environmentPresent: false
+      },
+      reasonCodes: expect.arrayContaining([
+        "FINGERPRINT_CONTEXT_MISSING",
+        "PATCH_NOT_AVAILABLE",
+        "PROFILE_IDENTITY_MISSING"
+      ])
+    });
+    expect((state.launchSurfaceAudit as { surfaceChecks?: unknown }).surfaceChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          surface: "profile_binding",
+          decision: "unsupported",
+          reasonCodes: expect.arrayContaining([
+            "FINGERPRINT_CONTEXT_MISSING",
+            "PROFILE_IDENTITY_MISSING"
+          ])
+        }),
+        expect.objectContaining({
+          surface: "navigator_connection",
+          decision: "unsupported",
+          reasonCodes: ["FINGERPRINT_CONTEXT_MISSING", "PATCH_NOT_AVAILABLE"]
+        })
+      ])
+    );
+    expect(JSON.stringify(state.launchSurfaceAudit)).not.toContain(profileDir);
+    expect(JSON.stringify(state.launchSurfaceAudit)).not.toContain(scriptPath);
+
+    await shutdownBrowserSession({
+      profileDir,
+      controllerPid: launched.controllerPid,
+      runId: "run-launcher-surface-audit-absent-001"
     });
   }, 10_000);
 
