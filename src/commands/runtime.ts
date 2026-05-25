@@ -34,6 +34,7 @@ import {
   type AntiDetectionExecutionMode,
   type AntiDetectionStructuredSampleRecord,
   type GateAuditRecord,
+  type SessionRhythmProfileHistoryRecord,
   type SessionRhythmStatusViewRecord
 } from "../runtime/store/sqlite-runtime-store.js";
 import {
@@ -52,7 +53,8 @@ const asInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) ? value : null;
 
 const buildPersistedSessionRhythmStatusView = (
-  persisted: SessionRhythmStatusViewRecord
+  persisted: SessionRhythmStatusViewRecord,
+  profileHistory?: SessionRhythmProfileHistoryRecord | null
 ): Record<string, unknown> => {
   const windowState = persisted.window_state;
   const event = persisted.event;
@@ -71,9 +73,33 @@ const buildPersistedSessionRhythmStatusView = (
     derived_at: windowState.updated_at ?? null,
     session_rhythm_window_state: windowState,
     session_rhythm_event: event,
-    session_rhythm_decision: persisted.decision
+    session_rhythm_decision: persisted.decision,
+    ...(profileHistory ? { profile_session_rhythm_history: profileHistory } : {})
   };
 };
+
+const getOptionalSessionRhythmProfileHistory = async (
+  store: SQLiteRuntimeStore,
+  persisted: SessionRhythmStatusViewRecord
+): Promise<SessionRhythmProfileHistoryRecord | null> => {
+  const windowState = persisted.window_state;
+  const profile = asString(windowState.profile);
+  const platform = asString(windowState.platform);
+  const issueScope = asString(windowState.issue_scope);
+  if (!profile || !platform || !issueScope) {
+    return null;
+  }
+  try {
+    return await store.getSessionRhythmProfileHistory({
+      profile,
+      platform,
+      issueScope
+    });
+  } catch {
+    return null;
+  }
+};
+
 const asObject = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -181,7 +207,11 @@ const buildSessionRhythmStatusViewForProfile = async (
       sessionId: input?.sessionId ?? null,
       runId: input?.sourceRunId ?? null
     });
-    return persisted ? buildPersistedSessionRhythmStatusView(persisted) : fallbackView;
+    if (!persisted) {
+      return fallbackView;
+    }
+    const profileHistory = await getOptionalSessionRhythmProfileHistory(store, persisted);
+    return buildPersistedSessionRhythmStatusView(persisted, profileHistory);
   } catch {
     return null;
   }

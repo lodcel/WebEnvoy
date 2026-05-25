@@ -18,7 +18,7 @@ import { persistXhsCloseoutValidationSourceEvidence, persistXhsCloseoutValidatio
 const asBoolean = (value) => value === true;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
-const buildPersistedSessionRhythmStatusView = (persisted) => {
+const buildPersistedSessionRhythmStatusView = (persisted, profileHistory) => {
     const windowState = persisted.window_state;
     const event = persisted.event;
     const currentPhase = asString(windowState.current_phase) ?? "unknown";
@@ -36,8 +36,28 @@ const buildPersistedSessionRhythmStatusView = (persisted) => {
         derived_at: windowState.updated_at ?? null,
         session_rhythm_window_state: windowState,
         session_rhythm_event: event,
-        session_rhythm_decision: persisted.decision
+        session_rhythm_decision: persisted.decision,
+        ...(profileHistory ? { profile_session_rhythm_history: profileHistory } : {})
     };
+};
+const getOptionalSessionRhythmProfileHistory = async (store, persisted) => {
+    const windowState = persisted.window_state;
+    const profile = asString(windowState.profile);
+    const platform = asString(windowState.platform);
+    const issueScope = asString(windowState.issue_scope);
+    if (!profile || !platform || !issueScope) {
+        return null;
+    }
+    try {
+        return await store.getSessionRhythmProfileHistory({
+            profile,
+            platform,
+            issueScope
+        });
+    }
+    catch {
+        return null;
+    }
 };
 const asObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
@@ -122,7 +142,11 @@ const buildSessionRhythmStatusViewForProfile = async (cwd, profile, input) => {
             sessionId: input?.sessionId ?? null,
             runId: input?.sourceRunId ?? null
         });
-        return persisted ? buildPersistedSessionRhythmStatusView(persisted) : fallbackView;
+        if (!persisted) {
+            return fallbackView;
+        }
+        const profileHistory = await getOptionalSessionRhythmProfileHistory(store, persisted);
+        return buildPersistedSessionRhythmStatusView(persisted, profileHistory);
     }
     catch {
         return null;

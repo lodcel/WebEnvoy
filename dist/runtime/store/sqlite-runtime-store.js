@@ -6,6 +6,7 @@ import { SQLiteRuntimeStoreAbilityValidationRepository } from "./sqlite-runtime-
 import { initializeRuntimeStoreSchema } from "./sqlite-runtime-store-schema.js";
 import { mapGateApprovalRecordRow, mapGateAuditRecordRow } from "./sqlite-runtime-store-helpers.js";
 import { assertAppendRunEventInput, assertGateApprovalInput, assertGateAuditRecordInput, assertListGateAuditInput, assertUpsertRunInput } from "./sqlite-runtime-store-validation.js";
+import { SESSION_RHYTHM_POLICY } from "../../../shared/risk-state.js";
 const LIVE_APPROVAL_EXECUTION_MODES = new Set([
     "live_read_limited",
     "live_read_high_risk",
@@ -131,6 +132,18 @@ const parseJsonArray = (value) => {
         return [];
     }
 };
+const addMillisecondsIso = (value, milliseconds) => {
+    if (typeof value !== "string") {
+        return null;
+    }
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) {
+        return null;
+    }
+    return new Date(timestamp + milliseconds).toISOString();
+};
+const asOptionalString = (value) => typeof value === "string" ? value : null;
+const asRequiredString = (value) => String(value);
 export const resolveRuntimeStorePath = (cwd) => path.join(cwd, ".webenvoy", "runtime", "store.sqlite");
 const resolveDatabaseSyncConstructor = () => {
     if (databaseSyncCtorCache === null) {
@@ -662,6 +675,135 @@ export class SQLiteRuntimeStore {
     }
     async upsertSessionRhythmStatusView(input) {
         return this.recordSessionRhythmStatusView(input);
+    }
+    async getSessionRhythmProfileHistory(input) {
+        const platform = asNonEmptyRuntimeStoreString(input.platform, "platform");
+        const issueScope = asNonEmptyRuntimeStoreString(input.issueScope, "issue_scope");
+        const limit = Math.max(1, Math.min(100, input.limit ?? 20));
+        const windowRow = this.#db
+            .prepare(`
+        SELECT
+          window_id, profile, platform, issue_scope, session_id, current_phase, risk_state,
+          window_started_at, window_deadline_at, cooldown_until, recovery_probe_due_at,
+          stability_window_until, risk_signal_count, last_event_id, source_run_id, updated_at
+        FROM session_rhythm_window_state
+        WHERE profile = ? AND platform = ? AND issue_scope = ?
+        ORDER BY updated_at DESC, window_started_at DESC, window_id DESC
+        LIMIT 1
+      `)
+            .get(input.profile, platform, issueScope);
+        if (!windowRow) {
+            return null;
+        }
+        const eventRows = this.#db
+            .prepare(`
+        SELECT
+          event_id, profile, platform, issue_scope, session_id, window_id, event_type,
+          phase_before, phase_after, risk_state_before, risk_state_after,
+          source_audit_event_id, reason, recorded_at
+        FROM session_rhythm_event
+        WHERE profile = ? AND platform = ? AND issue_scope = ?
+        ORDER BY recorded_at DESC, event_id DESC
+        LIMIT ?
+      `)
+            .all(input.profile, platform, issueScope, limit);
+        const decisionRows = this.#db
+            .prepare(`
+        SELECT
+          d.decision_id, d.window_id, d.run_id, d.session_id, d.profile,
+          d.current_phase, d.current_risk_state, d.next_phase, d.next_risk_state,
+          d.effective_execution_mode, d.decision, d.reason_codes_json, d.requires_json,
+          d.decided_at
+        FROM session_rhythm_decision d
+        INNER JOIN session_rhythm_window_state w ON w.window_id = d.window_id
+        WHERE w.profile = ? AND w.platform = ? AND w.issue_scope = ?
+        ORDER BY d.decided_at DESC, d.decision_id DESC
+        LIMIT ?
+      `)
+            .all(input.profile, platform, issueScope, limit);
+        const latestEvent = eventRows[0] ?? null;
+        const latestDecision = decisionRows[0] ?? null;
+        const latestActivityAt = (typeof latestEvent?.recorded_at === "string" ? latestEvent.recorded_at : null) ??
+            (typeof latestDecision?.decided_at === "string" ? latestDecision.decided_at : null) ??
+            (typeof windowRow.updated_at === "string" ? windowRow.updated_at : null);
+        const nextActionNotBefore = addMillisecondsIso(latestActivityAt, SESSION_RHYTHM_POLICY.min_action_interval_ms);
+        const nextExperimentNotBefore = addMillisecondsIso(latestActivityAt, SESSION_RHYTHM_POLICY.min_experiment_interval_ms);
+        const cooldownUntil = typeof windowRow.cooldown_until === "string" ? windowRow.cooldown_until : null;
+        const recoveryProbeDueAt = typeof windowRow.recovery_probe_due_at === "string"
+            ? windowRow.recovery_probe_due_at
+            : null;
+        const stabilityWindowUntil = typeof windowRow.stability_window_until === "string"
+            ? windowRow.stability_window_until
+            : null;
+        return {
+            profile: input.profile,
+            platform,
+            issue_scope: issueScope,
+            current_window_id: String(windowRow.window_id),
+            current_phase: String(windowRow.current_phase),
+            current_risk_state: String(windowRow.risk_state),
+            cooldown_budget: {
+                cooldown_strategy: SESSION_RHYTHM_POLICY.cooldown_strategy,
+                cooldown_base_minutes: SESSION_RHYTHM_POLICY.cooldown_base_minutes,
+                cooldown_cap_minutes: SESSION_RHYTHM_POLICY.cooldown_cap_minutes,
+                cooldown_until: cooldownUntil,
+                recovery_probe_due_at: recoveryProbeDueAt,
+                stability_window_until: stabilityWindowUntil,
+                risk_signal_count: typeof windowRow.risk_signal_count === "number" ? windowRow.risk_signal_count : 0,
+                active_block_until: cooldownUntil ?? recoveryProbeDueAt ?? null
+            },
+            run_spacing: {
+                min_action_interval_ms: SESSION_RHYTHM_POLICY.min_action_interval_ms,
+                min_experiment_interval_ms: SESSION_RHYTHM_POLICY.min_experiment_interval_ms,
+                latest_activity_at: latestActivityAt,
+                next_action_not_before: nextActionNotBefore,
+                next_experiment_not_before: nextExperimentNotBefore
+            },
+            continuous_execution: {
+                latest_session_id: (typeof latestEvent?.session_id === "string" ? latestEvent.session_id : null) ??
+                    (typeof latestDecision?.session_id === "string" ? latestDecision.session_id : null) ??
+                    asOptionalString(windowRow.session_id),
+                latest_run_id: (typeof latestDecision?.run_id === "string" ? latestDecision.run_id : null) ??
+                    asOptionalString(windowRow.source_run_id),
+                source_run_id: asOptionalString(windowRow.source_run_id),
+                event_count: eventRows.length,
+                decision_count: decisionRows.length,
+                history_window_started_at: asOptionalString(windowRow.window_started_at),
+                history_updated_at: asOptionalString(windowRow.updated_at)
+            },
+            events: eventRows.map((row) => ({
+                event_id: asRequiredString(row.event_id),
+                profile: asRequiredString(row.profile),
+                platform: asRequiredString(row.platform),
+                issue_scope: asRequiredString(row.issue_scope),
+                session_id: asRequiredString(row.session_id),
+                window_id: asRequiredString(row.window_id),
+                event_type: asRequiredString(row.event_type),
+                phase_before: asRequiredString(row.phase_before),
+                phase_after: asRequiredString(row.phase_after),
+                risk_state_before: asRequiredString(row.risk_state_before),
+                risk_state_after: asRequiredString(row.risk_state_after),
+                source_audit_event_id: asOptionalString(row.source_audit_event_id),
+                reason: asOptionalString(row.reason),
+                recorded_at: asRequiredString(row.recorded_at)
+            })),
+            decisions: decisionRows.map((row) => ({
+                decision_id: asRequiredString(row.decision_id),
+                window_id: asRequiredString(row.window_id),
+                run_id: asRequiredString(row.run_id),
+                session_id: asRequiredString(row.session_id),
+                profile: asRequiredString(row.profile),
+                current_phase: asRequiredString(row.current_phase),
+                current_risk_state: asRequiredString(row.current_risk_state),
+                next_phase: asRequiredString(row.next_phase),
+                next_risk_state: asRequiredString(row.next_risk_state),
+                effective_execution_mode: asRequiredString(row.effective_execution_mode),
+                decision: asRequiredString(row.decision),
+                reason_codes: parseJsonArray(row.reason_codes_json),
+                requires: parseJsonArray(row.requires_json),
+                decided_at: asRequiredString(row.decided_at)
+            }))
+        };
     }
     async getSessionRhythmStatusView(input) {
         const platform = input.platform ?? "xhs";
