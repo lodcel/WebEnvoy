@@ -14,7 +14,7 @@
 2. 冻结 session 级边界：频率、窗口、阶段、冷却、恢复探测、稳定窗口、升级/降级条件。
 3. 明确与 `profile`、`session`、`runtime.audit`、`approval_record`、`audit_record` 的职责与数据边界。
 4. 明确“追加不重定义”规则：`FR-0014` 只可扩展 `FR-0010/FR-0011` 已冻结语义，不可并行造新口径。
-5. 为 `#237` 后续实现 PR 提供可审查、可验收、可测试的正式规约输入。
+5. 为 `#742` 完成完整契约与状态机冻结，并为 `#743`-`#746` 后续实现 PR 提供可审查、可验收、可测试的正式规约输入。
 
 ## 非目标
 
@@ -90,7 +90,22 @@
   - `#427`（Phase 2）
   - `#266`（Canonical FR issue: FR-0014）
   - `#237`（Owning Work Item: Layer 3 scope）
+  - `#742`（完整 Layer 3 session rhythm 契约与状态机冻结输入）
+  - `#743`-`#746`（下游实现与验证消费方）
 - 本 PR 仅完成 `FR-0014` 规约评审输入，不混入实现代码，不关闭实现 issue。
+
+### 7. `#742` 下游验收矩阵
+
+`#742` 的职责是冻结完整 Layer 3 session rhythm 契约与状态机输入。后续实现消费必须绑定到下游 work item，而不是把 `#742` 同时当作实现入口。
+
+| 下游 issue | 消费的 FR-0014 输入 | 最小验收焦点 |
+| --- | --- | --- |
+| `#743` | `session_rhythm_window_state`、profile 级窗口主键、冷却预算字段 | profile 级长期 session 历史、单写窗口、冷却预算生命周期 |
+| `#744` | `session_rhythm_engine_input`、`session_rhythm_decision`、`session_rhythm_status_view` | read/write/recovery admission 使用统一节律决策，不自造并行状态机 |
+| `#745` | `session_rhythm_event`、恢复探测事件、降级/回退原因码 | 异常与 risk 状态恢复策略可追溯、可回链到审计记录 |
+| `#746` | `session_rhythm_status_view`、事件链、决策与审计回链 | 多运行验证基线和回归门禁能覆盖窗口推进、恢复探测、稳定窗口 |
+
+`#738`-`#741` 可以并行推进不依赖 Layer 3 真相源的 Layer 2 切片；一旦需要读取 session 节律上下文，只能消费 `#742` 冻结并由 `#743`-`#746` 落地的共享对象与读模型。
 
 ## GWT 验收场景
 
@@ -154,13 +169,13 @@ And 不包含 Layer 3 引擎实现承诺
 4. 与 `profile/session/runtime.audit/approval_record/audit_record` 的关系已冻结，且未并行重定义审批/审计对象。
 5. 非目标已明确排除 Layer1/2 细节、Layer4、`#208` 实现。
 6. `warmup/afterglow` 被限定为 Phase 2 阶段挂点，不构成完整 persona/内容编排实现承诺。
-7. 已引用 `#427/#266/#237`，并明确本 PR 为 spec review 而非实现 PR。
+7. 已引用 `#427/#266/#237/#742`，并明确本 PR 为 spec review / 契约冻结输入，而非实现 PR。
 
 ## 依赖与前置条件
 
 - 最小可执行前置：`#226` / `FR-0011`
 - 门禁与审批审计基线：`FR-0010`
-- 父级与映射：`#427`（Phase 2）、`#266`（Canonical FR issue）、`#237`（Layer 3 Work Item）
+- 父级与映射：`#427`（Phase 2）、`#266`（Canonical FR issue）、`#237`（Layer 3 Work Item）、`#742`（契约与状态机冻结输入）、`#743`-`#746`（下游实现与验证切片）
 - 架构依据：
   - `docs/dev/architecture/anti-detection.md`
   - `docs/dev/architecture/system-design/execution.md`
