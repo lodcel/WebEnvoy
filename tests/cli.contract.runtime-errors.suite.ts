@@ -990,6 +990,66 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
       )}\n`,
       "utf8"
     );
+    const rhythmStore = new SQLiteRuntimeStore(resolveRuntimeStorePath(runtimeCwd));
+    try {
+      await rhythmStore.recordSessionRhythmStatusView({
+        profile,
+        platform: "xhs",
+        issueScope: "issue_209",
+        windowState: {
+          window_id: `rhythm_win_${profile}_issue_209`,
+          profile,
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-restore-single-probe",
+          current_phase: "warmup",
+          risk_state: "paused",
+          window_started_at: "2026-04-25T10:30:00.000Z",
+          window_deadline_at: null,
+          cooldown_until: null,
+          recovery_probe_due_at: "2026-04-25T10:45:00.000Z",
+          stability_window_until: null,
+          risk_signal_count: 1,
+          last_event_id: "rhythm_evt_restore_single_probe",
+          source_run_id: "run-restore-single-probe-source",
+          updated_at: "2026-04-25T10:30:00.000Z"
+        },
+        event: {
+          event_id: "rhythm_evt_restore_single_probe",
+          profile,
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-restore-single-probe",
+          window_id: `rhythm_win_${profile}_issue_209`,
+          event_type: "recovery_probe_started",
+          phase_before: "warmup",
+          phase_after: "warmup",
+          risk_state_before: "paused",
+          risk_state_after: "paused",
+          source_audit_event_id: null,
+          reason: "RECOVERY_SINGLE_PROBE_REQUIRED",
+          recorded_at: "2026-04-25T10:30:00.000Z"
+        },
+        decision: {
+          decision_id: "rhythm_decision_restore_single_probe",
+          window_id: `rhythm_win_${profile}_issue_209`,
+          run_id: "run-restore-single-probe-source",
+          session_id: "nm-session-restore-single-probe",
+          profile,
+          current_phase: "warmup",
+          current_risk_state: "paused",
+          next_phase: "warmup",
+          next_risk_state: "paused",
+          effective_execution_mode: "live_read_high_risk",
+          decision: "deferred",
+          reason_codes: ["XHS_RECOVERY_SINGLE_PROBE_REQUIRED"],
+          requires: ["recovery_single_probe"],
+          decided_at: "2026-04-25T10:30:00.000Z"
+        }
+      });
+    } finally {
+      rhythmStore.close();
+    }
 
     const result = runCli(
       [
@@ -1024,6 +1084,163 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
       status: "success"
     });
   });
+
+  it("blocks XHS target restoration when persisted session rhythm is still cooling down", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const profile = "xhs_restore_persisted_cooldown_blocked";
+    const runId = "run-contract-restore-persisted-cooldown-blocked-001";
+    const persistentExtensionIdentity = await startOfficialReadyRuntime(runtimeCwd, profile, runId);
+    const profileDir = path.join(runtimeCwd, ".webenvoy", "profiles", profile);
+    const metaPath = path.join(profileDir, "__webenvoy_meta.json");
+    const existingMeta = JSON.parse(await readFile(metaPath, "utf8")) as Record<string, unknown>;
+    await writeFile(
+      metaPath,
+      `${JSON.stringify(
+        {
+          ...existingMeta,
+          schemaVersion: 1,
+          profileName: profile,
+          profileDir,
+          accountSafety: {
+            state: "clear",
+            platform: null,
+            reason: null,
+            observedAt: null,
+            cooldownUntil: null,
+            sourceRunId: null,
+            sourceCommand: null,
+            targetDomain: null,
+            targetTabId: null,
+            pageUrl: null,
+            statusCode: null,
+            platformCode: null
+          },
+          xhsCloseoutRhythm: {
+            state: "not_required",
+            cooldownUntil: null,
+            operatorConfirmedAt: null,
+            singleProbeRequired: false,
+            singleProbePassedAt: null,
+            probeRunId: null,
+            fullBundleBlocked: false,
+            reasonCodes: []
+          },
+          updatedAt: "2026-04-25T10:35:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const rhythmStore = new SQLiteRuntimeStore(resolveRuntimeStorePath(runtimeCwd));
+    try {
+      await rhythmStore.recordSessionRhythmStatusView({
+        profile,
+        platform: "xhs",
+        issueScope: "issue_209",
+        windowState: {
+          window_id: `rhythm_win_${profile}_issue_209`,
+          profile,
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-restore-cooldown",
+          current_phase: "cooldown",
+          risk_state: "paused",
+          window_started_at: "2026-04-25T10:30:00.000Z",
+          window_deadline_at: null,
+          cooldown_until: "2099-04-25T11:00:00.000Z",
+          recovery_probe_due_at: null,
+          stability_window_until: null,
+          risk_signal_count: 1,
+          last_event_id: "rhythm_evt_restore_cooldown",
+          source_run_id: "run-restore-cooldown-source",
+          updated_at: "2026-04-25T10:30:00.000Z"
+        },
+        event: {
+          event_id: "rhythm_evt_restore_cooldown",
+          profile,
+          platform: "xhs",
+          issue_scope: "issue_209",
+          session_id: "nm-session-restore-cooldown",
+          window_id: `rhythm_win_${profile}_issue_209`,
+          event_type: "cooldown_started",
+          phase_before: "steady",
+          phase_after: "cooldown",
+          risk_state_before: "limited",
+          risk_state_after: "paused",
+          source_audit_event_id: null,
+          reason: "PERSISTED_SESSION_RHYTHM_PAUSED",
+          recorded_at: "2026-04-25T10:30:00.000Z"
+        },
+        decision: {
+          decision_id: "rhythm_decision_restore_cooldown",
+          window_id: `rhythm_win_${profile}_issue_209`,
+          run_id: "run-restore-cooldown-source",
+          session_id: "nm-session-restore-cooldown",
+          profile,
+          current_phase: "cooldown",
+          current_risk_state: "paused",
+          next_phase: "cooldown",
+          next_risk_state: "paused",
+          effective_execution_mode: "live_read_high_risk",
+          decision: "blocked",
+          reason_codes: ["PERSISTED_SESSION_RHYTHM_PAUSED"],
+          requires: ["session_rhythm_window_not_ready"],
+          decided_at: "2026-04-25T10:30:00.000Z"
+        }
+      });
+    } finally {
+      rhythmStore.close();
+    }
+
+    const result = runCli(
+      [
+        "runtime.restore_xhs_target",
+        "--profile",
+        profile,
+        "--run-id",
+        runId,
+        "--params",
+        JSON.stringify({
+          target_domain: "www.xiaohongshu.com",
+          target_page: "search_result_tab",
+          target_tab_id: 44,
+          requested_at: "2026-04-25T10:45:00.000Z",
+          query: "露营",
+          persistent_extension_identity: persistentExtensionIdentity
+        })
+      ],
+      runtimeCwd,
+      {
+        WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
+        WEBENVOY_NATIVE_TRANSPORT: "native",
+        WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
+        WEBENVOY_NATIVE_HOST_MODE: "runtime-readiness-ready"
+      }
+    );
+
+    expect(result.status).toBe(6);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body).toMatchObject({
+      run_id: runId,
+      command: "runtime.restore_xhs_target",
+      status: "error",
+      error: {
+        code: "ERR_EXECUTION_FAILED",
+        details: {
+          reason: "XHS_CLOSEOUT_RHYTHM_BLOCKED",
+          session_rhythm_status_view: expect.objectContaining({
+            current_phase: "cooldown",
+            current_risk_state: "paused",
+            session_rhythm_decision: expect.objectContaining({
+              decision_id: "rhythm_decision_restore_cooldown",
+              decision: "blocked"
+            })
+          })
+        }
+      }
+    });
+  }, 10_000);
 
   it("blocks stale-bootstrap XHS target restoration during recovery probe when validation is missing", async () => {
     const runtimeCwd = await createRuntimeCwd();

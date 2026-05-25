@@ -1961,7 +1961,9 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
             ? buildXhsRestoreSearchResultUrl(query)
             : null;
     const runtimeContextId = buildRuntimeBootstrapContextId(context.profile, context.run_id);
+    const restoreIssueScope = asString(context.params.issue_scope) ?? "issue_209";
     let antiDetectionValidationView = null;
+    let persistedRhythmView = null;
     let store = null;
     try {
         store = new SQLiteRuntimeStore(resolveRuntimeStorePath(context.cwd));
@@ -1970,13 +1972,22 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
             profile: context.profile,
             effectiveExecutionMode: "live_read_high_risk"
         });
+        persistedRhythmView = await store.getSessionRhythmStatusView({
+            profile: context.profile,
+            platform: "xhs",
+            issueScope: restoreIssueScope
+        });
     }
     finally {
         store?.close();
     }
     const accountSafetyClear = accountSafety?.state === "clear";
     const recoveryProbeWindow = rhythmState === "single_probe_required";
-    const rhythmAllowsRestore = rhythmState === "not_required" || rhythmState === "single_probe_passed" || recoveryProbeWindow;
+    const persistedRhythmPhase = asString(persistedRhythmView?.window_state.current_phase);
+    const persistedRhythmDecision = asString(persistedRhythmView?.decision.decision);
+    const persistedRhythmBlocksRestore = persistedRhythmPhase === "cooldown" || persistedRhythmDecision === "blocked";
+    const rhythmAllowsRestore = !persistedRhythmBlocksRestore &&
+        (rhythmState === "not_required" || rhythmState === "single_probe_passed" || recoveryProbeWindow);
     const officialRuntimeReady = status.identityBindingState === "bound" &&
         status.transportState === "ready" &&
         status.bootstrapState === "ready" &&
@@ -2058,6 +2069,8 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
             restore_runtime_attach_state: restoreRuntimeAttachState,
             account_safety_state: accountSafety?.state ?? null,
             xhs_closeout_rhythm_state: rhythmState,
+            session_rhythm_window_id: persistedRhythmView?.window_state.window_id ?? null,
+            session_rhythm_decision_id: persistedRhythmView?.decision.decision_id ?? null,
             recovery_probe_window: recoveryProbeWindow,
             stale_bootstrap_recovery: restoreRuntimeAttachState === "stale_bootstrap_same_runtime",
             official_runtime_ready: runtimeReadyForRestore,
@@ -2084,6 +2097,11 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
                         : "ANTI_DETECTION_VALIDATION_BASELINE_BLOCKED",
             account_safety: accountSafety,
             xhs_closeout_rhythm: xhsCloseoutRhythm,
+            ...(persistedRhythmView
+                ? {
+                    session_rhythm_status_view: buildPersistedSessionRhythmStatusView(persistedRhythmView)
+                }
+                : {}),
             runtime_status: {
                 identity_binding_state: status.identityBindingState,
                 transport_state: status.transportState,

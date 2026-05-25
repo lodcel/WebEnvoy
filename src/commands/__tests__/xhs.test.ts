@@ -5934,6 +5934,15 @@ describe("normalizeGateOptionsForContract", () => {
         code: "ERR_EXECUTION_FAILED",
         details: {
           reason: "XHS_CLOSEOUT_RHYTHM_BLOCKED",
+          session_rhythm_admission_summary: expect.objectContaining({
+            decision: "blocked",
+            reason_codes: expect.arrayContaining(["XHS_RECOVERY_SINGLE_PROBE_REQUIRED"]),
+            requires: ["session_rhythm_window_not_ready"],
+            requested_execution_mode: "live_write",
+            action_type: "write",
+            issue_scope: "issue_208",
+            risk_state: "allowed"
+          }),
           xhs_closeout_rhythm: expect.objectContaining({
             state: "single_probe_required"
           })
@@ -6736,6 +6745,9 @@ describe("normalizeGateOptionsForContract", () => {
       );
 
       expect(result.summary).toMatchObject({
+        gate_input: {
+          session_rhythm_decision_id: `rhythm_decision_preflight_${runId}`
+        },
         request_admission_result: {
           request_ref: requestId,
           admission_decision: "allowed"
@@ -8129,7 +8141,7 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
-  it("reads session rhythm compatibility refs from the persisted rhythm store before profile meta fallback", async () => {
+  it("forwards unified session rhythm admission from the persisted rhythm store before profile meta fallback", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-persisted-rhythm-"));
     const profile = "profile-persisted-rhythm-refs-001";
     const runId = "run-persisted-rhythm-refs-001";
@@ -8304,6 +8316,10 @@ describe("normalizeGateOptionsForContract", () => {
       );
 
       expect(execution.summary).toMatchObject({
+        gate_input: {
+          session_rhythm_window_id: "rhythm_win_persisted_issue_209",
+          session_rhythm_decision_id: `rhythm_decision_preflight_${runId}`
+        },
         execution_audit: {
           compatibility_refs: {
             approval_admission_ref: approvalAdmissionRef,
