@@ -285,6 +285,42 @@ export const buildLayer2RhythmPlan = (evidence, input) => {
         blocked_by: null
     };
 };
+export const buildLayer2ScheduledEventChain = (evidence, input) => {
+    const eventChain = buildLayer2EventChainPlan(evidence);
+    if (eventChain.blocked_by) {
+        return {
+            action_kind: eventChain.action_kind,
+            selected_path: eventChain.selected_path,
+            event_chain: eventChain.event_chain,
+            scheduled_events: [],
+            completion_signal: [],
+            requires_settled_wait: false,
+            blocked_by: eventChain.blocked_by
+        };
+    }
+    const rhythmPlan = buildLayer2RhythmPlan(evidence, input);
+    const stepsByEvent = new Map();
+    for (const step of rhythmPlan.steps) {
+        const current = stepsByEvent.get(step.event_ref) ?? [];
+        current.push(step);
+        stepsByEvent.set(step.event_ref, current);
+    }
+    const scheduledEvents = eventChain.required_steps.map((eventRef, index) => ({
+        sequence_index: index,
+        event_ref: eventRef,
+        required: true,
+        rhythm_steps: stepsByEvent.get(eventRef) ?? []
+    }));
+    return {
+        action_kind: eventChain.action_kind,
+        selected_path: eventChain.selected_path,
+        event_chain: eventChain.event_chain,
+        scheduled_events: scheduledEvents,
+        completion_signal: eventChain.completion_signal,
+        requires_settled_wait: eventChain.requires_settled_wait,
+        blocked_by: null
+    };
+};
 export const buildLayer2InteractionEvidence = (input) => {
     const strategy = clone(STRATEGY_PROFILES[input.actionKind]);
     const chain = clone(EVENT_CHAINS[input.actionKind]);
