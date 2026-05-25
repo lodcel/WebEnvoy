@@ -233,6 +233,77 @@ const installMockDomGlobals = (input: {
   (globalThis as { CustomEvent?: unknown }).CustomEvent = MockCustomEvent;
 };
 
+const installMockCanvasGlobals = (
+  mockWindow: Record<string, unknown>,
+  options: { lockedMethods?: boolean } = {}
+) => {
+  class MockCanvasRenderingContext2D {
+    imageData = {
+      data: new Uint8ClampedArray([100, 0, 0, 255]),
+      width: 1,
+      height: 1
+    };
+
+    getImageData(): { data: Uint8ClampedArray; width: number; height: number } {
+      return {
+        data: new Uint8ClampedArray(this.imageData.data),
+        width: this.imageData.width,
+        height: this.imageData.height
+      };
+    }
+
+    putImageData(imageData: { data: Uint8ClampedArray; width: number; height: number }): void {
+      this.imageData = {
+        data: new Uint8ClampedArray(imageData.data),
+        width: imageData.width,
+        height: imageData.height
+      };
+    }
+  }
+
+  class MockCanvasElement {
+    width = 1;
+    height = 1;
+    readonly context = new MockCanvasRenderingContext2D();
+
+    getContext(kind: string): MockCanvasRenderingContext2D | null {
+      return kind === "2d" ? this.context : null;
+    }
+
+    toDataURL(): string {
+      return `data:mock,${Array.from(this.context.imageData.data).join(",")}`;
+    }
+
+    toBlob(callback: (blob: Blob | null) => void): void {
+      callback({
+        fingerprint: `data:mock,${Array.from(this.context.imageData.data).join(",")}`
+      } as unknown as Blob);
+    }
+  }
+
+  if (options.lockedMethods === true) {
+    for (const [prototype, method] of [
+      [MockCanvasRenderingContext2D.prototype, "getImageData"],
+      [MockCanvasElement.prototype, "toDataURL"],
+      [MockCanvasElement.prototype, "toBlob"]
+    ] as const) {
+      const value = prototype[method];
+      Object.defineProperty(prototype, method, {
+        configurable: false,
+        writable: false,
+        value
+      });
+    }
+  }
+
+  mockWindow.HTMLCanvasElement = MockCanvasElement;
+  mockWindow.CanvasRenderingContext2D = MockCanvasRenderingContext2D;
+
+  return {
+    createCanvas: () => new MockCanvasElement()
+  };
+};
+
 const bootstrapMainWorldBridge = async (
   added: Array<{ type: string; listener: MockEventListener }>
 ) => {
@@ -348,6 +419,7 @@ describe("main-world bridge contract", () => {
     delete (globalThis as { window?: unknown }).window;
     delete (globalThis as { document?: unknown }).document;
     delete (globalThis as { CustomEvent?: unknown }).CustomEvent;
+    delete (globalThis as { ImageData?: unknown }).ImageData;
     delete (globalThis as Record<string, unknown>).__WEBENVOY_MAIN_WORLD_BRIDGE_INSTALLED_V1__;
   });
 
@@ -544,6 +616,232 @@ describe("main-world bridge contract", () => {
     });
     expect((mockWindow.screen as Screen).colorDepth).toBe(30);
     expect((mockWindow.screen as Screen).pixelDepth).toBe(24);
+  });
+
+  it("declares canvas noise as a profile-scoped optional fingerprint patch", async () => {
+    const { OPTIONAL_PATCHES, FIELD_DEPENDENCIES } = await import("../shared/fingerprint-profile.js");
+
+    expect(OPTIONAL_PATCHES).toEqual(expect.arrayContaining(["canvas_noise"]));
+    expect(FIELD_DEPENDENCIES.canvas_noise).toEqual(["canvasNoiseSeed"]);
+  });
+
+  it("applies deterministic canvas noise from the profile seed", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    const canvasHost = installMockCanvasGlobals(mockWindow);
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-canvas-noise-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              canvasNoiseSeed: 0.1
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["canvas_noise"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).toEqual(expect.arrayContaining(["canvas_noise"]));
+
+    const canvas = canvasHost.createCanvas();
+    const context = canvas.getContext("2d");
+    expect(context?.getImageData().data[0]).toBe(101);
+    expect(context?.getImageData().data[0]).toBe(101);
+    expect(canvas.toDataURL()).toBe("data:mock,101,0,0,255");
+    expect(context?.imageData.data[0]).toBe(100);
+
+    const blobResult = await new Promise<{ fingerprint: string } | null>((resolve) => {
+      canvas.toBlob((blob) => resolve(blob as unknown as { fingerprint: string } | null));
+    });
+    expect(blobResult?.fingerprint).toBe("data:mock,101,0,0,255");
+    expect(context?.imageData.data[0]).toBe(100);
+  });
+
+  it("updates canvas noise when a later profile seed is installed", async () => {
+    const { added, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    const canvasHost = installMockCanvasGlobals(mockWindow);
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+    for (const [requestId, canvasNoiseSeed] of [
+      ["install-request-canvas-noise-seed-a", 0.1],
+      ["install-request-canvas-noise-seed-b", 0.100000001]
+    ] as const) {
+      channel.requestListener({
+        type: channel.requestEvent,
+        detail: {
+          id: requestId,
+          type: "fingerprint-install",
+          payload: {
+            fingerprint_runtime: {
+              source: "contract",
+              fingerprint_profile_bundle: {
+                canvasNoiseSeed
+              },
+              fingerprint_patch_manifest: {
+                required_patches: ["navigator_plugins", "navigator_mime_types"],
+                optional_patches: ["canvas_noise"]
+              }
+            }
+          }
+        }
+      } as unknown as Event);
+    }
+
+    const canvas = canvasHost.createCanvas();
+    expect(canvas.getContext("2d")?.getImageData().data[0]).toBe(99);
+    expect(canvas.toDataURL()).toBe("data:mock,99,0,0,255");
+  });
+
+  it("skips canvas noise optional patch when the seed is unavailable", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    installMockCanvasGlobals(mockWindow);
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-canvas-noise-missing-seed-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {},
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["canvas_noise"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["canvas_noise"]));
+  });
+
+  it("skips canvas noise optional patch when host canvas methods cannot be replaced", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+    const canvasHost = installMockCanvasGlobals(mockWindow, { lockedMethods: true });
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-canvas-noise-locked-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              canvasNoiseSeed: 0.1
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["canvas_noise"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["canvas_noise"]));
+    expect(canvasHost.createCanvas().getContext("2d")?.getImageData().data[0]).toBe(100);
+  });
+
+  it("skips canvas noise optional patch when canvas APIs are unavailable", async () => {
+    const { added, dispatched, mockWindow, mockDocument } = createMockMainWorldEnvironment();
+
+    installMockDomGlobals({
+      mockWindow: mockWindow as Window & Record<string, unknown>,
+      mockDocument
+    });
+
+    const channel = await bootstrapMainWorldBridge(added);
+
+    channel.requestListener({
+      type: channel.requestEvent,
+      detail: {
+        id: "install-request-canvas-noise-unavailable-001",
+        type: "fingerprint-install",
+        payload: {
+          fingerprint_runtime: {
+            source: "contract",
+            fingerprint_profile_bundle: {
+              canvasNoiseSeed: 0.1
+            },
+            fingerprint_patch_manifest: {
+              required_patches: ["navigator_plugins", "navigator_mime_types"],
+              optional_patches: ["canvas_noise"]
+            }
+          }
+        }
+      }
+    } as unknown as Event);
+
+    const result = asRecord(
+      dispatched.filter((entry) => entry.type === channel.resultEvent).at(-1)?.detail
+    );
+    const payload = asRecord(result?.result);
+    expect(payload).toMatchObject({
+      installed: true,
+      missing_required_patches: []
+    });
+    expect(payload?.applied_patches).not.toEqual(expect.arrayContaining(["canvas_noise"]));
   });
 
   it("skips performance memory optional patch when deviceMemory is unavailable", async () => {
