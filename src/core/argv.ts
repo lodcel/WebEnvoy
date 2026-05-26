@@ -4,7 +4,12 @@ import type { JsonObject, ParsedCliInput } from "./types.js";
 const COMMAND_SEGMENT_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const COMMAND_MAX_SEGMENTS = 3;
 const COMMAND_MAX_LENGTH = 96;
-const REGISTERED_MULTI_SEGMENT_COMMANDS = new Set(["xhs.creator_publish.admit"]);
+const REGISTERED_MULTI_SEGMENT_COMMANDS = new Set([
+  "xhs.creator_publish.admit",
+  "xhs.editor_input.validate",
+  "xhs.editor_text.write",
+  "xhs.media_upload.discover"
+]);
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
 
 const parseParams = (raw: string): JsonObject => {

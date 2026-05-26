@@ -34,19 +34,24 @@ describe("parseArgv", () => {
     });
   });
 
-  it("accepts registered multi-segment platform commands", () => {
+  it.each([
+    "xhs.creator_publish.admit",
+    "xhs.editor_input.validate",
+    "xhs.editor_text.write",
+    "xhs.media_upload.discover"
+  ])("accepts registered multi-segment platform command %s", (command) => {
     const parsed = parseArgv([
-      "xhs.creator_publish.admit",
+      command,
       "--profile",
       "xhs_001",
       "--run-id",
-      "issue820-creator-admit-cli-001",
+      "issue820-dedicated-cli-001",
       "--params",
       '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
     ]);
 
     expect(parsed).toEqual({
-      command: "xhs.creator_publish.admit",
+      command,
       params: {
         target_domain: "creator.xiaohongshu.com",
         target_tab_id: 32,
@@ -54,7 +59,7 @@ describe("parseArgv", () => {
         requested_execution_mode: "dry_run"
       },
       profile: "xhs_001",
-      runId: "issue820-creator-admit-cli-001"
+      runId: "issue820-dedicated-cli-001"
     });
   });
 
