@@ -9,6 +9,7 @@ import {
   persistXhsCloseoutValidationSourceSamples,
   persistXhsCloseoutValidationSignals,
   readXhsCloseoutValidationGateView,
+  resolveXhsCloseoutValidationProbeBundleRef,
   type XhsCloseoutValidationSignalMap
 } from "../anti-detection-validation.js";
 import {
@@ -540,6 +541,36 @@ describe("FR-0020 XHS closeout validation baseline", () => {
       store.close();
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  it("uses a dedicated probe bundle for XHS creator live_write admission scope", () => {
+    expect(
+      resolveXhsCloseoutValidationProbeBundleRef({
+        effectiveExecutionMode: "live_write",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab"
+      })
+    ).toBe("probe-bundle/xhs-creator-live-write-admission-v1");
+    expect(
+      buildXhsCloseoutValidationScope({
+        profile: "xhs_creator_validation_profile",
+        effectiveExecutionMode: "live_write",
+        probeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1",
+        targetFrRef: "FR-0012",
+        validationScope: "layer1_consistency"
+      })
+    ).toMatchObject({
+      profileRef: "profile/xhs_creator_validation_profile",
+      effectiveExecutionMode: "live_write",
+      probeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+    });
+    expect(
+      resolveXhsCloseoutValidationProbeBundleRef({
+        effectiveExecutionMode: "live_write",
+        targetDomain: "www.xiaohongshu.com",
+        targetPage: "search_result_tab"
+      })
+    ).toBe("probe-bundle/xhs-closeout-min-v1");
   });
 
   it("fails closed when XHS closeout validation source evidence is missing a required scope", async () => {

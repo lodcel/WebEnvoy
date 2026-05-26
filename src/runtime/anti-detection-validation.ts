@@ -13,7 +13,15 @@ import {
 export const XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL = "Google Chrome stable" as const;
 export const XHS_CLOSEOUT_BASELINE_EXECUTION_SURFACE = "real_browser" as const;
 export const XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF = "probe-bundle/xhs-closeout-min-v1" as const;
+export const XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF =
+  "probe-bundle/xhs-creator-live-write-admission-v1" as const;
 export const XHS_CLOSEOUT_TARGET_DOMAIN = "www.xiaohongshu.com" as const;
+export const XHS_CREATOR_TARGET_DOMAIN = "creator.xiaohongshu.com" as const;
+export const XHS_CREATOR_PUBLISH_TARGET_PAGE = "creator_publish_tab" as const;
+
+export type XhsCloseoutValidationProbeBundleRef =
+  | typeof XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF
+  | typeof XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF;
 
 export const XHS_CLOSEOUT_REQUIRED_VALIDATION_SCOPES = [
   {
@@ -44,7 +52,7 @@ export interface XhsCloseoutValidationGateView {
   browser_channel: typeof XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL;
   execution_surface: typeof XHS_CLOSEOUT_BASELINE_EXECUTION_SURFACE;
   effective_execution_mode: AntiDetectionExecutionMode;
-  probe_bundle_ref: typeof XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF;
+  probe_bundle_ref: XhsCloseoutValidationProbeBundleRef;
   required_target_fr_refs: string[];
   views: Array<AntiDetectionValidationViewRecord | null>;
   all_required_ready: boolean;
@@ -56,6 +64,17 @@ export const resolveXhsCloseoutReadinessBaselineExecutionMode = (
   mode: AntiDetectionExecutionMode
 ): AntiDetectionExecutionMode =>
   mode === "live_read_limited" ? "live_read_high_risk" : mode;
+
+export const resolveXhsCloseoutValidationProbeBundleRef = (input: {
+  effectiveExecutionMode: AntiDetectionExecutionMode;
+  targetDomain?: string | null;
+  targetPage?: string | null;
+}): XhsCloseoutValidationProbeBundleRef =>
+  input.effectiveExecutionMode === "live_write" &&
+  input.targetDomain === XHS_CREATOR_TARGET_DOMAIN &&
+  input.targetPage === XHS_CREATOR_PUBLISH_TARGET_PAGE
+    ? XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF
+    : XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF;
 
 const toViewJson = (view: AntiDetectionValidationViewRecord | null): JsonObject | null =>
   view ? ({ ...view } as unknown as JsonObject) : null;
@@ -78,6 +97,7 @@ export const toXhsCloseoutValidationGateJson = (
 export const buildXhsCloseoutValidationScope = (input: {
   profile: string;
   effectiveExecutionMode: AntiDetectionExecutionMode;
+  probeBundleRef?: XhsCloseoutValidationProbeBundleRef;
   targetFrRef: string;
   validationScope: AntiDetectionValidationScope;
 }): AntiDetectionValidationScopeKeyInput => ({
@@ -87,20 +107,23 @@ export const buildXhsCloseoutValidationScope = (input: {
   browserChannel: XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL,
   executionSurface: XHS_CLOSEOUT_BASELINE_EXECUTION_SURFACE,
   effectiveExecutionMode: input.effectiveExecutionMode,
-  probeBundleRef: XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF
+  probeBundleRef: input.probeBundleRef ?? XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF
 });
 
 export const readXhsCloseoutValidationGateView = async (input: {
   store: SQLiteRuntimeStore;
   profile: string;
   effectiveExecutionMode: AntiDetectionExecutionMode;
+  probeBundleRef?: XhsCloseoutValidationProbeBundleRef;
 }): Promise<XhsCloseoutValidationGateView> => {
+  const probeBundleRef = input.probeBundleRef ?? XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF;
   const views = await Promise.all(
     XHS_CLOSEOUT_REQUIRED_VALIDATION_SCOPES.map((scope) =>
       input.store.getAntiDetectionValidationView(
         buildXhsCloseoutValidationScope({
           profile: input.profile,
           effectiveExecutionMode: input.effectiveExecutionMode,
+          probeBundleRef,
           targetFrRef: scope.targetFrRef,
           validationScope: scope.validationScope
         })
@@ -128,7 +151,7 @@ export const readXhsCloseoutValidationGateView = async (input: {
     browser_channel: XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL,
     execution_surface: XHS_CLOSEOUT_BASELINE_EXECUTION_SURFACE,
     effective_execution_mode: input.effectiveExecutionMode,
-    probe_bundle_ref: XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF,
+    probe_bundle_ref: probeBundleRef,
     required_target_fr_refs: requiredTargetFrRefs,
     views,
     all_required_ready: blockingTargetFrRefs.length === 0,
