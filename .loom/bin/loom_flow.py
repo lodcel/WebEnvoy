@@ -14877,7 +14877,8 @@ def run_guardian_merge_ready(args: argparse.Namespace) -> int:
         missing_inputs.append("PR is draft")
     if str(pr.get("mergeable") or "") != "MERGEABLE":
         missing_inputs.append("GitHub mergeable state is not MERGEABLE")
-    if str(pr.get("merge_state_status") or "") not in {"CLEAN", "HAS_HOOKS", "UNSTABLE"}:
+    merge_state_status = str(pr.get("merge_state_status") or "")
+    if merge_state_status not in {"CLEAN", "HAS_HOOKS", "UNSTABLE", "BLOCKED"}:
         missing_inputs.append("GitHub mergeStateStatus is not merge-ready")
 
     metadata_flags = guardian_merge_ready_metadata_flags(
@@ -14943,6 +14944,16 @@ def run_guardian_merge_ready(args: argparse.Namespace) -> int:
         missing_inputs.append("applicable spec review is not represented in source authority")
 
     review_state = host_actions.get("github_review_state") if isinstance(host_actions.get("github_review_state"), dict) else {}
+    if merge_state_status == "BLOCKED":
+        blocked_checks_all_pass = bool(check_snapshot) and all(
+            isinstance(check, dict) and check.get("bucket") == "pass" for check in check_snapshot
+        )
+        if review_state.get("visible") is not True:
+            missing_inputs.append("GitHub mergeStateStatus=BLOCKED requires visible retained review state")
+        if checks.get("all_pass") is not True or not blocked_checks_all_pass:
+            missing_inputs.append("GitHub mergeStateStatus=BLOCKED requires passing retained PR checks snapshot")
+        if str(pr.get("mergeable") or "") != "MERGEABLE":
+            missing_inputs.append("GitHub mergeStateStatus=BLOCKED requires mergeable PR")
     if review_state.get("visible") is not True:
         missing_inputs.append("expected GitHub review state is not visible")
     if review_state.get("head_sha") != head_sha:
