@@ -10,6 +10,7 @@ import {
   runIdentityPreflight,
   setIdentityPreflightAdaptersForTests
 } from "../persistent-extension-identity.js";
+import { refreshProfileExtensionServiceWorkerCache } from "../persistent-extension-identity-install.js";
 import type { ProfileMeta } from "../profile-store.js";
 
 const EXTENSION_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -1559,6 +1560,111 @@ describe("runIdentityPreflight", () => {
         extension_service_worker_freshness_reason:
           "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
         recovery_hint: expect.stringContaining("Default/Service Worker")
+      }
+    });
+  });
+
+  it("refuses to refresh managed service worker cache through a symlinked profile path", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-refresh-symlink-"));
+    const externalDefaultDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-external-default-"));
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-refresh-symlink-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    await symlink(externalDefaultDir, join(profileDir, "Default"));
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'fresh';\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      dirname(extensionBuildFile),
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      unpackedDir,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: new Date("2026-04-30T00:00:00.000Z")
+    });
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    await expect(
+      refreshProfileExtensionServiceWorkerCache(profileDir, EXTENSION_ID, {
+        confirm: true
+      })
+    ).resolves.toMatchObject({
+      operation: "blocked",
+      removable: false,
+      removed: false,
+      blocker: {
+        blocker_layer: "service_worker_cache",
+        blocker_code: "service_worker_path_symlink",
+        expected_service_worker_path: join(profileDir, "Default", "Service Worker"),
+        actual_service_worker_path: join(profileDir, "Default", "Service Worker")
+      }
+    });
+  });
+
+  it("refuses to refresh managed service worker cache through a symlinked service worker path", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-refresh-sw-symlink-"));
+    const externalServiceWorkerDir = await mkdtemp(
+      join(tmpdir(), "webenvoy-native-host-external-service-worker-")
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-refresh-sw-symlink-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    await mkdir(join(profileDir, "Default"), { recursive: true });
+    await symlink(externalServiceWorkerDir, join(profileDir, "Default", "Service Worker"));
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'fresh';\n", "utf8");
+    await utimes(
+      extensionBuildFile,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      dirname(extensionBuildFile),
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await utimes(
+      unpackedDir,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-01T00:00:00.000Z")
+    );
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: new Date("2026-04-30T00:00:00.000Z")
+    });
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    await expect(
+      refreshProfileExtensionServiceWorkerCache(profileDir, EXTENSION_ID, {
+        confirm: true
+      })
+    ).resolves.toMatchObject({
+      operation: "blocked",
+      removable: false,
+      removed: false,
+      blocker: {
+        blocker_layer: "service_worker_cache",
+        blocker_code: "service_worker_path_symlink",
+        expected_service_worker_path: join(profileDir, "Default", "Service Worker"),
+        actual_service_worker_path: join(profileDir, "Default", "Service Worker")
       }
     });
   });
