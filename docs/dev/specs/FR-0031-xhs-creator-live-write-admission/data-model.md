@@ -27,6 +27,8 @@ FR-0031 不新增第二套 anti-detection validation object family。它复用 `
 字段：
 
 - `profile_ref`
+- `run_id`
+- `artifact_identity`
 - `profile_root_ref`
 - `profile_state`
 - `identity_binding_state`
@@ -42,6 +44,7 @@ FR-0031 不新增第二套 anti-detection validation object family。它复用 `
 - `identity_binding_state=bound` 才能通过。
 - `EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED` 必须阻断。
 - `account_safety_state=clear` 才能通过。
+- `run_id` 与 `artifact_identity` 必须能回链到真实浏览器运行证据。
 
 ## CreatorTargetBindingView
 
@@ -52,6 +55,9 @@ FR-0031 不新增第二套 anti-detection validation object family。它复用 `
 - `requested_target_domain`
 - `requested_target_page`
 - `requested_target_tab_id`
+- `profile_ref`
+- `run_id`
+- `artifact_identity`
 - `managed_target_tab_id`
 - `managed_target_domain`
 - `managed_target_page`
@@ -63,6 +69,7 @@ FR-0031 不新增第二套 anti-detection validation object family。它复用 `
 
 - requested 与 managed target 必须同域、同页面、同 tab continuity。
 - 不能通过上传、提交、发布、文件选择器或 DataTransfer 注入证明。
+- target binding evidence 必须能回链到当前 `run_id` 的真实浏览器 artifact。
 
 ## CreatorWriteValidationView
 
@@ -100,6 +107,7 @@ ready 条件：
 - `scope`
 - `runtime_prerequisite`
 - `target_binding`
+- `evidence_binding`
 - `validation_requirements_satisfied`
 - `blocker`
 - `checked_at`
@@ -110,3 +118,22 @@ ready 条件：
 - `GO` 只表示允许进入后续受控上传 live evidence 准备。
 - `GO` 不表示上传成功、提交成功或发布成功。
 - `NO_GO` 必须携带 blocker layer、code、recovery action。
+- `evidence_binding` 缺失或只指向 stub、fake host、`runtime.ping`、`runtime.bootstrap`、控制面存活信号时，必须 `NO_GO`。
+
+## AdmissionEvidenceBinding
+
+派生自 `runtime.status`、`runtime.audit`、`runtime.closeout_gate` 或 non-write readiness probe 的真实浏览器证据引用。
+
+字段：
+
+- `execution_surface=real_browser`
+- `run_id`
+- `profile_ref`
+- `artifact_identity`
+- `evidence_source`
+
+约束：
+
+- `artifact_identity` 必须可机器核验，并指向当前 `run_id` 的证据产物。
+- `runtime.status`、`runtime.audit`、`runtime.closeout_gate` 若作为证据来源，必须携带或指向该 binding。
+- stub、fake host、`runtime.ping`、`runtime.bootstrap` 或仅控制面存活信号不得满足该 binding。

@@ -23,7 +23,7 @@ Constraints:
 
 - `profile_ref` uses the existing `FR-0003 / FR-0020` namespace.
 - `www.xiaohongshu.com` and `live_read_high_risk` are not compatible substitutes.
-- `probe-bundle/xhs-closeout-min-v1` is not a compatible substitute unless a future spec explicitly expands it to creator write scope.
+- `probe-bundle/xhs-closeout-min-v1` is not a compatible substitute for FR-0031 creator write scope.
 
 ## Runtime Prerequisite
 
@@ -31,6 +31,8 @@ Constraints:
 type XhsCreatorRuntimePrerequisiteV1 = {
   profile_ref: string;
   profile_root_ref: string;
+  run_id: string;
+  artifact_identity: string;
   identity_binding_state: "bound";
   service_worker_freshness_state: "fresh" | "not_applicable" | "unknown";
   runtime_readiness: "ready";
@@ -53,6 +55,9 @@ type XhsCreatorTargetBindingV1 = {
   requested_target_domain: "creator.xiaohongshu.com";
   requested_target_page: "creator_publish_tab";
   requested_target_tab_id: number;
+  run_id: string;
+  profile_ref: string;
+  artifact_identity: string;
   managed_target_tab_id: number;
   managed_target_domain: "creator.xiaohongshu.com";
   managed_target_page: "creator_publish_tab";
@@ -91,6 +96,28 @@ Required rows:
 - `FR-0013 + layer2_interaction`
 - `FR-0014 + layer3_session_rhythm`
 
+## Evidence Binding
+
+```ts
+type XhsCreatorAdmissionEvidenceBindingV1 = {
+  execution_surface: "real_browser";
+  run_id: string;
+  profile_ref: string;
+  artifact_identity: string;
+  evidence_source:
+    | "runtime.status"
+    | "runtime.audit"
+    | "runtime.closeout_gate"
+    | "non_write_readiness_probe";
+};
+```
+
+Constraints:
+
+- `artifact_identity` must be machine-checkable and must identify evidence collected for the current `run_id`.
+- Stub, fake host, `runtime.ping`, `runtime.bootstrap`, or control-plane-only signals cannot satisfy this binding.
+- `runtime.status`, `runtime.audit`, and `runtime.closeout_gate` evidence must carry this binding directly or point to an equivalent real-browser runtime artifact.
+
 ## Admission Decision
 
 ```ts
@@ -99,6 +126,7 @@ type XhsCreatorLiveWriteAdmissionDecisionV1 = {
   scope: XhsCreatorLiveWriteAdmissionScopeV1;
   runtime_prerequisite: XhsCreatorRuntimePrerequisiteV1 | null;
   target_binding: XhsCreatorTargetBindingV1 | null;
+  evidence_binding: XhsCreatorAdmissionEvidenceBindingV1 | null;
   validation_requirements_satisfied: boolean;
   blocker:
     | null

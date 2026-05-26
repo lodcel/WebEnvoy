@@ -110,7 +110,7 @@ Canonical Issue: #819
 约束：
 
 - `probe-bundle/xhs-closeout-min-v1` 的 read baseline 不得替代本 bundle。
-- 若实现选择沿用 `probe-bundle/xhs-closeout-min-v1` 名称，必须先更新 formal contract 与 tests，证明它已扩展为 creator write scope；在未冻结前不得混用。
+- `probe-bundle/xhs-closeout-min-v1` 与 creator write scope 不兼容；FR-0031 scope 只能使用 `probe-bundle/xhs-creator-live-write-admission-v1`。
 - 缺任一 target FR validation view 时，creator write admission 必须 `NO_GO`。
 
 ### 6. non-write readiness ladder
@@ -152,6 +152,21 @@ Canonical Issue: #819
 - `session_rhythm`
 - `anti_detection_validation`
 
+### 8. admission evidence binding
+
+所有用于 creator write admission `GO` / `NO_GO` 判断的证据都必须绑定到真实浏览器运行证据：
+
+- `execution_surface = real_browser`
+- `run_id`
+- `profile_ref`
+- `artifact_identity` 或等价可机器核验 artifact identity
+
+约束：
+
+- stub、fake host、仅 `runtime.ping` 成功、仅 `runtime.bootstrap` ack、仅控制面存活信号，均不得作为 creator write admission evidence。
+- `runtime.status`、`runtime.audit`、`runtime.closeout_gate` 输出若用于 admission evidence，必须携带或可回链到真实浏览器运行证据，而不是只证明控制面检查成功。
+- evidence identity 缺失、无法回链到当前 `run_id`、或无法证明 `execution_surface=real_browser` 时，creator write admission 必须 `NO_GO`。
+
 ## 异常与边界场景
 
 ### 1. read baseline 已 ready，但 live_write baseline 缺失
@@ -192,6 +207,14 @@ When 无法在当前回合只读确认
 Then 系统必须暂停并记录 blocker
 And 不得把账号接触 action 当成准入探针
 
+### 6. admission evidence 缺少真实浏览器绑定
+
+Given `runtime.status`、`runtime.audit` 或 `runtime.closeout_gate` 只返回控制面存活信号
+And evidence 缺少 `execution_surface=real_browser`、`run_id`、`profile_ref` 或 artifact identity
+When creator write admission 被请求
+Then 系统必须返回 `NO_GO`
+And 不得把 stub、fake host、`runtime.ping` 或 `runtime.bootstrap` 作为 admission evidence
+
 ## 验收标准
 
 1. reviewer 能确认 `#819 / FR-0031` 是 creator live write admission 的唯一 formal owner。
@@ -199,6 +222,7 @@ And 不得把账号接触 action 当成准入探针
 3. reviewer 能确认 `FR-0012/0013/0014` validation binding 使用 `effective_execution_mode=live_write` 与 creator write probe bundle。
 4. reviewer 能确认 profile/root、identity freshness、account safety、session rhythm 与 creator target binding 都是 creator write admission 的必要条件。
 5. reviewer 能确认本 FR 没有执行或放行真实上传、提交、发布、文件选择器或 DataTransfer 注入。
+6. reviewer 能确认所有 admission evidence 都绑定 `execution_surface=real_browser`、`run_id`、`profile_ref` 与 artifact identity，且控制面存活信号不能替代真实浏览器证据。
 
 ## GWT 验收场景
 
@@ -208,6 +232,7 @@ Given `FR-0029` read closeout validation baseline ready
 When `runtime.closeout_gate` 使用 `target_domain=creator.xiaohongshu.com` and `requested_execution_mode=live_write`
 Then gate decision is `NO_GO`
 And missing refs include `FR-0012`、`FR-0013`、`FR-0014`
+And `probe_bundle_ref` remains `probe-bundle/xhs-creator-live-write-admission-v1`
 
 ### 场景 2：creator write admission ready
 
@@ -216,6 +241,7 @@ And creator target binding is verified
 And account safety is clear
 And session rhythm allows creator write admission
 And creator write validation views for `FR-0012/0013/0014` are ready
+And admission evidence includes `execution_surface=real_browser`、`run_id`、`profile_ref` and artifact identity
 When `runtime.closeout_gate` checks creator write scope
 Then gate decision is `GO`
 And the output includes the creator write scope keys
@@ -234,3 +260,12 @@ But creator target binding is missing
 When readiness recovery runs
 Then it stops before live_write
 And writes target binding blocker evidence
+
+### 场景 5：control-plane signals cannot prove admission
+
+Given `runtime.ping` succeeds
+And `runtime.bootstrap` returns ack
+But evidence has no machine-checkable real-browser artifact identity for the current `run_id`
+When `runtime.closeout_gate` checks creator write scope
+Then gate decision is `NO_GO`
+And blocker identifies missing real-browser admission evidence
