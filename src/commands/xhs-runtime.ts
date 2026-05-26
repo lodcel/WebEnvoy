@@ -3,7 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { CommandDefinition, CommandExecutionResult, JsonObject, RuntimeContext } from "../core/types.js";
+import type {
+  CapabilityErrorDetails,
+  CommandDefinition,
+  CommandExecutionResult,
+  JsonObject,
+  RuntimeContext
+} from "../core/types.js";
 import { CliError } from "../core/errors.js";
 import { mapCapabilitySummaryForContract } from "../core/capability-output.js";
 import {
@@ -92,6 +98,143 @@ const asObject = (value: unknown): JsonObject | null =>
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const XHS_CREATOR_PUBLISH_ABILITY = {
+  id: "xhs.creator.publish.v1",
+  layer: "L3",
+  action: "write"
+} as const;
+
+const XHS_EDITOR_INPUT_ABILITY = {
+  id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+  layer: "L3",
+  action: "write"
+} as const;
+
+type DedicatedXhsAbility = {
+  id: string;
+  layer: "L3";
+  action: "write";
+};
+
+type DedicatedXhsInputErrorDetails = {
+  reason: string;
+} & JsonObject;
+
+const DEDICATED_XHS_SHORTHAND_OPTION_KEYS = new Set([
+  "target_domain",
+  "target_tab_id",
+  "target_page",
+  "requested_execution_mode",
+  "risk_state",
+  "issue_scope",
+  "action_type",
+  "validation_action",
+  "editor_text_write",
+  "discovery_action",
+  "approval_record",
+  "fixture_success"
+]);
+
+const DEDICATED_XHS_SHORTHAND_PASSTHROUGH_KEYS = new Set([
+  "request_id",
+  "gate_invocation_id"
+]);
+
+const DEDICATED_XHS_FULL_ENVELOPE_KEYS = new Set([
+  "action_request",
+  "resource_binding",
+  "authorization_grant",
+  "runtime_target"
+]);
+
+const dedicatedXhsInputError = (
+  message: string,
+  ability: DedicatedXhsAbility,
+  details: DedicatedXhsInputErrorDetails
+): CliError => {
+  const errorDetails: CapabilityErrorDetails = {
+    ability_id: ability.id,
+    stage: "input_validation",
+    ...details
+  };
+  return new CliError("ERR_CLI_INVALID_ARGS", message, {
+    details: errorDetails
+  });
+};
+
+const assertDedicatedXhsShorthandOptions = (options: JsonObject, ability: DedicatedXhsAbility): void => {
+  const unknownKeys = Object.keys(options).filter((key) => !DEDICATED_XHS_SHORTHAND_OPTION_KEYS.has(key));
+  if (unknownKeys.length > 0) {
+    throw dedicatedXhsInputError("XHS dedicated command shorthand option invalid", ability, {
+      reason: "DEDICATED_OPTION_UNKNOWN",
+      unknown_keys: unknownKeys
+    });
+  }
+};
+
+const normalizeDedicatedXhsCommandParams = (
+  params: JsonObject,
+  ability: DedicatedXhsAbility
+): JsonObject => {
+  const explicitAbility = asObject(params.ability);
+  if (explicitAbility) {
+    if (
+      asString(explicitAbility.id) !== ability.id ||
+      asString(explicitAbility.layer) !== ability.layer ||
+      asString(explicitAbility.action) !== ability.action
+    ) {
+      throw dedicatedXhsInputError("XHS dedicated command ability mismatch", ability, {
+        reason: "DEDICATED_ABILITY_MISMATCH",
+        expected_ability: ability,
+        actual_ability: explicitAbility
+      });
+    }
+    return params;
+  }
+  const input = asObject(params.input) ?? {};
+  const explicitOptions = asObject(params.options) ?? {};
+  assertDedicatedXhsShorthandOptions(explicitOptions, ability);
+  const options: JsonObject = {};
+  const passthrough: JsonObject = {};
+
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "input" || key === "options") {
+      continue;
+    }
+    if (DEDICATED_XHS_SHORTHAND_PASSTHROUGH_KEYS.has(key)) {
+      (passthrough as Record<string, unknown>)[key] = value;
+      continue;
+    }
+    if (DEDICATED_XHS_FULL_ENVELOPE_KEYS.has(key)) {
+      throw dedicatedXhsInputError("XHS dedicated command shorthand object requires ability envelope", ability, {
+        reason: "DEDICATED_OBJECT_REQUIRES_ABILITY",
+        object_key: key
+      });
+    }
+    if (DEDICATED_XHS_SHORTHAND_OPTION_KEYS.has(key)) {
+      (options as Record<string, unknown>)[key] = value;
+      continue;
+    }
+    throw dedicatedXhsInputError("XHS dedicated command shorthand option invalid", ability, {
+      reason: "DEDICATED_OPTION_UNKNOWN",
+      unknown_keys: [key]
+    });
+  }
+
+  const mergedOptions = {
+    ...options,
+    ...explicitOptions
+  };
+  assertDedicatedXhsShorthandOptions(mergedOptions, ability);
+
+  return {
+    ability: { ...ability },
+    input,
+    options: mergedOptions,
+    ...passthrough
+  };
+};
 
 const WEBENVOY_RUNTIME_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -3000,14 +3143,20 @@ const xhsSearch = async (context: RuntimeContext): Promise<CommandExecutionResul
 };
 
 const xhsEditorInputValidate = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
-  return xhsReadCommand(context, {
+  return xhsReadCommand({
+    ...context,
+    params: normalizeDedicatedXhsCommandParams(context.params, XHS_EDITOR_INPUT_ABILITY)
+  }, {
     fixtureDataRefKey: "validation_action",
     parseInput: () => parseEditorInputValidateInputForContract()
   });
 };
 
 const xhsEditorTextWrite = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
-  return xhsReadCommand(context, {
+  return xhsReadCommand({
+    ...context,
+    params: normalizeDedicatedXhsCommandParams(context.params, XHS_EDITOR_INPUT_ABILITY)
+  }, {
     fixtureDataRefKey: "validation_action",
     parseInput: (envelope) =>
       parseEditorTextWriteInputForContract(envelope.input, envelope.ability.id)
@@ -3015,14 +3164,20 @@ const xhsEditorTextWrite = async (context: RuntimeContext): Promise<CommandExecu
 };
 
 const xhsCreatorPublishAdmit = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
-  return xhsReadCommand(context, {
+  return xhsReadCommand({
+    ...context,
+    params: normalizeDedicatedXhsCommandParams(context.params, XHS_CREATOR_PUBLISH_ABILITY)
+  }, {
     fixtureDataRefKey: "target_page",
     parseInput: () => parseCreatorPublishAdmissionInputForContract()
   });
 };
 
 const xhsMediaUploadDiscover = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
-  return xhsReadCommand(context, {
+  return xhsReadCommand({
+    ...context,
+    params: normalizeDedicatedXhsCommandParams(context.params, XHS_CREATOR_PUBLISH_ABILITY)
+  }, {
     fixtureDataRefKey: "target_page",
     parseInput: () => parseMediaUploadDiscoveryInputForContract()
   });
