@@ -111,6 +111,13 @@ const XHS_EDITOR_INPUT_ABILITY = {
   action: "write"
 } as const;
 
+// editor_text.write is the controlled #208 editor_input text-write path.
+const XHS_EDITOR_TEXT_WRITE_ABILITY = {
+  id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+  layer: "L3",
+  action: "write"
+} as const;
+
 type DedicatedXhsAbility = {
   id: string;
   layer: "L3";
@@ -3155,7 +3162,7 @@ const xhsEditorInputValidate = async (context: RuntimeContext): Promise<CommandE
 const xhsEditorTextWrite = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
   return xhsReadCommand({
     ...context,
-    params: normalizeDedicatedXhsCommandParams(context.params, XHS_EDITOR_INPUT_ABILITY)
+    params: normalizeDedicatedXhsCommandParams(context.params, XHS_EDITOR_TEXT_WRITE_ABILITY)
   }, {
     fixtureDataRefKey: "validation_action",
     parseInput: (envelope) =>

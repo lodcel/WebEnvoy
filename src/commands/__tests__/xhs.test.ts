@@ -9682,6 +9682,48 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("keeps xhs.editor_text.write pinned to the controlled editor_input ability", async () => {
+    await expect(
+      executeCommand(
+        {
+          cwd: "/tmp/webenvoy",
+          command: "xhs.editor_text.write",
+          profile: "profile-dedicated-xhs-editor-text-mismatch-001",
+          run_id: "run-dedicated-xhs-editor-text-mismatch-001",
+          params: {
+            ability: {
+              id: "xhs.creator.publish.v1",
+              layer: "L3",
+              action: "write"
+            },
+            input: {
+              text: "controlled editor text"
+            },
+            options: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "live_write",
+              risk_state: "allowed"
+            }
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      )
+    ).rejects.toMatchObject({
+      code: "ERR_CLI_INVALID_ARGS",
+      details: expect.objectContaining({
+        reason: "DEDICATED_ABILITY_MISMATCH",
+        expected_ability: expect.objectContaining({
+          id: "xhs.editor.input.v1"
+        }),
+        actual_ability: expect.objectContaining({
+          id: "xhs.creator.publish.v1"
+        })
+      })
+    });
+  });
+
   it("rejects unknown top-level shorthand options for dedicated XHS commands", async () => {
     await expect(
       executeCommand(
