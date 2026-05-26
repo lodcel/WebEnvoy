@@ -60,12 +60,15 @@ export const runCli = async (
   let recorder: ReturnType<typeof createRuntimeStoreRecorder> | null = null;
 
   try {
-    const parsed = parseArgv(argv);
+    const registry = createCommandRegistry();
+    const parsed = parseArgv(argv, {
+      registeredCommands: registry.list().map((command) => command.name)
+    });
     const context = buildRuntimeContext(parsed, cwd);
     runtimeContext = context;
     recorder = createRuntimeStoreRecorder(cwd);
     await recorder.recordStart(context);
-    const execution = await executeCommand(context, createCommandRegistry());
+    const execution = await executeCommand(context, registry);
     await recorder.recordSuccess(context, execution.summary);
 
     writeJsonLine(

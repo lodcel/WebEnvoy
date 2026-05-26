@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { createCommandRegistry } from "../../commands/index.js";
 import { parseArgv } from "../argv.js";
 import { CliError } from "../errors.js";
+
+const REGISTERED_COMMANDS = createCommandRegistry().list().map((command) => command.name);
+
+const REGISTERED_MULTI_SEGMENT_COMMANDS = REGISTERED_COMMANDS.filter(
+  (command) => command.split(".").length === 3
+);
 
 describe("parseArgv", () => {
   it("parses command and options using the frozen syntax", () => {
@@ -34,34 +41,35 @@ describe("parseArgv", () => {
     });
   });
 
-  it.each([
-    "xhs.creator_publish.admit",
-    "xhs.editor_input.validate",
-    "xhs.editor_text.write",
-    "xhs.media_upload.discover"
-  ])("accepts registered multi-segment platform command %s", (command) => {
-    const parsed = parseArgv([
-      command,
-      "--profile",
-      "xhs_001",
-      "--run-id",
-      "issue820-dedicated-cli-001",
-      "--params",
-      '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
-    ]);
+  it.each(REGISTERED_MULTI_SEGMENT_COMMANDS)(
+    "accepts registered multi-segment platform command %s",
+    (command) => {
+      const parsed = parseArgv(
+        [
+          command,
+          "--profile",
+          "xhs_001",
+          "--run-id",
+          "issue820-dedicated-cli-001",
+          "--params",
+          '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
+        ],
+        { registeredCommands: REGISTERED_COMMANDS }
+      );
 
-    expect(parsed).toEqual({
-      command,
-      params: {
-        target_domain: "creator.xiaohongshu.com",
-        target_tab_id: 32,
-        target_page: "creator_publish_tab",
-        requested_execution_mode: "dry_run"
-      },
-      profile: "xhs_001",
-      runId: "issue820-dedicated-cli-001"
-    });
-  });
+      expect(parsed).toEqual({
+        command,
+        params: {
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "dry_run"
+        },
+        profile: "xhs_001",
+        runId: "issue820-dedicated-cli-001"
+      });
+    }
+  );
 
   it("rejects commands with too many segments", () => {
     expect(() => parseArgv(["xhs.creator.publish.admit"])).toThrowError(CliError);
@@ -70,7 +78,9 @@ describe("parseArgv", () => {
   it.each(["a.b.c", "xhs.creator_publish.fake"])(
     "rejects unregistered multi-segment command %s",
     (command) => {
-      expect(() => parseArgv([command])).toThrowError(CliError);
+      expect(() =>
+        parseArgv([command], { registeredCommands: REGISTERED_COMMANDS })
+      ).toThrowError(CliError);
     }
   );
 

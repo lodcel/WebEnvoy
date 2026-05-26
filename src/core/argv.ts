@@ -4,13 +4,11 @@ import type { JsonObject, ParsedCliInput } from "./types.js";
 const COMMAND_SEGMENT_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const COMMAND_MAX_SEGMENTS = 3;
 const COMMAND_MAX_LENGTH = 96;
-const REGISTERED_MULTI_SEGMENT_COMMANDS = new Set([
-  "xhs.creator_publish.admit",
-  "xhs.editor_input.validate",
-  "xhs.editor_text.write",
-  "xhs.media_upload.discover"
-]);
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
+
+type ParseArgvOptions = {
+  registeredCommands?: Iterable<string>;
+};
 
 const parseParams = (raw: string): JsonObject => {
   let parsed: unknown;
@@ -37,7 +35,7 @@ const requireOptionValue = (argv: string[], index: number, optionName: string): 
   return value;
 };
 
-const assertCommand = (command: string): void => {
+const assertCommand = (command: string, options: ParseArgvOptions): void => {
   const segments = command.split(".");
   if (
     command.length > COMMAND_MAX_LENGTH ||
@@ -51,7 +49,8 @@ const assertCommand = (command: string): void => {
     );
   }
 
-  if (segments.length === 3 && !REGISTERED_MULTI_SEGMENT_COMMANDS.has(command)) {
+  const registeredCommands = new Set(options.registeredCommands ?? []);
+  if (segments.length === 3 && !registeredCommands.has(command)) {
     throw new CliError("ERR_CLI_INVALID_ARGS", "三段命令必须是已注册的受控命令");
   }
 };
@@ -71,7 +70,7 @@ export const getRunIdHint = (argv: string[]): string | null => {
   return null;
 };
 
-export const parseArgv = (argv: string[]): ParsedCliInput => {
+export const parseArgv = (argv: string[], options: ParseArgvOptions = {}): ParsedCliInput => {
   if (argv.length === 0) {
     throw new CliError("ERR_CLI_INVALID_ARGS", "<command> 是必填位置参数");
   }
@@ -82,7 +81,7 @@ export const parseArgv = (argv: string[]): ParsedCliInput => {
     throw new CliError("ERR_CLI_INVALID_ARGS", "<command> 必须是第一个位置参数");
   }
 
-  assertCommand(command);
+  assertCommand(command, options);
 
   let params: JsonObject = {};
   let profile: string | null = null;
