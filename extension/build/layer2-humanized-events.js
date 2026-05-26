@@ -285,6 +285,143 @@ export const buildLayer2RhythmPlan = (evidence, input) => {
         blocked_by: null
     };
 };
+export const buildLayer2ScheduledEventChain = (evidence, input) => {
+    const eventChain = buildLayer2EventChainPlan(evidence);
+    if (eventChain.blocked_by) {
+        return {
+            action_kind: eventChain.action_kind,
+            selected_path: eventChain.selected_path,
+            event_chain: eventChain.event_chain,
+            scheduled_events: [],
+            completion_signal: [],
+            requires_settled_wait: false,
+            blocked_by: eventChain.blocked_by
+        };
+    }
+    const rhythmPlan = buildLayer2RhythmPlan(evidence, input);
+    const stepsByEvent = new Map();
+    for (const step of rhythmPlan.steps) {
+        const current = stepsByEvent.get(step.event_ref) ?? [];
+        current.push(step);
+        stepsByEvent.set(step.event_ref, current);
+    }
+    const scheduledEvents = eventChain.required_steps.flatMap((eventRef) => {
+        const rhythmSteps = stepsByEvent.get(eventRef) ?? [];
+        if (eventRef === "wheel" && rhythmSteps.length > 1) {
+            return rhythmSteps.map((step) => ({
+                sequence_index: 0,
+                event_ref: eventRef,
+                required: true,
+                rhythm_steps: [step]
+            }));
+        }
+        return [
+            {
+                sequence_index: 0,
+                event_ref: eventRef,
+                required: true,
+                rhythm_steps: rhythmSteps
+            }
+        ];
+    });
+    const indexedScheduledEvents = scheduledEvents.map((event, index) => ({
+        ...event,
+        sequence_index: index
+    }));
+    return {
+        action_kind: eventChain.action_kind,
+        selected_path: eventChain.selected_path,
+        event_chain: eventChain.event_chain,
+        scheduled_events: indexedScheduledEvents,
+        completion_signal: eventChain.completion_signal,
+        requires_settled_wait: eventChain.requires_settled_wait,
+        blocked_by: null
+    };
+};
+export const dispatchLayer2ScheduledEventChain = (target, schedule, input) => {
+    if (schedule.blocked_by) {
+        return {
+            action_kind: schedule.action_kind,
+            selected_path: schedule.selected_path,
+            event_chain: schedule.event_chain,
+            dispatched_events: [],
+            required_events_applied: [],
+            skipped_events: [],
+            text_applied: null,
+            scroll_delta_applied: null,
+            blocked_by: schedule.blocked_by
+        };
+    }
+    const dispatchedEvents = [];
+    const skippedEvents = [];
+    const appliedRequiredIndexes = new Set();
+    const text = typeof input?.text === "string" ? input.text : null;
+    const fallbackScrollDeltaY = resolveLayer2ScrollDelta(schedule.action_kind, input?.scrollDeltaY ?? null);
+    const scrollDeltasApplied = [];
+    const textWasApplied = text !== null && appliesLayer2Text(schedule.action_kind);
+    for (const scheduledEvent of schedule.scheduled_events) {
+        const eventRef = scheduledEvent.event_ref;
+        const recordDispatch = (applied) => {
+            if (applied) {
+                dispatchedEvents.push(eventRef);
+                if (scheduledEvent.required) {
+                    appliedRequiredIndexes.add(scheduledEvent.sequence_index);
+                }
+            }
+            else {
+                skippedEvents.push(eventRef);
+            }
+        };
+        if (eventRef === "focus") {
+            target.focus?.();
+            recordDispatch(dispatchLayer2Event(target, eventRef));
+            continue;
+        }
+        if (eventRef === "blur") {
+            target.blur?.();
+            recordDispatch(dispatchLayer2Event(target, eventRef));
+            continue;
+        }
+        if (eventRef === "input" && text !== null && appliesLayer2Text(schedule.action_kind)) {
+            applyLayer2TextValue(target, text);
+            recordDispatch(dispatchLayer2Event(target, eventRef, { text }));
+            continue;
+        }
+        if (eventRef === "change" && textWasApplied) {
+            recordDispatch(dispatchLayer2Event(target, eventRef));
+            continue;
+        }
+        if ((eventRef === "wheel" || eventRef === "scroll") && fallbackScrollDeltaY !== null) {
+            const scrollDeltaY = resolveLayer2ScheduledScrollDelta(scheduledEvent, fallbackScrollDeltaY);
+            if (eventRef === "wheel") {
+                const applied = dispatchLayer2Event(target, eventRef, { deltaY: scrollDeltaY });
+                recordDispatch(applied);
+                if (applied) {
+                    scrollDeltasApplied.push(scrollDeltaY);
+                }
+            }
+            else {
+                input?.windowLike?.scrollBy?.({ top: scrollDeltaY, left: 0, behavior: "auto" });
+                recordDispatch(dispatchLayer2Event(target, eventRef));
+            }
+            continue;
+        }
+        recordDispatch(dispatchLayer2Event(target, eventRef, { text }));
+    }
+    return {
+        action_kind: schedule.action_kind,
+        selected_path: schedule.selected_path,
+        event_chain: schedule.event_chain,
+        dispatched_events: dispatchedEvents,
+        required_events_applied: schedule.scheduled_events
+            .filter((event) => event.required && appliedRequiredIndexes.has(event.sequence_index))
+            .map((event) => event.event_ref),
+        skipped_events: skippedEvents,
+        text_applied: textWasApplied ? text : null,
+        scroll_delta_applied: scrollDeltasApplied.length > 0 ? scrollDeltasApplied : null,
+        blocked_by: null
+    };
+};
 export const buildLayer2InteractionEvidence = (input) => {
     const strategy = clone(STRATEGY_PROFILES[input.actionKind]);
     const chain = clone(EVENT_CHAINS[input.actionKind]);
@@ -378,3 +515,124 @@ const clampLayer2SegmentCount = (value) => {
     return Math.max(1, Math.min(8, Math.trunc(value)));
 };
 const isLayer2Punctuation = (value) => /[,.!?;:，。！？；：]/u.test(value);
+const appliesLayer2Text = (actionKind) => actionKind === "keyboard_input" || actionKind === "composition_input";
+const applyLayer2TextValue = (target, text) => {
+    if ("value" in target) {
+        target.value = text;
+    }
+};
+const resolveLayer2ScrollDelta = (actionKind, requestedDelta) => {
+    if (actionKind !== "scroll") {
+        return null;
+    }
+    if (typeof requestedDelta === "number" && Number.isFinite(requestedDelta)) {
+        return Math.trunc(requestedDelta);
+    }
+    return DEFAULT_RHYTHM_PROFILE.scroll_segment_min_px;
+};
+const resolveLayer2ScheduledScrollDelta = (scheduledEvent, fallbackDelta) => {
+    const rhythmDelta = scheduledEvent.rhythm_steps.find((step) => step.step_kind === "scroll_segment")?.delta_px;
+    return typeof rhythmDelta?.min === "number" && Number.isFinite(rhythmDelta.min)
+        ? Math.trunc(rhythmDelta.min)
+        : fallbackDelta;
+};
+const dispatchLayer2Event = (target, eventRef, input) => target.dispatchEvent(createLayer2DomEvent(eventRef, input));
+const createLayer2DomEvent = (eventRef, input) => {
+    if (eventRef === "keydown" || eventRef === "keyup") {
+        return createLayer2KeyboardEvent(eventRef);
+    }
+    if (eventRef === "compositionstart" ||
+        eventRef === "compositionupdate" ||
+        eventRef === "compositionend") {
+        return createLayer2CompositionEvent(eventRef, input?.text ?? "");
+    }
+    if (eventRef === "input") {
+        return createLayer2InputEvent(eventRef, input?.text ?? "");
+    }
+    if (eventRef === "mousemove" ||
+        eventRef === "mouseover" ||
+        eventRef === "mousedown" ||
+        eventRef === "mouseup" ||
+        eventRef === "click") {
+        return createLayer2MouseEvent(eventRef);
+    }
+    if (eventRef === "wheel") {
+        return createLayer2WheelEvent(input?.deltaY ?? DEFAULT_RHYTHM_PROFILE.scroll_segment_min_px);
+    }
+    return new Event(eventRef, { bubbles: true, cancelable: true });
+};
+const createLayer2KeyboardEvent = (type) => {
+    return createLayer2EventWithFallback(type, () => typeof KeyboardEvent === "function"
+        ? new KeyboardEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true
+        })
+        : null);
+};
+const createLayer2CompositionEvent = (type, text) => {
+    return createLayer2EventWithFallback(type, () => typeof CompositionEvent === "function"
+        ? new CompositionEvent(type, { bubbles: true, cancelable: true, data: text })
+        : null, {
+        data: text
+    });
+};
+const createLayer2InputEvent = (type, text) => {
+    return createLayer2EventWithFallback(type, () => typeof InputEvent === "function"
+        ? new InputEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            data: text,
+            inputType: "insertText"
+        })
+        : null, {
+        data: text,
+        inputType: "insertText"
+    });
+};
+const createLayer2MouseEvent = (type) => {
+    return createLayer2EventWithFallback(type, () => typeof MouseEvent === "function"
+        ? new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true
+        })
+        : null);
+};
+const createLayer2WheelEvent = (deltaY) => {
+    return createLayer2EventWithFallback("wheel", () => typeof WheelEvent === "function"
+        ? new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            deltaY
+        })
+        : null, {
+        deltaY
+    });
+};
+const createLayer2EventWithFallback = (type, createSpecificEvent, fields = {}) => {
+    let event = null;
+    try {
+        event = createSpecificEvent();
+    }
+    catch {
+        event = null;
+    }
+    event ??= new Event(type, { bubbles: true, cancelable: true });
+    for (const [field, value] of Object.entries(fields)) {
+        if (field in event) {
+            continue;
+        }
+        try {
+            Object.defineProperty(event, field, {
+                configurable: true,
+                enumerable: true,
+                get: () => value
+            });
+        }
+        catch {
+            // Some browser event implementations expose non-configurable fields.
+        }
+    }
+    return event;
+};

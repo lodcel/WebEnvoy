@@ -46,7 +46,9 @@ type BundledXhsExportName =
   | "executeXhsSearch"
   | "executeXhsDetail"
   | "executeXhsUserHome"
-  | "buildLayer2RhythmPlan";
+  | "buildLayer2RhythmPlan"
+  | "buildLayer2ScheduledEventChain"
+  | "dispatchLayer2ScheduledEventChain";
 
 type BundledContentScriptHandlerModule = {
   ContentScriptHandler: new (options?: { xhsEnv?: Record<string, unknown> }) => {
@@ -686,10 +688,11 @@ describe("extension build contract", () => {
       contentScriptBuildPath,
       "__webenvoy_module_layer2_humanized_events"
     );
-    const buildLayer2RhythmPlan =
-      bundleExports.__webenvoy_module_layer2_humanized_events?.buildLayer2RhythmPlan;
+    const layer2Module = bundleExports.__webenvoy_module_layer2_humanized_events;
 
-    expect(buildLayer2RhythmPlan).toEqual(expect.any(Function));
+    expect(layer2Module?.buildLayer2RhythmPlan).toEqual(expect.any(Function));
+    expect(layer2Module?.buildLayer2ScheduledEventChain).toEqual(expect.any(Function));
+    expect(layer2Module?.dispatchLayer2ScheduledEventChain).toEqual(expect.any(Function));
   });
 
   it("executes bundled xhs.search classic module without unresolved implementation references", async () => {

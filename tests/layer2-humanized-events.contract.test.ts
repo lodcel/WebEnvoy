@@ -4,10 +4,41 @@ import {
   buildLayer2EventChainPlan,
   buildLayer2InteractionEvidence,
   buildLayer2RhythmPlan,
+  buildLayer2ScheduledEventChain,
   buildXhsSearchLayer2InteractionEvidence,
+  dispatchLayer2ScheduledEventChain,
   getLayer2EventChainPolicies,
   resolveLayer2RhythmTiming
 } from "../extension/layer2-humanized-events.js";
+
+class Layer2MockDispatchTarget extends EventTarget {
+  value = "";
+  focused = false;
+  blurred = false;
+  readonly dispatched: string[] = [];
+  readonly eventObjects: Event[] = [];
+
+  constructor(private readonly failingEvents: string[] = []) {
+    super();
+  }
+
+  focus() {
+    this.focused = true;
+  }
+
+  blur() {
+    this.blurred = true;
+  }
+
+  dispatchEvent(event: Event): boolean {
+    this.dispatched.push(event.type);
+    this.eventObjects.push(event);
+    if (this.failingEvents.includes(event.type)) {
+      return false;
+    }
+    return super.dispatchEvent(event);
+  }
+}
 
 describe("FR-0013 layer2 humanized events", () => {
   it("builds default keyboard interaction evidence with stable contract objects", () => {
@@ -146,6 +177,392 @@ describe("FR-0013 layer2 humanized events", () => {
       required_steps: [],
       optional_steps: []
     });
+  });
+
+  it("builds a scheduled keyboard event chain with rhythm steps attached to input events", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "ok!" });
+
+    expect(schedule).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "real_input",
+      event_chain: "keyboard_input",
+      completion_signal: ["dom_settled", "framework_value_updated"],
+      requires_settled_wait: true,
+      blocked_by: null
+    });
+    expect(schedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "focus",
+      "keydown",
+      "input",
+      "keyup",
+      "change",
+      "blur"
+    ]);
+    expect(schedule.scheduled_events).toContainEqual(
+      expect.objectContaining({
+        sequence_index: 2,
+        event_ref: "input",
+        required: true,
+        rhythm_steps: [
+          expect.objectContaining({ step_kind: "typing_delay" }),
+          expect.objectContaining({ step_kind: "typing_delay" }),
+          expect.objectContaining({ step_kind: "punctuation_pause" }),
+          expect.objectContaining({ step_kind: "long_pause" })
+        ]
+      })
+    );
+  });
+
+  it("builds a scheduled click event chain with hover and click rhythm attached to event refs", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+
+    expect(schedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "mousemove",
+      "mouseover",
+      "mousedown",
+      "mouseup",
+      "click"
+    ]);
+    expect(schedule.scheduled_events).toContainEqual(
+      expect.objectContaining({
+        event_ref: "mouseover",
+        rhythm_steps: [expect.objectContaining({ step_kind: "hover_confirm" })]
+      })
+    );
+    expect(schedule.scheduled_events).toContainEqual(
+      expect.objectContaining({
+        event_ref: "click",
+        rhythm_steps: [expect.objectContaining({ step_kind: "click_jitter" })]
+      })
+    );
+  });
+
+  it("keeps blocked scheduled event chains non-executable", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "composition_input",
+      writeInteractionTierName: "irreversible_write",
+      executionApplied: true
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "blocked" });
+
+    expect(schedule).toMatchObject({
+      action_kind: "composition_input",
+      selected_path: "blocked",
+      event_chain: "composition_input",
+      scheduled_events: [],
+      completion_signal: [],
+      requires_settled_wait: false,
+      blocked_by: "FR-0011.write_interaction_tier"
+    });
+  });
+
+  it("dispatches the keyboard input event chain and applies text without session state", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "hello" });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, { text: "hello" });
+
+    expect(target.focused).toBe(true);
+    expect(target.blurred).toBe(true);
+    expect(target.value).toBe("hello");
+    expect(target.dispatched).toEqual(["focus", "keydown", "input", "keyup", "change", "blur"]);
+    expect(result).toMatchObject({
+      action_kind: "keyboard_input",
+      selected_path: "real_input",
+      event_chain: "keyboard_input",
+      dispatched_events: ["focus", "keydown", "input", "keyup", "change", "blur"],
+      required_events_applied: ["focus", "keydown", "input", "keyup", "change", "blur"],
+      text_applied: "hello",
+      blocked_by: null
+    });
+  });
+
+  it("dispatches composition input with composition lifecycle before input finalize", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "composition_input",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "中文" });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, { text: "中文" });
+
+    expect(target.value).toBe("中文");
+    expect(target.dispatched).toEqual([
+      "focus",
+      "compositionstart",
+      "compositionupdate",
+      "compositionend",
+      "input",
+      "change",
+      "blur"
+    ]);
+    expect(result.required_events_applied).toEqual([
+      "focus",
+      "compositionstart",
+      "compositionupdate",
+      "compositionend",
+      "input",
+      "change",
+      "blur"
+    ]);
+  });
+
+  it("dispatches hover and click through the scheduled pointer chain", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(target.dispatched).toEqual(["mousemove", "mouseover", "mousedown", "mouseup", "click"]);
+    expect(result.required_events_applied).toEqual([
+      "mousemove",
+      "mouseover",
+      "mousedown",
+      "mouseup",
+      "click"
+    ]);
+  });
+
+  it("dispatches focus/blur acquisition as its own chain", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "focus",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(target.focused).toBe(true);
+    expect(target.dispatched).toEqual(["focus"]);
+    expect(result.required_events_applied).toEqual(["focus"]);
+  });
+
+  it("dispatches scroll with bounded default delta and optional window scroll hook", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "scroll",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { scrollSegmentCount: 1 });
+    const target = new Layer2MockDispatchTarget();
+    const scrollCalls: Array<{ top: number; left: number; behavior: "auto" }> = [];
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, {
+      windowLike: {
+        scrollBy: (options) => {
+          scrollCalls.push(options);
+        }
+      }
+    });
+
+    expect(target.dispatched).toEqual(["wheel", "scroll"]);
+    expect(scrollCalls).toEqual([{ top: 120, left: 0, behavior: "auto" }]);
+    expect(result).toMatchObject({
+      action_kind: "scroll",
+      dispatched_events: ["wheel", "scroll"],
+      required_events_applied: ["wheel", "scroll"],
+      scroll_delta_applied: [120],
+      blocked_by: null
+    });
+  });
+
+  it("expands multiple scroll rhythm segments into repeated wheel scheduled events", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "scroll",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { scrollSegmentCount: 2 });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(schedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "wheel",
+      "wheel",
+      "scroll"
+    ]);
+    expect(schedule.scheduled_events.map((event) => event.sequence_index)).toEqual([0, 1, 2]);
+    expect(target.dispatched).toEqual(["wheel", "wheel", "scroll"]);
+    expect(result).toMatchObject({
+      dispatched_events: ["wheel", "wheel", "scroll"],
+      required_events_applied: ["wheel", "wheel", "scroll"],
+      scroll_delta_applied: [120, 120],
+      blocked_by: null
+    });
+  });
+
+  it("does not dispatch blocked scheduled event chains", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "keyboard_input",
+      writeInteractionTierName: "irreversible_write",
+      executionApplied: true
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { text: "blocked" });
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, schedule, { text: "blocked" });
+
+    expect(target.dispatched).toEqual([]);
+    expect(target.value).toBe("");
+    expect(result).toMatchObject({
+      dispatched_events: [],
+      required_events_applied: [],
+      skipped_events: [],
+      text_applied: null,
+      blocked_by: "FR-0011.write_interaction_tier"
+    });
+  });
+
+  it("keeps blocked accounting separate from dispatch skip accounting", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const allowedSchedule = buildLayer2ScheduledEventChain(evidence);
+    const blockedSchedule = {
+      ...allowedSchedule,
+      selected_path: "blocked" as const,
+      blocked_by: "FR-0011.write_interaction_tier"
+    };
+    const target = new Layer2MockDispatchTarget();
+    const result = dispatchLayer2ScheduledEventChain(target, blockedSchedule);
+
+    expect(blockedSchedule.scheduled_events.map((event) => event.event_ref)).toEqual([
+      "mousemove",
+      "mouseover",
+      "mousedown",
+      "mouseup",
+      "click"
+    ]);
+    expect(target.dispatched).toEqual([]);
+    expect(result).toMatchObject({
+      dispatched_events: [],
+      required_events_applied: [],
+      skipped_events: [],
+      blocked_by: "FR-0011.write_interaction_tier"
+    });
+  });
+
+  it("reports required event dispatch failures without marking them applied", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "click",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence);
+    const target = new Layer2MockDispatchTarget(["mouseover"]);
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(target.dispatched).toEqual(["mousemove", "mouseover", "mousedown", "mouseup", "click"]);
+    expect(result.dispatched_events).toEqual(["mousemove", "mousedown", "mouseup", "click"]);
+    expect(result.required_events_applied).toEqual(["mousemove", "mousedown", "mouseup", "click"]);
+    expect(result.skipped_events).toEqual(["mouseover"]);
+  });
+
+  it("keeps required duplicate event accounting precise when one repeated event fails", () => {
+    const evidence = buildLayer2InteractionEvidence({
+      actionKind: "scroll",
+      executionApplied: true,
+      settledWaitResult: "settled"
+    });
+    const schedule = buildLayer2ScheduledEventChain(evidence, { scrollSegmentCount: 2 });
+    let wheelCount = 0;
+    const target = new Layer2MockDispatchTarget();
+    target.dispatchEvent = (event: Event): boolean => {
+      target.dispatched.push(event.type);
+      target.eventObjects.push(event);
+      if (event.type === "wheel") {
+        wheelCount += 1;
+        return wheelCount !== 2;
+      }
+      return true;
+    };
+    const result = dispatchLayer2ScheduledEventChain(target, schedule);
+
+    expect(result.dispatched_events).toEqual(["wheel", "scroll"]);
+    expect(result.required_events_applied).toEqual(["wheel", "scroll"]);
+    expect(result.skipped_events).toEqual(["wheel"]);
+    expect(result.scroll_delta_applied).toEqual([120]);
+  });
+
+  it("falls back to observable generic events when specialized constructors throw", () => {
+    const previousInputEvent = (globalThis as { InputEvent?: unknown }).InputEvent;
+    const previousCompositionEvent = (globalThis as { CompositionEvent?: unknown }).CompositionEvent;
+    const previousWheelEvent = (globalThis as { WheelEvent?: unknown }).WheelEvent;
+    (globalThis as { InputEvent?: unknown }).InputEvent = class {
+      constructor() {
+        throw new Error("InputEvent unavailable");
+      }
+    };
+    (globalThis as { CompositionEvent?: unknown }).CompositionEvent = class {
+      constructor() {
+        throw new Error("CompositionEvent unavailable");
+      }
+    };
+    (globalThis as { WheelEvent?: unknown }).WheelEvent = class {
+      constructor() {
+        throw new Error("WheelEvent unavailable");
+      }
+    };
+    try {
+      const compositionEvidence = buildLayer2InteractionEvidence({
+        actionKind: "composition_input",
+        executionApplied: true,
+        settledWaitResult: "settled"
+      });
+      const compositionTarget = new Layer2MockDispatchTarget();
+      dispatchLayer2ScheduledEventChain(
+        compositionTarget,
+        buildLayer2ScheduledEventChain(compositionEvidence, { text: "回退" }),
+        { text: "回退" }
+      );
+
+      const compositionUpdate = compositionTarget.eventObjects.find(
+        (event) => event.type === "compositionupdate"
+      ) as Event & { data?: string };
+      const input = compositionTarget.eventObjects.find((event) => event.type === "input") as
+        | (Event & { data?: string; inputType?: string })
+        | undefined;
+      expect(compositionUpdate?.data).toBe("回退");
+      expect(input?.data).toBe("回退");
+      expect(input?.inputType).toBe("insertText");
+
+      const scrollEvidence = buildLayer2InteractionEvidence({
+        actionKind: "scroll",
+        executionApplied: true,
+        settledWaitResult: "settled"
+      });
+      const scrollTarget = new Layer2MockDispatchTarget();
+      dispatchLayer2ScheduledEventChain(scrollTarget, buildLayer2ScheduledEventChain(scrollEvidence));
+
+      const wheel = scrollTarget.eventObjects.find((event) => event.type === "wheel") as
+        | (Event & { deltaY?: number })
+        | undefined;
+      expect(wheel?.deltaY).toBe(120);
+    } finally {
+      (globalThis as { InputEvent?: unknown }).InputEvent = previousInputEvent;
+      (globalThis as { CompositionEvent?: unknown }).CompositionEvent = previousCompositionEvent;
+      (globalThis as { WheelEvent?: unknown }).WheelEvent = previousWheelEvent;
+    }
   });
 
   it("resolves deterministic rhythm timing ranges without session state", () => {
