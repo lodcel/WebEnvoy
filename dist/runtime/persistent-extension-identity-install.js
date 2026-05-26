@@ -1,6 +1,6 @@
 import { constants as fsConstants } from "node:fs";
-import { access, lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { access, lstat, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { inspectManagedNativeHostInstall } from "../install/native-host-install-root.js";
 import { resolveManifestPathForChannel } from "../install/native-host-platform.js";
 const EMPTY_INSTALL_DIAGNOSTICS = {
@@ -474,6 +474,65 @@ const resolveEnabledUnpackedPath = async (profileDir, extensionId) => {
     }
     return null;
 };
+const isPathInside = (root, target) => {
+    const rel = relative(resolve(root), resolve(target));
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
+const resolveServiceWorkerRefreshPathBlocker = async (profileDir, serviceWorkerPath) => {
+    const expectedServiceWorkerPath = join(profileDir, "Default", "Service Worker");
+    const expectedDefaultPath = join(profileDir, "Default");
+    const normalizedExpected = resolve(expectedServiceWorkerPath);
+    const normalizedActual = resolve(serviceWorkerPath);
+    const baseBlocker = {
+        blocker_layer: "service_worker_cache",
+        required_recovery_action: "inspect_managed_profile_service_worker_cache",
+        expected_service_worker_path: expectedServiceWorkerPath,
+        actual_service_worker_path: serviceWorkerPath
+    };
+    if (!isPathInside(join(profileDir, "Default"), serviceWorkerPath)) {
+        return {
+            ...baseBlocker,
+            blocker_code: "service_worker_path_unexpected"
+        };
+    }
+    if (normalizedActual !== normalizedExpected) {
+        return {
+            ...baseBlocker,
+            blocker_code: "service_worker_path_unexpected"
+        };
+    }
+    for (const currentPath of [profileDir, expectedDefaultPath, expectedServiceWorkerPath]) {
+        const stat = await lstat(currentPath).catch((error) => {
+            if (error.code === "ENOENT") {
+                return null;
+            }
+            throw error;
+        });
+        if (!stat) {
+            return {
+                ...baseBlocker,
+                blocker_code: "service_worker_path_missing"
+            };
+        }
+        if (stat.isSymbolicLink()) {
+            return {
+                ...baseBlocker,
+                blocker_code: "service_worker_path_symlink"
+            };
+        }
+    }
+    const [profileRealPath, serviceWorkerRealPath] = await Promise.all([
+        realpath(profileDir),
+        realpath(serviceWorkerPath)
+    ]);
+    if (!isPathInside(profileRealPath, serviceWorkerRealPath)) {
+        return {
+            ...baseBlocker,
+            blocker_code: "service_worker_path_unexpected"
+        };
+    }
+    return null;
+};
 export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, extensionId) => {
     const serviceWorkerPath = join(profileDir, "Default", "Service Worker");
     const extensionPath = await resolveEnabledUnpackedPath(profileDir, extensionId);
@@ -562,6 +621,76 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (profileDir, 
         serviceWorkerPath,
         serviceWorkerLatestMtimeMs,
         recoveryHint: null
+    };
+};
+export const refreshProfileExtensionServiceWorkerCache = async (profileDir, extensionId, input = {}) => {
+    const before = await resolveProfileExtensionServiceWorkerFreshness(profileDir, extensionId);
+    const serviceWorkerPath = before.serviceWorkerPath;
+    const expectedServiceWorkerPath = join(profileDir, "Default", "Service Worker");
+    const shouldRemove = before.state === "stale";
+    const blocker = shouldRemove
+        ? await resolveServiceWorkerRefreshPathBlocker(profileDir, serviceWorkerPath)
+        : null;
+    const removable = shouldRemove && blocker === null;
+    if (!input.confirm) {
+        return {
+            operation: "dry_run",
+            profileDir,
+            extensionId,
+            serviceWorkerPath,
+            expectedServiceWorkerPath,
+            before,
+            after: null,
+            removable,
+            removed: false,
+            blocker,
+            recoveryHint: before.recoveryHint
+        };
+    }
+    if (blocker) {
+        return {
+            operation: "blocked",
+            profileDir,
+            extensionId,
+            serviceWorkerPath,
+            expectedServiceWorkerPath,
+            before,
+            after: null,
+            removable: false,
+            removed: false,
+            blocker,
+            recoveryHint: before.recoveryHint
+        };
+    }
+    if (!shouldRemove) {
+        return {
+            operation: "skipped",
+            profileDir,
+            extensionId,
+            serviceWorkerPath,
+            expectedServiceWorkerPath,
+            before,
+            after: before,
+            removable: false,
+            removed: false,
+            blocker: null,
+            recoveryHint: null
+        };
+    }
+    await rm(serviceWorkerPath, { recursive: true, force: true });
+    const after = await resolveProfileExtensionServiceWorkerFreshness(profileDir, extensionId);
+    return {
+        operation: "refreshed",
+        profileDir,
+        extensionId,
+        serviceWorkerPath,
+        expectedServiceWorkerPath,
+        before,
+        after,
+        removable: true,
+        removed: true,
+        blocker: null,
+        recoveryHint: after.recoveryHint
     };
 };
 export const resolveProfileExtensionState = async (profileDir, extensionId) => {

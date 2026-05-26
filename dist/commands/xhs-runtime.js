@@ -25,7 +25,8 @@ import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime
 import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
-const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
+const XHS_EDITOR_INPUT_ABILITY_ID = "xhs.editor.input.v1";
+const XHS_CREATOR_PUBLISH_ABILITY_ID = "xhs.creator.publish.v1";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
@@ -34,6 +35,124 @@ const asObject = (value) => typeof value === "object" && value !== null && !Arra
     ? value
     : null;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const XHS_CREATOR_PUBLISH_ABILITY = {
+    id: XHS_CREATOR_PUBLISH_ABILITY_ID,
+    layer: "L3",
+    action: "write"
+};
+const XHS_EDITOR_INPUT_ABILITY = {
+    id: XHS_EDITOR_INPUT_ABILITY_ID,
+    layer: "L3",
+    action: "write"
+};
+// editor_text.write is the controlled #208 editor_input text-write path.
+const XHS_EDITOR_TEXT_WRITE_ABILITY = {
+    id: XHS_EDITOR_INPUT_ABILITY_ID,
+    layer: "L3",
+    action: "write"
+};
+const XHS_MEDIA_UPLOAD_DISCOVER_ABILITY = {
+    id: XHS_CREATOR_PUBLISH_ABILITY_ID,
+    layer: "L3",
+    action: "write"
+};
+const DEDICATED_XHS_SHORTHAND_OPTION_KEYS = new Set([
+    "target_domain",
+    "target_tab_id",
+    "target_page",
+    "requested_execution_mode",
+    "risk_state",
+    "issue_scope",
+    "action_type",
+    "validation_action",
+    "editor_text_write",
+    "discovery_action",
+    "approval_record",
+    "fixture_success"
+]);
+const DEDICATED_XHS_SHORTHAND_PASSTHROUGH_KEYS = new Set([
+    "request_id",
+    "gate_invocation_id"
+]);
+const DEDICATED_XHS_FULL_ENVELOPE_KEYS = new Set([
+    "action_request",
+    "resource_binding",
+    "authorization_grant",
+    "runtime_target"
+]);
+const dedicatedXhsInputError = (message, ability, details) => {
+    const errorDetails = {
+        ability_id: ability.id,
+        stage: "input_validation",
+        ...details
+    };
+    return new CliError("ERR_CLI_INVALID_ARGS", message, {
+        details: errorDetails
+    });
+};
+const assertDedicatedXhsShorthandOptions = (options, ability) => {
+    const unknownKeys = Object.keys(options).filter((key) => !DEDICATED_XHS_SHORTHAND_OPTION_KEYS.has(key));
+    if (unknownKeys.length > 0) {
+        throw dedicatedXhsInputError("XHS dedicated command shorthand option invalid", ability, {
+            reason: "DEDICATED_OPTION_UNKNOWN",
+            unknown_keys: unknownKeys
+        });
+    }
+};
+const normalizeDedicatedXhsCommandParams = (params, ability) => {
+    const explicitAbility = asObject(params.ability);
+    if (explicitAbility) {
+        if (asString(explicitAbility.id) !== ability.id ||
+            asString(explicitAbility.layer) !== ability.layer ||
+            asString(explicitAbility.action) !== ability.action) {
+            throw dedicatedXhsInputError("XHS dedicated command ability mismatch", ability, {
+                reason: "DEDICATED_ABILITY_MISMATCH",
+                expected_ability: ability,
+                actual_ability: explicitAbility
+            });
+        }
+        return params;
+    }
+    const input = asObject(params.input) ?? {};
+    const explicitOptions = asObject(params.options) ?? {};
+    assertDedicatedXhsShorthandOptions(explicitOptions, ability);
+    const options = {};
+    const passthrough = {};
+    for (const [key, value] of Object.entries(params)) {
+        if (key === "input" || key === "options") {
+            continue;
+        }
+        if (DEDICATED_XHS_SHORTHAND_PASSTHROUGH_KEYS.has(key)) {
+            passthrough[key] = value;
+            continue;
+        }
+        if (DEDICATED_XHS_FULL_ENVELOPE_KEYS.has(key)) {
+            throw dedicatedXhsInputError("XHS dedicated command shorthand object requires ability envelope", ability, {
+                reason: "DEDICATED_OBJECT_REQUIRES_ABILITY",
+                object_key: key
+            });
+        }
+        if (DEDICATED_XHS_SHORTHAND_OPTION_KEYS.has(key)) {
+            options[key] = value;
+            continue;
+        }
+        throw dedicatedXhsInputError("XHS dedicated command shorthand option invalid", ability, {
+            reason: "DEDICATED_OPTION_UNKNOWN",
+            unknown_keys: [key]
+        });
+    }
+    const mergedOptions = {
+        ...options,
+        ...explicitOptions
+    };
+    assertDedicatedXhsShorthandOptions(mergedOptions, ability);
+    return {
+        ability: { ...ability },
+        input,
+        options: mergedOptions,
+        ...passthrough
+    };
+};
 const WEBENVOY_RUNTIME_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const resolveGitHeadForCwd = (cwd) => {
     const result = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel", "HEAD"], {
@@ -110,14 +229,18 @@ const resolveRuntimeBuildMetadataHeadForCwd = (cwd) => {
 const asPositiveInteger = (value) => typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 export const resolveForwardTimeoutMsForContract = (params) => asPositiveInteger(params.timeout_ms);
 const toSessionRhythmIdPart = (value) => value.replace(/[^A-Za-z0-9._-]+/gu, "_");
+const SESSION_RHYTHM_STORE_ISSUE_SCOPES = new Set(["issue_208", "issue_209", "issue_753", "issue_755"]);
+const resolveSessionRhythmStoreIssueScope = (issueScope) => {
+    return issueScope && SESSION_RHYTHM_STORE_ISSUE_SCOPES.has(issueScope) ? issueScope : null;
+};
 const buildSessionRhythmAdmissionForRuntime = async (input) => {
-    if (!input.profile) {
+    const issueScope = resolveSessionRhythmStoreIssueScope(input.issueScope ?? "issue_209");
+    if (!input.profile || !issueScope) {
         return null;
     }
     let store = null;
     try {
         store = new SQLiteRuntimeStore(resolveRuntimeStorePath(input.cwd));
-        const issueScope = asString(input.gate.options.issue_scope) ?? "issue_209";
         const persisted = await store.getSessionRhythmStatusView({
             profile: input.profile,
             platform: "xhs",
@@ -250,7 +373,8 @@ const buildSessionRhythmAdmissionForRuntime = async (input) => {
     return null;
 };
 const readPersistedSessionRhythmBlockStatus = async (input) => {
-    if (!input.profile) {
+    const issueScope = resolveSessionRhythmStoreIssueScope(input.issueScope ?? "issue_209");
+    if (!input.profile || !issueScope) {
         return null;
     }
     let store = null;
@@ -259,7 +383,7 @@ const readPersistedSessionRhythmBlockStatus = async (input) => {
         const persisted = await store.getSessionRhythmStatusView({
             profile: input.profile,
             platform: "xhs",
-            issueScope: input.issueScope ?? "issue_209"
+            issueScope
         });
         const windowState = persisted?.window_state;
         const persistedDecision = persisted?.decision;
@@ -404,12 +528,12 @@ const buildXhsCommandAliasDiagnostics = (input) => {
         source_command: "xhs.search",
         source_ability_id: input.ability.id,
         canonical_command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
-        canonical_ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+        canonical_ability_id: XHS_EDITOR_INPUT_ABILITY_ID,
         validation_action: "editor_input",
         issue_scope: "issue_208",
         replacement: {
             command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
-            ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID
+            ability_id: XHS_EDITOR_INPUT_ABILITY_ID
         },
         migration_hint: "Use xhs.editor_input.validate with ability.id=xhs.editor.input.v1; keep target and admission options unchanged."
     };
@@ -2098,6 +2222,71 @@ const assertXhsLivePreflightAllowsCommand = (input) => {
         }
     });
 };
+const recordXhsRecoveryProbeFailure = async (input) => {
+    const failureStatus = await input.profileRuntime.markXhsCloseoutSingleProbeFailed({
+        cwd: input.cwd,
+        profile: input.profile,
+        runId: input.runId,
+        params: {},
+        reasonCode: input.reasonCode
+    });
+    const xhsCloseoutRhythm = asObject(failureStatus.xhs_closeout_rhythm);
+    const accountSafetyRecord = asObject(failureStatus.account_safety_record);
+    const xhsCloseoutRhythmRecord = asObject(failureStatus.xhs_closeout_rhythm_record);
+    const storeIssueScope = resolveSessionRhythmStoreIssueScope(input.issueScope);
+    if (!storeIssueScope) {
+        return {
+            ...(xhsCloseoutRhythm ?? {}),
+            session_rhythm_status_view_skipped_reason: input.issueScope
+                ? "issue_scope_unsupported"
+                : "issue_scope_missing"
+        };
+    }
+    const recoveryRhythmView = toSessionRhythmStatusView({
+        profile: input.profile,
+        rhythm: xhsCloseoutRhythmRecord ?? undefined,
+        accountSafety: accountSafetyRecord ?? undefined,
+        issueScope: storeIssueScope,
+        sessionId: input.sessionId,
+        sourceRunId: input.runId,
+        effectiveExecutionMode: input.effectiveExecutionMode ?? "recon",
+        eventTypeOverride: "recovery_probe_failed",
+        eventReasonOverride: input.reasonCode ?? "XHS_RECOVERY_SINGLE_PROBE_FAILED"
+    });
+    const windowState = asObject(recoveryRhythmView.session_rhythm_window_state);
+    const event = asObject(recoveryRhythmView.session_rhythm_event);
+    const decision = asObject(recoveryRhythmView.session_rhythm_decision);
+    if (windowState && event && decision) {
+        let store = null;
+        try {
+            store = new SQLiteRuntimeStore(resolveRuntimeStorePath(input.cwd));
+            await store.recordSessionRhythmStatusView({
+                profile: input.profile,
+                platform: "xhs",
+                issueScope: storeIssueScope,
+                windowState,
+                event,
+                decision
+            });
+        }
+        catch (error) {
+            return {
+                ...(xhsCloseoutRhythm ?? {}),
+                session_rhythm_status_view_skipped_reason: "sqlite_write_failed",
+                session_rhythm_status_view_skip_error_code: error instanceof RuntimeStoreError ? error.code : "UNKNOWN"
+            };
+        }
+        finally {
+            try {
+                store?.close();
+            }
+            catch {
+                // Recovery probe failure payload must keep the original account-safety error stable.
+            }
+        }
+    }
+    return xhsCloseoutRhythm;
+};
 const prepareXhsOfficialChromeRuntime = async (context, ability, requestedExecutionMode, bridge, fingerprintContext, gate, readStatus) => {
     return await prepareOfficialChromeRuntime({
         context,
@@ -2167,25 +2356,37 @@ const xhsSearch = async (context) => {
     });
 };
 const xhsEditorInputValidate = async (context) => {
-    return xhsReadCommand(context, {
+    return xhsReadCommand({
+        ...context,
+        params: normalizeDedicatedXhsCommandParams(context.params, XHS_EDITOR_INPUT_ABILITY)
+    }, {
         fixtureDataRefKey: "validation_action",
         parseInput: () => parseEditorInputValidateInputForContract()
     });
 };
 const xhsEditorTextWrite = async (context) => {
-    return xhsReadCommand(context, {
+    return xhsReadCommand({
+        ...context,
+        params: normalizeDedicatedXhsCommandParams(context.params, XHS_EDITOR_TEXT_WRITE_ABILITY)
+    }, {
         fixtureDataRefKey: "validation_action",
         parseInput: (envelope) => parseEditorTextWriteInputForContract(envelope.input, envelope.ability.id)
     });
 };
 const xhsCreatorPublishAdmit = async (context) => {
-    return xhsReadCommand(context, {
+    return xhsReadCommand({
+        ...context,
+        params: normalizeDedicatedXhsCommandParams(context.params, XHS_CREATOR_PUBLISH_ABILITY)
+    }, {
         fixtureDataRefKey: "target_page",
         parseInput: () => parseCreatorPublishAdmissionInputForContract()
     });
 };
 const xhsMediaUploadDiscover = async (context) => {
-    return xhsReadCommand(context, {
+    return xhsReadCommand({
+        ...context,
+        params: normalizeDedicatedXhsCommandParams(context.params, XHS_MEDIA_UPLOAD_DISCOVER_ABILITY)
+    }, {
         fixtureDataRefKey: "target_page",
         parseInput: () => parseMediaUploadDiscoveryInputForContract()
     });
@@ -2210,6 +2411,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         runtimeProfile: context.profile ?? null,
         upstreamAuthorization: envelope.upstreamAuthorization
     });
+    const explicitIssueScope = asString(envelope.options.issue_scope);
     const parsedInput = inputConfig.parseInput(envelope, gate);
     const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
         command: context.command,
@@ -2262,7 +2464,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         (await readPersistedSessionRhythmBlockStatus({
             cwd: context.cwd,
             profile: context.profile,
-            issueScope: asString(gate.options.issue_scope),
+            issueScope: explicitIssueScope,
             profileMeta
         })) ?? xhsCloseoutRhythmStatus;
     const profileRuntime = new ProfileRuntimeService();
@@ -2278,10 +2480,13 @@ const xhsReadCommand = async (context, inputConfig) => {
         options: gate.options,
         requestedExecutionMode: gate.requestedExecutionMode
     });
+    const sessionRhythmGateApplies = context.command !== XHS_EDITOR_INPUT_VALIDATE_COMMAND;
+    const closeoutValidationReadinessApplies = context.command !== XHS_EDITOR_INPUT_VALIDATE_COMMAND;
     const accountSafetyBlockedLiveCommand = accountSafetyStatus.state === "account_risk_blocked" &&
         (liveXhsCommandRequested || recoveryProbeRequested);
     let antiDetectionValidationGate = null;
     if (context.profile &&
+        sessionRhythmGateApplies &&
         (liveXhsCommandRequested || recoveryProbeRequested || accountSafetyBlockedLiveCommand)) {
         const rhythmState = asString(xhsCloseoutRhythmStatus.state);
         const shouldRunRhythmGate = recoveryProbeRequested ||
@@ -2291,6 +2496,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         if (shouldRunRhythmGate) {
             if (!recoveryProbeRequested &&
                 liveXhsCommandRequested &&
+                closeoutValidationReadinessApplies &&
                 rhythmState === "single_probe_passed") {
                 let store = null;
                 try {
@@ -2385,14 +2591,17 @@ const xhsReadCommand = async (context, inputConfig) => {
         }
         const transportIsLoopback = process.env.WEBENVOY_NATIVE_TRANSPORT === "loopback";
         const { __anonymous_isolation_verified: anonymousIsolationVerified, target_site_logged_in: targetSiteLoggedIn, ...preparedGateOptions } = preparedIssue209LiveRead.options;
-        const sessionRhythmAdmission = await buildSessionRhythmAdmissionForRuntime({
-            cwd: context.cwd,
-            profile: context.profile,
-            runId: context.run_id,
-            sessionId: bridgeSessionId,
-            profileMeta,
-            gate
-        });
+        const sessionRhythmAdmission = sessionRhythmGateApplies
+            ? await buildSessionRhythmAdmissionForRuntime({
+                cwd: context.cwd,
+                profile: context.profile,
+                runId: context.run_id,
+                sessionId: bridgeSessionId,
+                profileMeta,
+                gate,
+                issueScope: explicitIssueScope
+            })
+            : null;
         const forwardTimeoutMs = resolveForwardTimeoutMsForContract(context.params);
         const runtimeGateOptions = {
             ...injectActiveApiFetchFallbackRuntimeAttestation({
@@ -2477,7 +2686,18 @@ const xhsReadCommand = async (context, inputConfig) => {
                     signal: accountSafetySignal
                 });
                 const accountSafety = asObject(accountSafetyResult.account_safety);
-                const xhsCloseoutRhythm = asObject(accountSafetyResult.xhs_closeout_rhythm);
+                const xhsCloseoutRhythm = recoveryProbeRequested
+                    ? await recordXhsRecoveryProbeFailure({
+                        cwd: context.cwd,
+                        profile: context.profile,
+                        runId: context.run_id,
+                        sessionId: bridgeSessionId,
+                        issueScope: explicitIssueScope,
+                        effectiveExecutionMode: gate.requestedExecutionMode,
+                        reasonCode: accountSafetySignal.reason,
+                        profileRuntime
+                    })
+                    : asObject(accountSafetyResult.xhs_closeout_rhythm);
                 const runtimeStop = asObject(accountSafetyResult.runtime_stop);
                 if (accountSafety) {
                     mergeAccountSafetyIntoFailurePayload(bridgeResult.payload, accountSafety, xhsCloseoutRhythm, runtimeStop);
@@ -2512,7 +2732,16 @@ const xhsReadCommand = async (context, inputConfig) => {
                 signal: recoveryProbeRiskSignal
             });
             const accountSafety = asObject(accountSafetyResult.account_safety);
-            const xhsCloseoutRhythm = asObject(accountSafetyResult.xhs_closeout_rhythm);
+            const xhsCloseoutRhythm = await recordXhsRecoveryProbeFailure({
+                cwd: context.cwd,
+                profile: context.profile,
+                runId: context.run_id,
+                sessionId: bridgeSessionId,
+                issueScope: explicitIssueScope,
+                effectiveExecutionMode: gate.requestedExecutionMode,
+                reasonCode: recoveryProbeRiskSignal.reason,
+                profileRuntime
+            });
             const runtimeStop = asObject(accountSafetyResult.runtime_stop);
             if (accountSafety) {
                 mergeAccountSafetyIntoFailurePayload(bridgeResult.payload, accountSafety, xhsCloseoutRhythm, runtimeStop);
@@ -2579,25 +2808,28 @@ const xhsReadCommand = async (context, inputConfig) => {
             }
             const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
             const latestMeta = await profileStore.readMeta(context.profile, { mode: "readonly" });
-            const recoveryRhythmView = toSessionRhythmStatusView({
-                profile: context.profile,
-                rhythm: latestMeta?.xhsCloseoutRhythm,
-                accountSafety: latestMeta?.accountSafety,
-                issueScope: asString(gate.options.issue_scope) ?? "issue_209",
-                sessionId: bridgeSessionId,
-                sourceRunId: context.run_id,
-                effectiveExecutionMode: gate.requestedExecutionMode
-            });
-            const windowState = asObject(recoveryRhythmView.session_rhythm_window_state);
-            const event = asObject(recoveryRhythmView.session_rhythm_event);
-            const decision = asObject(recoveryRhythmView.session_rhythm_decision);
-            if (windowState && event && decision) {
+            const recoveryStoreIssueScope = resolveSessionRhythmStoreIssueScope(explicitIssueScope ?? "issue_209");
+            const recoveryRhythmView = recoveryStoreIssueScope
+                ? toSessionRhythmStatusView({
+                    profile: context.profile,
+                    rhythm: latestMeta?.xhsCloseoutRhythm,
+                    accountSafety: latestMeta?.accountSafety,
+                    issueScope: recoveryStoreIssueScope,
+                    sessionId: bridgeSessionId,
+                    sourceRunId: context.run_id,
+                    effectiveExecutionMode: gate.requestedExecutionMode
+                })
+                : null;
+            const windowState = asObject(recoveryRhythmView?.session_rhythm_window_state);
+            const event = asObject(recoveryRhythmView?.session_rhythm_event);
+            const decision = asObject(recoveryRhythmView?.session_rhythm_decision);
+            if (windowState && event && decision && recoveryStoreIssueScope) {
                 const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(context.cwd));
                 try {
                     await store.recordSessionRhythmStatusView({
                         profile: context.profile,
                         platform: "xhs",
-                        issueScope: asString(gate.options.issue_scope) ?? "issue_209",
+                        issueScope: recoveryStoreIssueScope,
                         windowState,
                         event,
                         decision

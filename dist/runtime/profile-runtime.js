@@ -11,7 +11,7 @@ import { buildIdentityPreflightError, runIdentityPreflight } from "./persistent-
 import { buildFingerprintContextForMeta } from "./fingerprint-runtime.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "./native-messaging/bridge.js";
 import { buildClearAccountSafetyRecord, buildBlockedAccountSafetyRecord, toAccountSafetyStatus } from "./account-safety.js";
-import { buildBlockedXhsCloseoutRhythmRecord, claimXhsCloseoutSingleProbe, markXhsCloseoutOperatorConfirmed, markXhsCloseoutSingleProbePassed, toXhsCloseoutRhythmStatus } from "./xhs-closeout-rhythm.js";
+import { buildBlockedXhsCloseoutRhythmRecord, claimXhsCloseoutSingleProbe, markXhsCloseoutOperatorConfirmed, markXhsCloseoutSingleProbeFailed, markXhsCloseoutSingleProbePassed, toXhsCloseoutRhythmStatus } from "./xhs-closeout-rhythm.js";
 import { NativeHostBridgeTransport } from "./native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "./native-messaging/loopback.js";
 import { buildRuntimeBootstrapContextId } from "./runtime-bootstrap.js";
@@ -1232,6 +1232,41 @@ export class ProfileRuntimeService {
         await store.writeMeta(input.profile, nextMeta);
         return {
             profile: input.profile,
+            xhs_closeout_rhythm: toXhsCloseoutRhythmStatus({
+                rhythm: xhsCloseoutRhythm,
+                accountSafety: nextMeta.accountSafety
+            })
+        };
+    }
+    async markXhsCloseoutSingleProbeFailed(input) {
+        const failedAt = isoNow();
+        const store = this.#createStore(input.cwd);
+        const profileDir = this.#resolveProfileDir(store, input.profile);
+        await store.ensureProfileDir(input.profile);
+        const existingMeta = await this.#readMeta(store, input.profile, { mode: "readonly" }) ??
+            this.#buildMinimalProfileMeta({
+                profile: input.profile,
+                profileDir,
+                nowIso: failedAt
+            });
+        const xhsCloseoutRhythm = markXhsCloseoutSingleProbeFailed({
+            current: existingMeta.xhsCloseoutRhythm,
+            failedAt,
+            probeRunId: input.runId,
+            reasonCode: input.reasonCode
+        });
+        const nextMeta = {
+            ...existingMeta,
+            profileName: input.profile,
+            profileDir,
+            xhsCloseoutRhythm,
+            updatedAt: failedAt
+        };
+        await store.writeMeta(input.profile, nextMeta);
+        return {
+            profile: input.profile,
+            account_safety_record: nextMeta.accountSafety,
+            xhs_closeout_rhythm_record: xhsCloseoutRhythm,
             xhs_closeout_rhythm: toXhsCloseoutRhythmStatus({
                 rhythm: xhsCloseoutRhythm,
                 accountSafety: nextMeta.accountSafety
