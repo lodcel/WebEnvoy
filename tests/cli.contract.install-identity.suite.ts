@@ -113,6 +113,126 @@ describe("webenvoy cli contract / install and identity", () => {
         }
       }
     });
+
+    const dryRunRefresh = runCli(
+      [
+        "runtime.refresh_extension_service_worker",
+        "--profile",
+        profile,
+        "--run-id",
+        "run-contract-stale-service-worker-refresh-dry-run-001",
+        "--params",
+        JSON.stringify({
+          persistent_extension_identity: {
+            extension_id: extensionId
+          }
+        })
+      ],
+      runtimeCwd
+    );
+
+    expect(dryRunRefresh.status, dryRunRefresh.stdout).toBe(0);
+    expect(parseSingleJsonLine(dryRunRefresh.stdout)).toMatchObject({
+      command: "runtime.refresh_extension_service_worker",
+      status: "success",
+      summary: {
+        profile,
+        refresh_decision: "DRY_RUN",
+        dry_run: true,
+        service_worker_cache_removable: true,
+        would_remove_service_worker_cache: true,
+        removed_service_worker_cache: false,
+        service_worker_path: path.join(defaultDir, "Service Worker"),
+        expected_service_worker_path: path.join(defaultDir, "Service Worker"),
+        before: {
+          state: "stale",
+          reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD"
+        },
+        after: null,
+        blocker: null
+      }
+    });
+    await expect(stat(path.join(defaultDir, "Service Worker"))).resolves.toBeTruthy();
+
+    const unconfirmedManagedProfileRefresh = runCli(
+      [
+        "runtime.refresh_extension_service_worker",
+        "--profile",
+        profile,
+        "--run-id",
+        "run-contract-stale-service-worker-refresh-confirm-missing-managed-profile-001",
+        "--params",
+        JSON.stringify({
+          confirm: true,
+          persistent_extension_identity: {
+            extension_id: extensionId
+          }
+        })
+      ],
+      runtimeCwd
+    );
+
+    expect(unconfirmedManagedProfileRefresh.status, unconfirmedManagedProfileRefresh.stdout).toBe(0);
+    expect(parseSingleJsonLine(unconfirmedManagedProfileRefresh.stdout)).toMatchObject({
+      command: "runtime.refresh_extension_service_worker",
+      status: "success",
+      summary: {
+        profile,
+        refresh_decision: "NO_GO",
+        dry_run: false,
+        blocker: {
+          blocker_layer: "runtime_readiness",
+          blocker_code: "managed_profile_confirmation_missing"
+        }
+      }
+    });
+    await expect(stat(path.join(defaultDir, "Service Worker"))).resolves.toBeTruthy();
+
+    const confirmedRefresh = runCli(
+      [
+        "runtime.refresh_extension_service_worker",
+        "--profile",
+        profile,
+        "--run-id",
+        "run-contract-stale-service-worker-refresh-confirm-001",
+        "--params",
+        JSON.stringify({
+          confirm: true,
+          confirm_managed_profile: true,
+          persistent_extension_identity: {
+            extension_id: extensionId
+          }
+        })
+      ],
+      runtimeCwd
+    );
+
+    expect(confirmedRefresh.status, confirmedRefresh.stdout).toBe(0);
+    expect(parseSingleJsonLine(confirmedRefresh.stdout)).toMatchObject({
+      command: "runtime.refresh_extension_service_worker",
+      status: "success",
+      summary: {
+        profile,
+        refresh_decision: "REFRESHED",
+        dry_run: false,
+        service_worker_cache_removable: true,
+        removed_service_worker_cache: true,
+        service_worker_path: path.join(defaultDir, "Service Worker"),
+        expected_service_worker_path: path.join(defaultDir, "Service Worker"),
+        before: {
+          state: "stale",
+          reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD"
+        },
+        after: {
+          state: "unknown",
+          reason: "SERVICE_WORKER_CACHE_MISSING"
+        },
+        blocker: null
+      }
+    });
+    await expect(stat(path.join(defaultDir, "Service Worker"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
   });
 
   it("creates native host manifest and posix launcher through runtime.install", async () => {
