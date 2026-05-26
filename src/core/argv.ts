@@ -1,7 +1,9 @@
 import { CliError } from "./errors.js";
 import type { JsonObject, ParsedCliInput } from "./types.js";
 
-const COMMAND_PATTERN = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*$/;
+const COMMAND_SEGMENT_PATTERN = /^[a-z][a-z0-9_-]*$/;
+const COMMAND_MAX_SEGMENTS = 3;
+const COMMAND_MAX_LENGTH = 96;
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
 
 const parseParams = (raw: string): JsonObject => {
@@ -30,12 +32,19 @@ const requireOptionValue = (argv: string[], index: number, optionName: string): 
 };
 
 const assertCommand = (command: string): void => {
-  if (!COMMAND_PATTERN.test(command)) {
+  const segments = command.split(".");
+  if (
+    command.length > COMMAND_MAX_LENGTH ||
+    segments.length < 2 ||
+    segments.length > COMMAND_MAX_SEGMENTS ||
+    segments.some((segment) => !COMMAND_SEGMENT_PATTERN.test(segment))
+  ) {
     throw new CliError(
       "ERR_CLI_INVALID_ARGS",
-      "命令格式非法，必须是 runtime.<verb> 或 <platform>.<verb>"
+      "命令格式非法，必须是 runtime.<verb>、<platform>.<verb> 或 <platform>.<scope>.<verb>"
     );
   }
+
 };
 
 export const isValidRunId = (runId: string): boolean => RUN_ID_PATTERN.test(runId);
