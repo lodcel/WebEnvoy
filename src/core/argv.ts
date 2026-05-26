@@ -4,6 +4,7 @@ import type { JsonObject, ParsedCliInput } from "./types.js";
 const COMMAND_SEGMENT_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const COMMAND_MAX_SEGMENTS = 3;
 const COMMAND_MAX_LENGTH = 96;
+const REGISTERED_MULTI_SEGMENT_COMMANDS = new Set(["xhs.creator_publish.admit"]);
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
 
 const parseParams = (raw: string): JsonObject => {
@@ -43,6 +44,10 @@ const assertCommand = (command: string): void => {
       "ERR_CLI_INVALID_ARGS",
       "命令格式非法，必须是 runtime.<verb>、<platform>.<verb> 或 <platform>.<scope>.<verb>"
     );
+  }
+
+  if (segments.length === 3 && !REGISTERED_MULTI_SEGMENT_COMMANDS.has(command)) {
+    throw new CliError("ERR_CLI_INVALID_ARGS", "三段命令必须是已注册的受控命令");
   }
 };
 

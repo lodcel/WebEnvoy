@@ -62,6 +62,13 @@ describe("parseArgv", () => {
     expect(() => parseArgv(["xhs.creator.publish.admit"])).toThrowError(CliError);
   });
 
+  it.each(["a.b.c", "xhs.creator_publish.fake"])(
+    "rejects unregistered multi-segment command %s",
+    (command) => {
+      expect(() => parseArgv([command])).toThrowError(CliError);
+    }
+  );
+
   it.each([
     "runtime",
     "runtime.",
