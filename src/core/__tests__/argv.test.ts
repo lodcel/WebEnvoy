@@ -34,6 +34,46 @@ describe("parseArgv", () => {
     });
   });
 
+  it("accepts registered multi-segment platform commands", () => {
+    const parsed = parseArgv([
+      "xhs.creator_publish.admit",
+      "--profile",
+      "xhs_001",
+      "--run-id",
+      "issue820-creator-admit-cli-001",
+      "--params",
+      '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
+    ]);
+
+    expect(parsed).toEqual({
+      command: "xhs.creator_publish.admit",
+      params: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "dry_run"
+      },
+      profile: "xhs_001",
+      runId: "issue820-creator-admit-cli-001"
+    });
+  });
+
+  it("rejects commands with too many segments", () => {
+    expect(() => parseArgv(["xhs.creator.publish.admit"])).toThrowError(CliError);
+  });
+
+  it.each([
+    "runtime",
+    "runtime.",
+    ".runtime.ping",
+    "runtime..ping",
+    "Runtime.ping",
+    "xhs.creator_publish.admit.extra",
+    `xhs.${"a".repeat(100)}.admit`
+  ])("rejects malformed command %s", (command) => {
+    expect(() => parseArgv([command])).toThrowError(CliError);
+  });
+
   it("rejects malformed params json", () => {
     expect(() => parseArgv(["runtime.ping", "--params", "not-json"])).toThrowError(
       CliError

@@ -9568,4 +9568,175 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
+  it.each([
+    {
+      command: "xhs.creator_publish.admit",
+      params: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "dry_run",
+        risk_state: "allowed",
+        fixture_success: true
+      }
+    },
+    {
+      command: "xhs.media_upload.discover",
+      params: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "recon",
+        risk_state: "allowed",
+        fixture_success: true
+      }
+    },
+    {
+      command: "xhs.editor_input.validate",
+      params: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        risk_state: "allowed",
+        fixture_success: true
+      }
+    },
+    {
+      command: "xhs.editor_text.write",
+      params: {
+        input: {
+          text: "controlled editor text"
+        },
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        risk_state: "allowed",
+        fixture_success: true
+      }
+    }
+  ])("accepts $command shorthand params without requiring a caller-supplied ability envelope", async ({ command, params }) => {
+    const previousFixtureSuccess = process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+    process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = "1";
+
+    try {
+      await expect(
+        executeCommand(
+          {
+            cwd: "/tmp/webenvoy",
+            command,
+            profile: "profile-shorthand-dedicated-xhs-001",
+            run_id: `run-shorthand-${command.replaceAll(".", "-")}-001`,
+            params
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).resolves.toHaveProperty("summary");
+    } finally {
+      if (previousFixtureSuccess === undefined) {
+        delete process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+      } else {
+        process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = previousFixtureSuccess;
+      }
+    }
+  });
+
+  it("rejects a caller-supplied ability envelope that does not match the dedicated XHS command", async () => {
+    await expect(
+      executeCommand(
+        {
+          cwd: "/tmp/webenvoy",
+          command: "xhs.creator_publish.admit",
+          profile: "profile-dedicated-xhs-mismatch-001",
+          run_id: "run-dedicated-xhs-mismatch-001",
+          params: {
+            ability: {
+              id: "xhs.editor.input.v1",
+              layer: "L3",
+              action: "write"
+            },
+            input: {},
+            options: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      )
+    ).rejects.toMatchObject({
+      code: "ERR_CLI_INVALID_ARGS",
+      details: expect.objectContaining({
+        reason: "DEDICATED_ABILITY_MISMATCH",
+        expected_ability: expect.objectContaining({
+          id: "xhs.creator.publish.v1"
+        }),
+        actual_ability: expect.objectContaining({
+          id: "xhs.editor.input.v1"
+        })
+      })
+    });
+  });
+
+  it("rejects unknown top-level shorthand options for dedicated XHS commands", async () => {
+    await expect(
+      executeCommand(
+        {
+          cwd: "/tmp/webenvoy",
+          command: "xhs.creator_publish.admit",
+          profile: "profile-dedicated-xhs-unknown-option-001",
+          run_id: "run-dedicated-xhs-unknown-option-001",
+          params: {
+            target_domian: "creator.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "creator_publish_tab",
+            requested_execution_mode: "dry_run",
+            risk_state: "allowed"
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      )
+    ).rejects.toMatchObject({
+      code: "ERR_CLI_INVALID_ARGS",
+      details: expect.objectContaining({
+        reason: "DEDICATED_OPTION_UNKNOWN",
+        unknown_keys: ["target_domian"]
+      })
+    });
+  });
+
+  it("rejects unknown nested shorthand options for dedicated XHS commands", async () => {
+    await expect(
+      executeCommand(
+        {
+          cwd: "/tmp/webenvoy",
+          command: "xhs.creator_publish.admit",
+          profile: "profile-dedicated-xhs-unknown-nested-option-001",
+          run_id: "run-dedicated-xhs-unknown-nested-option-001",
+          params: {
+            input: {},
+            options: {
+              target_domian: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      )
+    ).rejects.toMatchObject({
+      code: "ERR_CLI_INVALID_ARGS",
+      details: expect.objectContaining({
+        reason: "DEDICATED_OPTION_UNKNOWN",
+        unknown_keys: ["target_domian"]
+      })
+    });
+  });
+
 });
