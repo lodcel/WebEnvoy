@@ -1351,6 +1351,57 @@ test_merge_if_safe_without_post_review_respects_comment_contract() {
   assert_file_contains "${MOCK_GH_MERGE_LOG}" "head-sha-123"
 }
 
+test_merge_if_safe_allows_blocked_state_when_author_comment_review_is_visible() {
+  setup_merge_if_safe_fixture \
+    "merge-blocked-author-comment-review-visible" \
+    "review-bot" \
+    "review-bot" \
+    "COMMENTED" \
+    "head-sha-123" \
+    "0"
+
+  cat > "${MOCK_GH_PR_VIEW_JSON}" <<'EOF'
+{
+  "baseRefName": "main",
+  "baseRefOid": "base-sha-123",
+  "headRefName": "work/mock",
+  "headRefOid": "head-sha-123",
+  "headRepoFullName": "mcontheway/WebEnvoy",
+  "mergeable": "MERGEABLE",
+  "mergeStateStatus": "BLOCKED",
+  "isDraft": false,
+  "body": "integration_check:\n  integration_applicable: no\n  integration_touchpoint: none\n  integration_ref: none\n  shared_contract_changed: no\n  external_dependency: none\n  merge_gate: local_only\n  contract_surface: none\n  joint_acceptance_needed: no\n  integration_status_checked_before_pr: yes\n  integration_status_checked_before_merge: yes\n\ngate_applicability:\n  review_lane: general_pr\n  governance_context_issue_ref: N/A\n  governance_scope_targets: N/A\n  in_scope: false\n  trigger_reasons: N/A\n  n_a_allowed: true\n\nlive_evidence_record: N/A\n\ncloseout_control:\n  issue_type: implementation\n  readiness_admission_status: static_and_gate_ready\n  readiness_matrix: N/A\n  live_validation_ladder: static tests\n  closeout_evidence: local validation\n  fallback_limitations: N/A\n  blocker_split_handling: N/A\n"
+}
+EOF
+
+  assert_pass merge_if_safe 274 0
+  assert_file_contains "${MOCK_GH_MERGE_LOG}" "head-sha-123"
+}
+
+test_merge_if_safe_blocks_blocked_state_when_required_checks_fail() {
+  setup_merge_if_safe_fixture \
+    "merge-blocked-required-check-failure" \
+    "review-bot" \
+    "review-bot" \
+    "COMMENTED" \
+    "head-sha-123" \
+    "0"
+
+  jq '.mergeStateStatus = "BLOCKED"' "${MOCK_GH_PR_VIEW_JSON}" > "${MOCK_GH_PR_VIEW_JSON}.tmp"
+  mv "${MOCK_GH_PR_VIEW_JSON}.tmp" "${MOCK_GH_PR_VIEW_JSON}"
+
+  MOCK_GH_REQUIRED_CHECKS_JSON="${TEST_TMP_DIR}/merge-blocked-required-check-failure/mock/required-checks.json"
+  printf '%s\n' '[{"name":"review-completed","bucket":"pass","state":"SUCCESS","link":"https://example.test/review"},{"name":"Run Tests","bucket":"fail","state":"FAILURE","link":"https://example.test/tests"}]' > "${MOCK_GH_REQUIRED_CHECKS_JSON}"
+  export MOCK_GH_REQUIRED_CHECKS_JSON
+
+  local err_file="${TMP_DIR}/merge.err"
+  assert_fail merge_if_safe 274 0 2>"${err_file}"
+  assert_file_contains "${err_file}" "GitHub check"
+  assert_file_contains "${err_file}" "Run Tests"
+  assert_file_contains "${err_file}" "passing retained PR checks snapshot"
+  assert_file_empty "${MOCK_GH_MERGE_LOG}"
+}
+
 test_merge_if_safe_finds_head_review_across_paginated_reviews() {
   setup_merge_if_safe_fixture \
     "merge-paginated-reviews" \
