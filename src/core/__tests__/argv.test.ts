@@ -1,21 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createCommandRegistry } from "../../commands/index.js";
 import { parseArgv } from "../argv.js";
 import { CliError } from "../errors.js";
 
-const REGISTERED_COMMANDS = createCommandRegistry().list().map((command) => command.name);
-
-const REGISTERED_MULTI_SEGMENT_COMMANDS = REGISTERED_COMMANDS.filter(
-  (command) => command.split(".").length === 3
-);
-
-const parseWithRegistry = (argv: string[]) =>
-  parseArgv(argv, { registeredCommands: REGISTERED_COMMANDS });
-
 describe("parseArgv", () => {
   it("parses command and options using the frozen syntax", () => {
-    const parsed = parseWithRegistry([
+    const parsed = parseArgv([
       "runtime.ping",
       "--params",
       '{"hello":"world"}',
@@ -34,7 +24,7 @@ describe("parseArgv", () => {
   });
 
   it("defaults params to empty object and optional fields to null", () => {
-    const parsed = parseWithRegistry(["runtime.help"]);
+    const parsed = parseArgv(["runtime.help"]);
 
     expect(parsed).toEqual({
       command: "runtime.help",
@@ -44,43 +34,33 @@ describe("parseArgv", () => {
     });
   });
 
-  it.each(REGISTERED_MULTI_SEGMENT_COMMANDS)(
-    "accepts registered multi-segment platform command %s",
-    (command) => {
-      const parsed = parseWithRegistry([
-        command,
-        "--profile",
-        "xhs_001",
-        "--run-id",
-        "issue820-dedicated-cli-001",
-        "--params",
-        '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
-      ]);
+  it("accepts multi-segment platform command syntax", () => {
+    const parsed = parseArgv([
+      "xhs.creator_publish.admit",
+      "--profile",
+      "xhs_001",
+      "--run-id",
+      "issue820-dedicated-cli-001",
+      "--params",
+      '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
+    ]);
 
-      expect(parsed).toEqual({
-        command,
-        params: {
-          target_domain: "creator.xiaohongshu.com",
-          target_tab_id: 32,
-          target_page: "creator_publish_tab",
-          requested_execution_mode: "dry_run"
-        },
-        profile: "xhs_001",
-        runId: "issue820-dedicated-cli-001"
-      });
-    }
-  );
-
-  it("rejects commands with too many segments", () => {
-    expect(() => parseWithRegistry(["xhs.creator.publish.admit"])).toThrowError(CliError);
+    expect(parsed).toEqual({
+      command: "xhs.creator_publish.admit",
+      params: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "dry_run"
+      },
+      profile: "xhs_001",
+      runId: "issue820-dedicated-cli-001"
+    });
   });
 
-  it.each(["a.b.c", "xhs.creator_publish.fake"])(
-    "rejects unregistered multi-segment command %s",
-    (command) => {
-      expect(() => parseWithRegistry([command])).toThrowError(CliError);
-    }
-  );
+  it("rejects commands with too many segments", () => {
+    expect(() => parseArgv(["xhs.creator.publish.admit"])).toThrowError(CliError);
+  });
 
   it.each([
     "runtime",
@@ -91,38 +71,38 @@ describe("parseArgv", () => {
     "xhs.creator_publish.admit.extra",
     `xhs.${"a".repeat(100)}.admit`
   ])("rejects malformed command %s", (command) => {
-    expect(() => parseWithRegistry([command])).toThrowError(CliError);
+    expect(() => parseArgv([command])).toThrowError(CliError);
   });
 
   it("rejects malformed params json", () => {
-    expect(() => parseWithRegistry(["runtime.ping", "--params", "not-json"])).toThrowError(
+    expect(() => parseArgv(["runtime.ping", "--params", "not-json"])).toThrowError(
       CliError
     );
 
     try {
-      parseWithRegistry(["runtime.ping", "--params", "not-json"]);
+      parseArgv(["runtime.ping", "--params", "not-json"]);
     } catch (error) {
       expect(error).toMatchObject({ code: "ERR_CLI_INVALID_ARGS" });
     }
   });
 
   it("rejects non-object params", () => {
-    expect(() => parseWithRegistry(["runtime.ping", "--params", "[]"])).toThrowError(CliError);
+    expect(() => parseArgv(["runtime.ping", "--params", "[]"])).toThrowError(CliError);
   });
 
   it("rejects duplicated --params", () => {
     expect(() =>
-      parseWithRegistry(["runtime.ping", "--params", "{}", "--params", "{}"])
+      parseArgv(["runtime.ping", "--params", "{}", "--params", "{}"])
     ).toThrowError(CliError);
   });
 
   it("rejects missing command", () => {
-    expect(() => parseWithRegistry([])).toThrowError(CliError);
+    expect(() => parseArgv([])).toThrowError(CliError);
   });
 
   it("rejects invalid run id format", () => {
     expect(() =>
-      parseWithRegistry(["runtime.ping", "--run-id", "bad run id with spaces"])
+      parseArgv(["runtime.ping", "--run-id", "bad run id with spaces"])
     ).toThrowError(CliError);
   });
 });
