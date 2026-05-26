@@ -84,7 +84,7 @@ type XhsDataRefKey = "query" | "note_id" | "user_id" | "validation_action" | "ta
 
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
-const XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID = "xhs.editor.input.v1";
+const XHS_EDITOR_INPUT_ABILITY_ID = "xhs.editor.input.v1";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 
@@ -106,14 +106,14 @@ const XHS_CREATOR_PUBLISH_ABILITY = {
 } as const;
 
 const XHS_EDITOR_INPUT_ABILITY = {
-  id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+  id: XHS_EDITOR_INPUT_ABILITY_ID,
   layer: "L3",
   action: "write"
 } as const;
 
 // editor_text.write is the controlled #208 editor_input text-write path.
 const XHS_EDITOR_TEXT_WRITE_ABILITY = {
-  id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+  id: XHS_EDITOR_INPUT_ABILITY_ID,
   layer: "L3",
   action: "write"
 } as const;
@@ -687,12 +687,12 @@ const buildXhsCommandAliasDiagnostics = (input: {
     source_command: "xhs.search",
     source_ability_id: input.ability.id,
     canonical_command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
-    canonical_ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID,
+    canonical_ability_id: XHS_EDITOR_INPUT_ABILITY_ID,
     validation_action: "editor_input",
     issue_scope: "issue_208",
     replacement: {
       command: XHS_EDITOR_INPUT_VALIDATE_COMMAND,
-      ability_id: XHS_EDITOR_INPUT_VALIDATE_ABILITY_ID
+      ability_id: XHS_EDITOR_INPUT_ABILITY_ID
     },
     migration_hint:
       "Use xhs.editor_input.validate with ability.id=xhs.editor.input.v1; keep target and admission options unchanged."

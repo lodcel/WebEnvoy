@@ -10,9 +10,12 @@ const REGISTERED_MULTI_SEGMENT_COMMANDS = REGISTERED_COMMANDS.filter(
   (command) => command.split(".").length === 3
 );
 
+const parseWithRegistry = (argv: string[]) =>
+  parseArgv(argv, { registeredCommands: REGISTERED_COMMANDS });
+
 describe("parseArgv", () => {
   it("parses command and options using the frozen syntax", () => {
-    const parsed = parseArgv([
+    const parsed = parseWithRegistry([
       "runtime.ping",
       "--params",
       '{"hello":"world"}',
@@ -31,7 +34,7 @@ describe("parseArgv", () => {
   });
 
   it("defaults params to empty object and optional fields to null", () => {
-    const parsed = parseArgv(["runtime.help"]);
+    const parsed = parseWithRegistry(["runtime.help"]);
 
     expect(parsed).toEqual({
       command: "runtime.help",
@@ -44,18 +47,15 @@ describe("parseArgv", () => {
   it.each(REGISTERED_MULTI_SEGMENT_COMMANDS)(
     "accepts registered multi-segment platform command %s",
     (command) => {
-      const parsed = parseArgv(
-        [
-          command,
-          "--profile",
-          "xhs_001",
-          "--run-id",
-          "issue820-dedicated-cli-001",
-          "--params",
-          '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
-        ],
-        { registeredCommands: REGISTERED_COMMANDS }
-      );
+      const parsed = parseWithRegistry([
+        command,
+        "--profile",
+        "xhs_001",
+        "--run-id",
+        "issue820-dedicated-cli-001",
+        "--params",
+        '{"target_domain":"creator.xiaohongshu.com","target_tab_id":32,"target_page":"creator_publish_tab","requested_execution_mode":"dry_run"}'
+      ]);
 
       expect(parsed).toEqual({
         command,
@@ -72,15 +72,13 @@ describe("parseArgv", () => {
   );
 
   it("rejects commands with too many segments", () => {
-    expect(() => parseArgv(["xhs.creator.publish.admit"])).toThrowError(CliError);
+    expect(() => parseWithRegistry(["xhs.creator.publish.admit"])).toThrowError(CliError);
   });
 
   it.each(["a.b.c", "xhs.creator_publish.fake"])(
     "rejects unregistered multi-segment command %s",
     (command) => {
-      expect(() =>
-        parseArgv([command], { registeredCommands: REGISTERED_COMMANDS })
-      ).toThrowError(CliError);
+      expect(() => parseWithRegistry([command])).toThrowError(CliError);
     }
   );
 
@@ -93,38 +91,38 @@ describe("parseArgv", () => {
     "xhs.creator_publish.admit.extra",
     `xhs.${"a".repeat(100)}.admit`
   ])("rejects malformed command %s", (command) => {
-    expect(() => parseArgv([command])).toThrowError(CliError);
+    expect(() => parseWithRegistry([command])).toThrowError(CliError);
   });
 
   it("rejects malformed params json", () => {
-    expect(() => parseArgv(["runtime.ping", "--params", "not-json"])).toThrowError(
+    expect(() => parseWithRegistry(["runtime.ping", "--params", "not-json"])).toThrowError(
       CliError
     );
 
     try {
-      parseArgv(["runtime.ping", "--params", "not-json"]);
+      parseWithRegistry(["runtime.ping", "--params", "not-json"]);
     } catch (error) {
       expect(error).toMatchObject({ code: "ERR_CLI_INVALID_ARGS" });
     }
   });
 
   it("rejects non-object params", () => {
-    expect(() => parseArgv(["runtime.ping", "--params", "[]"])).toThrowError(CliError);
+    expect(() => parseWithRegistry(["runtime.ping", "--params", "[]"])).toThrowError(CliError);
   });
 
   it("rejects duplicated --params", () => {
     expect(() =>
-      parseArgv(["runtime.ping", "--params", "{}", "--params", "{}"])
+      parseWithRegistry(["runtime.ping", "--params", "{}", "--params", "{}"])
     ).toThrowError(CliError);
   });
 
   it("rejects missing command", () => {
-    expect(() => parseArgv([])).toThrowError(CliError);
+    expect(() => parseWithRegistry([])).toThrowError(CliError);
   });
 
   it("rejects invalid run id format", () => {
     expect(() =>
-      parseArgv(["runtime.ping", "--run-id", "bad run id with spaces"])
+      parseWithRegistry(["runtime.ping", "--run-id", "bad run id with spaces"])
     ).toThrowError(CliError);
   });
 });
