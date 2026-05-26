@@ -47,6 +47,22 @@ export type XhsCloseoutValidationSignalMap = {
   layer3_session_rhythm: JsonObject;
 };
 
+type XhsCloseoutValidationTargetDomain =
+  | typeof XHS_CLOSEOUT_TARGET_DOMAIN
+  | typeof XHS_CREATOR_TARGET_DOMAIN;
+
+const isAdmittedXhsValidationTargetScope = (input: {
+  targetDomain: string | null | undefined;
+  targetPage: string | null | undefined;
+  effectiveExecutionMode: AntiDetectionExecutionMode;
+}): boolean =>
+  (input.targetDomain === XHS_CLOSEOUT_TARGET_DOMAIN &&
+    (input.targetPage === "search_result_tab" || input.targetPage === undefined) &&
+    input.effectiveExecutionMode === "live_read_high_risk") ||
+  (input.targetDomain === XHS_CREATOR_TARGET_DOMAIN &&
+    input.targetPage === XHS_CREATOR_PUBLISH_TARGET_PAGE &&
+    input.effectiveExecutionMode === "live_write");
+
 export interface XhsCloseoutValidationGateView {
   profile_ref: string;
   browser_channel: typeof XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL;
@@ -261,13 +277,30 @@ const asStringArray = (value: unknown): string[] | null =>
     : null;
 
 const assertXhsCloseoutBrowserEvidenceScope = (evidence: JsonObject, layer: string): void => {
-  if (
-    evidence.target_domain !== XHS_CLOSEOUT_TARGET_DOMAIN ||
-    evidence.probe_bundle_ref !== XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF
-  ) {
+  const targetDomain =
+    typeof evidence.target_domain === "string" ? evidence.target_domain : undefined;
+  const targetPage = typeof evidence.target_page === "string" ? evidence.target_page : undefined;
+  const requestedExecutionMode =
+    typeof evidence.requested_execution_mode === "string"
+      ? (evidence.requested_execution_mode as AntiDetectionExecutionMode)
+      : undefined;
+  const admittedScope =
+    requestedExecutionMode !== undefined &&
+    targetPage !== undefined &&
+    isAdmittedXhsValidationTargetScope({
+      targetDomain,
+      targetPage,
+      effectiveExecutionMode: requestedExecutionMode
+    });
+  const expectedProbeBundleRef = resolveXhsCloseoutValidationProbeBundleRef({
+    effectiveExecutionMode: requestedExecutionMode ?? "live_read_high_risk",
+    targetDomain,
+    targetPage
+  });
+  if (!admittedScope || evidence.probe_bundle_ref !== expectedProbeBundleRef) {
     throw new RuntimeStoreError(
       "ERR_RUNTIME_STORE_INVALID_INPUT",
-      `XHS closeout ${layer} evidence is not bound to the XHS closeout recovery scope`
+      `XHS closeout ${layer} evidence is not bound to an admitted XHS validation scope`
     );
   }
 };
@@ -588,7 +621,8 @@ export const persistXhsCloseoutValidationSourceSamples = async (input: {
   store: SQLiteRuntimeStore;
   profile: string;
   effectiveExecutionMode: AntiDetectionExecutionMode;
-  targetDomain: typeof XHS_CLOSEOUT_TARGET_DOMAIN;
+  targetDomain: XhsCloseoutValidationTargetDomain;
+  targetPage?: string | null;
   validationRunId: string;
   observedAt: string;
   sourceRunId: string;
@@ -597,11 +631,26 @@ export const persistXhsCloseoutValidationSourceSamples = async (input: {
   const profileKey = safeRefPart(input.profile);
   const modeKey = safeRefPart(input.effectiveExecutionMode);
   const validationRunKey = safeRefPart(input.validationRunId);
+  const probeBundleRef = resolveXhsCloseoutValidationProbeBundleRef({
+    effectiveExecutionMode: input.effectiveExecutionMode,
+    targetDomain: input.targetDomain,
+    targetPage: input.targetPage
+  });
+  const bundleKey =
+    probeBundleRef === XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF
+      ? "xhs-creator-live-write-admission-v1"
+      : "xhs-closeout-min-v1";
 
-  if (input.targetDomain !== XHS_CLOSEOUT_TARGET_DOMAIN) {
+  if (
+    !isAdmittedXhsValidationTargetScope({
+      targetDomain: input.targetDomain,
+      targetPage: input.targetPage,
+      effectiveExecutionMode: input.effectiveExecutionMode
+    })
+  ) {
     throw new RuntimeStoreError(
       "ERR_RUNTIME_STORE_INVALID_INPUT",
-      "XHS closeout validation target_domain must be www.xiaohongshu.com"
+      "XHS closeout validation target scope is not admitted"
     );
   }
 
@@ -610,86 +659,87 @@ export const persistXhsCloseoutValidationSourceSamples = async (input: {
 
   await input.store.runInTransaction(async () => {
     for (const requiredScope of XHS_CLOSEOUT_REQUIRED_VALIDATION_SCOPES) {
-    const scope = buildXhsCloseoutValidationScope({
-      profile: input.profile,
-      effectiveExecutionMode: input.effectiveExecutionMode,
-      targetFrRef: requiredScope.targetFrRef,
-      validationScope: requiredScope.validationScope
-    });
-    const sourceSample = sourceSampleForRequiredScope(
-      input.sourceSamples,
-      requiredScope.targetFrRef,
-      requiredScope.validationScope
-    );
-    if (
-      sourceSample.run_id !== input.sourceRunId ||
-      sourceSample.profile_ref !== scope.profileRef ||
-      sourceSample.browser_channel !== scope.browserChannel ||
-      sourceSample.execution_surface !== scope.executionSurface ||
-      sourceSample.effective_execution_mode !== scope.effectiveExecutionMode ||
-      sourceSample.probe_bundle_ref !== scope.probeBundleRef
-    ) {
-      throw new RuntimeStoreError(
-        "ERR_RUNTIME_STORE_INVALID_INPUT",
-        "XHS closeout validation source sample scope does not match requested baseline"
+      const scope = buildXhsCloseoutValidationScope({
+        profile: input.profile,
+        effectiveExecutionMode: input.effectiveExecutionMode,
+        probeBundleRef,
+        targetFrRef: requiredScope.targetFrRef,
+        validationScope: requiredScope.validationScope
+      });
+      const sourceSample = sourceSampleForRequiredScope(
+        input.sourceSamples,
+        requiredScope.targetFrRef,
+        requiredScope.validationScope
       );
-    }
-    const sourceRequest = await input.store.getAntiDetectionValidationRequest(
-      sourceSample.request_ref
-    );
-    if (
-      !sourceRequest ||
-      sourceRequest.requested_execution_mode !== input.effectiveExecutionMode ||
-      sourceRequest.request_state !== "completed" ||
-      sourceRequest.target_fr_ref !== scope.targetFrRef ||
-      sourceRequest.validation_scope !== scope.validationScope ||
-      sourceRequest.profile_ref !== scope.profileRef ||
-      sourceRequest.browser_channel !== scope.browserChannel ||
-      sourceRequest.execution_surface !== scope.executionSurface ||
-      sourceRequest.probe_bundle_ref !== scope.probeBundleRef
-    ) {
-      throw new RuntimeStoreError(
-        "ERR_RUNTIME_STORE_INVALID_INPUT",
-        "XHS closeout validation source sample request does not match requested baseline"
+      if (
+        sourceSample.run_id !== input.sourceRunId ||
+        sourceSample.profile_ref !== scope.profileRef ||
+        sourceSample.browser_channel !== scope.browserChannel ||
+        sourceSample.execution_surface !== scope.executionSurface ||
+        sourceSample.effective_execution_mode !== scope.effectiveExecutionMode ||
+        sourceSample.probe_bundle_ref !== scope.probeBundleRef
+      ) {
+        throw new RuntimeStoreError(
+          "ERR_RUNTIME_STORE_INVALID_INPUT",
+          "XHS closeout validation source sample scope does not match requested baseline"
+        );
+      }
+      const sourceRequest = await input.store.getAntiDetectionValidationRequest(
+        sourceSample.request_ref
       );
-    }
+      if (
+        !sourceRequest ||
+        sourceRequest.requested_execution_mode !== input.effectiveExecutionMode ||
+        sourceRequest.request_state !== "completed" ||
+        sourceRequest.target_fr_ref !== scope.targetFrRef ||
+        sourceRequest.validation_scope !== scope.validationScope ||
+        sourceRequest.profile_ref !== scope.profileRef ||
+        sourceRequest.browser_channel !== scope.browserChannel ||
+        sourceRequest.execution_surface !== scope.executionSurface ||
+        sourceRequest.probe_bundle_ref !== scope.probeBundleRef
+      ) {
+        throw new RuntimeStoreError(
+          "ERR_RUNTIME_STORE_INVALID_INPUT",
+          "XHS closeout validation source sample request does not match requested baseline"
+        );
+      }
 
-    const signal = validationScopeSignal(signals, requiredScope.validationScope);
-    if (!signal) {
-      continue;
-    }
+      const signal = validationScopeSignal(signals, requiredScope.validationScope);
+      if (!signal) {
+        continue;
+      }
 
-    const scopeKey = `${safeRefPart(requiredScope.targetFrRef)}/${safeRefPart(requiredScope.validationScope)}`;
-    const baselineSuffix = `${profileKey}/${modeKey}/${scopeKey}`;
-    const requestRef = `validation-request/xhs-closeout-min-v1/${profileKey}/${modeKey}/${validationRunKey}/${scopeKey}`;
-    const sampleRef = `validation-sample/xhs-closeout-min-v1/${profileKey}/${modeKey}/${validationRunKey}/${scopeKey}`;
-    const candidateBaselineRef = `baseline/xhs-closeout-min-v1/${baselineSuffix}`;
-    const registryEntry = await input.store.getAntiDetectionBaselineRegistryEntry(scope);
-    const activeBaselineRef = registryEntry?.active_baseline_ref ?? candidateBaselineRef;
-    const activeBaseline = await input.store.getAntiDetectionBaselineSnapshot(activeBaselineRef);
-    if (registryEntry && !activeBaseline) {
-      throw new RuntimeStoreError(
-        "ERR_RUNTIME_STORE_INVALID_INPUT",
-        "XHS closeout validation active baseline snapshot is missing"
-      );
-    }
-    const baselineRef = activeBaselineRef;
-    const recordRef = `validation-record/xhs-closeout-min-v1/${profileKey}/${modeKey}/${validationRunKey}/${scopeKey}`;
-    const signalVector = {
-      target_fr_ref: requiredScope.targetFrRef,
-      validation_scope: requiredScope.validationScope,
-      probe_bundle_ref: scope.probeBundleRef,
-      signal
-    };
-    const signalMatchesBaseline = xhsCloseoutSignalMatchesBaseline({
-      currentSignalVector: signalVector,
-      activeBaselineSignalVector: activeBaseline
-        ? (activeBaseline.signal_vector as JsonObject)
-        : null
-    });
-    const resultState = signalMatchesBaseline ? "verified" : "broken";
-    const driftState = signalMatchesBaseline ? "no_drift" : "drift_detected";
-    const sampleGoal = `validate ${requiredScope.targetFrRef} XHS closeout baseline from approved source sample`;
+      const scopeKey = `${safeRefPart(requiredScope.targetFrRef)}/${safeRefPart(requiredScope.validationScope)}`;
+      const baselineSuffix = `${profileKey}/${modeKey}/${scopeKey}`;
+      const requestRef = `validation-request/${bundleKey}/${profileKey}/${modeKey}/${validationRunKey}/${scopeKey}`;
+      const sampleRef = `validation-sample/${bundleKey}/${profileKey}/${modeKey}/${validationRunKey}/${scopeKey}`;
+      const candidateBaselineRef = `baseline/${bundleKey}/${baselineSuffix}`;
+      const registryEntry = await input.store.getAntiDetectionBaselineRegistryEntry(scope);
+      const activeBaselineRef = registryEntry?.active_baseline_ref ?? candidateBaselineRef;
+      const activeBaseline = await input.store.getAntiDetectionBaselineSnapshot(activeBaselineRef);
+      if (registryEntry && !activeBaseline) {
+        throw new RuntimeStoreError(
+          "ERR_RUNTIME_STORE_INVALID_INPUT",
+          "XHS closeout validation active baseline snapshot is missing"
+        );
+      }
+      const baselineRef = activeBaselineRef;
+      const recordRef = `validation-record/${bundleKey}/${profileKey}/${modeKey}/${validationRunKey}/${scopeKey}`;
+      const signalVector = {
+        target_fr_ref: requiredScope.targetFrRef,
+        validation_scope: requiredScope.validationScope,
+        probe_bundle_ref: scope.probeBundleRef,
+        signal
+      };
+      const signalMatchesBaseline = xhsCloseoutSignalMatchesBaseline({
+        currentSignalVector: signalVector,
+        activeBaselineSignalVector: activeBaseline
+          ? (activeBaseline.signal_vector as JsonObject)
+          : null
+      });
+      const resultState = signalMatchesBaseline ? "verified" : "broken";
+      const driftState = signalMatchesBaseline ? "no_drift" : "drift_detected";
+      const sampleGoal = `validate ${requiredScope.targetFrRef} XHS closeout baseline from approved source sample`;
 
     await input.store.upsertAntiDetectionValidationRequest({
       requestRef,
@@ -769,26 +819,27 @@ export const persistXhsCloseoutValidationSourceSamples = async (input: {
         updatedAt: input.observedAt
       });
     }
-    await input.store.upsertAntiDetectionValidationRequest({
-      requestRef,
-      validationScope: requiredScope.validationScope,
-      targetFrRef: requiredScope.targetFrRef,
-      profileRef: scope.profileRef,
-      browserChannel: scope.browserChannel,
-      executionSurface: scope.executionSurface,
-      sampleGoal,
-      requestedExecutionMode: input.effectiveExecutionMode,
-      probeBundleRef: scope.probeBundleRef,
-      requestState: "completed",
-      requestedAt: input.observedAt
-    });
+      await input.store.upsertAntiDetectionValidationRequest({
+        requestRef,
+        validationScope: requiredScope.validationScope,
+        targetFrRef: requiredScope.targetFrRef,
+        profileRef: scope.profileRef,
+        browserChannel: scope.browserChannel,
+        executionSurface: scope.executionSurface,
+        sampleGoal,
+        requestedExecutionMode: input.effectiveExecutionMode,
+        probeBundleRef: scope.probeBundleRef,
+        requestState: "completed",
+        requestedAt: input.observedAt
+      });
     }
   });
 
   return readXhsCloseoutValidationGateView({
     store: input.store,
     profile: input.profile,
-    effectiveExecutionMode: input.effectiveExecutionMode
+    effectiveExecutionMode: input.effectiveExecutionMode,
+    probeBundleRef
   });
 };
 
@@ -796,7 +847,8 @@ export const persistXhsCloseoutValidationSourceEvidence = async (input: {
   store: SQLiteRuntimeStore;
   profile: string;
   effectiveExecutionMode: AntiDetectionExecutionMode;
-  targetDomain: typeof XHS_CLOSEOUT_TARGET_DOMAIN;
+  targetDomain: XhsCloseoutValidationTargetDomain;
+  targetPage?: string | null;
   sourceRunId: string;
   observedAt: string;
   sourceAudit: GateAuditRecord;
@@ -809,11 +861,26 @@ export const persistXhsCloseoutValidationSourceEvidence = async (input: {
   const modeKey = safeRefPart(input.effectiveExecutionMode);
   const sourceRunKey = safeRefPart(input.sourceRunId);
   const artifactRefs = input.artifactRefs ?? [];
+  const probeBundleRef = resolveXhsCloseoutValidationProbeBundleRef({
+    effectiveExecutionMode: input.effectiveExecutionMode,
+    targetDomain: input.targetDomain,
+    targetPage: input.targetPage
+  });
+  const bundleKey =
+    probeBundleRef === XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF
+      ? "xhs-creator-live-write-admission-v1"
+      : "xhs-closeout-min-v1";
 
-  if (input.targetDomain !== XHS_CLOSEOUT_TARGET_DOMAIN) {
+  if (
+    !isAdmittedXhsValidationTargetScope({
+      targetDomain: input.targetDomain,
+      targetPage: input.targetPage,
+      effectiveExecutionMode: input.effectiveExecutionMode
+    })
+  ) {
     throw new RuntimeStoreError(
       "ERR_RUNTIME_STORE_INVALID_INPUT",
-      "XHS closeout validation source target_domain must be www.xiaohongshu.com"
+      "XHS closeout validation source target scope is not admitted"
     );
   }
 
@@ -825,6 +892,7 @@ export const persistXhsCloseoutValidationSourceEvidence = async (input: {
       const scope = buildXhsCloseoutValidationScope({
         profile: input.profile,
         effectiveExecutionMode: input.effectiveExecutionMode,
+        probeBundleRef,
         targetFrRef: requiredScope.targetFrRef,
         validationScope: requiredScope.validationScope
       });
@@ -838,8 +906,8 @@ export const persistXhsCloseoutValidationSourceEvidence = async (input: {
 
       const scopeKey = `${safeRefPart(requiredScope.targetFrRef)}/${safeRefPart(requiredScope.validationScope)}`;
       const refSuffix = `${profileKey}/${modeKey}/${sourceRunKey}/${scopeKey}`;
-      const requestRef = `validation-request/source/xhs-closeout-min-v1/${refSuffix}`;
-      const sampleRef = `validation-sample/source/xhs-closeout-min-v1/${refSuffix}`;
+      const requestRef = `validation-request/source/${bundleKey}/${refSuffix}`;
+      const sampleRef = `validation-sample/source/${bundleKey}/${refSuffix}`;
       const sampleGoal = `capture ${requiredScope.targetFrRef} XHS closeout validation source`;
 
       await input.store.upsertAntiDetectionValidationRequest({
@@ -923,7 +991,7 @@ export const persistXhsCloseoutValidationSourceEvidence = async (input: {
   const samples = await Promise.all(
     XHS_CLOSEOUT_REQUIRED_VALIDATION_SCOPES.map((requiredScope) =>
       input.store.getAntiDetectionStructuredSample(
-        `validation-sample/source/xhs-closeout-min-v1/${profileKey}/${modeKey}/${sourceRunKey}/${safeRefPart(requiredScope.targetFrRef)}/${safeRefPart(requiredScope.validationScope)}`
+        `validation-sample/source/${bundleKey}/${profileKey}/${modeKey}/${sourceRunKey}/${safeRefPart(requiredScope.targetFrRef)}/${safeRefPart(requiredScope.validationScope)}`
       )
     )
   );

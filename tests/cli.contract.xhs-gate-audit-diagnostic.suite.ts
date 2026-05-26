@@ -620,8 +620,10 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
       browser_returned_evidence: {
         source: "main_world",
         target_domain: "www.xiaohongshu.com",
+        target_page: "search_result_tab",
         target_tab_id: 32,
         page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5&type=51",
+        requested_execution_mode: "live_read_high_risk",
         probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
       },
       fingerprint_runtime: {
@@ -641,8 +643,10 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
       browser_returned_evidence: {
         source: "main_world",
         target_domain: "www.xiaohongshu.com",
+        target_page: "search_result_tab",
         target_tab_id: 32,
         page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5&type=51",
+        requested_execution_mode: "live_read_high_risk",
         probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
       },
       event_strategy_profile: {
@@ -675,8 +679,10 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
       browser_returned_evidence: {
         source: "execution_audit",
         target_domain: "www.xiaohongshu.com",
+        target_page: "search_result_tab",
         target_tab_id: 32,
         page_url: "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5&type=51",
+        requested_execution_mode: "live_read_high_risk",
         probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
       },
       session_rhythm_window_id: "rhythm_win_xhs_closeout",
@@ -6271,6 +6277,43 @@ process.stdin.on("data", (chunk) => {
         code: "ERR_CLI_INVALID_ARGS",
         details: {
           reason: "XHS_CLOSEOUT_VALIDATION_MODE_INVALID"
+        }
+      }
+    });
+  });
+
+  it("does not default creator live_write validation to the read target page", () => {
+    const result = runCli([
+      "runtime.xhs_closeout_validation",
+      "--profile",
+      "xhs_validation_cli_creator_missing_page",
+      "--run-id",
+      "run-xhs-closeout-validation-cli-creator-missing-page-001",
+      "--params",
+      JSON.stringify({
+        target_domain: "creator.xiaohongshu.com",
+        requested_execution_mode: "live_write",
+        source_run_id: "run-xhs-closeout-validation-creator-missing-page-source",
+        source_sample_refs: [
+          "validation-sample/source/creator-missing-page/FR-0012",
+          "validation-sample/source/creator-missing-page/FR-0013",
+          "validation-sample/source/creator-missing-page/FR-0014"
+        ]
+      })
+    ]);
+
+    expect(result.status).toBe(2);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body).toMatchObject({
+      command: "runtime.xhs_closeout_validation",
+      status: "error",
+      error: {
+        code: "ERR_CLI_INVALID_ARGS",
+        details: {
+          reason: "XHS_CLOSEOUT_VALIDATION_SCOPE_INVALID",
+          target_domain: "creator.xiaohongshu.com",
+          target_page: null,
+          requested_execution_mode: "live_write"
         }
       }
     });
