@@ -12,7 +12,9 @@ export type Layer2FailureCategory =
   | "focus_not_acquired"
   | "framework_state_not_updated"
   | "target_drifted"
+  | "required_event_not_applied"
   | "blocked_by_fr0011";
+export type Layer2WriteBoundaryDecision = "allow" | "block" | "fail_closed";
 
 export type Layer2ViewportState = "stable" | "scrolling" | "resizing";
 export type Layer2OcclusionState = "clear" | "partial" | "blocked";
@@ -199,6 +201,24 @@ export interface Layer2SettleRecoveryResult {
   target_drifted: boolean;
   layout_motion_blocking: boolean;
   timeout_ms: number | null;
+}
+
+export interface Layer2WriteBoundaryAudit {
+  action_kind: Layer2ActionKind;
+  write_interaction_tier: string | null;
+  boundary_decision: Layer2WriteBoundaryDecision;
+  blocked_by: string | null;
+  approval_record_ref: string | null;
+  audit_record_ref: string | null;
+  out_of_scope_actions: string[];
+  synthetic_fallback_blocked: boolean;
+  required_events_applied: string[];
+  required_events_missing: string[];
+  dispatch_failure_events: string[];
+  settled_wait_result: ExecutionTrace["settled_wait_result"];
+  recovery_action: Layer2RecoveryAction | null;
+  failure_category: Layer2FailureCategory | null;
+  audit_reasons: string[];
 }
 
 const DEFAULT_RHYTHM_PROFILE: RhythmProfile = {
@@ -762,6 +782,72 @@ export const resolveLayer2SettleRecovery = (input: {
   });
 };
 
+export const buildLayer2WriteBoundaryAudit = (input: {
+  evidence: Layer2InteractionEvidence;
+  schedule?: Layer2ScheduledEventChain | null;
+  dispatchResult?: Layer2DispatchResult | null;
+  settleRecoveryResult?: Layer2SettleRecoveryResult | null;
+  writeInteractionTierName?: string | null;
+  approvalRecordRef?: string | null;
+  auditRecordRef?: string | null;
+  outOfScopeActions?: string[] | null;
+}): Layer2WriteBoundaryAudit => {
+  const outOfScopeActions = normalizeLayer2StringList(input.outOfScopeActions);
+  const appliedRequiredEvents = normalizeLayer2StringList(
+    input.dispatchResult?.required_events_applied
+  );
+  const blockedBy =
+    outOfScopeActions.length > 0
+      ? "FR-0013.out_of_scope_action"
+      : input.evidence.strategy_selection.blocked_by ?? input.dispatchResult?.blocked_by ?? null;
+  const requiredEvents = resolveLayer2AuditRequiredEvents(input.evidence, input.schedule ?? null);
+  const requiredEventsMissing =
+    blockedBy !== null
+      ? []
+      : requiredEvents.filter((eventRef) => !appliedRequiredEvents.includes(eventRef));
+  const dispatchFailureEvents = normalizeLayer2StringList(input.dispatchResult?.skipped_events);
+  const dispatchFailed = requiredEventsMissing.length > 0 || dispatchFailureEvents.length > 0;
+  const recoveryAction = input.settleRecoveryResult?.recovery_action ?? null;
+  const boundaryDecision: Layer2WriteBoundaryDecision =
+    blockedBy !== null
+      ? "block"
+      : dispatchFailed || recoveryAction === "fail_closed"
+        ? "fail_closed"
+        : "allow";
+  const failureCategory =
+    input.settleRecoveryResult?.failure_category ??
+    input.evidence.execution_trace.failure_category ??
+    (dispatchFailed ? "required_event_not_applied" : null);
+
+  return {
+    action_kind: input.evidence.strategy_selection.action_kind,
+    write_interaction_tier: normalizeLayer2String(input.writeInteractionTierName),
+    boundary_decision: boundaryDecision,
+    blocked_by: blockedBy,
+    approval_record_ref: normalizeLayer2String(input.approvalRecordRef),
+    audit_record_ref: normalizeLayer2String(input.auditRecordRef),
+    out_of_scope_actions: outOfScopeActions,
+    synthetic_fallback_blocked:
+      blockedBy === "FR-0011.write_interaction_tier" &&
+      input.evidence.event_strategy_profile.fallback_path === "synthetic_chain",
+    required_events_applied: appliedRequiredEvents,
+    required_events_missing: requiredEventsMissing,
+    dispatch_failure_events: dispatchFailureEvents,
+    settled_wait_result:
+      input.settleRecoveryResult?.settled_wait_result ??
+      input.evidence.execution_trace.settled_wait_result,
+    recovery_action: recoveryAction,
+    failure_category: failureCategory,
+    audit_reasons: buildLayer2WriteBoundaryAuditReasons({
+      blockedBy,
+      dispatchFailed,
+      outOfScopeActions,
+      recoveryAction,
+      failureCategory
+    })
+  };
+};
+
 export const buildLayer2InteractionEvidence = (input: {
   actionKind: Layer2ActionKind;
   writeInteractionTierName?: string | null;
@@ -884,6 +970,12 @@ const isLayer2Punctuation = (value: string): boolean => /[,.!?;:，。！？；�
 const normalizeLayer2ObservedSignals = (value: string[] | null | undefined): string[] =>
   Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
 
+const normalizeLayer2String = (value: string | null | undefined): string | null =>
+  typeof value === "string" && value.length > 0 ? value : null;
+
+const normalizeLayer2StringList = (value: string[] | null | undefined): string[] =>
+  Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
+
 const normalizeLayer2Timeout = (value: number | null | undefined): number | null =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
 
@@ -911,6 +1003,44 @@ const buildLayer2SettleRecoveryResult = (input: {
   layout_motion_blocking: input.layoutMotionBlocking,
   timeout_ms: input.timeoutMs
 });
+
+const resolveLayer2AuditRequiredEvents = (
+  evidence: Layer2InteractionEvidence,
+  schedule: Layer2ScheduledEventChain | null
+): string[] => {
+  if (schedule) {
+    return schedule.scheduled_events
+      .filter((event) => event.required)
+      .map((event) => event.event_ref);
+  }
+  return evidence.event_chain_policy.required_events;
+};
+
+const buildLayer2WriteBoundaryAuditReasons = (input: {
+  blockedBy: string | null;
+  dispatchFailed: boolean;
+  outOfScopeActions: string[];
+  recoveryAction: Layer2RecoveryAction | null;
+  failureCategory: Layer2FailureCategory | null;
+}): string[] => {
+  const reasons: string[] = [];
+  if (input.blockedBy) {
+    reasons.push(input.blockedBy);
+  }
+  if (input.outOfScopeActions.length > 0) {
+    reasons.push("out_of_scope_action");
+  }
+  if (input.dispatchFailed) {
+    reasons.push("required_event_not_applied");
+  }
+  if (input.recoveryAction === "fail_closed") {
+    reasons.push("settle_recovery_fail_closed");
+  }
+  if (input.failureCategory) {
+    reasons.push(input.failureCategory);
+  }
+  return [...new Set(reasons)];
+};
 
 const summarizeLayer2PageStateInput = (pageState: Layer2PageStateInput): string =>
   [
