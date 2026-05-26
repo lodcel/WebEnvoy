@@ -8,6 +8,7 @@ import {
   buildXhsSearchLayer2InteractionEvidence,
   dispatchLayer2ScheduledEventChain,
   getLayer2EventChainPolicies,
+  resolveLayer2SettleRecovery,
   resolveLayer2RhythmTiming
 } from "../extension/layer2-humanized-events.js";
 
@@ -39,6 +40,18 @@ class Layer2MockDispatchTarget extends EventTarget {
     return super.dispatchEvent(event);
   }
 }
+
+const settledPageState = {
+  target_visible: true,
+  target_interactable: true,
+  target_focused: true,
+  target_disabled: false,
+  target_readonly: false,
+  viewport_state: "stable" as const,
+  occlusion_state: "clear" as const,
+  layout_motion: "idle" as const,
+  last_chain_result: "settled" as const
+};
 
 describe("FR-0013 layer2 humanized events", () => {
   it("builds default keyboard interaction evidence with stable contract objects", () => {
@@ -87,6 +100,118 @@ describe("FR-0013 layer2 humanized events", () => {
       settled_wait_applied: true,
       settled_wait_result: "settled"
     });
+  });
+
+  it("resolves settled wait from completion signals and current page-state input", () => {
+    const result = resolveLayer2SettleRecovery({
+      pageStateInput: settledPageState,
+      completionSignal: ["dom_settled", "framework_value_updated"],
+      observedSignals: ["framework_value_updated"],
+      elapsedMs: 80,
+      timeoutMs: 500
+    });
+
+    expect(result).toMatchObject({
+      settled_wait_applied: true,
+      settled_wait_result: "settled",
+      recovery_action: "none",
+      completion_signal_observed: ["framework_value_updated"],
+      failure_category: null,
+      target_drifted: false,
+      layout_motion_blocking: false,
+      timeout_ms: 500
+    });
+    expect(result.page_state_input_summary).toContain("target_visible_interactable_focused");
+  });
+
+  it("reports only the completion signals that were actually observed", () => {
+    const result = resolveLayer2SettleRecovery({
+      pageStateInput: {
+        ...settledPageState,
+        last_chain_result: "timeout"
+      },
+      completionSignal: ["framework_value_updated"],
+      observedSignals: ["dom_mutated", "framework_value_updated", "paint_stable"],
+      elapsedMs: 90,
+      timeoutMs: 500
+    });
+
+    expect(result).toMatchObject({
+      settled_wait_result: "settled",
+      recovery_action: "none",
+      completion_signal_observed: ["framework_value_updated"]
+    });
+  });
+
+  it("fails closed when the current target drifts before settle", () => {
+    const result = resolveLayer2SettleRecovery({
+      pageStateInput: {
+        ...settledPageState,
+        target_visible: false,
+        last_chain_result: "target_drifted"
+      },
+      completionSignal: ["dom_settled"],
+      observedSignals: [],
+      elapsedMs: 120,
+      timeoutMs: 500
+    });
+
+    expect(result).toMatchObject({
+      settled_wait_applied: false,
+      settled_wait_result: "skipped",
+      recovery_action: "fail_closed",
+      failure_category: "target_drifted",
+      target_drifted: true,
+      layout_motion_blocking: false
+    });
+    expect(result.page_state_input_summary).toContain("target_hidden");
+  });
+
+  it("asks the caller to reobserve while layout motion is still active", () => {
+    const result = resolveLayer2SettleRecovery({
+      pageStateInput: {
+        ...settledPageState,
+        layout_motion: "animating",
+        last_chain_result: "not_run"
+      },
+      completionSignal: ["dom_settled"],
+      observedSignals: [],
+      elapsedMs: 120,
+      timeoutMs: 500
+    });
+
+    expect(result).toMatchObject({
+      settled_wait_applied: false,
+      settled_wait_result: "skipped",
+      recovery_action: "reobserve",
+      failure_category: null,
+      target_drifted: false,
+      layout_motion_blocking: true
+    });
+  });
+
+  it("fails closed on settle timeout without creating session rhythm state", () => {
+    const result = resolveLayer2SettleRecovery({
+      pageStateInput: {
+        ...settledPageState,
+        last_chain_result: "timeout"
+      },
+      completionSignal: ["dom_settled"],
+      observedSignals: [],
+      elapsedMs: 500,
+      timeoutMs: 500
+    });
+
+    expect(result).toMatchObject({
+      settled_wait_applied: true,
+      settled_wait_result: "timeout",
+      recovery_action: "fail_closed",
+      failure_category: "framework_state_not_updated",
+      target_drifted: false,
+      layout_motion_blocking: false
+    });
+    expect(result).not.toHaveProperty("session_rhythm_window_state");
+    expect(result).not.toHaveProperty("cooldown");
   });
 
   it("blocks irreversible writes through FR-0011 tier input", () => {
