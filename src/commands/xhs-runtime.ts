@@ -85,6 +85,7 @@ type XhsDataRefKey = "query" | "note_id" | "user_id" | "validation_action" | "ta
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_ABILITY_ID = "xhs.editor.input.v1";
+const XHS_CREATOR_PUBLISH_ABILITY_ID = "xhs.creator.publish.v1";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 
@@ -100,7 +101,7 @@ const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
 const XHS_CREATOR_PUBLISH_ABILITY = {
-  id: "xhs.creator.publish.v1",
+  id: XHS_CREATOR_PUBLISH_ABILITY_ID,
   layer: "L3",
   action: "write"
 } as const;
@@ -114,6 +115,12 @@ const XHS_EDITOR_INPUT_ABILITY = {
 // editor_text.write is the controlled #208 editor_input text-write path.
 const XHS_EDITOR_TEXT_WRITE_ABILITY = {
   id: XHS_EDITOR_INPUT_ABILITY_ID,
+  layer: "L3",
+  action: "write"
+} as const;
+
+const XHS_MEDIA_UPLOAD_DISCOVER_ABILITY = {
+  id: XHS_CREATOR_PUBLISH_ABILITY_ID,
   layer: "L3",
   action: "write"
 } as const;
@@ -3183,7 +3190,7 @@ const xhsCreatorPublishAdmit = async (context: RuntimeContext): Promise<CommandE
 const xhsMediaUploadDiscover = async (context: RuntimeContext): Promise<CommandExecutionResult> => {
   return xhsReadCommand({
     ...context,
-    params: normalizeDedicatedXhsCommandParams(context.params, XHS_CREATOR_PUBLISH_ABILITY)
+    params: normalizeDedicatedXhsCommandParams(context.params, XHS_MEDIA_UPLOAD_DISCOVER_ABILITY)
   }, {
     fixtureDataRefKey: "target_page",
     parseInput: () => parseMediaUploadDiscoveryInputForContract()
