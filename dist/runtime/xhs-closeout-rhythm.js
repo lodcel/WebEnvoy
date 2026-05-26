@@ -6,11 +6,24 @@ const STATES = [
     "single_probe_required",
     "single_probe_passed"
 ];
+const MAX_REASON_CODES = 24;
 const isObjectRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const isIsoTimestampOrNull = (value) => value === null || (typeof value === "string" && !Number.isNaN(Date.parse(value)));
 const isStringOrNull = (value) => value === null || typeof value === "string";
 const isState = (value) => typeof value === "string" && STATES.includes(value);
-const uniqueReasons = (reasons) => [...new Set(reasons.filter((reason) => reason.trim().length > 0))];
+const uniqueReasons = (reasons) => {
+    const seen = new Set();
+    const latestUnique = [];
+    for (let index = reasons.length - 1; index >= 0; index -= 1) {
+        const reason = reasons[index];
+        if (reason.trim().length === 0 || seen.has(reason)) {
+            continue;
+        }
+        seen.add(reason);
+        latestUnique.unshift(reason);
+    }
+    return latestUnique.slice(-MAX_REASON_CODES);
+};
 export const buildDefaultXhsCloseoutRhythmRecord = () => ({
     state: "not_required",
     cooldownUntil: null,
@@ -69,6 +82,24 @@ export const markXhsCloseoutSingleProbePassed = (input) => ({
     fullBundleBlocked: true,
     reasonCodes: uniqueReasons(["XHS_RECOVERY_SINGLE_PROBE_PASSED", "ANTI_DETECTION_BASELINE_REQUIRED"])
 });
+export const markXhsCloseoutSingleProbeFailed = (input) => {
+    const current = normalizeXhsCloseoutRhythmRecord(input.current);
+    return {
+        ...current,
+        state: "cooldown",
+        cooldownUntil: addMinutesIso(input.failedAt, input.cooldownMinutes ?? 30),
+        singleProbeRequired: true,
+        singleProbePassedAt: null,
+        probeRunId: input.probeRunId,
+        fullBundleBlocked: true,
+        reasonCodes: uniqueReasons([
+            ...current.reasonCodes,
+            "XHS_RECOVERY_SINGLE_PROBE_FAILED",
+            "XHS_CLOSEOUT_COOLDOWN_EXTENDED",
+            ...(input.reasonCode ? [input.reasonCode] : [])
+        ])
+    };
+};
 export const claimXhsCloseoutSingleProbe = (input) => ({
     ...normalizeXhsCloseoutRhythmRecord(input.current),
     state: "single_probe_required",
@@ -231,11 +262,17 @@ const resolveSessionRhythmRiskState = (input) => input.state === "cooldown" || i
         ? "allowed"
         : "limited";
 const resolveSessionRhythmEventType = (input) => {
+    if (input.eventTypeOverride) {
+        return input.eventTypeOverride;
+    }
     if (input.accountSafety?.state === "account_risk_blocked") {
         return "risk_signal";
     }
     if (input.state === "single_probe_passed") {
         return "recovery_probe_passed";
+    }
+    if (input.reasonCodes?.includes("XHS_CLOSEOUT_COOLDOWN_EXTENDED") && input.phase === "cooldown") {
+        return "cooldown_extended";
     }
     if (input.phase === "cooldown") {
         return "cooldown_started";
@@ -245,12 +282,22 @@ const resolveSessionRhythmEventType = (input) => {
     }
     return "stability_window_passed";
 };
+const resolveSessionRhythmEventReason = (input) => {
+    if (input.eventReasonOverride && input.eventReasonOverride.trim().length > 0) {
+        return input.eventReasonOverride;
+    }
+    return input.reasonCodes[input.reasonCodes.length - 1] ?? "SESSION_RHYTHM_STATUS_OBSERVED";
+};
 export const buildSessionRhythmFormalView = (input) => {
     const now = input.now ?? new Date();
     const status = toXhsCloseoutRhythmStatus({ ...input, now });
     const reasonCodes = Array.isArray(status.reason_codes)
         ? status.reason_codes.filter((reason) => typeof reason === "string")
         : [];
+    const eventReason = resolveSessionRhythmEventReason({
+        reasonCodes,
+        eventReasonOverride: input.eventReasonOverride
+    });
     const state = typeof status.state === "string" ? status.state : "not_required";
     const phase = resolveSessionRhythmPhase(state);
     const riskState = resolveSessionRhythmRiskState({ state, accountSafety: input.accountSafety });
@@ -259,12 +306,11 @@ export const buildSessionRhythmFormalView = (input) => {
     const statusProbeRunId = typeof status.probe_run_id === "string" && status.probe_run_id.length > 0
         ? status.probe_run_id
         : null;
-    const sourceRunId = statusProbeRunId ?? input.sourceRunId ?? null;
+    const sourceRunId = input.sourceRunId ?? statusProbeRunId ?? null;
     const sourceKey = sanitizeIdPart(sourceRunId ?? `${profileKey}_${state}`);
     const windowId = `rhythm_win_${profileKey}_${sanitizeIdPart(issueScope)}`;
     const latestEventId = `rhythm_evt_${sourceKey}`;
     const decisionId = `rhythm_decision_${sourceKey}`;
-    const latestReason = reasonCodes[reasonCodes.length - 1] ?? null;
     const observedAt = input.accountSafety?.observedAt ?? null;
     const operatorConfirmedAt = typeof status.operator_confirmed_at === "string" ? status.operator_confirmed_at : null;
     const singleProbePassedAt = typeof status.single_probe_passed_at === "string" ? status.single_probe_passed_at : null;
@@ -320,14 +366,16 @@ export const buildSessionRhythmFormalView = (input) => {
             event_type: resolveSessionRhythmEventType({
                 state,
                 phase,
-                accountSafety: input.accountSafety
+                reasonCodes,
+                accountSafety: input.accountSafety,
+                eventTypeOverride: input.eventTypeOverride
             }),
             phase_before: eventPhaseBefore,
             phase_after: eventPhaseAfter,
             risk_state_before: riskState,
             risk_state_after: riskState,
             source_audit_event_id: input.sourceAuditEventId ?? null,
-            reason: latestReason ?? "SESSION_RHYTHM_STATUS_OBSERVED",
+            reason: eventReason,
             recorded_at: now.toISOString()
         },
         decision: {
@@ -374,7 +422,9 @@ export const toSessionRhythmStatusView = (input) => {
         cooldown_until: status.cooldown_until,
         stability_window_until: formalView.windowState.stability_window_until,
         latest_event_id: formalView.event.event_id,
-        latest_reason: reasonCodes[reasonCodes.length - 1] ?? null,
+        latest_reason: typeof formalView.event.reason === "string"
+            ? formalView.event.reason
+            : reasonCodes[reasonCodes.length - 1] ?? null,
         derived_at: now.toISOString(),
         ...(hasFormalIds
             ? {

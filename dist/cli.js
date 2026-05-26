@@ -26,6 +26,11 @@ const normalizeCliError = (error) => {
     }
     return normalizeExecutionError(error);
 };
+const assertRegisteredCommand = (commandName, registry) => {
+    if (!registry.get(commandName)) {
+        throw new CliError("ERR_CLI_UNKNOWN_COMMAND", `未知命令: ${commandName}`);
+    }
+};
 export const runCli = async (argv, options) => {
     const cwd = options?.cwd ?? process.cwd();
     const stdout = options?.stdout ?? process.stdout;
@@ -36,11 +41,13 @@ export const runCli = async (argv, options) => {
     let recorder = null;
     try {
         const parsed = parseArgv(argv);
+        const registry = createCommandRegistry();
         const context = buildRuntimeContext(parsed, cwd);
         runtimeContext = context;
+        assertRegisteredCommand(context.command, registry);
         recorder = createRuntimeStoreRecorder(cwd);
         await recorder.recordStart(context);
-        const execution = await executeCommand(context, createCommandRegistry());
+        const execution = await executeCommand(context, registry);
         await recorder.recordSuccess(context, execution.summary);
         writeJsonLine(stdout, buildSuccessResponse(context, execution.summary, {
             observability: execution.observability ?? DEFAULT_OBSERVABILITY

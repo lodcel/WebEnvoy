@@ -5,6 +5,7 @@ import { NativeMessagingBridge, NativeMessagingTransportError } from "../runtime
 import { NativeHostBridgeTransport } from "../runtime/native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "../runtime/native-messaging/loopback.js";
 import { ProfileRuntimeService } from "../runtime/profile-runtime.js";
+import { refreshProfileExtensionServiceWorkerCache } from "../runtime/persistent-extension-identity-install.js";
 import { buildRuntimeBootstrapContextId } from "../runtime/runtime-bootstrap.js";
 import { buildFingerprintContextForMeta, appendFingerprintContext } from "../runtime/fingerprint-runtime.js";
 import { ProfileStore } from "../runtime/profile-store.js";
@@ -2197,6 +2198,93 @@ const runtimeStatus = async (context) => profileRuntime.status({
     runId: context.run_id,
     params: context.params
 });
+const runtimeRefreshExtensionServiceWorker = async (context) => {
+    const profile = context.profile ?? "";
+    const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
+    const profileDir = profileStore.getProfileDir(profile);
+    const meta = await profileStore.readMeta(profile, { mode: "readonly" });
+    const persistentIdentity = asObject(context.params.persistent_extension_identity);
+    const extensionId = asString(persistentIdentity?.extension_id) ?? meta?.persistentExtensionBinding?.extensionId ?? null;
+    const confirm = context.params.confirm === true;
+    const confirmManagedProfile = context.params.confirm_managed_profile === true;
+    if (!extensionId) {
+        return {
+            profile,
+            profileDir,
+            refresh_decision: "NO_GO",
+            dry_run: !confirm,
+            blocker: {
+                blocker_layer: "runtime_readiness",
+                blocker_code: "identity_mismatch",
+                required_recovery_action: "run runtime.install/runtime.start with persistent_extension_identity before refreshing managed Service Worker cache"
+            }
+        };
+    }
+    if (confirm) {
+        if (!confirmManagedProfile) {
+            return {
+                profile,
+                profileDir,
+                extension_id: extensionId,
+                refresh_decision: "NO_GO",
+                dry_run: false,
+                blocker: {
+                    blocker_layer: "runtime_readiness",
+                    blocker_code: "managed_profile_confirmation_missing",
+                    required_recovery_action: "rerun with {\"confirm\":true,\"confirm_managed_profile\":true} only for a WebEnvoy-managed profile"
+                }
+            };
+        }
+        if (meta?.persistentExtensionBinding !== undefined &&
+            meta.persistentExtensionBinding.extensionId !== extensionId) {
+            return {
+                profile,
+                profileDir,
+                extension_id: extensionId,
+                refresh_decision: "NO_GO",
+                dry_run: false,
+                blocker: {
+                    blocker_layer: "runtime_readiness",
+                    blocker_code: "managed_profile_binding_mismatch",
+                    required_recovery_action: "run runtime.install/runtime.start with persistent_extension_identity before confirming managed Service Worker cache refresh"
+                }
+            };
+        }
+    }
+    const result = await refreshProfileExtensionServiceWorkerCache(profileDir, extensionId, {
+        confirm
+    });
+    const staleBeforeRefresh = result.before.state === "stale";
+    const refreshDecision = result.operation === "blocked"
+        ? "NO_GO"
+        : confirm
+            ? result.operation === "refreshed"
+                ? "REFRESHED"
+                : "SKIPPED"
+            : "DRY_RUN";
+    return {
+        profile,
+        profileDir,
+        extension_id: extensionId,
+        refresh_decision: refreshDecision,
+        dry_run: !confirm,
+        service_worker_cache_removable: result.removable,
+        would_remove_service_worker_cache: !confirm && result.removable,
+        removed_service_worker_cache: result.removed,
+        service_worker_path: result.serviceWorkerPath,
+        expected_service_worker_path: result.expectedServiceWorkerPath,
+        before: result.before,
+        after: result.after,
+        blocker: result.blocker,
+        next_step: result.operation === "refreshed"
+            ? "rerun runtime.install/runtime.start and then runtime.status"
+            : result.operation === "blocked"
+                ? "inspect managed profile Service Worker cache path before retrying refresh"
+                : staleBeforeRefresh
+                    ? "rerun with {\"confirm\":true,\"confirm_managed_profile\":true} to refresh only this managed profile cache"
+                    : "rerun runtime.status; Service Worker freshness is not stale"
+    };
+};
 const runtimeCloseoutPreflight = async (context) => {
     const status = await profileRuntime.status({
         cwd: context.cwd,
@@ -2402,6 +2490,7 @@ const runtimeHelp = async () => ({
         "runtime.start",
         "runtime.login",
         "runtime.status",
+        "runtime.refresh_extension_service_worker",
         "runtime.closeout_preflight",
         "runtime.closeout_gate",
         "runtime.tabs",
@@ -2450,6 +2539,12 @@ export const runtimeCommands = () => [
         status: "implemented",
         requiresProfile: true,
         handler: runtimeStatus
+    },
+    {
+        name: "runtime.refresh_extension_service_worker",
+        status: "implemented",
+        requiresProfile: true,
+        handler: runtimeRefreshExtensionServiceWorker
     },
     {
         name: "runtime.closeout_preflight",
