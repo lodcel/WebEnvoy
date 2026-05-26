@@ -2,7 +2,10 @@ import { RuntimeStoreError } from "./store/sqlite-runtime-store.js";
 export const XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL = "Google Chrome stable";
 export const XHS_CLOSEOUT_BASELINE_EXECUTION_SURFACE = "real_browser";
 export const XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF = "probe-bundle/xhs-closeout-min-v1";
+export const XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF = "probe-bundle/xhs-creator-live-write-admission-v1";
 export const XHS_CLOSEOUT_TARGET_DOMAIN = "www.xiaohongshu.com";
+export const XHS_CREATOR_TARGET_DOMAIN = "creator.xiaohongshu.com";
+export const XHS_CREATOR_PUBLISH_TARGET_PAGE = "creator_publish_tab";
 export const XHS_CLOSEOUT_REQUIRED_VALIDATION_SCOPES = [
     {
         targetFrRef: "FR-0012",
@@ -18,6 +21,11 @@ export const XHS_CLOSEOUT_REQUIRED_VALIDATION_SCOPES = [
     }
 ];
 export const resolveXhsCloseoutReadinessBaselineExecutionMode = (mode) => mode === "live_read_limited" ? "live_read_high_risk" : mode;
+export const resolveXhsCloseoutValidationProbeBundleRef = (input) => input.effectiveExecutionMode === "live_write" &&
+    input.targetDomain === XHS_CREATOR_TARGET_DOMAIN &&
+    input.targetPage === XHS_CREATOR_PUBLISH_TARGET_PAGE
+    ? XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF
+    : XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF;
 const toViewJson = (view) => view ? { ...view } : null;
 export const toXhsCloseoutValidationGateJson = (gate) => ({
     profile_ref: gate.profile_ref,
@@ -38,12 +46,14 @@ export const buildXhsCloseoutValidationScope = (input) => ({
     browserChannel: XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL,
     executionSurface: XHS_CLOSEOUT_BASELINE_EXECUTION_SURFACE,
     effectiveExecutionMode: input.effectiveExecutionMode,
-    probeBundleRef: XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF
+    probeBundleRef: input.probeBundleRef ?? XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF
 });
 export const readXhsCloseoutValidationGateView = async (input) => {
+    const probeBundleRef = input.probeBundleRef ?? XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF;
     const views = await Promise.all(XHS_CLOSEOUT_REQUIRED_VALIDATION_SCOPES.map((scope) => input.store.getAntiDetectionValidationView(buildXhsCloseoutValidationScope({
         profile: input.profile,
         effectiveExecutionMode: input.effectiveExecutionMode,
+        probeBundleRef,
         targetFrRef: scope.targetFrRef,
         validationScope: scope.validationScope
     }))));
@@ -63,7 +73,7 @@ export const readXhsCloseoutValidationGateView = async (input) => {
         browser_channel: XHS_CLOSEOUT_BASELINE_BROWSER_CHANNEL,
         execution_surface: XHS_CLOSEOUT_BASELINE_EXECUTION_SURFACE,
         effective_execution_mode: input.effectiveExecutionMode,
-        probe_bundle_ref: XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF,
+        probe_bundle_ref: probeBundleRef,
         required_target_fr_refs: requiredTargetFrRefs,
         views,
         all_required_ready: blockingTargetFrRefs.length === 0,

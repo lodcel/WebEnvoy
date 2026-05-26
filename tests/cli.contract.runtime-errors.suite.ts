@@ -57,9 +57,18 @@ const startOfficialReadyRuntime = async (
   return persistentExtensionIdentity;
 };
 
-const seedReadyXhsCloseoutValidationViews = async (cwd: string, profile: string): Promise<void> => {
+const seedReadyXhsCloseoutValidationViews = async (
+  cwd: string,
+  profile: string,
+  options: {
+    effectiveExecutionMode?: "live_read_high_risk" | "live_write";
+    probeBundleRef?: string;
+  } = {}
+): Promise<void> => {
   const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
   const observedAt = "2026-04-30T02:00:00.000Z";
+  const effectiveExecutionMode = options.effectiveExecutionMode ?? "live_read_high_risk";
+  const probeBundleRef = options.probeBundleRef ?? "probe-bundle/xhs-closeout-min-v1";
   const scopes = [
     ["FR-0012", "layer1_consistency"],
     ["FR-0013", "layer2_interaction"],
@@ -77,14 +86,14 @@ const seedReadyXhsCloseoutValidationViews = async (cwd: string, profile: string)
         profileRef: `profile/${profile}`,
         browserChannel: "Google Chrome stable" as const,
         executionSurface: "real_browser" as const,
-        effectiveExecutionMode: "live_read_high_risk" as const,
-        probeBundleRef: "probe-bundle/xhs-closeout-min-v1"
+        effectiveExecutionMode,
+        probeBundleRef
       };
       await store.upsertAntiDetectionValidationRequest({
         ...scope,
         requestRef,
         sampleGoal: `restore stale bootstrap ${targetFrRef}`,
-        requestedExecutionMode: "live_read_high_risk",
+        requestedExecutionMode: effectiveExecutionMode,
         requestState: "accepted",
         requestedAt: observedAt
       });
@@ -92,7 +101,7 @@ const seedReadyXhsCloseoutValidationViews = async (cwd: string, profile: string)
         ...scope,
         requestRef,
         sampleGoal: `restore stale bootstrap ${targetFrRef}`,
-        requestedExecutionMode: "live_read_high_risk",
+        requestedExecutionMode: effectiveExecutionMode,
         requestState: "completed",
         requestedAt: observedAt
       });
@@ -868,6 +877,7 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
             account_safety_state: "clear",
             xhs_closeout_rhythm_state: "not_required",
             anti_detection_validation_ready: true,
+            anti_detection_missing_target_fr_refs: [],
             runtime_decision: "GO",
             target_binding_state: "verified",
             execution_surface: "real_browser",
@@ -875,6 +885,11 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
           }
         }
       }
+    });
+    expect(body.summary.anti_detection_validation_view).toMatchObject({
+      effective_execution_mode: "live_read_high_risk",
+      probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1",
+      all_required_ready: true
     });
   });
 
@@ -932,6 +947,64 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
             anti_detection_missing_target_fr_refs: ["FR-0012", "FR-0013", "FR-0014"]
           }
         }
+      }
+    });
+    expect(body.summary.anti_detection_validation_view).toMatchObject({
+      effective_execution_mode: "live_read_high_risk",
+      probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1",
+      all_required_ready: false
+    });
+  });
+
+  it("uses the FR-0031 creator live_write probe bundle for creator publish admission", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const profile = "xhs_creator_live_write_gate_validation_missing";
+    const persistentExtensionIdentity = await startOfficialReadyRuntime(
+      runtimeCwd,
+      profile,
+      "run-contract-creator-live-write-gate-001"
+    );
+
+    const result = runCli(
+      [
+        "runtime.closeout_gate",
+        "--profile",
+        profile,
+        "--run-id",
+        "run-contract-creator-live-write-gate-001",
+        "--params",
+        JSON.stringify({
+          requested_execution_mode: "live_write",
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          target_tab_id: 44,
+          requested_at: "2026-04-25T10:45:00.000Z",
+          persistent_extension_identity: persistentExtensionIdentity
+        })
+      ],
+      runtimeCwd,
+      {
+        WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
+        WEBENVOY_NATIVE_TRANSPORT: "native",
+        WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
+        WEBENVOY_NATIVE_HOST_MODE: "runtime-readiness-ready"
+      }
+    );
+
+    expect(result.status, result.stdout).toBe(0);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body.summary.anti_detection_validation_view).toMatchObject({
+      effective_execution_mode: "live_write",
+      probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+      all_required_ready: false,
+      missing_target_fr_refs: ["FR-0012", "FR-0013", "FR-0014"]
+    });
+    expect(body.summary.closeout_gate_aggregator).toMatchObject({
+      decision: "NO_GO",
+      gate_state: {
+        requested_execution_mode: "live_write",
+        anti_detection_validation_ready: false,
+        anti_detection_missing_target_fr_refs: ["FR-0012", "FR-0013", "FR-0014"]
       }
     });
   });

@@ -41,6 +41,7 @@ import {
   persistXhsCloseoutValidationSourceEvidence,
   persistXhsCloseoutValidationSourceSamples,
   readXhsCloseoutValidationGateView,
+  resolveXhsCloseoutValidationProbeBundleRef,
   resolveXhsCloseoutReadinessBaselineExecutionMode,
   toXhsCloseoutValidationGateJson,
   type XhsCloseoutValidationSignalMap
@@ -236,14 +237,22 @@ const buildAntiDetectionValidationViewForProfile = async (input: {
   store: SQLiteRuntimeStore;
   profile: string | null;
   effectiveExecutionMode: unknown;
+  targetDomain?: unknown;
+  targetPage?: unknown;
 }): Promise<Record<string, unknown> | null> => {
   if (!input.profile) {
     return null;
   }
+  const effectiveExecutionMode = resolveAntiDetectionEffectiveExecutionMode(input.effectiveExecutionMode);
   const gate = await readXhsCloseoutValidationGateView({
     store: input.store,
     profile: input.profile,
-    effectiveExecutionMode: resolveAntiDetectionEffectiveExecutionMode(input.effectiveExecutionMode)
+    effectiveExecutionMode,
+    probeBundleRef: resolveXhsCloseoutValidationProbeBundleRef({
+      effectiveExecutionMode,
+      targetDomain: asString(input.targetDomain),
+      targetPage: asString(input.targetPage)
+    })
   });
   return toXhsCloseoutValidationGateJson(gate);
 };
@@ -2723,7 +2732,9 @@ const runtimeCloseoutGate = async (context: RuntimeContext) => {
     const antiDetectionValidationView = await buildAntiDetectionValidationViewForProfile({
       store,
       profile: context.profile,
-      effectiveExecutionMode: context.params.requested_execution_mode
+      effectiveExecutionMode: context.params.requested_execution_mode,
+      targetDomain: context.params.target_domain,
+      targetPage: context.params.target_page
     });
     return {
       closeout_gate_aggregator: buildCloseoutGateAggregator({
