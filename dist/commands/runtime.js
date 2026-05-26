@@ -15,7 +15,7 @@ import { buildCloseoutGateAggregator } from "../runtime/closeout-gate-aggregator
 import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
 import { buildUnifiedRiskStateOutput, resolveRiskState } from "../runtime/risk-state.js";
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
-import { persistXhsCloseoutValidationSourceEvidence, persistXhsCloseoutValidationSourceSamples, readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBundleRef, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
+import { XHS_CLOSEOUT_TARGET_DOMAIN, XHS_CREATOR_PUBLISH_TARGET_PAGE, XHS_CREATOR_TARGET_DOMAIN, persistXhsCloseoutValidationSourceEvidence, persistXhsCloseoutValidationSourceSamples, readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBundleRef, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
 const asBoolean = (value) => value === true;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
@@ -212,6 +212,27 @@ const requiredXhsCloseoutSampleScopes = [
     ["FR-0014", "layer3_session_rhythm"]
 ];
 const XHS_CLOSEOUT_VALIDATION_SOURCE_APPROVED_REASON = "XHS_CLOSEOUT_VALIDATION_SOURCE_APPROVED";
+const isAdmittedXhsValidationSourceScope = (input) => (input.targetDomain === XHS_CLOSEOUT_TARGET_DOMAIN &&
+    input.targetPage === "search_result_tab" &&
+    input.requestedExecutionMode === "live_read_high_risk") ||
+    (input.targetDomain === XHS_CREATOR_TARGET_DOMAIN &&
+        input.targetPage === XHS_CREATOR_PUBLISH_TARGET_PAGE &&
+        input.requestedExecutionMode === "live_write");
+const resolveXhsValidationSourceTargetPage = (input) => {
+    if (input.targetPage) {
+        return input.targetPage;
+    }
+    if (input.targetDomain === XHS_CLOSEOUT_TARGET_DOMAIN &&
+        input.requestedExecutionMode === "live_read_high_risk") {
+        return "search_result_tab";
+    }
+    return null;
+};
+const resolveXhsValidationSourceProbeBundleRef = (input) => resolveXhsCloseoutValidationProbeBundleRef({
+    effectiveExecutionMode: input.requestedExecutionMode,
+    targetDomain: input.targetDomain,
+    targetPage: input.targetPage
+});
 const sampleSignal = (sample) => {
     const payload = asObject(sample.structured_payload);
     return asObject(payload?.signal);
@@ -255,9 +276,15 @@ const sourcePageUrlMatchesSourceAudit = (pageUrl, sourceAudit) => {
     }
     try {
         const parsed = new URL(pageUrl);
-        return (parsed.hostname === sourceAudit.target_domain &&
-            sourceAudit.target_page === "search_result_tab" &&
-            parsed.pathname.replace(/\/+$/u, "").endsWith("/search_result"));
+        const normalizedPath = parsed.pathname.replace(/\/+$/u, "");
+        if (parsed.hostname !== sourceAudit.target_domain) {
+            return false;
+        }
+        if (sourceAudit.target_page === "search_result_tab") {
+            return normalizedPath.endsWith("/search_result");
+        }
+        return (sourceAudit.target_page === XHS_CREATOR_PUBLISH_TARGET_PAGE &&
+            normalizedPath.endsWith("/publish/publish"));
     }
     catch {
         return false;
@@ -267,7 +294,13 @@ const signalMatchesSourceBinding = (input) => {
     const browserEvidence = asObject(input.signal.browser_returned_evidence);
     const browserBindingMatches = browserEvidence?.target_domain === input.sourceAudit.target_domain &&
         asInteger(browserEvidence?.target_tab_id) === input.sourceAudit.target_tab_id &&
-        asString(browserEvidence?.probe_bundle_ref) === "probe-bundle/xhs-closeout-min-v1" &&
+        asString(browserEvidence?.probe_bundle_ref) ===
+            resolveXhsValidationSourceProbeBundleRef({
+                targetDomain: input.sourceAudit.target_domain,
+                targetPage: input.sourceAudit.target_page,
+                requestedExecutionMode: input.sourceAudit
+                    .requested_execution_mode
+            }) &&
         sourcePageUrlMatchesSourceAudit(asString(browserEvidence?.page_url), input.sourceAudit);
     if (!browserBindingMatches) {
         return false;
@@ -301,7 +334,7 @@ const sourceAuditMatchesXhsCloseoutScope = (input) => {
     return (input.sourceAudit.profile === input.profile &&
         input.sourceAudit.issue_scope === "issue_209" &&
         input.sourceAudit.target_domain === input.targetDomain &&
-        input.sourceAudit.target_page === "search_result_tab" &&
+        input.sourceAudit.target_page === input.targetPage &&
         input.sourceAudit.action_type === "read" &&
         asString(input.sourceAudit.action_ref) !== null &&
         input.sourceAudit.requested_execution_mode === input.requestedExecutionMode &&
@@ -465,6 +498,7 @@ const assertXhsCloseoutValidationSourceAudit = async (input) => {
             sourceAudit,
             profile: input.profile,
             targetDomain: input.targetDomain,
+            targetPage: input.targetPage,
             requestedExecutionMode: input.requestedExecutionMode
         }) &&
         approvalMatches) {
@@ -515,9 +549,13 @@ const assertXhsCloseoutValidationSourceUrl = (input) => {
             }
         });
     }
-    if (parsed.hostname !== input.expectedDomain ||
-        !parsed.pathname.replace(/\/+$/u, "").endsWith("/search_result")) {
-        throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout validation source must be collected from search_result", {
+    const normalizedPath = parsed.pathname.replace(/\/+$/u, "");
+    const pageMatches = input.expectedPage === "search_result_tab"
+        ? normalizedPath.endsWith("/search_result")
+        : input.expectedPage === XHS_CREATOR_PUBLISH_TARGET_PAGE &&
+            normalizedPath.endsWith("/publish/publish");
+    if (parsed.hostname !== input.expectedDomain || !pageMatches) {
+        throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout validation source page does not match the admitted target", {
             retryable: false,
             details: {
                 ability_id: "runtime.xhs_closeout_validation_source",
@@ -525,7 +563,7 @@ const assertXhsCloseoutValidationSourceUrl = (input) => {
                 reason: "XHS_CLOSEOUT_VALIDATION_SOURCE_PAGE_MISMATCH",
                 page_url: input.href,
                 expected_domain: input.expectedDomain,
-                expected_page: "search_result_tab"
+                expected_page: input.expectedPage
             }
         });
     }
@@ -613,9 +651,15 @@ const buildXhsCloseoutValidationSourceSignals = (input) => ({
         browser_returned_evidence: {
             source: "main_world",
             target_domain: input.targetDomain,
+            target_page: input.targetPage,
             target_tab_id: input.targetTabId,
             page_url: input.pageUrl,
-            probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
+            requested_execution_mode: input.requestedExecutionMode,
+            probe_bundle_ref: resolveXhsValidationSourceProbeBundleRef({
+                targetDomain: input.targetDomain,
+                targetPage: input.targetPage,
+                requestedExecutionMode: input.requestedExecutionMode
+            })
         },
         fingerprint_runtime: {
             ...input.fingerprintRuntime,
@@ -629,9 +673,15 @@ const buildXhsCloseoutValidationSourceSignals = (input) => ({
         browser_returned_evidence: {
             source: "main_world",
             target_domain: input.targetDomain,
+            target_page: input.targetPage,
             target_tab_id: input.targetTabId,
             page_url: input.pageUrl,
-            probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
+            requested_execution_mode: input.requestedExecutionMode,
+            probe_bundle_ref: resolveXhsValidationSourceProbeBundleRef({
+                targetDomain: input.targetDomain,
+                targetPage: input.targetPage,
+                requestedExecutionMode: input.requestedExecutionMode
+            })
         },
         event_strategy_profile: {
             action_kind: "validation_source_probe",
@@ -665,9 +715,15 @@ const buildXhsCloseoutValidationSourceSignals = (input) => ({
         browser_returned_evidence: {
             source: "execution_audit",
             target_domain: input.targetDomain,
+            target_page: input.targetPage,
             target_tab_id: input.targetTabId,
             page_url: input.pageUrl,
-            probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
+            requested_execution_mode: input.requestedExecutionMode,
+            probe_bundle_ref: resolveXhsValidationSourceProbeBundleRef({
+                targetDomain: input.targetDomain,
+                targetPage: input.targetPage,
+                requestedExecutionMode: input.requestedExecutionMode
+            })
         },
         session_rhythm_window_id: input.sessionRhythmWindowId,
         session_rhythm_decision_id: input.sessionRhythmDecisionId,
@@ -836,22 +892,18 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
     const targetDomain = asString(context.params.target_domain);
     const requestedExecutionMode = asString(context.params.requested_execution_mode);
     const targetTabId = asInteger(context.params.target_tab_id);
-    const targetPage = asString(context.params.target_page);
+    const targetPage = resolveXhsValidationSourceTargetPage({
+        targetDomain,
+        targetPage: asString(context.params.target_page),
+        requestedExecutionMode
+    });
     const actionRef = asString(context.params.action_ref) ??
         asString(context.params.gate_invocation_id) ??
         context.run_id;
     const observedAt = new Date().toISOString();
-    if (targetDomain !== "www.xiaohongshu.com") {
-        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation source target_domain invalid", {
-            details: {
-                ability_id: "runtime.xhs_closeout_validation_source",
-                stage: "input_validation",
-                reason: "XHS_CLOSEOUT_VALIDATION_SOURCE_TARGET_DOMAIN_INVALID"
-            }
-        });
-    }
-    if (requestedExecutionMode !== "live_read_high_risk") {
-        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation source requires live_read_high_risk mode", {
+    if (requestedExecutionMode !== "live_read_high_risk" &&
+        requestedExecutionMode !== "live_write") {
+        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation source execution mode invalid", {
             details: {
                 ability_id: "runtime.xhs_closeout_validation_source",
                 stage: "input_validation",
@@ -859,7 +911,26 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
             }
         });
     }
-    if (!targetTabId || targetPage !== "search_result_tab") {
+    if (!isAdmittedXhsValidationSourceScope({
+        targetDomain,
+        targetPage,
+        requestedExecutionMode
+    })) {
+        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation source target_domain invalid", {
+            details: {
+                ability_id: "runtime.xhs_closeout_validation_source",
+                stage: "input_validation",
+                reason: "XHS_CLOSEOUT_VALIDATION_SOURCE_SCOPE_INVALID",
+                target_domain: targetDomain,
+                target_page: targetPage,
+                requested_execution_mode: requestedExecutionMode
+            }
+        });
+    }
+    const admittedTargetDomain = targetDomain;
+    const admittedTargetPage = targetPage;
+    const admittedRequestedExecutionMode = requestedExecutionMode;
+    if (!targetTabId) {
         throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation source target invalid", {
             details: {
                 ability_id: "runtime.xhs_closeout_validation_source",
@@ -905,7 +976,7 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
         });
     }
     const fingerprintContext = buildFingerprintContextForMeta(profile, profileMeta, {
-        requestedExecutionMode
+        requestedExecutionMode: admittedRequestedExecutionMode
     });
     if (!fingerprintContext.execution.live_allowed) {
         throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout validation source fingerprint gate blocked live_read_high_risk", {
@@ -957,9 +1028,9 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
                 run_id: context.run_id,
                 runtime_context_id: buildRuntimeBootstrapContextId(profile, context.run_id),
                 profile,
-                target_domain: targetDomain,
+                target_domain: admittedTargetDomain,
                 target_tab_id: targetTabId,
-                target_page: targetPage,
+                target_page: admittedTargetPage,
                 fingerprint_runtime: fingerprintContext,
                 fingerprint_patch_manifest: asObject(fingerprintContext.fingerprint_patch_manifest) ?? {},
                 main_world_secret: `xhs-closeout-validation-source-bootstrap-${randomUUID()}`
@@ -1007,9 +1078,9 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
             cwd: context.cwd,
             command: "runtime.main_world_probe",
             params: {
-                target_domain: targetDomain,
+                target_domain: admittedTargetDomain,
                 target_tab_id: targetTabId,
-                target_page: targetPage,
+                target_page: admittedTargetPage,
                 action_ref: actionRef,
                 managed_tab_binding_gate: {
                     source: "cli_persisted_runtime_gate",
@@ -1017,8 +1088,8 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
                     profile_ref: profile,
                     run_id: context.run_id,
                     session_id: sessionId,
-                    target_domain: targetDomain,
-                    target_page: targetPage,
+                    target_domain: admittedTargetDomain,
+                    target_page: admittedTargetPage,
                     target_tab_id: targetTabId,
                     action_ref: actionRef,
                     checked_at: observedAt,
@@ -1050,8 +1121,8 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
             runId: context.run_id,
             sessionId,
             profile,
-            targetDomain,
-            targetPage,
+            targetDomain: admittedTargetDomain,
+            targetPage: admittedTargetPage,
             targetTabId,
             actionRef
         });
@@ -1070,7 +1141,11 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
         }
         const probe = asObject(probeResult.payload.probe);
         const pageUrl = asString(probe?.href);
-        assertXhsCloseoutValidationSourceUrl({ href: pageUrl, expectedDomain: targetDomain });
+        assertXhsCloseoutValidationSourceUrl({
+            href: pageUrl,
+            expectedDomain: admittedTargetDomain,
+            expectedPage: admittedTargetPage
+        });
         if (probe?.probe_response_received !== true) {
             throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout validation source main-world probe did not return evidence", {
                 retryable: false,
@@ -1105,7 +1180,9 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
         const signals = buildXhsCloseoutValidationSourceSignals({
             fingerprintRuntime: fingerprintContext,
             injection,
-            targetDomain,
+            targetDomain: admittedTargetDomain,
+            targetPage: admittedTargetPage,
+            requestedExecutionMode: admittedRequestedExecutionMode,
             targetTabId,
             pageUrl,
             sessionRhythmWindowId,
@@ -1143,13 +1220,13 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
                 riskState: rhythmAuditRiskState,
                 nextState: rhythmAuditNextState,
                 transitionTrigger: "gate_evaluation",
-                targetDomain,
+                targetDomain: admittedTargetDomain,
                 targetTabId,
-                targetPage,
+                targetPage: admittedTargetPage,
                 actionType: "read",
                 actionRef,
-                requestedExecutionMode,
-                effectiveExecutionMode: requestedExecutionMode,
+                requestedExecutionMode: admittedRequestedExecutionMode,
+                effectiveExecutionMode: admittedRequestedExecutionMode,
                 gateDecision: "allowed",
                 gateReasons: rhythmAdmissionClass === "baseline_required_recovery"
                     ? [
@@ -1164,8 +1241,9 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
             const samples = await persistXhsCloseoutValidationSourceEvidence({
                 store: runtimeStore,
                 profile,
-                effectiveExecutionMode: requestedExecutionMode,
-                targetDomain,
+                effectiveExecutionMode: admittedRequestedExecutionMode,
+                targetDomain: admittedTargetDomain,
+                targetPage: admittedTargetPage,
                 sourceRunId: context.run_id,
                 observedAt,
                 sourceAudit: sourceAuditRef.current,
@@ -1191,11 +1269,11 @@ const runtimeXhsCloseoutValidationSource = async (context) => {
             validation_source_generation: {
                 source: "runtime.xhs_closeout_validation_source",
                 profile,
-                target_domain: targetDomain,
+                target_domain: admittedTargetDomain,
                 target_tab_id: targetTabId,
                 page_url: pageUrl,
-                target_page: targetPage,
-                requested_execution_mode: requestedExecutionMode,
+                target_page: admittedTargetPage,
+                requested_execution_mode: admittedRequestedExecutionMode,
                 run_id: context.run_id,
                 action_ref: actionRef,
                 source_audit_event_id: sourceAudit.event_id,
@@ -1248,17 +1326,14 @@ const runtimeXhsCloseoutValidation = async (context) => {
     const sourceRunId = asString(context.params.source_run_id);
     const sourceSampleRefs = parseSourceSampleRefs(context.params.source_sample_refs);
     const observedAt = new Date().toISOString();
-    if (targetDomain !== "www.xiaohongshu.com") {
-        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation target_domain invalid", {
-            details: {
-                ability_id: "runtime.xhs_closeout_validation",
-                stage: "input_validation",
-                reason: "XHS_CLOSEOUT_VALIDATION_TARGET_DOMAIN_INVALID"
-            }
-        });
-    }
-    if (requestedExecutionMode !== "live_read_high_risk") {
-        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation requires live_read_high_risk mode", {
+    const targetPage = resolveXhsValidationSourceTargetPage({
+        targetDomain,
+        targetPage: asString(context.params.target_page),
+        requestedExecutionMode
+    });
+    if (requestedExecutionMode !== "live_read_high_risk" &&
+        requestedExecutionMode !== "live_write") {
+        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation execution mode invalid", {
             details: {
                 ability_id: "runtime.xhs_closeout_validation",
                 stage: "input_validation",
@@ -1266,6 +1341,25 @@ const runtimeXhsCloseoutValidation = async (context) => {
             }
         });
     }
+    if (!isAdmittedXhsValidationSourceScope({
+        targetDomain,
+        targetPage,
+        requestedExecutionMode
+    })) {
+        throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation scope invalid", {
+            details: {
+                ability_id: "runtime.xhs_closeout_validation",
+                stage: "input_validation",
+                reason: "XHS_CLOSEOUT_VALIDATION_SCOPE_INVALID",
+                target_domain: targetDomain,
+                target_page: targetPage,
+                requested_execution_mode: requestedExecutionMode
+            }
+        });
+    }
+    const admittedTargetDomain = targetDomain;
+    const admittedTargetPage = targetPage;
+    const admittedRequestedExecutionMode = requestedExecutionMode;
     if (!sourceRunId) {
         throw new CliError("ERR_CLI_INVALID_ARGS", "XHS closeout validation source_run_id required", {
             details: {
@@ -1309,8 +1403,9 @@ const runtimeXhsCloseoutValidation = async (context) => {
             store,
             sourceRunId,
             profile: context.profile,
-            targetDomain,
-            requestedExecutionMode,
+            targetDomain: admittedTargetDomain,
+            targetPage: admittedTargetPage,
+            requestedExecutionMode: admittedRequestedExecutionMode,
             sourceSampleRefs
         });
         const sourcePayload = await readXhsCloseoutValidationSignalsFromSourceSamples({
@@ -1318,14 +1413,15 @@ const runtimeXhsCloseoutValidation = async (context) => {
             sourceRunId,
             sourceAudit,
             profile: context.profile,
-            requestedExecutionMode,
+            requestedExecutionMode: admittedRequestedExecutionMode,
             sourceSampleRefs
         });
         const gate = await persistXhsCloseoutValidationSourceSamples({
             store,
             profile: context.profile ?? "",
-            effectiveExecutionMode: requestedExecutionMode,
-            targetDomain,
+            effectiveExecutionMode: admittedRequestedExecutionMode,
+            targetDomain: admittedTargetDomain,
+            targetPage: admittedTargetPage,
             validationRunId: context.run_id,
             observedAt,
             sourceRunId,
@@ -1335,8 +1431,9 @@ const runtimeXhsCloseoutValidation = async (context) => {
             validation_baseline_generation: {
                 source: "runtime.xhs_closeout_validation",
                 profile: context.profile,
-                target_domain: targetDomain,
-                requested_execution_mode: requestedExecutionMode,
+                target_domain: admittedTargetDomain,
+                target_page: admittedTargetPage,
+                requested_execution_mode: admittedRequestedExecutionMode,
                 run_id: context.run_id,
                 source_run_id: sourceRunId,
                 source_audit_event_id: sourceAudit.event_id,

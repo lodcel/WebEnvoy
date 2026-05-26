@@ -121,6 +121,10 @@ const seedXhsCloseoutReady = async (input: {
   effectiveExecutionMode?: "live_read_high_risk" | "live_read_limited" | "live_write";
 }) => {
   const effectiveExecutionMode = input.effectiveExecutionMode ?? "live_read_high_risk";
+  const validationTargetDomain = "www.xiaohongshu.com";
+  const validationTargetPage = "search_result_tab";
+  const validationEvidenceMode = "live_read_high_risk";
+  const validationProbeBundleRef = "probe-bundle/xhs-closeout-min-v1";
   const profileStore = new ProfileStore(join(input.cwd, ".webenvoy", "profiles"));
   const meta =
     (await profileStore.readMeta(input.profile, { mode: "readonly" }).catch(() => null)) ??
@@ -162,15 +166,17 @@ const seedXhsCloseoutReady = async (input: {
       store,
       profile: input.profile,
       effectiveExecutionMode,
-      targetDomain: "www.xiaohongshu.com",
+      targetDomain: validationTargetDomain,
       runId: `run-${input.profile}-xhs-closeout-validation-${process.pid}-${xhsCloseoutValidationSeedSequence}`,
       observedAt: "2026-04-25T10:45:00.000Z",
       signals: {
         layer1_consistency: {
           browser_returned_evidence: {
             source: "main_world",
-            target_domain: "www.xiaohongshu.com",
-            probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
+            target_domain: validationTargetDomain,
+            target_page: validationTargetPage,
+            requested_execution_mode: validationEvidenceMode,
+            probe_bundle_ref: validationProbeBundleRef
           },
           fingerprint_runtime: {
             fingerprint_profile_bundle_ref: "fingerprint-bundle/xhs-closeout",
@@ -188,8 +194,10 @@ const seedXhsCloseoutReady = async (input: {
         layer2_interaction: {
           browser_returned_evidence: {
             source: "main_world",
-            target_domain: "www.xiaohongshu.com",
-            probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
+            target_domain: validationTargetDomain,
+            target_page: validationTargetPage,
+            requested_execution_mode: validationEvidenceMode,
+            probe_bundle_ref: validationProbeBundleRef
           },
           event_strategy_profile: {
             action_kind: "scroll",
@@ -217,8 +225,10 @@ const seedXhsCloseoutReady = async (input: {
         layer3_session_rhythm: {
           browser_returned_evidence: {
             source: "execution_audit",
-            target_domain: "www.xiaohongshu.com",
-            probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
+            target_domain: validationTargetDomain,
+            target_page: validationTargetPage,
+            requested_execution_mode: validationEvidenceMode,
+            probe_bundle_ref: validationProbeBundleRef
           },
           session_rhythm_window_id: `rhythm_win_${input.profile}_issue_209`,
           session_rhythm_decision_id: `rhythm_decision_${input.profile}_single_probe`,

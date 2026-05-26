@@ -33,6 +33,8 @@ const signals = {
     browser_returned_evidence: {
       source: "main_world",
       target_domain: "www.xiaohongshu.com",
+      target_page: "search_result_tab",
+      requested_execution_mode: "live_read_high_risk",
       probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
     },
     fingerprint_runtime: {
@@ -52,6 +54,8 @@ const signals = {
     browser_returned_evidence: {
       source: "main_world",
       target_domain: "www.xiaohongshu.com",
+      target_page: "search_result_tab",
+      requested_execution_mode: "live_read_high_risk",
       probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
     },
     event_strategy_profile: {
@@ -81,6 +85,8 @@ const signals = {
     browser_returned_evidence: {
       source: "execution_audit",
       target_domain: "www.xiaohongshu.com",
+      target_page: "search_result_tab",
+      requested_execution_mode: "live_read_high_risk",
       probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
     },
     session_rhythm_window_id: "rhythm_win_xhs_closeout",
@@ -121,6 +127,9 @@ const sourceAuditForRun = (input: {
   targetTabId: number;
   sessionId: string;
   observedAt: string;
+  targetDomain?: string;
+  targetPage?: string;
+  requestedExecutionMode?: "live_read_high_risk" | "live_write";
 }): GateAuditRecord => ({
   ...sourceAudit,
   event_id: `gate_evt_${input.runId}_xhs_closeout_validation_source`,
@@ -128,8 +137,12 @@ const sourceAuditForRun = (input: {
   approval_id: `gate_approval_${input.runId}_xhs_closeout_validation_source`,
   run_id: input.runId,
   session_id: input.sessionId,
+  target_domain: input.targetDomain ?? "www.xiaohongshu.com",
   target_tab_id: input.targetTabId,
+  target_page: input.targetPage ?? "search_result_tab",
   action_ref: input.actionRef,
+  requested_execution_mode: input.requestedExecutionMode ?? "live_read_high_risk",
+  effective_execution_mode: input.requestedExecutionMode ?? "live_read_high_risk",
   approved_at: input.observedAt,
   recorded_at: input.observedAt,
   created_at: input.observedAt
@@ -140,10 +153,20 @@ const signalsWithValidationSourceProvenance = (input: {
   actionRef: string;
   targetTabId: number;
   sessionId: string;
+  targetDomain?: string;
+  targetPage?: string;
+  requestedExecutionMode?: "live_read_high_risk" | "live_write";
+  pageUrl?: string;
+  probeBundleRef?: string;
 }): XhsCloseoutValidationSignalMap => {
   const cloned = JSON.parse(JSON.stringify(signals)) as XhsCloseoutValidationSignalMap;
   const pageUrl =
+    input.pageUrl ??
     "https://www.xiaohongshu.com/search_result/?keyword=%E9%9C%B2%E8%90%A5&type=51";
+  const targetDomain = input.targetDomain ?? "www.xiaohongshu.com";
+  const targetPage = input.targetPage ?? "search_result_tab";
+  const requestedExecutionMode = input.requestedExecutionMode ?? "live_read_high_risk";
+  const probeBundleRef = input.probeBundleRef ?? "probe-bundle/xhs-closeout-min-v1";
 
   for (const layer of [
     cloned.layer1_consistency,
@@ -151,8 +174,12 @@ const signalsWithValidationSourceProvenance = (input: {
     cloned.layer3_session_rhythm
   ]) {
     const browserReturnedEvidence = layer.browser_returned_evidence as Record<string, unknown>;
+    browserReturnedEvidence.target_domain = targetDomain;
+    browserReturnedEvidence.target_page = targetPage;
+    browserReturnedEvidence.requested_execution_mode = requestedExecutionMode;
     browserReturnedEvidence.target_tab_id = input.targetTabId;
     browserReturnedEvidence.page_url = pageUrl;
+    browserReturnedEvidence.probe_bundle_ref = probeBundleRef;
   }
 
   const rhythmProfile = cloned.layer2_interaction.rhythm_profile as Record<string, unknown>;
@@ -302,6 +329,102 @@ describe("FR-0020 XHS closeout validation baseline", () => {
     }
   });
 
+  it("admits creator live_write validation source and rows under the FR-0031 probe bundle", async () => {
+    const { cwd, store } = await createStore();
+    try {
+      const sourceRunId = "run-creator-live-write-source";
+      const validationRunId = "run-creator-live-write-validation";
+      const creatorSignals = signalsWithValidationSourceProvenance({
+        runId: sourceRunId,
+        actionRef: "action-creator-live-write-source",
+        targetTabId: 1230453497,
+        sessionId: "nm-session-creator-001",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        requestedExecutionMode: "live_write",
+        pageUrl: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+        probeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+      const creatorAudit = sourceAuditForRun({
+        runId: sourceRunId,
+        actionRef: "action-creator-live-write-source",
+        targetTabId: 1230453497,
+        sessionId: "nm-session-creator-001",
+        observedAt: "2026-05-27T01:00:00.000Z",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        requestedExecutionMode: "live_write"
+      });
+
+      const samples = await persistXhsCloseoutValidationSourceEvidence({
+        store,
+        profile: "xhs_creator_validation_profile",
+        effectiveExecutionMode: "live_write",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        sourceRunId,
+        observedAt: "2026-05-27T01:00:01.000Z",
+        sourceAudit: creatorAudit,
+        actionRef: "action-creator-live-write-source",
+        signals: creatorSignals,
+        artifactRefs: [`artifact/xhs-creator-live-write-validation-source/${sourceRunId}`]
+      });
+
+      expect(samples).toHaveLength(3);
+      expect(samples.map((sample) => sample.sample_ref)).toEqual([
+        `validation-sample/source/xhs-creator-live-write-admission-v1/xhs_creator_validation_profile/live_write/${sourceRunId}/FR-0012/layer1_consistency`,
+        `validation-sample/source/xhs-creator-live-write-admission-v1/xhs_creator_validation_profile/live_write/${sourceRunId}/FR-0013/layer2_interaction`,
+        `validation-sample/source/xhs-creator-live-write-admission-v1/xhs_creator_validation_profile/live_write/${sourceRunId}/FR-0014/layer3_session_rhythm`
+      ]);
+
+      const gate = await persistXhsCloseoutValidationSourceSamples({
+        store,
+        profile: "xhs_creator_validation_profile",
+        effectiveExecutionMode: "live_write",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        validationRunId,
+        observedAt: "2026-05-27T01:00:05.000Z",
+        sourceRunId,
+        sourceSamples: samples
+      });
+
+      expect(gate).toMatchObject({
+        profile_ref: "profile/xhs_creator_validation_profile",
+        effective_execution_mode: "live_write",
+        probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+        all_required_ready: true,
+        missing_target_fr_refs: [],
+        blocking_target_fr_refs: []
+      });
+      expect(gate.views).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            target_fr_ref: "FR-0012",
+            latest_record_ref: expect.stringContaining(validationRunId),
+            current_result_state: "verified",
+            current_drift_state: "no_drift"
+          }),
+          expect.objectContaining({
+            target_fr_ref: "FR-0013",
+            latest_record_ref: expect.stringContaining(validationRunId),
+            current_result_state: "verified",
+            current_drift_state: "no_drift"
+          }),
+          expect.objectContaining({
+            target_fr_ref: "FR-0014",
+            latest_record_ref: expect.stringContaining(validationRunId),
+            current_result_state: "verified",
+            current_drift_state: "no_drift"
+          })
+        ])
+      );
+    } finally {
+      store.close();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("rejects XHS closeout validation source evidence outside the browser-returned source scope", async () => {
     const { cwd, store } = await createStore();
     try {
@@ -338,6 +461,8 @@ describe("FR-0020 XHS closeout validation baseline", () => {
               browser_returned_evidence: {
                 source: "local_fixture",
                 target_domain: "www.xiaohongshu.com",
+                target_page: "search_result_tab",
+                requested_execution_mode: "live_read_high_risk",
                 probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1"
               }
             }
