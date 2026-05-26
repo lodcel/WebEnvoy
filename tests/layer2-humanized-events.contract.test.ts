@@ -8,6 +8,7 @@ import {
   buildLayer2WriteBoundaryAudit,
   buildXhsSearchLayer2InteractionEvidence,
   dispatchLayer2ScheduledEventChain,
+  getLayer2BehaviorEvidenceBaseline,
   getLayer2EventChainPolicies,
   resolveLayer2SettleRecovery,
   resolveLayer2RhythmTiming
@@ -263,6 +264,72 @@ describe("FR-0013 layer2 humanized events", () => {
           completion_signal: expect.arrayContaining(["framework_value_finalized"])
         })
       ])
+    );
+  });
+
+  it("exposes a regression baseline row for every FR-0013 acceptance-matrix event family", () => {
+    const baseline = getLayer2BehaviorEvidenceBaseline();
+
+    expect(baseline.map((row) => row.event_family)).toEqual([
+      "pointer_click",
+      "pointer_hover",
+      "focus_navigation",
+      "keyboard_text",
+      "composition_text",
+      "scroll_viewport",
+      "change_blur_finalize"
+    ]);
+    for (const row of baseline) {
+      expect(row.required_events_or_signals.length).toBeGreaterThan(0);
+      expect(row.page_state_input.length).toBeGreaterThan(0);
+      expect(row.trace_fields.length).toBeGreaterThan(0);
+      expect(row.test_type.length).toBeGreaterThan(0);
+      expect(row.downstream_issue.length).toBeGreaterThan(0);
+      expect(row.required_path).not.toBe("blocked");
+      expect(row.allowed_fallback_path).not.toBe("blocked");
+    }
+  });
+
+  it("anchors baseline rows to selector, orchestrator, settle, and write-boundary contracts", () => {
+    const baseline = getLayer2BehaviorEvidenceBaseline();
+
+    expect(baseline).toContainEqual(
+      expect.objectContaining({
+        event_family: "pointer_click",
+        action_kind: "click",
+        required_path: "real_input",
+        allowed_fallback_path: "synthetic_chain",
+        required_events_or_signals: expect.arrayContaining(["mousedown", "mouseup", "click"]),
+        trace_fields: expect.arrayContaining(["selected_path", "event_chain"])
+      })
+    );
+    expect(baseline).toContainEqual(
+      expect.objectContaining({
+        event_family: "composition_text",
+        action_kind: "composition_input",
+        required_path: "mixed_input",
+        required_events_or_signals: expect.arrayContaining([
+          "compositionstart",
+          "compositionupdate",
+          "compositionend"
+        ]),
+        trace_fields: expect.arrayContaining(["fallback_reason", "failure_category"])
+      })
+    );
+    expect(baseline).toContainEqual(
+      expect.objectContaining({
+        event_family: "scroll_viewport",
+        action_kind: "scroll",
+        required_events_or_signals: expect.arrayContaining(["wheel", "scroll"]),
+        test_type: expect.arrayContaining(["rhythm_contract", "settle_contract"])
+      })
+    );
+    expect(baseline).toContainEqual(
+      expect.objectContaining({
+        event_family: "change_blur_finalize",
+        required_events_or_signals: expect.arrayContaining(["change", "blur"]),
+        test_type: expect.arrayContaining(["write_boundary_contract"])
+      })
     );
   });
 

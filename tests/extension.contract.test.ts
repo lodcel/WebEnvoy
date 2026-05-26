@@ -50,6 +50,7 @@ type BundledXhsExportName =
   | "buildLayer2ScheduledEventChain"
   | "buildLayer2WriteBoundaryAudit"
   | "dispatchLayer2ScheduledEventChain"
+  | "getLayer2BehaviorEvidenceBaseline"
   | "resolveLayer2SettleRecovery";
 
 type BundledContentScriptHandlerModule = {
@@ -696,6 +697,7 @@ describe("extension build contract", () => {
     expect(layer2Module?.buildLayer2ScheduledEventChain).toEqual(expect.any(Function));
     expect(layer2Module?.buildLayer2WriteBoundaryAudit).toEqual(expect.any(Function));
     expect(layer2Module?.dispatchLayer2ScheduledEventChain).toEqual(expect.any(Function));
+    expect(layer2Module?.getLayer2BehaviorEvidenceBaseline).toEqual(expect.any(Function));
     expect(layer2Module?.resolveLayer2SettleRecovery).toEqual(expect.any(Function));
   });
 

@@ -7,6 +7,7 @@ export type Layer2ActionKind =
   | "scroll";
 
 export type Layer2SelectedPath = "real_input" | "mixed_input" | "synthetic_chain" | "blocked";
+export type Layer2EvidencePath = Exclude<Layer2SelectedPath, "blocked">;
 export type Layer2RhythmProfileSource = "default" | "platform_override";
 export type Layer2FailureCategory =
   | "focus_not_acquired"
@@ -21,6 +22,14 @@ export type Layer2OcclusionState = "clear" | "partial" | "blocked";
 export type Layer2LayoutMotion = "idle" | "animating" | "loading" | "unknown";
 export type Layer2LastChainResult = "not_run" | "settled" | "timeout" | "target_drifted";
 export type Layer2RecoveryAction = "none" | "retry" | "reobserve" | "fail_closed";
+export type Layer2EvidenceEventFamily =
+  | "pointer_click"
+  | "pointer_hover"
+  | "focus_navigation"
+  | "keyboard_text"
+  | "composition_text"
+  | "scroll_viewport"
+  | "change_blur_finalize";
 
 export interface EventStrategyProfile {
   action_kind: Layer2ActionKind;
@@ -221,6 +230,18 @@ export interface Layer2WriteBoundaryAudit {
   audit_reasons: string[];
 }
 
+export interface Layer2BehaviorEvidenceBaselineRow {
+  event_family: Layer2EvidenceEventFamily;
+  action_kind: Layer2ActionKind;
+  required_path: Layer2EvidencePath;
+  allowed_fallback_path: Layer2EvidencePath | null;
+  required_events_or_signals: string[];
+  page_state_input: string[];
+  trace_fields: string[];
+  test_type: string[];
+  downstream_issue: string[];
+}
+
 const DEFAULT_RHYTHM_PROFILE: RhythmProfile = {
   profile_name: "default_layer2",
   hover_confirm_min_ms: 80,
@@ -235,6 +256,93 @@ const DEFAULT_RHYTHM_PROFILE: RhythmProfile = {
   scroll_segment_max_px: 480,
   lookback_probability: 0.12
 };
+
+const LAYER2_BEHAVIOR_EVIDENCE_BASELINE: Layer2BehaviorEvidenceBaselineRow[] = [
+  {
+    event_family: "pointer_click",
+    action_kind: "click",
+    required_path: "real_input",
+    allowed_fallback_path: "synthetic_chain",
+    required_events_or_signals: ["mousedown", "mouseup", "click", "dom_settled"],
+    page_state_input: ["target_visible", "target_interactable", "occlusion_clear"],
+    trace_fields: ["action_kind", "selected_path", "event_chain", "settled_wait_result"],
+    test_type: ["selector_contract", "orchestrator_contract", "relay_contract"],
+    downstream_issue: ["#738", "#740", "#741"]
+  },
+  {
+    event_family: "pointer_hover",
+    action_kind: "hover",
+    required_path: "real_input",
+    allowed_fallback_path: null,
+    required_events_or_signals: ["mousemove", "mouseover", "hover_confirm"],
+    page_state_input: ["target_visible", "viewport_stable"],
+    trace_fields: ["action_kind", "rhythm_profile_source", "page_state_input_summary"],
+    test_type: ["rhythm_contract", "content_script_contract"],
+    downstream_issue: ["#738", "#741"]
+  },
+  {
+    event_family: "focus_navigation",
+    action_kind: "focus",
+    required_path: "real_input",
+    allowed_fallback_path: "synthetic_chain",
+    required_events_or_signals: ["focus", "active_element_check"],
+    page_state_input: ["target_visible", "target_interactable", "target_not_disabled"],
+    trace_fields: ["action_kind", "selected_path", "failure_category"],
+    test_type: ["selector_contract", "page_state_contract"],
+    downstream_issue: ["#738", "#739"]
+  },
+  {
+    event_family: "keyboard_text",
+    action_kind: "keyboard_input",
+    required_path: "real_input",
+    allowed_fallback_path: "synthetic_chain",
+    required_events_or_signals: ["keydown", "input", "keyup", "change"],
+    page_state_input: ["target_focused_or_focusable", "target_not_readonly"],
+    trace_fields: ["required_events_applied", "rhythm_profile_source", "settled_wait_result"],
+    test_type: ["orchestrator_contract", "framework_state_contract"],
+    downstream_issue: ["#738", "#739", "#740"]
+  },
+  {
+    event_family: "composition_text",
+    action_kind: "composition_input",
+    required_path: "mixed_input",
+    allowed_fallback_path: "synthetic_chain",
+    required_events_or_signals: [
+      "compositionstart",
+      "compositionupdate",
+      "compositionend",
+      "input",
+      "change",
+      "blur"
+    ],
+    page_state_input: ["target_focused_or_focusable", "target_not_readonly"],
+    trace_fields: ["event_chain", "fallback_reason", "failure_category"],
+    test_type: ["chain_policy_contract", "controlled_component_contract"],
+    downstream_issue: ["#738", "#739", "#740"]
+  },
+  {
+    event_family: "scroll_viewport",
+    action_kind: "scroll",
+    required_path: "real_input",
+    allowed_fallback_path: null,
+    required_events_or_signals: ["wheel", "scroll", "viewport_position_changed"],
+    page_state_input: ["viewport_stable_or_scrolling", "layout_motion"],
+    trace_fields: ["rhythm_profile_source", "page_state_input_summary", "settled_wait_result"],
+    test_type: ["rhythm_contract", "settle_contract"],
+    downstream_issue: ["#738", "#739", "#741"]
+  },
+  {
+    event_family: "change_blur_finalize",
+    action_kind: "keyboard_input",
+    required_path: "real_input",
+    allowed_fallback_path: "synthetic_chain",
+    required_events_or_signals: ["change", "blur", "framework_value_finalized"],
+    page_state_input: ["target_focused_or_recently_edited"],
+    trace_fields: ["required_events_applied", "settled_wait_result"],
+    test_type: ["chain_policy_contract", "write_boundary_contract"],
+    downstream_issue: ["#739", "#740", "#741"]
+  }
+];
 
 const STRATEGY_PROFILES: Record<Layer2ActionKind, EventStrategyProfile> = {
   click: {
@@ -367,6 +475,9 @@ export const getLayer2EventChainPolicies = (): EventChainPolicy[] => [
   ...Object.values(EVENT_CHAINS).map((chain) => clone(chain)),
   clone(CHANGE_BLUR_FINALIZE_CHAIN)
 ];
+
+export const getLayer2BehaviorEvidenceBaseline = (): Layer2BehaviorEvidenceBaselineRow[] =>
+  clone(LAYER2_BEHAVIOR_EVIDENCE_BASELINE);
 
 export const buildLayer2EventChainPlan = (
   evidence: Layer2InteractionEvidence

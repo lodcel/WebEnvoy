@@ -12,6 +12,92 @@ const DEFAULT_RHYTHM_PROFILE = {
     scroll_segment_max_px: 480,
     lookback_probability: 0.12
 };
+const LAYER2_BEHAVIOR_EVIDENCE_BASELINE = [
+    {
+        event_family: "pointer_click",
+        action_kind: "click",
+        required_path: "real_input",
+        allowed_fallback_path: "synthetic_chain",
+        required_events_or_signals: ["mousedown", "mouseup", "click", "dom_settled"],
+        page_state_input: ["target_visible", "target_interactable", "occlusion_clear"],
+        trace_fields: ["action_kind", "selected_path", "event_chain", "settled_wait_result"],
+        test_type: ["selector_contract", "orchestrator_contract", "relay_contract"],
+        downstream_issue: ["#738", "#740", "#741"]
+    },
+    {
+        event_family: "pointer_hover",
+        action_kind: "hover",
+        required_path: "real_input",
+        allowed_fallback_path: null,
+        required_events_or_signals: ["mousemove", "mouseover", "hover_confirm"],
+        page_state_input: ["target_visible", "viewport_stable"],
+        trace_fields: ["action_kind", "rhythm_profile_source", "page_state_input_summary"],
+        test_type: ["rhythm_contract", "content_script_contract"],
+        downstream_issue: ["#738", "#741"]
+    },
+    {
+        event_family: "focus_navigation",
+        action_kind: "focus",
+        required_path: "real_input",
+        allowed_fallback_path: "synthetic_chain",
+        required_events_or_signals: ["focus", "active_element_check"],
+        page_state_input: ["target_visible", "target_interactable", "target_not_disabled"],
+        trace_fields: ["action_kind", "selected_path", "failure_category"],
+        test_type: ["selector_contract", "page_state_contract"],
+        downstream_issue: ["#738", "#739"]
+    },
+    {
+        event_family: "keyboard_text",
+        action_kind: "keyboard_input",
+        required_path: "real_input",
+        allowed_fallback_path: "synthetic_chain",
+        required_events_or_signals: ["keydown", "input", "keyup", "change"],
+        page_state_input: ["target_focused_or_focusable", "target_not_readonly"],
+        trace_fields: ["required_events_applied", "rhythm_profile_source", "settled_wait_result"],
+        test_type: ["orchestrator_contract", "framework_state_contract"],
+        downstream_issue: ["#738", "#739", "#740"]
+    },
+    {
+        event_family: "composition_text",
+        action_kind: "composition_input",
+        required_path: "mixed_input",
+        allowed_fallback_path: "synthetic_chain",
+        required_events_or_signals: [
+            "compositionstart",
+            "compositionupdate",
+            "compositionend",
+            "input",
+            "change",
+            "blur"
+        ],
+        page_state_input: ["target_focused_or_focusable", "target_not_readonly"],
+        trace_fields: ["event_chain", "fallback_reason", "failure_category"],
+        test_type: ["chain_policy_contract", "controlled_component_contract"],
+        downstream_issue: ["#738", "#739", "#740"]
+    },
+    {
+        event_family: "scroll_viewport",
+        action_kind: "scroll",
+        required_path: "real_input",
+        allowed_fallback_path: null,
+        required_events_or_signals: ["wheel", "scroll", "viewport_position_changed"],
+        page_state_input: ["viewport_stable_or_scrolling", "layout_motion"],
+        trace_fields: ["rhythm_profile_source", "page_state_input_summary", "settled_wait_result"],
+        test_type: ["rhythm_contract", "settle_contract"],
+        downstream_issue: ["#738", "#739", "#741"]
+    },
+    {
+        event_family: "change_blur_finalize",
+        action_kind: "keyboard_input",
+        required_path: "real_input",
+        allowed_fallback_path: "synthetic_chain",
+        required_events_or_signals: ["change", "blur", "framework_value_finalized"],
+        page_state_input: ["target_focused_or_recently_edited"],
+        trace_fields: ["required_events_applied", "settled_wait_result"],
+        test_type: ["chain_policy_contract", "write_boundary_contract"],
+        downstream_issue: ["#739", "#740", "#741"]
+    }
+];
 const STRATEGY_PROFILES = {
     click: {
         action_kind: "click",
@@ -139,6 +225,7 @@ export const getLayer2EventChainPolicies = () => [
     ...Object.values(EVENT_CHAINS).map((chain) => clone(chain)),
     clone(CHANGE_BLUR_FINALIZE_CHAIN)
 ];
+export const getLayer2BehaviorEvidenceBaseline = () => clone(LAYER2_BEHAVIOR_EVIDENCE_BASELINE);
 export const buildLayer2EventChainPlan = (evidence) => {
     const selectedPath = evidence.strategy_selection.selected_path;
     const blocked = selectedPath === "blocked";
