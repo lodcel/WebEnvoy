@@ -36,6 +36,9 @@ export const evaluateFr0032ControlledUploadEvidence = (input) => {
     if (input.submit_attempted === true) {
         pushBlocker(blockers, "SUBMIT_NOT_RUN", "#845 is a non-publish validation slice and must not submit or publish");
     }
+    if (input.publish_attempted === true) {
+        pushBlocker(blockers, "PUBLISH_NOT_RUN", "#845 is a non-publish validation slice and must not publish");
+    }
     for (const riskSignal of riskSignals) {
         if (riskSignal.severity !== "blocking") {
             continue;
@@ -46,7 +49,9 @@ export const evaluateFr0032ControlledUploadEvidence = (input) => {
         artifact !== null &&
         artifact.accepted_by_platform === true &&
         artifact.visible_in_editor === true;
-    const laterWriteActionsBlocked = riskSignals.some((riskSignal) => riskSignal.severity === "blocking");
+    const laterWriteActionsBlocked = input.submit_attempted === true ||
+        input.publish_attempted === true ||
+        riskSignals.some((riskSignal) => riskSignal.severity === "blocking");
     return {
         decision: blockers.length === 0 ? "PASS" : "NO_GO",
         upload_success,

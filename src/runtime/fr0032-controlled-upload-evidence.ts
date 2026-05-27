@@ -8,6 +8,7 @@ export type Fr0032UploadBlockerCode =
   | "UPLOAD_PLATFORM_REJECTED"
   | "UPLOAD_PREVIEW_NOT_VISIBLE"
   | "SUBMIT_NOT_RUN"
+  | "PUBLISH_NOT_RUN"
   | "ACCOUNT_SAFETY_SIGNAL"
   | "RISK_SIGNAL_BLOCKING";
 
@@ -65,6 +66,7 @@ export interface EvaluateFr0032ControlledUploadInput {
   upload_artifact_identity: Fr0032UploadArtifactIdentity | null;
   risk_signals?: Fr0032UploadRiskSignal[] | null;
   submit_attempted?: boolean | null;
+  publish_attempted?: boolean | null;
 }
 
 export interface Fr0032ControlledUploadEvaluation {
@@ -149,6 +151,13 @@ export const evaluateFr0032ControlledUploadEvidence = (
       "#845 is a non-publish validation slice and must not submit or publish"
     );
   }
+  if (input.publish_attempted === true) {
+    pushBlocker(
+      blockers,
+      "PUBLISH_NOT_RUN",
+      "#845 is a non-publish validation slice and must not publish"
+    );
+  }
 
   for (const riskSignal of riskSignals) {
     if (riskSignal.severity !== "blocking") {
@@ -166,9 +175,10 @@ export const evaluateFr0032ControlledUploadEvidence = (
     artifact !== null &&
     artifact.accepted_by_platform === true &&
     artifact.visible_in_editor === true;
-  const laterWriteActionsBlocked = riskSignals.some(
-    (riskSignal) => riskSignal.severity === "blocking"
-  );
+  const laterWriteActionsBlocked =
+    input.submit_attempted === true ||
+    input.publish_attempted === true ||
+    riskSignals.some((riskSignal) => riskSignal.severity === "blocking");
 
   return {
     decision: blockers.length === 0 ? "PASS" : "NO_GO",

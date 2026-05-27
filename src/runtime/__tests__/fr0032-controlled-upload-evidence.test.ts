@@ -30,7 +30,8 @@ const baseInput = (): EvaluateFr0032ControlledUploadInput => ({
     captured_at: "2026-05-28T00:00:00.000Z"
   },
   risk_signals: [],
-  submit_attempted: false
+  submit_attempted: false,
+  publish_attempted: false
 });
 
 describe("FR-0032 controlled upload evidence evaluator", () => {
@@ -76,13 +77,16 @@ describe("FR-0032 controlled upload evidence evaluator", () => {
   it("keeps upload-only evidence from becoming a submit or publish success", () => {
     const input = baseInput();
     input.submit_attempted = true;
+    input.publish_attempted = true;
 
     expect(evaluateFr0032ControlledUploadEvidence(input)).toMatchObject({
       decision: "NO_GO",
       upload_success: false,
       full_live_write_success: false,
+      later_write_actions_blocked: true,
       blockers: expect.arrayContaining([
-        expect.objectContaining({ blocker_code: "SUBMIT_NOT_RUN" })
+        expect.objectContaining({ blocker_code: "SUBMIT_NOT_RUN" }),
+        expect.objectContaining({ blocker_code: "PUBLISH_NOT_RUN" })
       ])
     });
   });

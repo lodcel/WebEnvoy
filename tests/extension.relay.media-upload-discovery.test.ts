@@ -106,6 +106,8 @@ const createRelay = () => {
           upload_success: false,
           full_live_write_success: false,
           non_publish_validation: true,
+          later_write_actions_blocked: false,
+          cleanup_required: true,
           blockers: [
             {
               blocker_code: "UPLOAD_PLATFORM_REJECTED",
@@ -259,10 +261,53 @@ describe("extension background relay / media upload discovery", () => {
       upload_success: false,
       full_live_write_success: false,
       non_publish_validation: true,
+      later_write_actions_blocked: false,
+      cleanup_required: true,
       blockers: expect.arrayContaining([
         expect.objectContaining({ blocker_code: "UPLOAD_PLATFORM_REJECTED" }),
         expect.objectContaining({ blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE" })
       ])
+    });
+  });
+
+  it("rejects unsafe source media refs before forwarding upload discovery", async () => {
+    const relay = createRelay();
+    const responsePromise = waitForResponse(relay);
+    relay.onNativeRequest({
+      id: "forward-xhs-issue-845-controlled-upload-unsafe-ref",
+      method: "bridge.forward",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-issue-845-controlled-upload-unsafe-ref",
+        command: "xhs.media_upload.discover",
+        command_params: {
+          ability: {
+            id: "xhs.creator.publish.v1",
+            layer: "L3",
+            action: "write"
+          },
+          input: {
+            source_media_ref: "/Users/mc/private/source.png",
+            source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_media_kind: "image"
+          },
+          options: mediaUploadOptions
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      profile: "profile-a",
+      timeout_ms: 200
+    });
+
+    const response = await responsePromise;
+    expect(response.status).toBe("error");
+    expect(response.error).toMatchObject({
+      code: "ERR_CLI_INVALID_ARGS"
+    });
+    expect(response.payload).toMatchObject({
+      details: {
+        reason: "SOURCE_MEDIA_REF_INVALID"
+      }
     });
   });
 });

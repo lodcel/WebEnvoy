@@ -116,6 +116,7 @@ const buildControlledUploadEvidence = (input) => {
 const evaluateControlledUploadEvidence = (evidence) => {
     const blockers = [];
     const artifact = evidence?.upload_artifact_identity ?? null;
+    const fileSelectionBoundary = evidence?.file_selection_boundary ?? null;
     if (!artifact) {
         blockers.push({
             blocker_code: "UPLOAD_ARTIFACT_IDENTITY_MISSING",
@@ -136,12 +137,31 @@ const evaluateControlledUploadEvidence = (evidence) => {
             });
         }
     }
+    if (fileSelectionBoundary?.submit_attempted === true) {
+        blockers.push({
+            blocker_code: "SUBMIT_NOT_RUN",
+            message: "dry_run/recon upload evidence must not submit"
+        });
+    }
+    if (fileSelectionBoundary?.publish_attempted === true) {
+        blockers.push({
+            blocker_code: "PUBLISH_NOT_RUN",
+            message: "dry_run/recon upload evidence must not publish"
+        });
+    }
+    const laterWriteActionsBlocked = fileSelectionBoundary?.submit_attempted === true ||
+        fileSelectionBoundary?.publish_attempted === true;
     return {
         schema_version: "fr-0032.controlled_upload_evaluation.v1",
         decision: blockers.length === 0 ? "PASS" : "NO_GO",
-        upload_success: blockers.length === 0,
+        upload_success: blockers.length === 0 &&
+            artifact !== null &&
+            artifact.accepted_by_platform === true &&
+            artifact.visible_in_editor === true,
         full_live_write_success: false,
         non_publish_validation: true,
+        later_write_actions_blocked: laterWriteActionsBlocked,
+        cleanup_required: artifact !== null && (blockers.length > 0 || laterWriteActionsBlocked),
         blockers
     };
 };
