@@ -5986,6 +5986,9 @@ class ChromeBackgroundBridge {
       if (requestTargetBinding.page === "search_result_tab") {
         return parsed.pathname.includes("/search_result");
       }
+      if (requestTargetBinding.page === "creator_publish_tab") {
+        return classifyXhsPage(tabUrl, parsed.hostname) === "creator_publish_tab";
+      }
       return requestTargetBinding.page === null;
     } catch {
       return false;

@@ -790,6 +790,55 @@ describe("extension service worker / bootstrap and trust", () => {
     });
   });
 
+  it("binds creator publish readiness from the observed target tab without write actions", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.get = vi.fn(async (tabId: number) => {
+      if (tabId === 32) {
+        return {
+          id: 32,
+          url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article"
+        };
+      }
+      throw new Error("tab not found");
+    });
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-readiness-creator-publish-observed-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-readiness-creator-publish-observed-001",
+        command: "runtime.readiness",
+        command_params: {
+          runtime_context_id: "ctx-readiness-creator-publish-observed-001",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 50
+    });
+    await waitForBridgeTurn();
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-readiness-creator-publish-observed-001",
+      status: "success",
+      payload: expect.objectContaining({
+        managed_target_tab_id: 32,
+        managed_target_domain: "creator.xiaohongshu.com",
+        managed_target_page: "creator_publish_tab",
+        target_tab_continuity: "runtime_trust_state"
+      })
+    });
+  });
+
   it("accepts legacy trusted bootstrap records missing sourcePage on the next target-bound bootstrap", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);
