@@ -102,7 +102,7 @@ const createRelay = () => {
         },
         controlled_upload_evaluation: {
           schema_version: "fr-0032.controlled_upload_evaluation.v1",
-          decision: "NO_GO",
+          decision: "EVIDENCE_PRESENT",
           upload_success: false,
           full_live_write_success: false,
           non_publish_validation: true,
@@ -110,17 +110,22 @@ const createRelay = () => {
           runtime_evaluator_required_for_entry_gate: true,
           non_publish_evidence_status: "EVIDENCE_PRESENT",
           later_write_actions_blocked: false,
-          cleanup_required: true,
-          blockers: [
+          cleanup_required: false,
+          limitations: [
             {
-              blocker_code: "UPLOAD_PLATFORM_REJECTED",
+              limitation_code: "REAL_UPLOAD_NOT_ATTEMPTED",
               message: "dry_run/recon does not attempt real platform upload or claim platform acceptance"
             },
             {
-              blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
+              limitation_code: "EDITOR_PREVIEW_NOT_ASSERTED",
               message: "dry_run/recon does not inject DataTransfer or claim editor preview success"
+            },
+            {
+              limitation_code: "ENTRY_GATE_NOT_EVALUATED",
+              message: "extension dry_run/recon evidence does not evaluate FR-0032 runtime entry gate"
             }
-          ]
+          ],
+          blockers: []
         },
         submitted: false,
         published: false,
@@ -260,7 +265,7 @@ describe("extension background relay / media upload discovery", () => {
     });
     expect(summary.controlled_upload_evaluation).toMatchObject({
       schema_version: "fr-0032.controlled_upload_evaluation.v1",
-      decision: "NO_GO",
+      decision: "EVIDENCE_PRESENT",
       upload_success: false,
       full_live_write_success: false,
       non_publish_validation: true,
@@ -268,11 +273,13 @@ describe("extension background relay / media upload discovery", () => {
       runtime_evaluator_required_for_entry_gate: true,
       non_publish_evidence_status: "EVIDENCE_PRESENT",
       later_write_actions_blocked: false,
-      cleanup_required: true,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({ blocker_code: "UPLOAD_PLATFORM_REJECTED" }),
-        expect.objectContaining({ blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE" })
-      ])
+      cleanup_required: false,
+      limitations: expect.arrayContaining([
+        expect.objectContaining({ limitation_code: "REAL_UPLOAD_NOT_ATTEMPTED" }),
+        expect.objectContaining({ limitation_code: "EDITOR_PREVIEW_NOT_ASSERTED" }),
+        expect.objectContaining({ limitation_code: "ENTRY_GATE_NOT_EVALUATED" })
+      ]),
+      blockers: []
     });
   });
 

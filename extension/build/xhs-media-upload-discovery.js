@@ -115,6 +115,7 @@ const buildControlledUploadEvidence = (input) => {
 };
 const evaluateControlledUploadEvidence = (evidence) => {
     const blockers = [];
+    const limitations = [];
     const artifact = evidence?.upload_artifact_identity ?? null;
     const fileSelectionBoundary = evidence?.file_selection_boundary ?? null;
     if (!artifact) {
@@ -123,19 +124,17 @@ const evaluateControlledUploadEvidence = (evidence) => {
             message: "dry_run/recon upload evidence requires source_media_ref, source_media_digest and source_media_kind"
         });
     }
-    else {
-        if (!artifact.accepted_by_platform) {
-            blockers.push({
-                blocker_code: "UPLOAD_PLATFORM_REJECTED",
-                message: "dry_run/recon does not attempt real platform upload or claim platform acceptance"
-            });
-        }
-        if (!artifact.visible_in_editor) {
-            blockers.push({
-                blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
-                message: "dry_run/recon does not inject DataTransfer or claim editor preview success"
-            });
-        }
+    if (artifact) {
+        limitations.push({
+            limitation_code: "REAL_UPLOAD_NOT_ATTEMPTED",
+            message: "dry_run/recon does not attempt real platform upload or claim platform acceptance"
+        }, {
+            limitation_code: "EDITOR_PREVIEW_NOT_ASSERTED",
+            message: "dry_run/recon does not inject DataTransfer or claim editor preview success"
+        }, {
+            limitation_code: "ENTRY_GATE_NOT_EVALUATED",
+            message: "extension dry_run/recon evidence does not evaluate FR-0032 runtime entry gate"
+        });
     }
     if (fileSelectionBoundary?.submit_attempted === true) {
         blockers.push({
@@ -153,7 +152,11 @@ const evaluateControlledUploadEvidence = (evidence) => {
         fileSelectionBoundary?.publish_attempted === true;
     return {
         schema_version: "fr-0032.controlled_upload_evaluation.v1",
-        decision: blockers.length === 0 ? "PASS" : "NO_GO",
+        decision: blockers.length === 0 && artifact
+            ? "EVIDENCE_PRESENT"
+            : laterWriteActionsBlocked
+                ? "BOUNDARY_VIOLATION"
+                : "EVIDENCE_MISSING",
         upload_success: false,
         full_live_write_success: false,
         non_publish_validation: true,
@@ -162,6 +165,7 @@ const evaluateControlledUploadEvidence = (evidence) => {
         non_publish_evidence_status: artifact ? "EVIDENCE_PRESENT" : "EVIDENCE_MISSING",
         later_write_actions_blocked: laterWriteActionsBlocked,
         cleanup_required: artifact !== null && (blockers.length > 0 || laterWriteActionsBlocked),
+        limitations,
         blockers
     };
 };
