@@ -7,7 +7,7 @@ import { buildXhsMediaUploadDiscoveryResult } from "./xhs-media-upload-discovery
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { buildFailedFingerprintInjectionContext, hasInstalledFingerprintInjection, installFingerprintRuntimeWithVerification, resolveFingerprintContextForContract, resolveFingerprintContextFromMessage, resolveMissingRequiredFingerprintPatches, summarizeFingerprintRuntimeContext } from "./content-script-fingerprint.js";
 import { encodeMainWorldPayload, configureCapturedRequestContextProvenanceViaMainWorld, installMainWorldEventChannelSecret, installFingerprintRuntimeViaMainWorld, MAIN_WORLD_EVENT_BOOTSTRAP, readCapturedRequestContextViaMainWorld, readPageStateViaMainWorld, requestXhsSearchJsonViaMainWorld, resetMainWorldEventChannelForContract, resolveMainWorldEventNamesForSecret } from "./content-script-main-world.js";
-import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
+import { ExtensionContractError, validateNormalizedMediaUploadDiscoveryInput, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
 import { containsCookie, hasXhsAccountSafetyOverlaySignal } from "./xhs-search-telemetry.js";
 import { executeDownloadTriggerInPage, parseDownloadTriggerRequestForExtension } from "./download-execution.js";
 export { encodeMainWorldPayload, configureCapturedRequestContextProvenanceViaMainWorld, installFingerprintRuntimeViaMainWorld, installMainWorldEventChannelSecret, MAIN_WORLD_EVENT_BOOTSTRAP, readCapturedRequestContextViaMainWorld, readPageStateViaMainWorld, requestXhsSearchJsonViaMainWorld, resetMainWorldEventChannelForContract, resolveMainWorldEventNamesForSecret };
@@ -2242,6 +2242,9 @@ export class ContentScriptHandler {
                 message.command === "xhs.media_upload.discover") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
+                const mediaUploadInput = message.command === "xhs.media_upload.discover"
+                    ? validateNormalizedMediaUploadDiscoveryInput(normalizedInput, String(ability.id ?? "unknown"))
+                    : null;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({
                     ...commonInput,
                     params: {
@@ -2251,6 +2254,15 @@ export class ContentScriptHandler {
                             : {}),
                         ...(message.command === "xhs.media_upload.discover"
                             ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(mediaUploadInput?.source_media_ref
+                            ? { source_media_ref: mediaUploadInput.source_media_ref }
+                            : {}),
+                        ...(mediaUploadInput?.source_media_digest
+                            ? { source_media_digest: mediaUploadInput.source_media_digest }
+                            : {}),
+                        ...(mediaUploadInput?.source_media_kind
+                            ? { source_media_kind: mediaUploadInput.source_media_kind }
                             : {}),
                         ...(typeof searchInput.limit === "number" ? { limit: searchInput.limit } : {}),
                         ...(typeof searchInput.page === "number" ? { page: searchInput.page } : {}),

@@ -1167,8 +1167,24 @@ export const executeXhsSearch = async (
       gate.consumer_gate_result.effective_execution_mode === "recon")
   ) {
     const mediaUploadDiscovery = env.performMediaUploadDiscovery
-      ? await env.performMediaUploadDiscovery()
-      : buildXhsMediaUploadDiscoveryResult();
+      ? await env.performMediaUploadDiscovery({
+          source_media_ref: input.params.source_media_ref,
+          source_media_digest: input.params.source_media_digest,
+          source_media_kind: input.params.source_media_kind,
+          run_id: input.executionContext.runId,
+          profile_ref: input.options.__runtime_profile_ref ?? null,
+          target_tab_id: gate.consumer_gate_result.target_tab_id,
+          page_url: env.getLocationHref()
+        })
+      : buildXhsMediaUploadDiscoveryResult({
+          source_media_ref: input.params.source_media_ref,
+          source_media_digest: input.params.source_media_digest,
+          source_media_kind: input.params.source_media_kind,
+          run_id: input.executionContext.runId,
+          profile_ref: input.options.__runtime_profile_ref ?? null,
+          target_tab_id: gate.consumer_gate_result.target_tab_id,
+          page_url: env.getLocationHref()
+        });
     return {
       ok: true,
       payload: {
@@ -1206,7 +1222,9 @@ export const executeXhsSearch = async (
           audit_record: auditRecord,
           ...layer2InteractionSummary(layer2Interaction),
           media_upload_discovery: mediaUploadDiscovery,
-          upload_path_catalog: mediaUploadDiscovery.upload_path_catalog
+          upload_path_catalog: mediaUploadDiscovery.upload_path_catalog,
+          controlled_upload_evidence: mediaUploadDiscovery.controlled_upload_evidence,
+          controlled_upload_evaluation: mediaUploadDiscovery.controlled_upload_evaluation
         },
         observability: createObservability({
           href: env.getLocationHref(),

@@ -41,6 +41,7 @@ import {
 } from "./content-script-main-world.js";
 import {
   ExtensionContractError,
+  validateNormalizedMediaUploadDiscoveryInput,
   validateXhsCommandInputForExtension
 } from "./xhs-command-contract.js";
 import { containsCookie, hasXhsAccountSafetyOverlaySignal } from "./xhs-search-telemetry.js";
@@ -2706,6 +2707,13 @@ export class ContentScriptHandler {
           sort?: string;
           note_type?: string | number;
         };
+        const mediaUploadInput =
+          message.command === "xhs.media_upload.discover"
+            ? validateNormalizedMediaUploadDiscoveryInput(
+                normalizedInput,
+                String(ability.id ?? "unknown")
+              )
+            : null;
         result = await maybeWithContentCommandDeadline(
           executeXhsSearch(
             {
@@ -2717,6 +2725,15 @@ export class ContentScriptHandler {
                   : {}),
                 ...(message.command === "xhs.media_upload.discover"
                   ? { target_page: "creator_publish_tab" }
+                  : {}),
+                ...(mediaUploadInput?.source_media_ref
+                  ? { source_media_ref: mediaUploadInput.source_media_ref }
+                  : {}),
+                ...(mediaUploadInput?.source_media_digest
+                  ? { source_media_digest: mediaUploadInput.source_media_digest }
+                  : {}),
+                ...(mediaUploadInput?.source_media_kind
+                  ? { source_media_kind: mediaUploadInput.source_media_kind }
                   : {}),
                 ...(typeof searchInput.limit === "number" ? { limit: searchInput.limit } : {}),
                 ...(typeof searchInput.page === "number" ? { page: searchInput.page } : {}),

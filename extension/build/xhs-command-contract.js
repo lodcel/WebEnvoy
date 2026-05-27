@@ -14,6 +14,9 @@ const invalidAbilityInput = (reason, abilityId = "unknown") => new ExtensionCont
     reason
 });
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const SOURCE_MEDIA_KINDS = new Set(["image", "video", "mixed"]);
+const SOURCE_MEDIA_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const UNSAFE_SOURCE_MEDIA_REF_PATTERN = /^(?:file:|\/|[A-Za-z]:[\\/])/u;
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
@@ -22,6 +25,33 @@ const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
+export const validateNormalizedMediaUploadDiscoveryInput = (input, abilityId = "xhs.creator.publish.v1") => {
+    const record = input;
+    const sourceMediaRef = asNonEmptyString(record.source_media_ref);
+    const sourceMediaDigest = asNonEmptyString(record.source_media_digest);
+    const sourceMediaKind = asNonEmptyString(record.source_media_kind);
+    const hasSourceMediaInput = sourceMediaRef !== null || sourceMediaDigest !== null || sourceMediaKind !== null;
+    if (hasSourceMediaInput) {
+        if (!sourceMediaRef || UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef)) {
+            throw invalidAbilityInput("SOURCE_MEDIA_REF_INVALID", abilityId);
+        }
+        if (!sourceMediaDigest || !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
+            throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", abilityId);
+        }
+        if (!sourceMediaKind || !SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+            throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", abilityId);
+        }
+    }
+    return {
+        target_page: "creator_publish_tab",
+        discovery_action: "media_upload_path",
+        ...(sourceMediaRef ? { source_media_ref: sourceMediaRef } : {}),
+        ...(sourceMediaDigest ? { source_media_digest: sourceMediaDigest } : {}),
+        ...(sourceMediaKind
+            ? { source_media_kind: sourceMediaKind }
+            : {})
+    };
+};
 const parseSearchInput = (payload, abilityId, options, abilityAction) => {
     const issue208EditorInputValidation = abilityAction === "write" &&
         options.issue_scope === "issue_208" &&
@@ -106,9 +136,29 @@ export const validateXhsCommandInputForExtension = (input) => {
                 input.options.requested_execution_mode !== "recon")) {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
         }
+        const sourceMediaRef = asNonEmptyString(input.payload.source_media_ref);
+        const sourceMediaDigest = asNonEmptyString(input.payload.source_media_digest);
+        const sourceMediaKind = asNonEmptyString(input.payload.source_media_kind);
+        const hasSourceMediaInput = sourceMediaRef !== null || sourceMediaDigest !== null || sourceMediaKind !== null;
+        if (hasSourceMediaInput) {
+            if (!sourceMediaRef || UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef)) {
+                throw invalidAbilityInput("SOURCE_MEDIA_REF_INVALID", input.abilityId);
+            }
+            if (!sourceMediaDigest || !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
+                throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", input.abilityId);
+            }
+            if (!sourceMediaKind || !SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+                throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", input.abilityId);
+            }
+        }
         return {
             target_page: "creator_publish_tab",
-            discovery_action: "media_upload_path"
+            discovery_action: "media_upload_path",
+            ...(sourceMediaRef ? { source_media_ref: sourceMediaRef } : {}),
+            ...(sourceMediaDigest ? { source_media_digest: sourceMediaDigest } : {}),
+            ...(sourceMediaKind
+                ? { source_media_kind: sourceMediaKind }
+                : {})
         };
     }
     if (input.command === "xhs.detail") {

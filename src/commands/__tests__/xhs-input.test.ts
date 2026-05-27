@@ -412,7 +412,11 @@ describe("xhs-input", () => {
   it("parses xhs.media_upload.discover as issue_755 dry-run upload path discovery", () => {
     const envelope = parseAbilityEnvelopeForContract({
       ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
-      input: {},
+      input: {
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_kind: "image"
+      },
       options: {
         target_domain: "creator.xiaohongshu.com",
         target_tab_id: 32,
@@ -435,7 +439,10 @@ describe("xhs-input", () => {
       options: gate.options
     })).toEqual({
       target_page: "creator_publish_tab",
-      discovery_action: "media_upload_path"
+      discovery_action: "media_upload_path",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      source_media_kind: "image"
     });
     expect(gate).toMatchObject({
       targetDomain: "creator.xiaohongshu.com",
@@ -448,6 +455,47 @@ describe("xhs-input", () => {
         discovery_action: "media_upload_path"
       }
     });
+  });
+
+  it("rejects xhs.media_upload.discover when source media ref leaks a local path", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
+      input: {
+        source_media_ref: "/Users/mc/private/source.png",
+        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_kind: "image"
+      },
+      options: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "recon",
+        risk_state: "allowed"
+      }
+    });
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.media_upload.discover",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "profile-a"
+    });
+
+    try {
+      parseXhsCommandInputForContract({
+        command: "xhs.media_upload.discover",
+        abilityId: envelope.ability.id,
+        abilityAction: envelope.ability.action,
+        payload: envelope.input,
+        options: gate.options
+      });
+      throw new Error("expected unsafe source media ref to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: {
+          reason: "SOURCE_MEDIA_REF_INVALID"
+        }
+      });
+    }
   });
 
   it("rejects xhs.media_upload.discover when callers attempt live_write", () => {

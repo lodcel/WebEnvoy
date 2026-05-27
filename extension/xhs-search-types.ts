@@ -10,6 +10,10 @@ export type JsonRecord = Record<string, unknown>;
 export interface XhsSearchParams {
   query: string;
   target_page?: string;
+  discovery_action?: string;
+  source_media_ref?: string;
+  source_media_digest?: string;
+  source_media_kind?: "image" | "video" | "mixed" | string;
   limit?: number;
   page?: number;
   search_id?: string;
@@ -261,7 +265,15 @@ export interface XhsSearchEnvironment {
   performEditorInputValidation?(
     input: { text: string; focusAttestation?: EditorInputFocusAttestation | null }
   ): Promise<EditorInputValidationResult>;
-  performMediaUploadDiscovery?(): Promise<MediaUploadDiscoveryResult>;
+  performMediaUploadDiscovery?(input?: {
+    source_media_ref?: string;
+    source_media_digest?: string;
+    source_media_kind?: "image" | "video" | "mixed" | string;
+    run_id: string;
+    profile_ref: string | null;
+    target_tab_id: number | null;
+    page_url: string;
+  }): Promise<MediaUploadDiscoveryResult>;
 }
 
 export interface SearchExecutionSuccess {

@@ -2,6 +2,14 @@ export type ExtensionAbilityAction = "read" | "write" | "download";
 
 type JsonRecord = Record<string, unknown>;
 
+export type ExtensionXhsMediaUploadDiscoveryInput = {
+  target_page: "creator_publish_tab";
+  discovery_action: "media_upload_path";
+  source_media_ref?: string;
+  source_media_digest?: string;
+  source_media_kind?: "image" | "video" | "mixed";
+};
+
 export class ExtensionContractError extends Error {
   code: string;
   details?: Record<string, unknown>;
@@ -29,6 +37,7 @@ export type ExtensionXhsCommandInput =
   | {
       user_id: string;
     }
+  | ExtensionXhsMediaUploadDiscoveryInput
   | JsonRecord;
 
 const invalidAbilityInput = (
@@ -44,6 +53,10 @@ const invalidAbilityInput = (
 const asNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
+const SOURCE_MEDIA_KINDS = new Set(["image", "video", "mixed"]);
+const SOURCE_MEDIA_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const UNSAFE_SOURCE_MEDIA_REF_PATTERN = /^(?:file:|\/|[A-Za-z]:[\\/])/u;
+
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
@@ -52,6 +65,38 @@ const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
+
+export const validateNormalizedMediaUploadDiscoveryInput = (
+  input: ExtensionXhsCommandInput,
+  abilityId = "xhs.creator.publish.v1"
+): ExtensionXhsMediaUploadDiscoveryInput => {
+  const record = input as JsonRecord;
+  const sourceMediaRef = asNonEmptyString(record.source_media_ref);
+  const sourceMediaDigest = asNonEmptyString(record.source_media_digest);
+  const sourceMediaKind = asNonEmptyString(record.source_media_kind);
+  const hasSourceMediaInput =
+    sourceMediaRef !== null || sourceMediaDigest !== null || sourceMediaKind !== null;
+  if (hasSourceMediaInput) {
+    if (!sourceMediaRef || UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef)) {
+      throw invalidAbilityInput("SOURCE_MEDIA_REF_INVALID", abilityId);
+    }
+    if (!sourceMediaDigest || !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
+      throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", abilityId);
+    }
+    if (!sourceMediaKind || !SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+      throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", abilityId);
+    }
+  }
+  return {
+    target_page: "creator_publish_tab",
+    discovery_action: "media_upload_path",
+    ...(sourceMediaRef ? { source_media_ref: sourceMediaRef } : {}),
+    ...(sourceMediaDigest ? { source_media_digest: sourceMediaDigest } : {}),
+    ...(sourceMediaKind
+      ? { source_media_kind: sourceMediaKind as "image" | "video" | "mixed" }
+      : {})
+  };
+};
 
 const parseSearchInput = (
   payload: JsonRecord,
@@ -162,9 +207,30 @@ export const validateXhsCommandInputForExtension = (input: {
     ) {
       throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
     }
+    const sourceMediaRef = asNonEmptyString(input.payload.source_media_ref);
+    const sourceMediaDigest = asNonEmptyString(input.payload.source_media_digest);
+    const sourceMediaKind = asNonEmptyString(input.payload.source_media_kind);
+    const hasSourceMediaInput =
+      sourceMediaRef !== null || sourceMediaDigest !== null || sourceMediaKind !== null;
+    if (hasSourceMediaInput) {
+      if (!sourceMediaRef || UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef)) {
+        throw invalidAbilityInput("SOURCE_MEDIA_REF_INVALID", input.abilityId);
+      }
+      if (!sourceMediaDigest || !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
+        throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", input.abilityId);
+      }
+      if (!sourceMediaKind || !SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+        throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", input.abilityId);
+      }
+    }
     return {
       target_page: "creator_publish_tab",
-      discovery_action: "media_upload_path"
+      discovery_action: "media_upload_path",
+      ...(sourceMediaRef ? { source_media_ref: sourceMediaRef } : {}),
+      ...(sourceMediaDigest ? { source_media_digest: sourceMediaDigest } : {}),
+      ...(sourceMediaKind
+        ? { source_media_kind: sourceMediaKind as "image" | "video" | "mixed" }
+        : {})
     };
   }
   if (input.command === "xhs.detail") {
