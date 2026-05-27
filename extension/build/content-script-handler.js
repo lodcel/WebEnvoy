@@ -2242,6 +2242,7 @@ export class ContentScriptHandler {
                 message.command === "xhs.media_upload.discover") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
+                const normalizedInputRecord = normalizedInput;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({
                     ...commonInput,
                     params: {
@@ -2251,6 +2252,18 @@ export class ContentScriptHandler {
                             : {}),
                         ...(message.command === "xhs.media_upload.discover"
                             ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(message.command === "xhs.media_upload.discover" &&
+                            typeof normalizedInputRecord.source_media_ref === "string"
+                            ? { source_media_ref: normalizedInputRecord.source_media_ref }
+                            : {}),
+                        ...(message.command === "xhs.media_upload.discover" &&
+                            typeof normalizedInputRecord.source_media_digest === "string"
+                            ? { source_media_digest: normalizedInputRecord.source_media_digest }
+                            : {}),
+                        ...(message.command === "xhs.media_upload.discover" &&
+                            typeof normalizedInputRecord.source_media_kind === "string"
+                            ? { source_media_kind: normalizedInputRecord.source_media_kind }
                             : {}),
                         ...(typeof searchInput.limit === "number" ? { limit: searchInput.limit } : {}),
                         ...(typeof searchInput.page === "number" ? { page: searchInput.page } : {}),

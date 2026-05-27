@@ -106,6 +106,9 @@ export interface XhsCreatorPublishAdmissionInputContract extends JsonObject {
 export interface XhsMediaUploadDiscoveryInputContract extends JsonObject {
   target_page: "creator_publish_tab";
   discovery_action: "media_upload_path";
+  source_media_ref?: string;
+  source_media_digest?: string;
+  source_media_kind?: "image" | "video" | "mixed";
 }
 
 export interface XhsEditorTextWriteInputContract extends JsonObject {
@@ -912,10 +915,65 @@ export const parseCreatorPublishAdmissionInputForContract = (): XhsCreatorPublis
   target_page: "creator_publish_tab"
 });
 
-export const parseMediaUploadDiscoveryInputForContract = (): XhsMediaUploadDiscoveryInputContract => ({
-  target_page: "creator_publish_tab",
-  discovery_action: "media_upload_path"
-});
+const SOURCE_MEDIA_KINDS = new Set(["image", "video", "mixed"]);
+const SOURCE_MEDIA_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const UNSAFE_SOURCE_MEDIA_REF_PATTERN = /^(?:file:|\/|[A-Za-z]:[\\/])/u;
+
+export const parseMediaUploadDiscoveryInputForContract = (
+  input: JsonObject = {},
+  abilityId = "xhs.creator.publish.v1"
+): XhsMediaUploadDiscoveryInputContract => {
+  const sourceMediaRef = hasOwn(input, "source_media_ref")
+    ? parseOptionalStringFieldForContract(
+        input,
+        "source_media_ref",
+        "SOURCE_MEDIA_REF_INVALID",
+        abilityId
+      )
+    : undefined;
+  const sourceMediaDigest = hasOwn(input, "source_media_digest")
+    ? parseOptionalStringFieldForContract(
+        input,
+        "source_media_digest",
+        "SOURCE_MEDIA_DIGEST_INVALID",
+        abilityId
+      )
+    : undefined;
+  const sourceMediaKind = hasOwn(input, "source_media_kind")
+    ? parseOptionalStringFieldForContract(
+        input,
+        "source_media_kind",
+        "SOURCE_MEDIA_KIND_INVALID",
+        abilityId
+      )
+    : undefined;
+
+  const hasAnySourceMediaField =
+    sourceMediaRef !== undefined ||
+    sourceMediaDigest !== undefined ||
+    sourceMediaKind !== undefined;
+  if (hasAnySourceMediaField) {
+    if (!sourceMediaRef || UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef)) {
+      throw invalidAbilityInput("SOURCE_MEDIA_REF_INVALID", abilityId);
+    }
+    if (!sourceMediaDigest || !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
+      throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", abilityId);
+    }
+    if (!sourceMediaKind || !SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+      throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", abilityId);
+    }
+  }
+
+  return {
+    target_page: "creator_publish_tab",
+    discovery_action: "media_upload_path",
+    ...(sourceMediaRef ? { source_media_ref: sourceMediaRef } : {}),
+    ...(sourceMediaDigest ? { source_media_digest: sourceMediaDigest } : {}),
+    ...(sourceMediaKind
+      ? { source_media_kind: sourceMediaKind as "image" | "video" | "mixed" }
+      : {})
+  };
+};
 
 export const parseDetailInputForContract = (
   input: JsonObject,
@@ -972,7 +1030,7 @@ export const parseXhsCommandInputForContract = (input: {
     return parseCreatorPublishAdmissionInputForContract();
   }
   if (input.command === XHS_MEDIA_UPLOAD_DISCOVER_COMMAND) {
-    return parseMediaUploadDiscoveryInputForContract();
+    return parseMediaUploadDiscoveryInputForContract(input.payload, input.abilityId);
   }
   if (input.command === "xhs.detail") {
     return parseDetailInputForContract(input.payload, input.abilityId);
