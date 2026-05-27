@@ -56,9 +56,12 @@ export type ControlledUploadNonPublishEvaluation = {
   non_publish_validation: true;
   entry_gate_evaluated: false;
   runtime_evaluator_required_for_entry_gate: true;
+  non_publish_evidence_status: "EVIDENCE_PRESENT" | "EVIDENCE_MISSING";
   blockers: Array<{
     blocker_code:
       | "UPLOAD_ARTIFACT_IDENTITY_MISSING"
+      | "UPLOAD_PLATFORM_REJECTED"
+      | "UPLOAD_PREVIEW_NOT_VISIBLE"
       | "SUBMIT_NOT_RUN"
       | "PUBLISH_NOT_RUN";
     message: string;
@@ -234,6 +237,19 @@ const evaluateControlledUploadEvidence = (
       blocker_code: "UPLOAD_ARTIFACT_IDENTITY_MISSING",
       message: "dry_run/recon upload evidence requires source_media_ref, source_media_digest and source_media_kind"
     });
+  } else {
+    if (!artifact.accepted_by_platform) {
+      blockers.push({
+        blocker_code: "UPLOAD_PLATFORM_REJECTED",
+        message: "dry_run/recon does not attempt real platform upload or claim platform acceptance"
+      });
+    }
+    if (!artifact.visible_in_editor) {
+      blockers.push({
+        blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
+        message: "dry_run/recon does not inject DataTransfer or claim editor preview success"
+      });
+    }
   }
   if (fileSelectionBoundary?.submit_attempted === true) {
     blockers.push({
@@ -258,6 +274,7 @@ const evaluateControlledUploadEvidence = (
     non_publish_validation: true,
     entry_gate_evaluated: false,
     runtime_evaluator_required_for_entry_gate: true,
+    non_publish_evidence_status: artifact ? "EVIDENCE_PRESENT" : "EVIDENCE_MISSING",
     later_write_actions_blocked: laterWriteActionsBlocked,
     cleanup_required: artifact !== null && (blockers.length > 0 || laterWriteActionsBlocked),
     blockers
