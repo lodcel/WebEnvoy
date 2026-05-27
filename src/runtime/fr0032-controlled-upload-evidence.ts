@@ -166,9 +166,9 @@ export const evaluateFr0032ControlledUploadEvidence = (
     artifact !== null &&
     artifact.accepted_by_platform === true &&
     artifact.visible_in_editor === true;
-  const laterWriteActionsBlocked =
-    input.submit_attempted !== true &&
-    riskSignals.some((riskSignal) => riskSignal.severity === "blocking");
+  const laterWriteActionsBlocked = riskSignals.some(
+    (riskSignal) => riskSignal.severity === "blocking"
+  );
 
   return {
     decision: blockers.length === 0 ? "PASS" : "NO_GO",

@@ -110,4 +110,30 @@ describe("FR-0032 controlled upload evidence evaluator", () => {
       ])
     });
   });
+
+  it("keeps later write actions blocked when a blocking risk signal exists even if submit was attempted", () => {
+    const input = baseInput();
+    input.submit_attempted = true;
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/upload/captcha",
+        detected_at: "2026-05-28T00:00:02.000Z",
+        source: "page_observation",
+        kind: "captcha_required",
+        severity: "blocking",
+        details_ref: "artifact/fr-0032/upload-risk/captcha"
+      }
+    ];
+
+    expect(evaluateFr0032ControlledUploadEvidence(input)).toMatchObject({
+      decision: "NO_GO",
+      upload_success: false,
+      later_write_actions_blocked: true,
+      cleanup_required: true,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "SUBMIT_NOT_RUN" }),
+        expect.objectContaining({ blocker_code: "RISK_SIGNAL_BLOCKING" })
+      ])
+    });
+  });
 });
