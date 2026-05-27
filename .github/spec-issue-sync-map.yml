@@ -61,3 +61,5 @@ mappings:
     canonical_issue_number: 581
   - spec_path: docs/dev/specs/FR-0031-xhs-creator-live-write-admission/spec.md
     canonical_issue_number: 819
+  - spec_path: docs/dev/specs/FR-0032-xhs-controlled-live-write-success/spec.md
+    canonical_issue_number: 835
