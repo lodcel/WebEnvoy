@@ -15,7 +15,7 @@ import { buildCloseoutGateAggregator } from "../runtime/closeout-gate-aggregator
 import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
 import { buildUnifiedRiskStateOutput, resolveRiskState } from "../runtime/risk-state.js";
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
-import { XHS_CLOSEOUT_TARGET_DOMAIN, XHS_CREATOR_PUBLISH_TARGET_PAGE, XHS_CREATOR_TARGET_DOMAIN, persistXhsCloseoutValidationSourceEvidence, persistXhsCloseoutValidationSourceSamples, readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBundleRef, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
+import { XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF, XHS_CLOSEOUT_TARGET_DOMAIN, XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF, XHS_CREATOR_PUBLISH_TARGET_PAGE, XHS_CREATOR_TARGET_DOMAIN, persistXhsCloseoutValidationSourceEvidence, persistXhsCloseoutValidationSourceSamples, readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBundleRef, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
 const asBoolean = (value) => value === true;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
@@ -228,11 +228,37 @@ const resolveXhsValidationSourceTargetPage = (input) => {
     }
     return null;
 };
-const resolveXhsValidationSourceProbeBundleRef = (input) => resolveXhsCloseoutValidationProbeBundleRef({
-    effectiveExecutionMode: input.requestedExecutionMode,
-    targetDomain: input.targetDomain,
-    targetPage: input.targetPage
-});
+const resolveXhsValidationSourceProbeBundleRef = (input) => {
+    const resolved = resolveXhsCloseoutValidationProbeBundleRef({
+        effectiveExecutionMode: input.requestedExecutionMode,
+        targetDomain: input.targetDomain,
+        targetPage: input.targetPage
+    });
+    if (input.targetDomain === XHS_CLOSEOUT_TARGET_DOMAIN &&
+        input.targetPage === "search_result_tab" &&
+        input.requestedExecutionMode === "live_read_high_risk" &&
+        resolved === XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF) {
+        return resolved;
+    }
+    if (input.targetDomain === XHS_CREATOR_TARGET_DOMAIN &&
+        input.targetPage === XHS_CREATOR_PUBLISH_TARGET_PAGE &&
+        input.requestedExecutionMode === "live_write" &&
+        resolved === XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF) {
+        return resolved;
+    }
+    throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout validation source probe bundle scope invalid", {
+        retryable: false,
+        details: {
+            ability_id: "runtime.xhs_closeout_validation",
+            stage: "execution",
+            reason: "XHS_CLOSEOUT_VALIDATION_SOURCE_PROBE_BUNDLE_SCOPE_INVALID",
+            target_domain: input.targetDomain,
+            target_page: input.targetPage,
+            requested_execution_mode: input.requestedExecutionMode,
+            resolved_probe_bundle_ref: resolved
+        }
+    });
+};
 const sampleSignal = (sample) => {
     const payload = asObject(sample.structured_payload);
     return asObject(payload?.signal);
@@ -366,6 +392,11 @@ const readXhsCloseoutValidationSignalsFromSourceSamples = async (input) => {
                 runId: input.sourceRunId
             })
             : null;
+        const expectedProbeBundleRef = resolveXhsValidationSourceProbeBundleRef({
+            targetDomain: input.sourceAudit.target_domain,
+            targetPage: input.sourceAudit.target_page,
+            requestedExecutionMode: input.sourceAudit.requested_execution_mode
+        });
         const sourceBindingMatched = signal
             ? signalMatchesSourceBinding({
                 signal,
@@ -384,7 +415,7 @@ const readXhsCloseoutValidationSignalsFromSourceSamples = async (input) => {
             sample.browser_channel !== "Google Chrome stable" ||
             sample.execution_surface !== "real_browser" ||
             sample.effective_execution_mode !== input.requestedExecutionMode ||
-            sample.probe_bundle_ref !== "probe-bundle/xhs-closeout-min-v1" ||
+            sample.probe_bundle_ref !== expectedProbeBundleRef ||
             sampleRequest.requested_execution_mode !== input.requestedExecutionMode ||
             sampleRequest.request_state !== "completed" ||
             sampleRequest.target_fr_ref !== targetFrRef ||
@@ -392,7 +423,7 @@ const readXhsCloseoutValidationSignalsFromSourceSamples = async (input) => {
             sampleRequest.profile_ref !== `profile/${input.profile ?? ""}` ||
             sampleRequest.browser_channel !== "Google Chrome stable" ||
             sampleRequest.execution_surface !== "real_browser" ||
-            sampleRequest.probe_bundle_ref !== "probe-bundle/xhs-closeout-min-v1" ||
+            sampleRequest.probe_bundle_ref !== expectedProbeBundleRef ||
             !sampleMatchesSourceGateAudit(sample, input.sourceAudit) ||
             !sourceBindingMatched) {
             throw new CliError("ERR_EXECUTION_FAILED", "XHS closeout validation source samples are not eligible", {

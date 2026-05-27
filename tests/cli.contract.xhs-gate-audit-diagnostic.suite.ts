@@ -695,17 +695,36 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
 
   const bindXhsCloseoutValidationSignalsToSource = (
     signals: ReturnType<typeof createXhsCloseoutValidationSignals>,
-    input: { profile: string; runId: string; sessionId: string; targetTabId?: number }
+    input: {
+      profile: string;
+      runId: string;
+      sessionId: string;
+      targetTabId?: number;
+      targetDomain?: string;
+      targetPage?: string;
+      pageUrl?: string;
+      requestedExecutionMode?: "live_read_high_risk" | "live_write";
+      probeBundleRef?: string;
+    }
   ): ReturnType<typeof createXhsCloseoutValidationSignals> => {
     const targetTabId = input.targetTabId ?? 32;
-    const pageUrl = "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5&type=51";
+    const targetDomain = input.targetDomain ?? "www.xiaohongshu.com";
+    const targetPage = input.targetPage ?? "search_result_tab";
+    const pageUrl =
+      input.pageUrl ?? "https://www.xiaohongshu.com/search_result?keyword=%E9%9C%B2%E8%90%A5&type=51";
+    const requestedExecutionMode = input.requestedExecutionMode ?? "live_read_high_risk";
+    const probeBundleRef = input.probeBundleRef ?? "probe-bundle/xhs-closeout-min-v1";
     for (const layer of [
       signals.layer1_consistency,
       signals.layer2_interaction,
       signals.layer3_session_rhythm
     ]) {
+      layer.browser_returned_evidence.target_domain = targetDomain;
+      layer.browser_returned_evidence.target_page = targetPage;
       layer.browser_returned_evidence.target_tab_id = targetTabId;
       layer.browser_returned_evidence.page_url = pageUrl;
+      layer.browser_returned_evidence.requested_execution_mode = requestedExecutionMode;
+      layer.browser_returned_evidence.probe_bundle_ref = probeBundleRef;
     }
     signals.layer2_interaction.rhythm_profile.source_run_id = input.runId;
     signals.layer2_interaction.strategy_selection.action_kind = "validation_source_probe";
@@ -725,8 +744,13 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     cwd: string;
     profile: string;
     runId: string;
-    requestedExecutionMode?: "live_read_high_risk" | "recon";
-    effectiveExecutionMode?: "live_read_high_risk" | "recon";
+    requestedExecutionMode?: "live_read_high_risk" | "live_write" | "recon";
+    effectiveExecutionMode?: "live_read_high_risk" | "live_write" | "recon";
+    targetDomain?: "www.xiaohongshu.com" | "creator.xiaohongshu.com";
+    targetPage?: "search_result_tab" | "creator_publish_tab";
+    targetTabId?: number;
+    pageUrl?: string;
+    probeBundleRef?: string;
     signals?: ReturnType<typeof createXhsCloseoutValidationSignals>;
     artifactRefs?: string[];
     approvalChecks?: Record<string, boolean>;
@@ -738,8 +762,12 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
   }): Promise<string[]> => {
     const requestedExecutionMode = input.requestedExecutionMode ?? "live_read_high_risk";
     const effectiveExecutionMode = input.effectiveExecutionMode ?? requestedExecutionMode;
+    const targetDomain = input.targetDomain ?? "www.xiaohongshu.com";
+    const targetPage = input.targetPage ?? "search_result_tab";
+    const targetTabId = input.targetTabId ?? 32;
+    const probeBundleRef = input.probeBundleRef ?? "probe-bundle/xhs-closeout-min-v1";
     const sourceAuditRiskState =
-      requestedExecutionMode === "live_read_high_risk"
+      requestedExecutionMode === "live_read_high_risk" || requestedExecutionMode === "live_write"
         ? (input.rhythmRiskState ?? "allowed")
         : "paused";
     const decisionId = `gate_decision_${input.runId}`;
@@ -759,7 +787,18 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(input.cwd));
     const signals = bindXhsCloseoutValidationSignalsToSource(
       input.signals ?? createXhsCloseoutValidationSignals(),
-      { profile: input.profile, runId: input.runId, sessionId }
+      {
+        profile: input.profile,
+        runId: input.runId,
+        sessionId,
+        targetTabId,
+        targetDomain,
+        targetPage,
+        pageUrl: input.pageUrl,
+        requestedExecutionMode:
+          effectiveExecutionMode === "recon" ? "live_read_high_risk" : effectiveExecutionMode,
+        probeBundleRef
+      }
     );
     const sampleRefs: string[] = [];
     try {
@@ -790,7 +829,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
           executionSurface: "real_browser",
           sampleGoal: `capture ${targetFrRef} source sample`,
           requestedExecutionMode: effectiveExecutionMode,
-          probeBundleRef: "probe-bundle/xhs-closeout-min-v1",
+          probeBundleRef,
           requestState: "accepted",
           requestedAt: "2026-04-30T01:20:05.000Z"
         });
@@ -803,7 +842,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
           executionSurface: "real_browser",
           sampleGoal: `capture ${targetFrRef} source sample`,
           requestedExecutionMode: effectiveExecutionMode,
-          probeBundleRef: "probe-bundle/xhs-closeout-min-v1",
+          probeBundleRef,
           requestState: "completed",
           requestedAt: "2026-04-30T01:20:05.000Z"
         });
@@ -816,22 +855,22 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
           browserChannel: "Google Chrome stable",
           executionSurface: "real_browser",
           effectiveExecutionMode,
-          probeBundleRef: "probe-bundle/xhs-closeout-min-v1",
+          probeBundleRef,
           runId: input.runId,
           capturedAt: "2026-04-30T01:20:05.000Z",
           structuredPayload: {
             target_fr_ref: targetFrRef,
             validation_scope: validationScope,
             profile_ref: `profile/${input.profile}`,
-            probe_bundle_ref: "probe-bundle/xhs-closeout-min-v1",
+            probe_bundle_ref: probeBundleRef,
             source_gate_audit: {
               event_id: `gate_evt_${input.runId}`,
               decision_id: decisionId,
               session_id: sessionId,
               action_ref: input.runId,
-              target_domain: "www.xiaohongshu.com",
-              target_tab_id: 32,
-              target_page: "search_result_tab",
+              target_domain: targetDomain,
+              target_tab_id: targetTabId,
+              target_page: targetPage,
               action_type: "read",
               requested_execution_mode: requestedExecutionMode,
               effective_execution_mode: effectiveExecutionMode,
@@ -843,7 +882,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
           artifactRefs: input.artifactRefs ?? [`artifact/xhs-closeout-validation/${input.runId}`]
         });
       }
-      if (requestedExecutionMode === "live_read_high_risk") {
+      if (requestedExecutionMode === "live_read_high_risk" || requestedExecutionMode === "live_write") {
         const approvalChecks = input.approvalChecks ?? {
           target_domain_confirmed: true,
           target_tab_confirmed: true,
@@ -864,7 +903,10 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
       await store.appendGateAuditRecord({
         eventId: `gate_evt_${input.runId}`,
         decisionId,
-        approvalId: requestedExecutionMode === "live_read_high_risk" ? approvalId : null,
+        approvalId:
+          requestedExecutionMode === "live_read_high_risk" || requestedExecutionMode === "live_write"
+            ? approvalId
+            : null,
         runId: input.runId,
         sessionId,
         profile: input.profile,
@@ -872,21 +914,31 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
         riskState: sourceAuditRiskState,
         nextState: sourceAuditRiskState,
         transitionTrigger: "gate_evaluation",
-        targetDomain: "www.xiaohongshu.com",
-        targetTabId: 32,
-        targetPage: "search_result_tab",
+        targetDomain,
+        targetTabId,
+        targetPage,
         actionType: "read",
         actionRef: input.runId,
         requestedExecutionMode,
         effectiveExecutionMode,
-        gateDecision: requestedExecutionMode === "live_read_high_risk" ? "allowed" : "blocked",
+        gateDecision:
+          requestedExecutionMode === "live_read_high_risk" || requestedExecutionMode === "live_write"
+            ? "allowed"
+            : "blocked",
         gateReasons:
           requestedExecutionMode === "live_read_high_risk"
             ? ["LIVE_MODE_APPROVED"]
-            : ["DEFAULT_MODE_RECON"],
-        approver: requestedExecutionMode === "live_read_high_risk" ? "qa-reviewer" : null,
+            : requestedExecutionMode === "live_write"
+              ? ["XHS_CLOSEOUT_VALIDATION_SOURCE_APPROVED"]
+              : ["DEFAULT_MODE_RECON"],
+        approver:
+          requestedExecutionMode === "live_read_high_risk" || requestedExecutionMode === "live_write"
+            ? "qa-reviewer"
+            : null,
         approvedAt:
-          requestedExecutionMode === "live_read_high_risk" ? "2026-04-30T01:19:59.000Z" : null,
+          requestedExecutionMode === "live_read_high_risk" || requestedExecutionMode === "live_write"
+            ? "2026-04-30T01:19:59.000Z"
+            : null,
         recordedAt: "2026-04-30T01:20:05.000Z"
       });
       return sampleRefs;
@@ -4371,6 +4423,159 @@ process.stdin.on("data", (chunk) => {
         },
         anti_detection_validation_view: {
           all_required_ready: true
+        }
+      }
+    });
+  });
+
+  itWithSqlite("generates creator live_write validation baseline rows from creator bundle source samples", async () => {
+    const cwd = await createRuntimeCwd();
+    const profile = "xhs_creator_validation_cli_profile";
+    const runId = "run-xhs-creator-live-write-validation-cli-001";
+    const sourceRunId = "run-xhs-creator-live-write-validation-source-001";
+    const sourceSampleRefs = await seedXhsCloseoutValidationSourceAudit({
+      cwd,
+      profile,
+      runId: sourceRunId,
+      requestedExecutionMode: "live_write",
+      effectiveExecutionMode: "live_write",
+      targetDomain: "creator.xiaohongshu.com",
+      targetPage: "creator_publish_tab",
+      targetTabId: 1230453923,
+      pageUrl: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+      probeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+    });
+
+    const result = runCli([
+      "runtime.xhs_closeout_validation",
+      "--profile",
+      profile,
+      "--run-id",
+      runId,
+      "--params",
+      JSON.stringify({
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        source_run_id: sourceRunId,
+        source_sample_refs: sourceSampleRefs
+      })
+    ], cwd);
+
+    expect(result.status, result.stdout).toBe(0);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body).toMatchObject({
+      command: "runtime.xhs_closeout_validation",
+      status: "success",
+      summary: {
+        validation_baseline_generation: {
+          source: "runtime.xhs_closeout_validation",
+          profile,
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "live_write",
+          run_id: runId,
+          source_run_id: sourceRunId,
+          active_fetch_performed: false,
+          closeout_bundle_entered: false
+        },
+        anti_detection_validation_view: {
+          profile_ref: `profile/${profile}`,
+          effective_execution_mode: "live_write",
+          probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+          all_required_ready: true,
+          missing_target_fr_refs: [],
+          blocking_target_fr_refs: []
+        }
+      }
+    });
+
+    const DatabaseSyncCtor = DatabaseSync as DatabaseSyncCtor;
+    const db = new DatabaseSyncCtor(resolveRuntimeStorePath(cwd)) as unknown as {
+      prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] };
+      close: () => void;
+    };
+    try {
+      const rows = db.prepare(
+        `SELECT target_fr_ref, current_result_state, current_drift_state, baseline_status
+        FROM anti_detection_validation_view
+        WHERE profile_ref = ?
+          AND effective_execution_mode = ?
+          AND probe_bundle_ref = ?
+        ORDER BY target_fr_ref`
+      ).all(
+        `profile/${profile}`,
+        "live_write",
+        "probe-bundle/xhs-creator-live-write-admission-v1"
+      );
+      expect(rows).toEqual([
+        {
+          target_fr_ref: "FR-0012",
+          current_result_state: "verified",
+          current_drift_state: "no_drift",
+          baseline_status: "ready"
+        },
+        {
+          target_fr_ref: "FR-0013",
+          current_result_state: "verified",
+          current_drift_state: "no_drift",
+          baseline_status: "ready"
+        },
+        {
+          target_fr_ref: "FR-0014",
+          current_result_state: "verified",
+          current_drift_state: "no_drift",
+          baseline_status: "ready"
+        }
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  itWithSqlite("rejects creator live_write validation source samples that use the read closeout bundle", async () => {
+    const cwd = await createRuntimeCwd();
+    const profile = "xhs_creator_validation_wrong_bundle_profile";
+    const sourceRunId = "run-xhs-creator-live-write-wrong-bundle-source-001";
+    const sourceSampleRefs = await seedXhsCloseoutValidationSourceAudit({
+      cwd,
+      profile,
+      runId: sourceRunId,
+      requestedExecutionMode: "live_write",
+      effectiveExecutionMode: "live_write",
+      targetDomain: "creator.xiaohongshu.com",
+      targetPage: "creator_publish_tab",
+      targetTabId: 1230453923,
+      pageUrl: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+      probeBundleRef: "probe-bundle/xhs-closeout-min-v1"
+    });
+
+    const result = runCli([
+      "runtime.xhs_closeout_validation",
+      "--profile",
+      profile,
+      "--run-id",
+      "run-xhs-creator-live-write-wrong-bundle-validation-001",
+      "--params",
+      JSON.stringify({
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        source_run_id: sourceRunId,
+        source_sample_refs: sourceSampleRefs
+      })
+    ], cwd);
+
+    expect(result.status).toBe(6);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body).toMatchObject({
+      command: "runtime.xhs_closeout_validation",
+      status: "error",
+      error: {
+        code: "ERR_EXECUTION_FAILED",
+        details: {
+          reason: "XHS_CLOSEOUT_VALIDATION_SOURCE_SAMPLE_INVALID",
+          sample_source_binding_matched: false
         }
       }
     });
