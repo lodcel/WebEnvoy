@@ -54,11 +54,11 @@ export type ControlledUploadNonPublishEvaluation = {
   upload_success: boolean;
   full_live_write_success: false;
   non_publish_validation: true;
+  entry_gate_evaluated: false;
+  runtime_evaluator_required_for_entry_gate: true;
   blockers: Array<{
     blocker_code:
       | "UPLOAD_ARTIFACT_IDENTITY_MISSING"
-      | "UPLOAD_PLATFORM_REJECTED"
-      | "UPLOAD_PREVIEW_NOT_VISIBLE"
       | "SUBMIT_NOT_RUN"
       | "PUBLISH_NOT_RUN";
     message: string;
@@ -234,19 +234,6 @@ const evaluateControlledUploadEvidence = (
       blocker_code: "UPLOAD_ARTIFACT_IDENTITY_MISSING",
       message: "dry_run/recon upload evidence requires source_media_ref, source_media_digest and source_media_kind"
     });
-  } else {
-    if (!artifact.accepted_by_platform) {
-      blockers.push({
-        blocker_code: "UPLOAD_PLATFORM_REJECTED",
-        message: "dry_run/recon does not attempt real platform upload or claim platform acceptance"
-      });
-    }
-    if (!artifact.visible_in_editor) {
-      blockers.push({
-        blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
-        message: "dry_run/recon does not inject DataTransfer or claim editor preview success"
-      });
-    }
   }
   if (fileSelectionBoundary?.submit_attempted === true) {
     blockers.push({
@@ -266,13 +253,11 @@ const evaluateControlledUploadEvidence = (
   return {
     schema_version: "fr-0032.controlled_upload_evaluation.v1",
     decision: blockers.length === 0 ? "PASS" : "NO_GO",
-    upload_success:
-      blockers.length === 0 &&
-      artifact !== null &&
-      artifact.accepted_by_platform === true &&
-      artifact.visible_in_editor === true,
+    upload_success: false,
     full_live_write_success: false,
     non_publish_validation: true,
+    entry_gate_evaluated: false,
+    runtime_evaluator_required_for_entry_gate: true,
     later_write_actions_blocked: laterWriteActionsBlocked,
     cleanup_required: artifact !== null && (blockers.length > 0 || laterWriteActionsBlocked),
     blockers

@@ -102,22 +102,15 @@ const createRelay = () => {
         },
         controlled_upload_evaluation: {
           schema_version: "fr-0032.controlled_upload_evaluation.v1",
-          decision: "NO_GO",
+          decision: "PASS",
           upload_success: false,
           full_live_write_success: false,
           non_publish_validation: true,
+          entry_gate_evaluated: false,
+          runtime_evaluator_required_for_entry_gate: true,
           later_write_actions_blocked: false,
-          cleanup_required: true,
-          blockers: [
-            {
-              blocker_code: "UPLOAD_PLATFORM_REJECTED",
-              message: "dry_run/recon does not attempt real platform upload or claim platform acceptance"
-            },
-            {
-              blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
-              message: "dry_run/recon does not inject DataTransfer or claim editor preview success"
-            }
-          ]
+          cleanup_required: false,
+          blockers: []
         },
         submitted: false,
         published: false,
@@ -257,16 +250,15 @@ describe("extension background relay / media upload discovery", () => {
     });
     expect(summary.controlled_upload_evaluation).toMatchObject({
       schema_version: "fr-0032.controlled_upload_evaluation.v1",
-      decision: "NO_GO",
+      decision: "PASS",
       upload_success: false,
       full_live_write_success: false,
       non_publish_validation: true,
+      entry_gate_evaluated: false,
+      runtime_evaluator_required_for_entry_gate: true,
       later_write_actions_blocked: false,
-      cleanup_required: true,
-      blockers: expect.arrayContaining([
-        expect.objectContaining({ blocker_code: "UPLOAD_PLATFORM_REJECTED" }),
-        expect.objectContaining({ blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE" })
-      ])
+      cleanup_required: false,
+      blockers: []
     });
   });
 
