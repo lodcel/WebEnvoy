@@ -160,6 +160,81 @@ describe("closeout runtime readiness preflight", () => {
     });
   });
 
+  it("verifies domain/page-only creator publish binding from trusted managed target continuity", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        params: {
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab"
+        },
+        status: {
+          ...readyStatus(),
+          runtimeTakeoverEvidence: {
+            identityBound: true,
+            ownerConflictFree: true,
+            attachableReadyRuntime: false,
+            orphanRecoverable: false,
+            staleBootstrapRecoverable: false,
+            managedTargetTabId: 1230454885,
+            managedTargetDomain: "creator.xiaohongshu.com",
+            managedTargetPage: "creator_publish_tab",
+            targetTabContinuity: "runtime_trust_state"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "GO",
+      runtime_state: "ready",
+      recovery_mode: "none",
+      blocker: null,
+      target_binding: {
+        requested: true,
+        state: "verified",
+        requested_target_tab_id: null,
+        requested_target_domain: "creator.xiaohongshu.com",
+        requested_target_page: "creator_publish_tab",
+        managed_target_tab_id: 1230454885,
+        managed_target_domain: "creator.xiaohongshu.com",
+        managed_target_page: "creator_publish_tab",
+        target_tab_continuity: "runtime_trust_state"
+      }
+    });
+  });
+
+  it("blocks domain/page-only target binding when the managed domain does not match", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        params: {
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab"
+        },
+        status: {
+          ...readyStatus(),
+          runtimeTakeoverEvidence: {
+            identityBound: true,
+            ownerConflictFree: true,
+            attachableReadyRuntime: false,
+            orphanRecoverable: false,
+            staleBootstrapRecoverable: false,
+            managedTargetTabId: 88,
+            managedTargetDomain: "www.xiaohongshu.com",
+            managedTargetPage: "search_result_tab",
+            targetTabContinuity: "runtime_trust_state"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_code: "target_mismatch"
+      },
+      target_binding: {
+        requested: true,
+        state: "mismatch"
+      }
+    });
+  });
+
   it("returns RECOVERABLE for fresh stale-bootstrap rebind evidence bound to the requested target", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
