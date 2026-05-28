@@ -15,6 +15,7 @@ import {
   launchBrowser,
   resolvePreferredBrowserCandidates,
   resolvePreferredBrowserVersionTruthSource,
+  resolveBrowserVersionTruthSource,
   resolveBrowserVersionOutputForFingerprint,
   shutdownBrowserSession
 } from "../browser-launcher.js";
@@ -321,6 +322,38 @@ while true; do sleep 1; done
   return dir;
 };
 
+const createMacAppBrowserExecutable = async (input: {
+  appName: string;
+  bundleName: string;
+  version: string;
+  versionProbeScript: string;
+}): Promise<string> => {
+  const dir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-mac-app-"));
+  tempDirs.push(dir);
+  const appDir = join(dir, `${input.appName}.app`);
+  const contentsDir = join(appDir, "Contents");
+  const macOsDir = join(contentsDir, "MacOS");
+  await mkdir(macOsDir, { recursive: true });
+  const executablePath = join(macOsDir, input.appName);
+  await writeFile(executablePath, input.versionProbeScript, "utf8");
+  await chmod(executablePath, 0o755);
+  await writeFile(
+    join(contentsDir, "Info.plist"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>${input.bundleName}</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${input.version}</string>
+</dict>
+</plist>
+`,
+    "utf8"
+  );
+  return executablePath;
+};
+
 const createVersionCountedBrowserExecutable = async (): Promise<{
   scriptPath: string;
   logPath: string;
@@ -571,6 +604,71 @@ describe("browser-launcher", () => {
     const truthSource = await resolvePreferredBrowserVersionTruthSource();
     expect(truthSource.executablePath).toBe(join(commandDir, "browser-wrapper"));
     expect(truthSource.browserVersion).toBe("Chromium 146.0.0.0");
+  });
+
+  it("falls back to macOS app bundle metadata when the browser version probe is unavailable", async () => {
+    const executablePath = await createMacAppBrowserExecutable({
+      appName: "Google Chrome",
+      bundleName: "Google Chrome",
+      version: "148.0.7778.181",
+      versionProbeScript: `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  exit 0
+fi
+while true; do sleep 1; done
+`
+    });
+    process.env.WEBENVOY_BROWSER_PATH = executablePath;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+
+    const truthSource = await resolvePreferredBrowserVersionTruthSource();
+    expect(truthSource).toEqual({
+      executablePath,
+      browserVersion: "Google Chrome 148.0.7778.181"
+    });
+  });
+
+  it("uses the macOS app bundle metadata fallback for direct browser version truth source", async () => {
+    const executablePath = await createMacAppBrowserExecutable({
+      appName: "Google Chrome",
+      bundleName: "Google Chrome",
+      version: "148.0.7778.181",
+      versionProbeScript: `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  exit 0
+fi
+while true; do sleep 1; done
+`
+    });
+    process.env.WEBENVOY_BROWSER_PATH = executablePath;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+
+    const truthSource = await resolveBrowserVersionTruthSource(
+      {},
+      { allowUnsupportedExtensionBrowser: true }
+    );
+    expect(truthSource).toEqual({
+      executablePath,
+      browserVersion: "Google Chrome 148.0.7778.181"
+    });
+  });
+
+  it("uses the macOS app bundle metadata fallback for explicit fingerprint version probes", async () => {
+    const executablePath = await createMacAppBrowserExecutable({
+      appName: "Google Chrome",
+      bundleName: "Google Chrome",
+      version: "148.0.7778.181",
+      versionProbeScript: `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  exit 0
+fi
+while true; do sleep 1; done
+`
+    });
+    Object.defineProperty(process, "platform", { value: "darwin" });
+
+    const versionOutput = await resolveBrowserVersionOutputForFingerprint(executablePath);
+    expect(versionOutput).toBe("Google Chrome 148.0.7778.181");
   });
 
   it("launches browser executable with profile user-data-dir args", async () => {
