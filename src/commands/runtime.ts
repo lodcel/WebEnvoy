@@ -18,6 +18,7 @@ import { ProfileRuntimeService } from "../runtime/profile-runtime.js";
 import { refreshProfileExtensionServiceWorkerCache } from "../runtime/persistent-extension-identity-install.js";
 import { buildRuntimeBootstrapContextId } from "../runtime/runtime-bootstrap.js";
 import { buildFingerprintContextForMeta, appendFingerprintContext } from "../runtime/fingerprint-runtime.js";
+import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
 import { ProfileStore } from "../runtime/profile-store.js";
 import { toSessionRhythmStatusView } from "../runtime/xhs-closeout-rhythm.js";
 import { buildCloseoutRuntimeReadinessPreflight } from "../runtime/closeout-runtime-readiness.js";
@@ -2997,14 +2998,75 @@ const runtimeCloseoutPreflight = async (context: RuntimeContext) => {
   };
 };
 
+const prepareCloseoutGateRuntimeStatus = async (
+  context: RuntimeContext,
+  initialStatus: JsonObject,
+  initialPreflight: ReturnType<typeof buildCloseoutRuntimeReadinessPreflight>
+): Promise<JsonObject> => {
+  if (initialPreflight.decision === "GO") {
+    return initialStatus;
+  }
+  const requestedExecutionMode = asString(context.params.requested_execution_mode);
+  const identityPreflight = asObject(initialStatus.identityPreflight);
+  if (
+    context.profile === undefined ||
+    context.profile === null ||
+    requestedExecutionMode === null ||
+    identityPreflight?.mode !== "official_chrome_persistent_extension"
+  ) {
+    return initialStatus;
+  }
+
+  const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
+  const profileMeta = await profileStore.readMeta(context.profile, { mode: "readonly" });
+  const bridge = resolveRuntimeBridge();
+  try {
+    return await prepareOfficialChromeRuntime({
+      context,
+      consumerId: "runtime.closeout_gate",
+      requestedExecutionMode,
+      bridge,
+      fingerprintContext: buildFingerprintContextForMeta(context.profile, profileMeta, {
+        requestedExecutionMode
+      }),
+      bootstrapTargetTabId: asInteger(context.params.target_tab_id),
+      bootstrapTargetDomain: asString(context.params.target_domain),
+      bootstrapTargetPage: asString(context.params.target_page),
+      bootstrapTargetResourceId: null
+    });
+  } catch {
+    try {
+      return await profileRuntime.status({
+        cwd: context.cwd,
+        profile: context.profile,
+        runId: context.run_id,
+        params: context.params
+      });
+    } catch {
+      return initialStatus;
+    }
+  } finally {
+    await bridge.close().catch(() => undefined);
+  }
+};
+
 const runtimeCloseoutGate = async (context: RuntimeContext) => {
-  const status = await profileRuntime.status({
+  let status = await profileRuntime.status({
     cwd: context.cwd,
     profile: context.profile ?? "",
     runId: context.run_id,
     params: context.params
   });
-  const closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
+  let closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
+    status,
+    params: context.params
+  });
+  status = await prepareCloseoutGateRuntimeStatus(
+    context,
+    status,
+    closeoutRuntimeReadinessPreflight
+  );
+  closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
     status,
     params: context.params
   });

@@ -1125,6 +1125,63 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
     });
   });
 
+  it("rechecks closeout gate runtime readiness after a transient current-run bootstrap pending sample", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const profile = "xhs_creator_live_write_gate_transient_pending";
+    const persistentExtensionIdentity = await startOfficialReadyRuntime(
+      runtimeCwd,
+      profile,
+      "run-contract-creator-live-write-pending-owner-001"
+    );
+    await seedReadyXhsCloseoutValidationViews(runtimeCwd, profile, {
+      effectiveExecutionMode: "live_write",
+      probeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+    });
+
+    const result = runCli(
+      [
+        "runtime.closeout_gate",
+        "--profile",
+        profile,
+        "--run-id",
+        "run-contract-creator-live-write-pending-owner-001",
+        "--params",
+        JSON.stringify({
+          requested_execution_mode: "live_write",
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          target_tab_id: 44,
+          requested_at: "2026-04-25T10:45:00.000Z",
+          persistent_extension_identity: persistentExtensionIdentity
+        })
+      ],
+      runtimeCwd,
+      {
+        WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
+        WEBENVOY_NATIVE_TRANSPORT: "native",
+        WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
+        WEBENVOY_NATIVE_HOST_MODE: "runtime-readiness-ready-pending-once-current"
+      }
+    );
+
+    expect(result.status, result.stdout).toBe(0);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body.summary.closeout_gate_aggregator).toMatchObject({
+      decision: "GO",
+      blocker: null,
+      gate_state: {
+        requested_execution_mode: "live_write",
+        runtime_decision: "GO",
+        target_binding_state: "verified"
+      }
+    });
+    expect(body.summary.runtime_status).toMatchObject({
+      transportState: "ready",
+      bootstrapState: "ready",
+      runtimeReadiness: "ready"
+    });
+  });
+
   it("allows XHS target restoration during the recovery single-probe window before validation baseline is ready", async () => {
     const runtimeCwd = await createRuntimeCwd();
     const profile = "xhs_restore_single_probe_required";
