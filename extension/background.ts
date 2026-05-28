@@ -530,6 +530,20 @@ const resolvePreferredXhsReadPage = (
   return null;
 };
 
+type XhsRuntimeBootstrapTargetPage =
+  | ReturnType<typeof resolvePreferredXhsReadPage>
+  | "creator_publish_tab";
+
+const resolvePreferredXhsRuntimeBootstrapPage = (
+  command: string,
+  targetPage: string | null
+): XhsRuntimeBootstrapTargetPage => {
+  if (targetPage === "creator_publish_tab") {
+    return "creator_publish_tab";
+  }
+  return resolvePreferredXhsReadPage(command, targetPage);
+};
+
 const isXhsReadTargetPage = (
   value: unknown
 ): value is "search_result_tab" | "explore_detail_tab" | "profile_tab" =>
@@ -558,7 +572,7 @@ const resolveRequestedXhsResourceId = (
 
 const resolveRuntimeBootstrapRequestedXhsResourceId = (
   commandParams: Record<string, unknown>,
-  preferredPage: ReturnType<typeof resolvePreferredXhsReadPage>
+  preferredPage: XhsRuntimeBootstrapTargetPage
 ): string | null => {
   if (preferredPage !== "explore_detail_tab" && preferredPage !== "profile_tab") {
     return null;
@@ -603,7 +617,7 @@ const validateXhsCommandInputContract = (
 
 const tabMatchesRequestedXhsResource = (
   tab: ExtensionTab,
-  preferredPage: ReturnType<typeof resolvePreferredXhsReadPage>,
+  preferredPage: XhsRuntimeBootstrapTargetPage,
   resourceId: string | null
 ): boolean => {
   if (!preferredPage || !resourceId) {
@@ -626,13 +640,15 @@ const tabMatchesRequestedXhsResource = (
 
 const scoreXhsTab = (
   tab: ExtensionTab,
-  preferredPage: ReturnType<typeof resolvePreferredXhsReadPage>
+  preferredPage: XhsRuntimeBootstrapTargetPage
 ): number => {
   const url = typeof tab.url === "string" ? tab.url : "";
   const parsed = parseUrl(url);
   const pathname = parsed?.pathname ?? "";
   const page =
-    isXhsSearchResultDetailPath(pathname)
+    parsed?.hostname === XHS_WRITE_DOMAIN && pathname.includes("/publish")
+      ? "creator_publish_tab"
+      : isXhsSearchResultDetailPath(pathname)
       ? "explore_detail_tab"
       : url.includes("/search_result")
       ? "search_result_tab"
@@ -672,7 +688,7 @@ const scoreXhsRuntimeSurfaceTab = (tab: ExtensionTab): number => {
 
 const resolveRuntimeBootstrapReadTargetTabId = async (
   chromeApi: ExtensionChromeApi,
-  preferredPage: ReturnType<typeof resolvePreferredXhsReadPage>,
+  preferredPage: XhsRuntimeBootstrapTargetPage,
   requestedResourceId: string | null
 ): Promise<number | null> => {
   return await resolvePreferredXhsReadTargetTabId(
@@ -684,7 +700,7 @@ const resolveRuntimeBootstrapReadTargetTabId = async (
 
 const resolvePreferredXhsReadTargetTabId = async (
   chromeApi: ExtensionChromeApi,
-  preferredPage: ReturnType<typeof resolvePreferredXhsReadPage>,
+  preferredPage: XhsRuntimeBootstrapTargetPage,
   requestedResourceId: string | null
 ): Promise<number | null> => {
   const xhsUrlPatterns = [
@@ -6024,7 +6040,7 @@ class ChromeBackgroundBridge {
         : options?.[key];
     const targetDomain = asNonEmptyString(readTarget("target_domain"));
     const targetPage = asNonEmptyString(readTarget("target_page"));
-    const preferredPage = resolvePreferredXhsReadPage("runtime.bootstrap", targetPage);
+    const preferredPage = resolvePreferredXhsRuntimeBootstrapPage("runtime.bootstrap", targetPage);
     if (!targetDomain || !XHS_DOMAIN_ALLOWLIST.has(targetDomain) || !preferredPage) {
       return {
         binding: null,
@@ -8832,7 +8848,7 @@ class ChromeBackgroundBridge {
     const command = String(request.params.command ?? "");
     if (command === "runtime.ping" || command === "runtime.bootstrap") {
       const runtimeBootstrapTargetPage = asNonEmptyString(commandParams.target_page);
-      const preferredRuntimeBootstrapReadPage = resolvePreferredXhsReadPage(
+      const preferredRuntimeBootstrapReadPage = resolvePreferredXhsRuntimeBootstrapPage(
         command,
         runtimeBootstrapTargetPage
       );
@@ -8845,7 +8861,8 @@ class ChromeBackgroundBridge {
           : null;
       if (
         command === "runtime.bootstrap" &&
-        isXhsReadTargetPage(runtimeBootstrapTargetPage) &&
+        (isXhsReadTargetPage(runtimeBootstrapTargetPage) ||
+          runtimeBootstrapTargetPage === "creator_publish_tab") &&
         preferredRuntimeBootstrapReadPage
         ) {
           const runtimeBootstrapReadTabId = await resolveRuntimeBootstrapReadTargetTabId(
@@ -8951,7 +8968,9 @@ class ChromeBackgroundBridge {
     commandParams: Record<string, unknown>
   ): Promise<void> {
     if (!isXhsReadTargetPage(commandParams.target_page)) {
-      return;
+      if (commandParams.target_page !== "creator_publish_tab") {
+        return;
+      }
     }
     const targetTabId = await this.#resolveTargetTabId(request);
     if (targetTabId === null) {
