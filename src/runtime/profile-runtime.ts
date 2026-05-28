@@ -167,6 +167,12 @@ const hasCompleteRuntimeTargetBinding = (params: JsonObject): boolean =>
   typeof params.target_page === "string" &&
   params.target_page.length > 0;
 
+const hasRuntimeBootstrapTargetHint = (params: JsonObject): boolean =>
+  (typeof params.target_domain === "string" && params.target_domain.length > 0) ||
+  (typeof params.target_page === "string" && params.target_page.length > 0) ||
+  (typeof params.target_tab_id === "number" && Number.isInteger(params.target_tab_id)) ||
+  params.requested_execution_mode === "live_write";
+
 const hasCompleteStaleBootstrapRecoveryTarget = (params: JsonObject): boolean =>
   hasCompleteRuntimeTargetBinding(params) &&
   typeof params.requested_at === "string" &&
@@ -178,6 +184,9 @@ interface RuntimeActionInput {
   runId: string;
   params: JsonObject;
 }
+
+const PERSISTENT_BOOTSTRAP_STARTUP_RETRY_ATTEMPTS = 20;
+const PERSISTENT_BOOTSTRAP_STARTUP_RETRY_INTERVAL_MS = 500;
 
 export interface MarkAccountSafetyBlockedInput extends RuntimeActionInput {
   signal: {
@@ -769,18 +778,21 @@ export class ProfileRuntimeService {
         nowIso
       });
       session = markSessionReady(session);
-      const readiness = identityPreflight.identityBindingState === "bound"
-        ? await this.#deliverRuntimeBootstrap({
-            runtimeInput: input,
-            profile: input.profile,
-            fingerprintRuntime
-          })
-        : await this.#readRuntimeReadiness({
-            runtimeInput: input,
-            lockHeld: true,
-            identityPreflight,
-            profileState: session.profileState
-          });
+      const readiness =
+        identityPreflight.identityBindingState === "bound"
+          ? await this.#deliverRuntimeBootstrapForStartup({
+              runtimeInput: input,
+              profile: input.profile,
+              fingerprintRuntime,
+              identityPreflight,
+              profileState: session.profileState
+            })
+          : await this.#readRuntimeReadiness({
+              runtimeInput: input,
+              lockHeld: true,
+              identityPreflight,
+              profileState: session.profileState
+            });
 
       const nextMeta = this.#patchMeta(recoveredMeta, {
         profileName: input.profile,
@@ -2385,6 +2397,96 @@ export class ProfileRuntimeService {
       }
       throw error;
     }
+  }
+
+  async #waitForPersistentBootstrapRetry(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, PERSISTENT_BOOTSTRAP_STARTUP_RETRY_INTERVAL_MS);
+    });
+  }
+
+  #shouldRetryStartupBootstrap(input: {
+    runtimeInput: RuntimeActionInput;
+    readiness: RuntimeReadinessSnapshot;
+  }): boolean {
+    if (!hasRuntimeBootstrapTargetHint(input.runtimeInput.params)) {
+      return false;
+    }
+    if (input.readiness.identityBindingState !== "bound") {
+      return false;
+    }
+    if (input.readiness.bootstrapState === "ready" || input.readiness.bootstrapState === "stale") {
+      return false;
+    }
+    if (input.readiness.bootstrapState === "failed") {
+      return false;
+    }
+    return (
+      input.readiness.transportState === "not_connected" ||
+      input.readiness.transportState === "ready" ||
+      input.readiness.runtimeReadiness === "pending" ||
+      input.readiness.runtimeReadiness === "recoverable"
+    );
+  }
+
+  async #deliverRuntimeBootstrapForStartup(input: {
+    runtimeInput: RuntimeActionInput;
+    profile: string;
+    fingerprintRuntime: ReturnType<typeof buildFingerprintContextForMeta>;
+    identityPreflight: IdentityPreflightResult;
+    profileState: ProfileState;
+  }): Promise<RuntimeReadinessSnapshot> {
+    let readiness = await this.#deliverRuntimeBootstrap({
+      runtimeInput: input.runtimeInput,
+      profile: input.profile,
+      fingerprintRuntime: input.fingerprintRuntime
+    });
+    if (
+      readiness.runtimeReadiness === "ready" ||
+      !this.#shouldRetryStartupBootstrap({
+        runtimeInput: input.runtimeInput,
+        readiness
+      })
+    ) {
+      return readiness;
+    }
+
+    for (let attempt = 0; attempt < PERSISTENT_BOOTSTRAP_STARTUP_RETRY_ATTEMPTS; attempt += 1) {
+      await this.#waitForPersistentBootstrapRetry();
+      const observed = await this.#readRuntimeReadiness({
+        runtimeInput: input.runtimeInput,
+        lockHeld: true,
+        identityPreflight: input.identityPreflight,
+        profileState: input.profileState
+      });
+      if (observed.runtimeReadiness === "ready" || observed.bootstrapState === "stale") {
+        return observed;
+      }
+      if (observed.bootstrapState === "failed") {
+        return observed;
+      }
+      readiness = observed;
+      if (observed.transportState !== "ready") {
+        continue;
+      }
+
+      readiness = await this.#deliverRuntimeBootstrap({
+        runtimeInput: input.runtimeInput,
+        profile: input.profile,
+        fingerprintRuntime: input.fingerprintRuntime
+      });
+      if (
+        readiness.runtimeReadiness === "ready" ||
+        !this.#shouldRetryStartupBootstrap({
+          runtimeInput: input.runtimeInput,
+          readiness
+        })
+      ) {
+        return readiness;
+      }
+    }
+
+    return readiness;
   }
 
   async #readRuntimeReadiness(input: {

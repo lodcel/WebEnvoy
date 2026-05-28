@@ -1384,6 +1384,89 @@ describe("profile-runtime identity preflight", () => {
     );
   });
 
+  it("retries startup bootstrap for targeted official Chrome runtime after transport becomes ready", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-bootstrap-retry-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "identity_bound_bootstrap_retry_profile"
+    });
+    const bridgeCommands: string[] = [];
+    let bootstrapAttempts = 0;
+    const service = createTestService({
+      bridgeFactory: () => ({
+        runCommand: async ({ command, params, profile, runId }) => {
+          bridgeCommands.push(command);
+          if (command === "runtime.bootstrap") {
+            bootstrapAttempts += 1;
+            if (bootstrapAttempts === 1) {
+              throw new NativeMessagingTransportError(
+                "ERR_TRANSPORT_HANDSHAKE_FAILED",
+                "mock transport not ready yet"
+              );
+            }
+            return {
+              ok: true as const,
+              payload: {
+                result: {
+                  version: "v1",
+                  run_id: runId,
+                  runtime_context_id: String(params.runtime_context_id),
+                  profile,
+                  status: "ready"
+                }
+              },
+              relay_path: "host>background>content-script>background>host"
+            };
+          }
+          if (command === "runtime.readiness") {
+            return {
+              ok: true as const,
+              payload: {
+                bootstrap_state: "not_started",
+                transport_state: "ready"
+              },
+              relay_path: "host>background"
+            };
+          }
+          throw new Error(`unexpected bridge command: ${command}`);
+        }
+      })
+    });
+
+    const started = await service.start({
+      cwd: baseDir,
+      profile: "identity_bound_bootstrap_retry_profile",
+      runId: "run-runtime-bootstrap-retry-001",
+      params: {
+        headless: false,
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    expect(started).toMatchObject({
+      identityBindingState: "bound",
+      transportState: "ready",
+      bootstrapState: "ready",
+      runtimeReadiness: "ready"
+    });
+    expect(bridgeCommands).toEqual([
+      "runtime.bootstrap",
+      "runtime.readiness",
+      "runtime.bootstrap"
+    ]);
+  });
+
   it("keeps readiness conservative when runtime.readiness omits transport_state", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-readiness-transport-missing-"));
     tempDirs.push(baseDir);

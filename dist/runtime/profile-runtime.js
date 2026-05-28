@@ -77,9 +77,15 @@ const hasCompleteRuntimeTargetBinding = (params) => typeof params.target_domain 
     Number.isInteger(params.target_tab_id) &&
     typeof params.target_page === "string" &&
     params.target_page.length > 0;
+const hasRuntimeBootstrapTargetHint = (params) => (typeof params.target_domain === "string" && params.target_domain.length > 0) ||
+    (typeof params.target_page === "string" && params.target_page.length > 0) ||
+    (typeof params.target_tab_id === "number" && Number.isInteger(params.target_tab_id)) ||
+    params.requested_execution_mode === "live_write";
 const hasCompleteStaleBootstrapRecoveryTarget = (params) => hasCompleteRuntimeTargetBinding(params) &&
     typeof params.requested_at === "string" &&
     params.requested_at.length > 0;
+const PERSISTENT_BOOTSTRAP_STARTUP_RETRY_ATTEMPTS = 20;
+const PERSISTENT_BOOTSTRAP_STARTUP_RETRY_INTERVAL_MS = 500;
 const isoNow = () => new Date().toISOString();
 const DEFAULT_LOCK_FILE_ADAPTER = {
     readFile: async (path, encoding) => readFile(path, encoding),
@@ -478,10 +484,12 @@ export class ProfileRuntimeService {
             });
             session = markSessionReady(session);
             const readiness = identityPreflight.identityBindingState === "bound"
-                ? await this.#deliverRuntimeBootstrap({
+                ? await this.#deliverRuntimeBootstrapForStartup({
                     runtimeInput: input,
                     profile: input.profile,
-                    fingerprintRuntime
+                    fingerprintRuntime,
+                    identityPreflight,
+                    profileState: session.profileState
                 })
                 : await this.#readRuntimeReadiness({
                     runtimeInput: input,
@@ -1873,6 +1881,75 @@ export class ProfileRuntimeService {
             }
             throw error;
         }
+    }
+    async #waitForPersistentBootstrapRetry() {
+        await new Promise((resolve) => {
+            setTimeout(resolve, PERSISTENT_BOOTSTRAP_STARTUP_RETRY_INTERVAL_MS);
+        });
+    }
+    #shouldRetryStartupBootstrap(input) {
+        if (!hasRuntimeBootstrapTargetHint(input.runtimeInput.params)) {
+            return false;
+        }
+        if (input.readiness.identityBindingState !== "bound") {
+            return false;
+        }
+        if (input.readiness.bootstrapState === "ready" || input.readiness.bootstrapState === "stale") {
+            return false;
+        }
+        if (input.readiness.bootstrapState === "failed") {
+            return false;
+        }
+        return (input.readiness.transportState === "not_connected" ||
+            input.readiness.transportState === "ready" ||
+            input.readiness.runtimeReadiness === "pending" ||
+            input.readiness.runtimeReadiness === "recoverable");
+    }
+    async #deliverRuntimeBootstrapForStartup(input) {
+        let readiness = await this.#deliverRuntimeBootstrap({
+            runtimeInput: input.runtimeInput,
+            profile: input.profile,
+            fingerprintRuntime: input.fingerprintRuntime
+        });
+        if (readiness.runtimeReadiness === "ready" ||
+            !this.#shouldRetryStartupBootstrap({
+                runtimeInput: input.runtimeInput,
+                readiness
+            })) {
+            return readiness;
+        }
+        for (let attempt = 0; attempt < PERSISTENT_BOOTSTRAP_STARTUP_RETRY_ATTEMPTS; attempt += 1) {
+            await this.#waitForPersistentBootstrapRetry();
+            const observed = await this.#readRuntimeReadiness({
+                runtimeInput: input.runtimeInput,
+                lockHeld: true,
+                identityPreflight: input.identityPreflight,
+                profileState: input.profileState
+            });
+            if (observed.runtimeReadiness === "ready" || observed.bootstrapState === "stale") {
+                return observed;
+            }
+            if (observed.bootstrapState === "failed") {
+                return observed;
+            }
+            readiness = observed;
+            if (observed.transportState !== "ready") {
+                continue;
+            }
+            readiness = await this.#deliverRuntimeBootstrap({
+                runtimeInput: input.runtimeInput,
+                profile: input.profile,
+                fingerprintRuntime: input.fingerprintRuntime
+            });
+            if (readiness.runtimeReadiness === "ready" ||
+                !this.#shouldRetryStartupBootstrap({
+                    runtimeInput: input.runtimeInput,
+                    readiness
+                })) {
+                return readiness;
+            }
+        }
+        return readiness;
     }
     async #readRuntimeReadiness(input) {
         const baseIdentity = input.identityPreflight.identityBindingState;
