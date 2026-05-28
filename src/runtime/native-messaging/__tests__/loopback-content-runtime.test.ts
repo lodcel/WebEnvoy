@@ -560,6 +560,82 @@ describe("native messaging loopback content runtime", () => {
     );
   });
 
+  it("preserves media upload artifact identity through the default content runtime", async () => {
+    const [left, right] = createPortPair<ContentMessage>();
+
+    new InMemoryContentScriptRuntime(right);
+
+    const resultPromise = new Promise<Record<string, unknown>>((resolve) => {
+      const off = left.onMessage((message) => {
+        if (message.kind === "result") {
+          off();
+          resolve(message as Record<string, unknown>);
+        }
+      });
+    });
+
+    left.postMessage({
+      kind: "forward",
+      id: "xhs-media-upload-discover-content-artifact-001",
+      command: "xhs.media_upload.discover",
+      runId: "run-media-upload-discover-content-artifact-001",
+      sessionId: "session-media-upload-discover-content-artifact-001",
+      profile: "loopback_profile",
+      commandParams: {
+        ability: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image"
+        },
+        options: {
+          issue_scope: "issue_755",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "recon",
+          discovery_action: "media_upload_path",
+          risk_state: "allowed"
+        }
+      }
+    });
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      ok: true,
+      payload: {
+        summary: {
+          controlled_upload_evidence: {
+            upload_artifact_identity: {
+              source_media_ref: "media-ref/fr-0032/fixture-image-a",
+              source_media_digest:
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              source_media_kind: "image",
+              accepted_by_platform: false,
+              captured_at: "2026-03-23T10:00:00.000Z"
+            },
+            file_selection_boundary: {
+              file_bytes_read: false,
+              native_picker_opened: false,
+              data_transfer_injected: false,
+              real_upload_attempted: false
+            },
+            submitted: false,
+            published: false
+          },
+          controlled_upload_evaluation: {
+            decision: "EVIDENCE_PRESENT"
+          }
+        }
+      }
+    });
+  });
+
   it("emits classifier-only account abnormal evidence on the content-script xhs read path", async () => {
     const [left, right] = createPortPair<ContentMessage>();
 

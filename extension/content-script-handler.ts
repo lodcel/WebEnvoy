@@ -1707,7 +1707,9 @@ const createBrowserEnvironment = (): XhsSearchEnvironment => ({
   performEditorInputValidation: async (
     input: Parameters<NonNullable<XhsSearchEnvironment["performEditorInputValidation"]>>[0]
   ) => await performEditorInputValidation(input),
-  performMediaUploadDiscovery: async () => buildXhsMediaUploadDiscoveryResult()
+  performMediaUploadDiscovery: async (
+    input: Parameters<NonNullable<XhsSearchEnvironment["performMediaUploadDiscovery"]>>[0]
+  ) => buildXhsMediaUploadDiscoveryResult(input)
 });
 
 const resolveTargetDomainFromHref = (href: string): string | null => {

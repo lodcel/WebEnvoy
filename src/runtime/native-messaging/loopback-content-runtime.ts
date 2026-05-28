@@ -18,10 +18,55 @@ const asString = (value: unknown): string | null =>
 const asInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) ? value : null;
 
-const buildLoopbackMediaUploadDiscovery = (): Record<string, unknown> => ({
-  discovery_action: "media_upload_path",
-  target_page: "creator_publish_tab",
-  upload_path_catalog: [
+const LOOPBACK_MEDIA_UPLOAD_CAPTURED_AT = "2026-03-23T10:00:00.000Z";
+
+const buildLoopbackMediaUploadDiscovery = (input: Record<string, unknown> = {}): Record<string, unknown> => {
+  const fileSelectionBoundary = {
+    file_bytes_read: false,
+    native_picker_opened: false,
+    data_transfer_injected: false,
+    real_upload_attempted: false,
+    submit_attempted: false,
+    publish_attempted: false,
+    allowed_modes: ["dry_run", "recon"]
+  };
+  const sourceMediaRef = asString(input.source_media_ref);
+  const sourceMediaDigest = asString(input.source_media_digest);
+  const sourceMediaKind = asString(input.source_media_kind);
+  const hasArtifactIdentity =
+    sourceMediaRef !== null &&
+    sourceMediaDigest !== null &&
+    (sourceMediaKind === "image" || sourceMediaKind === "video" || sourceMediaKind === "mixed");
+  const controlledUploadEvidence = hasArtifactIdentity
+    ? {
+        schema_version: "fr-0032.controlled_upload_path.v1",
+        non_publish_validation: true,
+        run_id: asString(input.run_id) ?? "unknown-run",
+        profile_ref: asString(input.profile_ref),
+        target_tab_id: asInteger(input.target_tab_id),
+        page_url: asString(input.page_url) ?? "https://creator.xiaohongshu.com/publish/publish",
+        upload_artifact_identity: {
+          upload_artifact_id: `upload-artifact/fr-0032/${asString(input.run_id) ?? "unknown-run"}/${sourceMediaDigest.replace(/[^A-Za-z0-9._-]/gu, "_")}`,
+          source_media_ref: sourceMediaRef,
+          source_media_digest: sourceMediaDigest,
+          source_media_kind: sourceMediaKind,
+          platform_staging_ref: null,
+          page_preview_locator: "file_input",
+          accepted_by_platform: false,
+          visible_in_editor: false,
+          captured_at: LOOPBACK_MEDIA_UPLOAD_CAPTURED_AT
+        },
+        file_selection_boundary: fileSelectionBoundary,
+        stop_signal: null,
+        submitted: false,
+        published: false
+      }
+    : null;
+
+  return {
+    discovery_action: "media_upload_path",
+    target_page: "creator_publish_tab",
+    upload_path_catalog: [
     {
       scenario: "image_upload",
       route_role: "primary",
@@ -55,24 +100,56 @@ const buildLoopbackMediaUploadDiscovery = (): Record<string, unknown> => ({
       evidence_maturity: "observed_once",
       notes: "fallback candidate only; not promoted to primary and not called during #755"
     }
-  ],
-  file_selection_boundary: {
-    file_bytes_read: false,
-    native_picker_opened: false,
-    data_transfer_injected: false,
-    real_upload_attempted: false,
-    allowed_modes: ["dry_run", "recon"]
-  },
-  submitted: false,
-  published: false,
-  out_of_scope_actions: [
-    "file_picker_open",
-    "file_bytes_read",
-    "data_transfer_injection",
-    "submit",
-    "publish_confirm"
-  ]
-});
+    ],
+    file_selection_boundary: fileSelectionBoundary,
+    controlled_upload_evidence: controlledUploadEvidence,
+    controlled_upload_evaluation: {
+      schema_version: "fr-0032.controlled_upload_evaluation.v1",
+      decision: controlledUploadEvidence ? "EVIDENCE_PRESENT" : "EVIDENCE_MISSING",
+      upload_success: false,
+      full_live_write_success: false,
+      non_publish_validation: true,
+      entry_gate_evaluated: false,
+      runtime_evaluator_required_for_entry_gate: true,
+      non_publish_evidence_status: controlledUploadEvidence ? "EVIDENCE_PRESENT" : "EVIDENCE_MISSING",
+      later_write_actions_blocked: false,
+      cleanup_required: false,
+      limitations: controlledUploadEvidence
+        ? [
+            {
+              limitation_code: "REAL_UPLOAD_NOT_ATTEMPTED",
+              message: "dry_run/recon does not attempt real platform upload or claim platform acceptance"
+            },
+            {
+              limitation_code: "EDITOR_PREVIEW_NOT_ASSERTED",
+              message: "dry_run/recon does not inject DataTransfer or claim editor preview success"
+            },
+            {
+              limitation_code: "ENTRY_GATE_NOT_EVALUATED",
+              message: "extension dry_run/recon evidence does not evaluate FR-0032 runtime entry gate"
+            }
+          ]
+        : [],
+      blockers: controlledUploadEvidence
+        ? []
+        : [
+            {
+              blocker_code: "UPLOAD_ARTIFACT_IDENTITY_MISSING",
+              message: "dry_run/recon upload evidence requires source_media_ref, source_media_digest and source_media_kind"
+            }
+          ]
+    },
+    submitted: false,
+    published: false,
+    out_of_scope_actions: [
+      "file_picker_open",
+      "file_bytes_read",
+      "data_transfer_injection",
+      "submit",
+      "publish_confirm"
+    ]
+  };
+};
 
 const XHS_GATED_COMMANDS = new Set([
   "xhs.search",
@@ -990,12 +1067,23 @@ export class InMemoryContentScriptRuntime {
                 }
               }
             : commandName === "xhs.media_upload.discover"
-            ? {
-                summary: {
-                  media_upload_discovery: buildLoopbackMediaUploadDiscovery(),
-                  upload_path_catalog: buildLoopbackMediaUploadDiscovery().upload_path_catalog
-                }
-              }
+            ? (() => {
+                const mediaUploadDiscovery = buildLoopbackMediaUploadDiscovery({
+                  ...normalizedInput,
+                  run_id: message.runId,
+                  profile_ref: message.profile,
+                  target_tab_id: options.target_tab_id,
+                  page_url: commandSpec.url
+                });
+                return {
+                  summary: {
+                    media_upload_discovery: mediaUploadDiscovery,
+                    upload_path_catalog: mediaUploadDiscovery.upload_path_catalog,
+                    controlled_upload_evidence: mediaUploadDiscovery.controlled_upload_evidence,
+                    controlled_upload_evaluation: mediaUploadDiscovery.controlled_upload_evaluation
+                  }
+                };
+              })()
             : undefined
         );
       }

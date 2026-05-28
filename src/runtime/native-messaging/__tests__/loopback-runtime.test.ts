@@ -290,6 +290,71 @@ describe("native messaging legacy loopback runtime", () => {
     expect(summary.upload_path_catalog).toEqual(mediaUploadDiscovery.upload_path_catalog);
   });
 
+  it("preserves media upload artifact identity through the native loopback runtime", async () => {
+    const bridge = new NativeMessagingBridge({
+      transport: createInMemoryLoopbackTransport("host>background>content-script>background>host")
+    });
+
+    const result = await bridge.runCommand({
+      runId: "run-loopback-media-upload-discover-artifact-001",
+      profile: "profile-a",
+      cwd: "/tmp",
+      command: "xhs.media_upload.discover",
+      params: {
+        ability: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image"
+        },
+        options: {
+          issue_scope: "issue_755",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "recon",
+          discovery_action: "media_upload_path",
+          risk_state: "allowed"
+        }
+      }
+    });
+
+    const payload = result.payload as Record<string, unknown>;
+    const summary = payload.summary as Record<string, unknown>;
+    expect(result.ok).toBe(true);
+    expect(summary).toMatchObject({
+      controlled_upload_evidence: {
+        upload_artifact_identity: {
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest:
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image",
+          accepted_by_platform: false,
+          visible_in_editor: false,
+          captured_at: "2026-03-23T10:00:00.000Z"
+        },
+        file_selection_boundary: {
+          file_bytes_read: false,
+          native_picker_opened: false,
+          data_transfer_injected: false,
+          real_upload_attempted: false,
+          submit_attempted: false,
+          publish_attempted: false
+        },
+        submitted: false,
+        published: false
+      },
+      controlled_upload_evaluation: {
+        decision: "EVIDENCE_PRESENT"
+      }
+    });
+  });
+
   it("keeps xhs.search observability page_state aligned with the shared contract", async () => {
     const bridge = new NativeMessagingBridge({
       transport: createInMemoryLoopbackTransport("host>background>content-script>background>host")
