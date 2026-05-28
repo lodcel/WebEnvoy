@@ -2404,7 +2404,7 @@ const xhsMediaUploadDiscover = async (context) => {
         params: normalizeDedicatedXhsCommandParams(context.params, XHS_MEDIA_UPLOAD_DISCOVER_ABILITY)
     }, {
         fixtureDataRefKey: "target_page",
-        parseInput: () => parseMediaUploadDiscoveryInputForContract()
+        parseInput: (envelope) => parseMediaUploadDiscoveryInputForContract(envelope.input, envelope.ability.id)
     });
 };
 const xhsControlledLiveWrite = async (context) => {

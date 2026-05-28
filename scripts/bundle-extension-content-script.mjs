@@ -73,6 +73,9 @@ const buildContentScriptBundle = async () => {
   const xhsDetailSource = await readSource(join(buildRoot, "xhs-detail.js"));
   const xhsUserHomeSource = await readSource(join(buildRoot, "xhs-user-home.js"));
   const xhsEditorInputSource = await readSource(join(buildRoot, "xhs-editor-input.js"));
+  const xhsMediaUploadDiscoverySource = await readSource(
+    join(buildRoot, "xhs-media-upload-discovery.js")
+  );
   const xhsCommandContractSource = await readSource(join(buildRoot, "xhs-command-contract.js"));
   const contentScriptMainWorldSource = await readSource(
     join(buildRoot, "content-script-main-world.js")
@@ -400,10 +403,20 @@ const buildContentScriptBundle = async () => {
     exports: ["performEditorInputValidation"]
   });
 
+  const xhsMediaUploadDiscoveryModule = renderClassicModule({
+    moduleVar: "__webenvoy_module_xhs_media_upload_discovery",
+    sourceBody: xhsMediaUploadDiscoverySource,
+    exports: ["buildXhsMediaUploadDiscoveryResult"]
+  });
+
   const xhsCommandContractModule = renderClassicModule({
     moduleVar: "__webenvoy_module_xhs_command_contract",
     sourceBody: xhsCommandContractSource,
-    exports: ["ExtensionContractError", "validateXhsCommandInputForExtension"]
+    exports: [
+      "ExtensionContractError",
+      "validateNormalizedMediaUploadDiscoveryInput",
+      "validateXhsCommandInputForExtension"
+    ]
   });
 
   const contentScriptMainWorldModule = renderClassicModule({
@@ -459,6 +472,7 @@ const buildContentScriptBundle = async () => {
       "const { executeXhsDetail } = __webenvoy_module_xhs_detail;",
       "const { executeXhsUserHome } = __webenvoy_module_xhs_user_home;",
       "const { performEditorInputValidation } = __webenvoy_module_xhs_editor_input;",
+      "const { buildXhsMediaUploadDiscoveryResult } = __webenvoy_module_xhs_media_upload_discovery;",
       "const {",
       "  SEARCH_ENDPOINT,",
       "  createPageContextNamespace,",
@@ -477,6 +491,7 @@ const buildContentScriptBundle = async () => {
       "} = __webenvoy_module_content_script_fingerprint;",
       "const {",
       "  ExtensionContractError,",
+      "  validateNormalizedMediaUploadDiscoveryInput,",
       "  validateXhsCommandInputForExtension",
       "} = __webenvoy_module_xhs_command_contract;",
       "const { containsCookie, hasXhsAccountSafetyOverlaySignal } = __webenvoy_module_xhs_search_telemetry;",
@@ -545,6 +560,7 @@ const buildContentScriptBundle = async () => {
     xhsDetailModule,
     xhsUserHomeModule,
     xhsEditorInputModule,
+    xhsMediaUploadDiscoveryModule,
     xhsCommandContractModule,
     contentScriptMainWorldModule,
     contentScriptFingerprintModule,
