@@ -48,6 +48,7 @@ import { ProfileRuntimeService } from "../runtime/profile-runtime.js";
 import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
 import {
   readXhsCloseoutValidationGateView,
+  resolveXhsCloseoutValidationProbeBundleRef,
   resolveXhsCloseoutReadinessBaselineExecutionMode,
   toXhsCloseoutValidationGateJson,
   type XhsCloseoutValidationGateView
@@ -688,6 +689,14 @@ const isLiveXhsExecutionMode = (mode: XhsExecutionMode): boolean =>
 
 const isLiveXhsReadExecutionMode = (mode: XhsExecutionMode): boolean =>
   mode === "live_read_limited" || mode === "live_read_high_risk";
+
+const shouldUseControlledLiveWriteValidationBundle = (input: {
+  command: string;
+  options: JsonObject;
+}): boolean =>
+  input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND &&
+  asString(input.options.issue_scope) === "issue_835" &&
+  input.options.controlled_live_write === true;
 
 const isLegacyXhsSearchEditorInputValidation = (input: {
   command: string;
@@ -3364,12 +3373,23 @@ const xhsReadCommand = async (
         let store: SQLiteRuntimeStore | null = null;
         try {
           store = new SQLiteRuntimeStore(resolveRuntimeStorePath(context.cwd));
+          const probeBundleRef = shouldUseControlledLiveWriteValidationBundle({
+            command: context.command,
+            options: gate.options
+          })
+            ? resolveXhsCloseoutValidationProbeBundleRef({
+                effectiveExecutionMode: gate.requestedExecutionMode,
+                targetDomain: gate.targetDomain,
+                targetPage: gate.targetPage
+              })
+            : undefined;
           antiDetectionValidationGate = await readXhsCloseoutValidationGateView({
             store,
             profile: context.profile,
             effectiveExecutionMode: resolveXhsCloseoutReadinessBaselineExecutionMode(
               gate.requestedExecutionMode
-            )
+            ),
+            ...(probeBundleRef ? { probeBundleRef } : {})
           });
         } catch (error) {
           if (error instanceof RuntimeStoreError) {
