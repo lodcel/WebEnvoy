@@ -1,5 +1,5 @@
 const RISK_STATES = ["paused", "limited", "allowed"];
-const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753", "issue_755"];
+const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753", "issue_755", "issue_835"];
 const EXECUTION_MODES = [
   "dry_run",
   "recon",
@@ -232,6 +232,51 @@ const ISSUE_ACTION_MATRIX = [
       "live_read_high_risk",
       "reversible_interaction_with_approval",
       "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_835",
+    state: "paused",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_835",
+    state: "limited",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_835",
+    state: "allowed",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [
+      {
+        action: "reversible_interaction_with_approval",
+        requires: [...APPROVAL_EVIDENCE_REQUIREMENTS]
+      }
+    ],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
       "irreversible_write",
       "expand_new_live_surface_without_gate"
     ]
@@ -614,7 +659,8 @@ const buildUnifiedRiskStateOutput = (state, options = {}) => ({
     getIssueActionMatrixEntry("issue_208", state),
     getIssueActionMatrixEntry("issue_209", state),
     getIssueActionMatrixEntry("issue_753", state),
-    getIssueActionMatrixEntry("issue_755", state)
+    getIssueActionMatrixEntry("issue_755", state),
+    getIssueActionMatrixEntry("issue_835", state)
   ],
   recovery_requirements: getRiskRecoveryRequirements(state)
 });

@@ -21,6 +21,7 @@ const XHS_PAGE_COMMANDS = new Set([
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
     "xhs.creator_publish.admit",
+    "xhs.creator_publish.controlled_live_write",
     "xhs.media_upload.discover",
     "xhs.detail",
     "xhs.user_home"
@@ -2157,6 +2158,14 @@ export class ContentScriptHandler {
                     ...(typeof options.discovery_action === "string"
                         ? { discovery_action: options.discovery_action }
                         : {}),
+                    ...(options.controlled_live_write === true ? { controlled_live_write: true } : {}),
+                    ...(options.confirm_live_write === true ? { confirm_live_write: true } : {}),
+                    ...(typeof options.publish_visibility_scope === "string"
+                        ? { publish_visibility_scope: options.publish_visibility_scope }
+                        : {}),
+                    ...(typeof options.cleanup_policy_ref === "string"
+                        ? { cleanup_policy_ref: options.cleanup_policy_ref }
+                        : {}),
                     ...(activeApiFetchFallback
                         ? { active_api_fetch_fallback: activeApiFetchFallback }
                         : {}),
@@ -2239,11 +2248,15 @@ export class ContentScriptHandler {
                 message.command === "xhs.editor_input.validate" ||
                 message.command === "xhs.editor_text.write" ||
                 message.command === "xhs.creator_publish.admit" ||
+                message.command === "xhs.creator_publish.controlled_live_write" ||
                 message.command === "xhs.media_upload.discover") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
                 const mediaUploadInput = message.command === "xhs.media_upload.discover"
                     ? validateNormalizedMediaUploadDiscoveryInput(normalizedInput, String(ability.id ?? "unknown"))
+                    : null;
+                const controlledLiveWriteInput = message.command === "xhs.creator_publish.controlled_live_write"
+                    ? normalizedInput
                     : null;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({
                     ...commonInput,
@@ -2254,6 +2267,17 @@ export class ContentScriptHandler {
                             : {}),
                         ...(message.command === "xhs.media_upload.discover"
                             ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(message.command === "xhs.creator_publish.controlled_live_write"
+                            ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(controlledLiveWriteInput
+                            ? {
+                                live_write_attempt_id: controlledLiveWriteInput.live_write_attempt_id,
+                                source_media_ref: controlledLiveWriteInput.source_media_ref,
+                                source_media_digest: controlledLiveWriteInput.source_media_digest,
+                                source_media_kind: controlledLiveWriteInput.source_media_kind
+                            }
                             : {}),
                         ...(mediaUploadInput?.source_media_ref
                             ? { source_media_ref: mediaUploadInput.source_media_ref }

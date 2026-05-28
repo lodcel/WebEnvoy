@@ -10,6 +10,14 @@ export type ExtensionXhsMediaUploadDiscoveryInput = {
   source_media_kind?: "image" | "video" | "mixed";
 };
 
+export type ExtensionXhsControlledLiveWriteInput = {
+  target_page: "creator_publish_tab";
+  live_write_attempt_id: string;
+  source_media_ref: string;
+  source_media_digest: string;
+  source_media_kind: "image" | "video" | "mixed";
+};
+
 export class ExtensionContractError extends Error {
   code: string;
   details?: Record<string, unknown>;
@@ -38,6 +46,7 @@ export type ExtensionXhsCommandInput =
       user_id: string;
     }
   | ExtensionXhsMediaUploadDiscoveryInput
+  | ExtensionXhsControlledLiveWriteInput
   | JsonRecord;
 
 const invalidAbilityInput = (
@@ -65,6 +74,8 @@ const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
+const XHS_CONTROLLED_LIVE_WRITE_COMMAND = "xhs.creator_publish.controlled_live_write";
+const XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE = "issue_835";
 
 export const validateNormalizedMediaUploadDiscoveryInput = (
   input: ExtensionXhsCommandInput,
@@ -231,6 +242,39 @@ export const validateXhsCommandInputForExtension = (input: {
       ...(sourceMediaKind
         ? { source_media_kind: sourceMediaKind as "image" | "video" | "mixed" }
         : {})
+    };
+  }
+  if (input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND) {
+    const liveWriteAttemptId = asNonEmptyString(input.payload.live_write_attempt_id);
+    const sourceMediaRef = asNonEmptyString(input.payload.source_media_ref);
+    const sourceMediaDigest = asNonEmptyString(input.payload.source_media_digest);
+    const sourceMediaKind = asNonEmptyString(input.payload.source_media_kind);
+    if (
+      input.abilityId !== "xhs.creator.publish.v1" ||
+      input.abilityAction !== "write" ||
+      input.options.issue_scope !== XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE ||
+      input.options.action_type !== "write" ||
+      input.options.controlled_live_write !== true ||
+      input.options.target_domain !== "creator.xiaohongshu.com" ||
+      input.options.target_page !== "creator_publish_tab" ||
+      input.options.requested_execution_mode !== "live_write" ||
+      input.options.confirm_live_write !== true ||
+      !liveWriteAttemptId ||
+      !sourceMediaRef ||
+      UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef) ||
+      !sourceMediaDigest ||
+      !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest) ||
+      !sourceMediaKind ||
+      !SOURCE_MEDIA_KINDS.has(sourceMediaKind)
+    ) {
+      throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
+    }
+    return {
+      target_page: "creator_publish_tab",
+      live_write_attempt_id: liveWriteAttemptId,
+      source_media_ref: sourceMediaRef,
+      source_media_digest: sourceMediaDigest,
+      source_media_kind: sourceMediaKind as "image" | "video" | "mixed"
     };
   }
   if (input.command === "xhs.detail") {

@@ -80,6 +80,7 @@ const XHS_GATED_COMMANDS = new Set([
   "xhs.editor_text.write",
   "xhs.creator_publish.admit",
   "xhs.media_upload.discover",
+  "xhs.creator_publish.controlled_live_write",
   "xhs.detail",
   "xhs.user_home"
 ]);
@@ -770,6 +771,19 @@ export class InMemoryContentScriptRuntime {
                 successDataRef: {
                   target_page: "creator_publish_tab",
                   discovery_action: "media_upload_path"
+                }
+              }
+          : commandName === "xhs.creator_publish.controlled_live_write"
+            ? {
+                defaultAbilityId: "xhs.creator.publish.v1",
+                page_kind: "compose",
+                url: "https://creator.xiaohongshu.com/publish/publish",
+                title: "Creator Publish",
+                request_method: "POST",
+                request_url: "/web_api/sns/v2/note",
+                successDataRef: {
+                  target_page: "creator_publish_tab",
+                  live_write_attempt_id: String(normalizedInput.live_write_attempt_id ?? "")
                 }
               }
           : commandName === "xhs.detail"

@@ -66,6 +66,8 @@ const buildLoopbackMediaUploadDiscovery = () => ({
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
+const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
+const XHS_CONTROLLED_LIVE_WRITE_COMMAND = "xhs.creator_publish.controlled_live_write";
 const XHS_READ_COMMANDS = new Set(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const XHS_READ_COMMAND_DEFAULT_ABILITY_IDS = {
     "xhs.search": "xhs.note.search.v1",
@@ -76,13 +78,17 @@ const XHS_GATE_COMMANDS = new Set([
     ...XHS_READ_COMMANDS,
     XHS_EDITOR_INPUT_VALIDATE_COMMAND,
     XHS_EDITOR_TEXT_WRITE_COMMAND,
-    XHS_MEDIA_UPLOAD_DISCOVER_COMMAND
+    XHS_MEDIA_UPLOAD_DISCOVER_COMMAND,
+    XHS_CREATOR_PUBLISH_ADMIT_COMMAND,
+    XHS_CONTROLLED_LIVE_WRITE_COMMAND
 ]);
 const XHS_GATE_COMMAND_DEFAULT_ABILITY_IDS = {
     ...XHS_READ_COMMAND_DEFAULT_ABILITY_IDS,
     [XHS_EDITOR_INPUT_VALIDATE_COMMAND]: "xhs.editor.input.v1",
     [XHS_EDITOR_TEXT_WRITE_COMMAND]: "xhs.editor.input.v1",
-    [XHS_MEDIA_UPLOAD_DISCOVER_COMMAND]: "xhs.creator.publish.v1"
+    [XHS_MEDIA_UPLOAD_DISCOVER_COMMAND]: "xhs.creator.publish.v1",
+    [XHS_CREATOR_PUBLISH_ADMIT_COMMAND]: "xhs.creator.publish.v1",
+    [XHS_CONTROLLED_LIVE_WRITE_COMMAND]: "xhs.creator.publish.v1"
 };
 const XHS_READ_COMMAND_SPECS = {
     "xhs.search": {

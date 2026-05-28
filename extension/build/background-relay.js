@@ -4,6 +4,7 @@ const XHS_FORWARD_COMMANDS = new Set([
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
     "xhs.creator_publish.admit",
+    "xhs.creator_publish.controlled_live_write",
     "xhs.detail",
     "xhs.user_home"
 ]);

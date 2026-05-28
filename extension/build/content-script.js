@@ -3,7 +3,7 @@
 
 const __webenvoy_module_risk_state = (() => {
 const RISK_STATES = ["paused", "limited", "allowed"];
-const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753", "issue_755"];
+const ISSUE_SCOPES = ["issue_208", "issue_209", "issue_753", "issue_755", "issue_835"];
 const EXECUTION_MODES = [
   "dry_run",
   "recon",
@@ -236,6 +236,51 @@ const ISSUE_ACTION_MATRIX = [
       "live_read_high_risk",
       "reversible_interaction_with_approval",
       "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_835",
+    state: "paused",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_835",
+    state: "limited",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
+      "reversible_interaction_with_approval",
+      "live_write",
+      "irreversible_write",
+      "expand_new_live_surface_without_gate"
+    ]
+  },
+  {
+    issue_scope: "issue_835",
+    state: "allowed",
+    allowed_actions: ["dry_run", "recon"],
+    conditional_actions: [
+      {
+        action: "reversible_interaction_with_approval",
+        requires: [...APPROVAL_EVIDENCE_REQUIREMENTS]
+      }
+    ],
+    blocked_actions: [
+      "live_read_limited",
+      "live_read_high_risk",
       "irreversible_write",
       "expand_new_live_surface_without_gate"
     ]
@@ -618,7 +663,8 @@ const buildUnifiedRiskStateOutput = (state, options = {}) => ({
     getIssueActionMatrixEntry("issue_208", state),
     getIssueActionMatrixEntry("issue_209", state),
     getIssueActionMatrixEntry("issue_753", state),
-    getIssueActionMatrixEntry("issue_755", state)
+    getIssueActionMatrixEntry("issue_755", state),
+    getIssueActionMatrixEntry("issue_835", state)
   ],
   recovery_requirements: getRiskRecoveryRequirements(state)
 });
@@ -3492,6 +3538,11 @@ const evaluateXhsGateCore = (input) => {
     actionType !== null &&
     writeActionMatrixDecisions !== null &&
     writeActionMatrixDecisions.write_interaction_tier !== "observe_only";
+  const issue835ControlledLiveWrite =
+    issueScope === "issue_835" &&
+    actionType === "write" &&
+    requestedExecutionMode === "live_write" &&
+    input.controlledLiveWrite === true;
   const issue208EditorInputValidation = input.issue208EditorInputValidation === true;
   const fallbackMode = resolveXhsFallbackMode(requestedExecutionMode, riskState);
   const gateReasons = [];
@@ -3501,10 +3552,11 @@ const evaluateXhsGateCore = (input) => {
     requestedExecutionMode === "live_read_high_risk";
   const isBlockedByStateMatrix =
     !issue208WriteGateOnly &&
+    !issue835ControlledLiveWrite &&
     requestedExecutionMode !== null &&
     issueActionMatrix.blocked_actions.includes(requestedExecutionMode);
   const conditionalRequirement =
-    issue208WriteGateOnly || requestedExecutionMode === null
+    issue208WriteGateOnly || issue835ControlledLiveWrite || requestedExecutionMode === null
       ? null
       : issueActionMatrix.conditional_actions.find((entry) => entry.action === requestedExecutionMode) ??
         null;
@@ -3552,8 +3604,10 @@ const evaluateXhsGateCore = (input) => {
   }
   if (
     requestedExecutionMode === "live_write" &&
-    (!issue208WriteGateOnly ||
-      (input.treatMissingEditorValidationAsUnsupported === true && !issue208EditorInputValidation))
+    (!issue208WriteGateOnly && !issue835ControlledLiveWrite ||
+      (issue208WriteGateOnly &&
+        input.treatMissingEditorValidationAsUnsupported === true &&
+        !issue208EditorInputValidation))
   ) {
     pushReason(gateReasons, "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND");
   }
@@ -3574,16 +3628,24 @@ const evaluateXhsGateCore = (input) => {
       }
     }
 
-    if (issue208WriteGateOnly && actionType !== null && requestedExecutionMode !== null) {
+    if (
+      (issue208WriteGateOnly || issue835ControlledLiveWrite) &&
+      actionType !== null &&
+      requestedExecutionMode !== null
+    ) {
       const approvalRequirementGaps = resolveXhsApprovalRequirementGaps(
         [...XHS_WRITE_APPROVAL_REQUIREMENTS],
         approvalRecord
       );
       const approvalSatisfied = approvalRequirementGaps.length === 0;
-      if (issue208EditorInputValidation && riskState === "allowed" && approvalSatisfied) {
+      if (
+        ((issue208WriteGateOnly && issue208EditorInputValidation) || issue835ControlledLiveWrite) &&
+        riskState === "allowed" &&
+        approvalSatisfied
+      ) {
         writeGateOnlyEligible = true;
       } else {
-        if (!issue208EditorInputValidation) {
+        if (issue208WriteGateOnly && !issue208EditorInputValidation) {
           pushReason(gateReasons, "EDITOR_INPUT_VALIDATION_REQUIRED");
         }
         if (riskState !== "allowed") {
@@ -3626,7 +3688,10 @@ const evaluateXhsGateCore = (input) => {
     }
   }
 
-  if (input.includeWriteInteractionTierReason === true && issue208WriteGateOnly) {
+  if (
+    input.includeWriteInteractionTierReason === true &&
+    (issue208WriteGateOnly || issue835ControlledLiveWrite)
+  ) {
     pushReason(gateReasons, writeTierReason);
   }
 
@@ -3646,6 +3711,7 @@ const evaluateXhsGateCore = (input) => {
     writeActionMatrixDecisions,
     writeMatrixDecision,
     issue208WriteGateOnly,
+    issue835ControlledLiveWrite,
     issue208EditorInputValidation,
     writeTierReason,
     gateReasons,
@@ -3665,6 +3731,7 @@ const finalizeXhsGateOutcome = (input) => {
     requestedExecutionMode = state.requestedExecutionMode ?? null,
     fallbackMode = state.fallbackMode ?? "dry_run",
     issue208WriteGateOnly = state.issue208WriteGateOnly === true,
+    issue835ControlledLiveWrite = state.issue835ControlledLiveWrite === true,
     actionType = state.actionType ?? null,
     writeMatrixDecision = state.writeMatrixDecision ?? null,
     writeGateOnlyEligible,
@@ -3692,7 +3759,12 @@ const finalizeXhsGateOutcome = (input) => {
     };
   }
 
-  if (issue208WriteGateOnly && actionType && actionType !== "read" && requestedExecutionMode !== null) {
+  if (
+    (issue208WriteGateOnly || issue835ControlledLiveWrite) &&
+    actionType &&
+    actionType !== "read" &&
+    requestedExecutionMode !== null
+  ) {
     if (writeGateOnlyEligible) {
       if (
         input.writeGateOnlyEligibleBehavior === "block" ||
@@ -3774,12 +3846,18 @@ const buildXhsGatePolicyState = (input) => {
     actionType !== null &&
     writeActionMatrixDecisions !== null &&
     writeActionMatrixDecisions.write_interaction_tier !== "observe_only";
+  const issue835ControlledLiveWrite =
+    issueScope === "issue_835" &&
+    actionType === "write" &&
+    requestedExecutionMode === "live_write" &&
+    input.controlledLiveWrite === true;
   const writeTierReason = resolveXhsWriteTierReason(writeActionMatrixDecisions);
   const isLiveReadMode =
     requestedExecutionMode === "live_read_limited" ||
     requestedExecutionMode === "live_read_high_risk";
   const isBlockedByStateMatrix =
     !issue208WriteGateOnly &&
+    !issue835ControlledLiveWrite &&
     requestedExecutionMode !== null &&
     issueActionMatrix.blocked_actions.includes(requestedExecutionMode);
   const liveModeCanEnter =
@@ -3799,6 +3877,7 @@ const buildXhsGatePolicyState = (input) => {
     writeActionMatrixDecisions,
     writeMatrixDecision,
     issue208WriteGateOnly,
+    issue835ControlledLiveWrite,
     writeTierReason,
     isLiveReadMode,
     isBlockedByStateMatrix,
@@ -3857,8 +3936,9 @@ const collectXhsCommandGateReasons = (input) => {
   }
   if (
     requestedExecutionMode === "live_write" &&
-    (!input.issue208WriteGateOnly ||
-      (input.treatMissingEditorValidationAsUnsupported === true &&
+    (!input.issue208WriteGateOnly && !input.issue835ControlledLiveWrite ||
+      (input.issue208WriteGateOnly &&
+        input.treatMissingEditorValidationAsUnsupported === true &&
         input.issue208EditorInputValidation !== true))
   ) {
     pushReason(gateReasons, "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND");
@@ -3920,7 +4000,11 @@ const collectXhsMatrixGateReasons = (input) => {
       }
     }
 
-    if (state.issue208WriteGateOnly && state.actionType !== null && state.requestedExecutionMode !== null) {
+    if (
+      (state.issue208WriteGateOnly || state.issue835ControlledLiveWrite) &&
+      state.actionType !== null &&
+      state.requestedExecutionMode !== null
+    ) {
       const approvalRequirementGaps = resolveXhsApprovalRequirementGaps(
         [...XHS_WRITE_APPROVAL_REQUIREMENTS],
         approvalRecord
@@ -3931,7 +4015,7 @@ const collectXhsMatrixGateReasons = (input) => {
         state.writeMatrixDecision?.decision === "blocked" ||
         state.writeMatrixDecision?.decision === "not_applicable"
       ) {
-        if (input.issue208EditorInputValidation !== true) {
+        if (state.issue208WriteGateOnly && input.issue208EditorInputValidation !== true) {
           pushReason(gateReasons, "EDITOR_INPUT_VALIDATION_REQUIRED");
         }
         if (
@@ -3948,13 +4032,13 @@ const collectXhsMatrixGateReasons = (input) => {
         pushReason(gateReasons, `RISK_STATE_${state.riskState.toUpperCase()}`);
         pushReason(gateReasons, "ISSUE_ACTION_MATRIX_BLOCKED");
       } else if (
-        input.issue208EditorInputValidation === true &&
+        (state.issue835ControlledLiveWrite || input.issue208EditorInputValidation === true) &&
         state.riskState === "allowed" &&
         approvalSatisfied
       ) {
         writeGateOnlyEligible = true;
       } else {
-        if (input.issue208EditorInputValidation !== true) {
+        if (state.issue208WriteGateOnly && input.issue208EditorInputValidation !== true) {
           pushReason(gateReasons, "EDITOR_INPUT_VALIDATION_REQUIRED");
         }
         if (state.riskState !== "allowed") {
@@ -3988,7 +4072,8 @@ const collectXhsMatrixGateReasons = (input) => {
       state.actionType &&
       state.actionType !== "read" &&
       !issue753CreatorPublishAdmission &&
-      !issue755MediaUploadDiscovery
+      !issue755MediaUploadDiscovery &&
+      !state.issue835ControlledLiveWrite
     ) {
       if (state.isLiveReadMode) {
         pushReason(gateReasons, "ACTION_TYPE_MODE_MISMATCH");
@@ -4115,6 +4200,7 @@ const evaluateXhsGate = (input) => {
     actualTargetPage: input.actualTargetPage,
     requireActualTargetPage: input.requireActualTargetPage,
     issue208WriteGateOnly: state.issue208WriteGateOnly,
+    issue835ControlledLiveWrite: state.issue835ControlledLiveWrite,
     issue208EditorInputValidation: input.issue208EditorInputValidation === true,
     treatMissingEditorValidationAsUnsupported:
       input.treatMissingEditorValidationAsUnsupported === true,
@@ -5057,6 +5143,7 @@ const resolveGate = (options, context, actualTargetUrl) => {
         decisionId,
         approvalId,
         issue208EditorInputValidation: isIssue208EditorInputValidation(options),
+        controlledLiveWrite: options.controlled_live_write === true || options.issue_scope === "issue_835",
         treatMissingEditorValidationAsUnsupported: true
     });
     if (shouldDeferAnonymousCanonicalGateDiagnostics({
@@ -7065,6 +7152,125 @@ const executeXhsSearch = async (input, env) => {
     if (gate.consumer_gate_result.effective_execution_mode === "dry_run" ||
         gate.consumer_gate_result.effective_execution_mode === "recon") {
         return withLayer2InteractionInSuccessPayload(createGateOnlySuccess(input, gate, auditRecord, env), layer2Interaction);
+    }
+    if (input.options.issue_scope === "issue_835" &&
+        input.options.controlled_live_write === true &&
+        input.options.target_page === "creator_publish_tab" &&
+        gate.consumer_gate_result.effective_execution_mode === "live_write") {
+        const publishVisibilityScope = input.options.publish_visibility_scope === "private_or_self_visible" ||
+            input.options.publish_visibility_scope === "limited_test_visibility" ||
+            input.options.publish_visibility_scope === "public_visible"
+            ? input.options.publish_visibility_scope
+            : null;
+        const cleanupPolicyRef = typeof input.options.cleanup_policy_ref === "string" &&
+            input.options.cleanup_policy_ref.trim().length > 0
+            ? input.options.cleanup_policy_ref.trim()
+            : null;
+        const liveWriteAttemptId = typeof input.params.live_write_attempt_id === "string" &&
+            input.params.live_write_attempt_id.trim().length > 0
+            ? input.params.live_write_attempt_id.trim()
+            : `fr0032-attempt-${input.executionContext.runId}`;
+        const sourceMediaRef = typeof input.params.source_media_ref === "string" ? input.params.source_media_ref : "";
+        const sourceMediaDigest = typeof input.params.source_media_digest === "string" ? input.params.source_media_digest : "";
+        const sourceMediaKind = input.params.source_media_kind === "video" || input.params.source_media_kind === "mixed"
+            ? input.params.source_media_kind
+            : "image";
+        if (!publishVisibilityScope || !cleanupPolicyRef) {
+            return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", "FR-0032 controlled live write policy missing", {
+                ability_id: input.abilityId,
+                stage: "execution",
+                reason: "FR0032_LIVE_WRITE_POLICY_MISSING"
+            }, createObservability({
+                href: env.getLocationHref(),
+                title: env.getDocumentTitle(),
+                readyState: env.getReadyState(),
+                requestId: `req-${env.randomId()}`,
+                outcome: "failed",
+                failureReason: "FR0032_LIVE_WRITE_POLICY_MISSING",
+                failureSite: {
+                    stage: "execution",
+                    component: "policy",
+                    target: "publish_visibility_scope.cleanup_policy_ref",
+                    summary: "FR-0032 publish visibility scope and cleanup policy are required"
+                }
+            }), createDiagnosis({
+                reason: "FR0032_LIVE_WRITE_POLICY_MISSING",
+                summary: "publish visibility scope and cleanup policy are required before live write",
+                category: "request_failed"
+            }), gate, auditRecord), gate.execution_audit);
+        }
+        const controlledLiveWriteInput = {
+            live_write_attempt_id: liveWriteAttemptId,
+            source_media_ref: sourceMediaRef,
+            source_media_digest: sourceMediaDigest,
+            source_media_kind: sourceMediaKind,
+            publish_visibility_scope: publishVisibilityScope,
+            cleanup_policy_ref: cleanupPolicyRef,
+            run_id: input.executionContext.runId,
+            profile_ref: input.options.__runtime_profile_ref ?? null,
+            target_tab_id: gate.consumer_gate_result.target_tab_id,
+            page_url: env.getLocationHref(),
+            latest_head_sha: typeof input.options.__runtime_latest_head_sha === "string"
+                ? input.options.__runtime_latest_head_sha
+                : null
+        };
+        const controlledLiveWriteResult = env.performControlledLiveWrite
+            ? await env.performControlledLiveWrite(controlledLiveWriteInput)
+            : buildXhsControlledLiveWriteUnavailableResult(controlledLiveWriteInput);
+        const liveWriteEvaluation = asRecord(controlledLiveWriteResult.live_write_evaluation);
+        const fullLiveWriteSuccess = liveWriteEvaluation?.full_live_write_success === true;
+        const outcome = fullLiveWriteSuccess ? "success" : "partial";
+        return {
+            ok: true,
+            payload: {
+                summary: {
+                    capability_result: {
+                        ability_id: input.abilityId,
+                        layer: input.abilityLayer,
+                        action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+                        outcome,
+                        data_ref: {
+                            target_page: "creator_publish_tab",
+                            live_write_attempt_id: liveWriteAttemptId
+                        },
+                        metrics: {
+                            duration_ms: Math.max(0, env.now() - startedAt)
+                        }
+                    },
+                    scope_context: gate.scope_context,
+                    gate_input: {
+                        run_id: auditRecord.run_id,
+                        session_id: auditRecord.session_id,
+                        profile: auditRecord.profile,
+                        ...gate.gate_input
+                    },
+                    gate_outcome: gate.gate_outcome,
+                    read_execution_policy: gate.read_execution_policy,
+                    issue_action_matrix: gate.issue_action_matrix,
+                    write_interaction_tier: gate.write_interaction_tier,
+                    write_action_matrix_decisions: gate.write_action_matrix_decisions,
+                    consumer_gate_result: gate.consumer_gate_result,
+                    request_admission_result: gate.request_admission_result,
+                    execution_audit: gate.execution_audit,
+                    approval_record: gate.approval_record,
+                    risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+                    audit_record: auditRecord,
+                    ...layer2InteractionSummary(layer2Interaction),
+                    controlled_live_write: controlledLiveWriteResult,
+                    live_write_evidence: controlledLiveWriteResult.live_write_evidence,
+                    live_write_evaluation: controlledLiveWriteResult.live_write_evaluation
+                },
+                observability: createObservability({
+                    href: env.getLocationHref(),
+                    title: env.getDocumentTitle(),
+                    readyState: env.getReadyState(),
+                    requestId: `req-${env.randomId()}`,
+                    outcome: fullLiveWriteSuccess ? "completed" : "failed",
+                    failureReason: fullLiveWriteSuccess ? undefined : "FR0032_CONTROLLED_LIVE_WRITE_INCOMPLETE",
+                    includeKeyRequest: false
+                })
+            }
+        };
     }
     if (input.options.validation_action === "editor_input" &&
         input.options.issue_scope === "issue_208" &&
@@ -11035,6 +11241,8 @@ const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
 const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
+const XHS_CONTROLLED_LIVE_WRITE_COMMAND = "xhs.creator_publish.controlled_live_write";
+const XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE = "issue_835";
 const validateNormalizedMediaUploadDiscoveryInput = (input, abilityId = "xhs.creator.publish.v1") => {
     const record = input;
     const sourceMediaRef = asNonEmptyString(record.source_media_ref);
@@ -11169,6 +11377,37 @@ const validateXhsCommandInputForExtension = (input) => {
             ...(sourceMediaKind
                 ? { source_media_kind: sourceMediaKind }
                 : {})
+        };
+    }
+    if (input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND) {
+        const liveWriteAttemptId = asNonEmptyString(input.payload.live_write_attempt_id);
+        const sourceMediaRef = asNonEmptyString(input.payload.source_media_ref);
+        const sourceMediaDigest = asNonEmptyString(input.payload.source_media_digest);
+        const sourceMediaKind = asNonEmptyString(input.payload.source_media_kind);
+        if (input.abilityId !== "xhs.creator.publish.v1" ||
+            input.abilityAction !== "write" ||
+            input.options.issue_scope !== XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE ||
+            input.options.action_type !== "write" ||
+            input.options.controlled_live_write !== true ||
+            input.options.target_domain !== "creator.xiaohongshu.com" ||
+            input.options.target_page !== "creator_publish_tab" ||
+            input.options.requested_execution_mode !== "live_write" ||
+            input.options.confirm_live_write !== true ||
+            !liveWriteAttemptId ||
+            !sourceMediaRef ||
+            UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef) ||
+            !sourceMediaDigest ||
+            !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest) ||
+            !sourceMediaKind ||
+            !SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+            throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
+        }
+        return {
+            target_page: "creator_publish_tab",
+            live_write_attempt_id: liveWriteAttemptId,
+            source_media_ref: sourceMediaRef,
+            source_media_digest: sourceMediaDigest,
+            source_media_kind: sourceMediaKind
         };
     }
     if (input.command === "xhs.detail") {
@@ -11881,6 +12120,7 @@ const XHS_PAGE_COMMANDS = new Set([
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
     "xhs.creator_publish.admit",
+    "xhs.creator_publish.controlled_live_write",
     "xhs.media_upload.discover",
     "xhs.detail",
     "xhs.user_home"
@@ -14017,6 +14257,14 @@ class ContentScriptHandler {
                     ...(typeof options.discovery_action === "string"
                         ? { discovery_action: options.discovery_action }
                         : {}),
+                    ...(options.controlled_live_write === true ? { controlled_live_write: true } : {}),
+                    ...(options.confirm_live_write === true ? { confirm_live_write: true } : {}),
+                    ...(typeof options.publish_visibility_scope === "string"
+                        ? { publish_visibility_scope: options.publish_visibility_scope }
+                        : {}),
+                    ...(typeof options.cleanup_policy_ref === "string"
+                        ? { cleanup_policy_ref: options.cleanup_policy_ref }
+                        : {}),
                     ...(activeApiFetchFallback
                         ? { active_api_fetch_fallback: activeApiFetchFallback }
                         : {}),
@@ -14099,11 +14347,15 @@ class ContentScriptHandler {
                 message.command === "xhs.editor_input.validate" ||
                 message.command === "xhs.editor_text.write" ||
                 message.command === "xhs.creator_publish.admit" ||
+                message.command === "xhs.creator_publish.controlled_live_write" ||
                 message.command === "xhs.media_upload.discover") {
                 const requestContextProvenanceConfirmed = await configureReadRequestContextProvenance();
                 const searchInput = normalizedInput;
                 const mediaUploadInput = message.command === "xhs.media_upload.discover"
                     ? validateNormalizedMediaUploadDiscoveryInput(normalizedInput, String(ability.id ?? "unknown"))
+                    : null;
+                const controlledLiveWriteInput = message.command === "xhs.creator_publish.controlled_live_write"
+                    ? normalizedInput
                     : null;
                 result = await maybeWithContentCommandDeadline(executeXhsSearch({
                     ...commonInput,
@@ -14114,6 +14366,17 @@ class ContentScriptHandler {
                             : {}),
                         ...(message.command === "xhs.media_upload.discover"
                             ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(message.command === "xhs.creator_publish.controlled_live_write"
+                            ? { target_page: "creator_publish_tab" }
+                            : {}),
+                        ...(controlledLiveWriteInput
+                            ? {
+                                live_write_attempt_id: controlledLiveWriteInput.live_write_attempt_id,
+                                source_media_ref: controlledLiveWriteInput.source_media_ref,
+                                source_media_digest: controlledLiveWriteInput.source_media_digest,
+                                source_media_kind: controlledLiveWriteInput.source_media_kind
+                            }
                             : {}),
                         ...(mediaUploadInput?.source_media_ref
                             ? { source_media_ref: mediaUploadInput.source_media_ref }

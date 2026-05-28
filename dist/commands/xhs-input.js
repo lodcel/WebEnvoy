@@ -41,6 +41,7 @@ const XHS_COMMAND_ACTION_NAMES = {
     "xhs.editor_text.write::xhs.editor.input.v1": "xhs.write_editor_input",
     "xhs.creator_publish.admit::xhs.creator.publish.v1": "xhs.admit_creator_publish_target",
     "xhs.media_upload.discover::xhs.creator.publish.v1": "xhs.discover_media_upload_path",
+    "xhs.creator_publish.controlled_live_write::xhs.creator.publish.v1": "xhs.controlled_live_upload_submit_publish",
     "xhs.detail::xhs.note.detail.v1": "xhs.read_note_detail",
     "xhs.user_home::xhs.user.home.v1": "xhs.read_user_home"
 };
@@ -48,11 +49,13 @@ const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_CREATOR_PUBLISH_ADMIT_COMMAND = "xhs.creator_publish.admit";
 const XHS_MEDIA_UPLOAD_DISCOVER_COMMAND = "xhs.media_upload.discover";
+const XHS_CONTROLLED_LIVE_WRITE_COMMAND = "xhs.creator_publish.controlled_live_write";
 // #752 adds a clearer command name, while the runtime gate still consumes the #208 editor_input validation scope.
 const XHS_EDITOR_INPUT_VALIDATE_RUNTIME_SCOPE = "issue_208";
 const XHS_EDITOR_TEXT_WRITE_RUNTIME_SCOPE = "issue_208";
 const XHS_CREATOR_PUBLISH_ADMIT_RUNTIME_SCOPE = "issue_753";
 const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
+const XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE = "issue_835";
 const ISSUE209_LIVE_REQUEST_ID_PREFIX = "issue209-live";
 const ISSUE209_GATE_INVOCATION_ID_PREFIX = "issue209-gate";
 export const ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY = "__issue209_admission_draft";
@@ -161,6 +164,14 @@ const resolveInferredIssueScopeForContract = (options) => {
         (options.requested_execution_mode === "dry_run" || options.requested_execution_mode === "recon")) {
         return "issue_755";
     }
+    if (explicitIssueScope === "issue_835" &&
+        options.controlled_live_write === true &&
+        asString(options.action_type) === "write" &&
+        asString(options.target_domain) === XHS_WRITE_DOMAIN &&
+        asString(options.target_page) === "creator_publish_tab" &&
+        options.requested_execution_mode === "live_write") {
+        return "issue_835";
+    }
     if (explicitIssueScope === "issue_209") {
         return "issue_209";
     }
@@ -192,6 +203,14 @@ const resolveCanonicalIssueScopeForContract = (options) => {
         asString(options.target_page) === "creator_publish_tab" &&
         (options.requested_execution_mode === "dry_run" || options.requested_execution_mode === "recon")) {
         return "issue_755";
+    }
+    if (explicitIssueScope === "issue_835" &&
+        options.controlled_live_write === true &&
+        asString(options.action_type) === "write" &&
+        asString(options.target_domain) === XHS_WRITE_DOMAIN &&
+        asString(options.target_page) === "creator_publish_tab" &&
+        options.requested_execution_mode === "live_write") {
+        return "issue_835";
     }
     if (explicitIssueScope === "issue_209") {
         return "issue_209";
@@ -564,6 +583,28 @@ export const parseMediaUploadDiscoveryInputForContract = (input = {}, abilityId 
             : {})
     };
 };
+export const parseControlledLiveWriteInputForContract = (input = {}, abilityId = "xhs.creator.publish.v1") => {
+    const liveWriteAttemptId = parseRequiredStringFieldForContract(input, "live_write_attempt_id", "LIVE_WRITE_ATTEMPT_ID_INVALID", abilityId);
+    const sourceMediaRef = parseRequiredStringFieldForContract(input, "source_media_ref", "SOURCE_MEDIA_REF_INVALID", abilityId);
+    const sourceMediaDigest = parseRequiredStringFieldForContract(input, "source_media_digest", "SOURCE_MEDIA_DIGEST_INVALID", abilityId);
+    const sourceMediaKind = parseRequiredStringFieldForContract(input, "source_media_kind", "SOURCE_MEDIA_KIND_INVALID", abilityId);
+    if (UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef)) {
+        throw invalidAbilityInput("SOURCE_MEDIA_REF_INVALID", abilityId);
+    }
+    if (!SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
+        throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", abilityId);
+    }
+    if (!SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+        throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", abilityId);
+    }
+    return {
+        target_page: "creator_publish_tab",
+        live_write_attempt_id: liveWriteAttemptId,
+        source_media_ref: sourceMediaRef,
+        source_media_digest: sourceMediaDigest,
+        source_media_kind: sourceMediaKind
+    };
+};
 export const parseDetailInputForContract = (input, abilityId) => {
     const noteId = typeof input.note_id === "string" && input.note_id.trim().length > 0 ? input.note_id.trim() : null;
     if (!noteId) {
@@ -598,6 +639,9 @@ export const parseXhsCommandInputForContract = (input) => {
     if (input.command === XHS_MEDIA_UPLOAD_DISCOVER_COMMAND) {
         return parseMediaUploadDiscoveryInputForContract(input.payload, input.abilityId);
     }
+    if (input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND) {
+        return parseControlledLiveWriteInputForContract(input.payload, input.abilityId);
+    }
     if (input.command === "xhs.detail") {
         return parseDetailInputForContract(input.payload, input.abilityId);
     }
@@ -610,6 +654,7 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
     const upstreamAuthorization = input?.upstreamAuthorization ?? null;
     const isCreatorPublishAdmissionCommand = input?.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND;
     const isMediaUploadDiscoveryCommand = input?.command === XHS_MEDIA_UPLOAD_DISCOVER_COMMAND;
+    const isControlledLiveWriteCommand = input?.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND;
     const isEditorTextWriteCommand = input?.command === XHS_EDITOR_TEXT_WRITE_COMMAND;
     const isEditorInputCommand = input?.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND || isEditorTextWriteCommand;
     if (isEditorInputCommand) {
@@ -669,6 +714,20 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", abilityId);
         }
     }
+    if (isControlledLiveWriteCommand) {
+        if (abilityId !== "xhs.creator.publish.v1" || input.abilityAction !== "write") {
+            throw invalidAbilityInput("ABILITY_COMMAND_UNSUPPORTED", abilityId);
+        }
+        const explicitIssueScope = hasOwn(options, "issue_scope") ? asString(options.issue_scope) : null;
+        const explicitActionType = hasOwn(options, "action_type") ? asString(options.action_type) : null;
+        if (hasOwn(options, "issue_scope") &&
+            explicitIssueScope !== XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE) {
+            throw invalidAbilityInput("ISSUE_SCOPE_CONFLICT", abilityId);
+        }
+        if (hasOwn(options, "action_type") && explicitActionType !== "write") {
+            throw invalidAbilityInput("ACTION_TYPE_CONFLICT", abilityId);
+        }
+    }
     const canonicalOptions = isEditorInputCommand
         ? {
             ...options,
@@ -692,7 +751,14 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
                     action_type: "write",
                     discovery_action: "media_upload_path"
                 }
-                : options;
+                : input?.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+                    ? {
+                        ...options,
+                        issue_scope: XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE,
+                        action_type: "write",
+                        controlled_live_write: true
+                    }
+                    : options;
     const canonicalActionName = upstreamAuthorization && input?.command
         ? XHS_COMMAND_ACTION_NAMES[`${input.command}::${abilityId}`] ?? null
         : null;
@@ -797,6 +863,9 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
         requestedExecutionModeFromContract !== "recon") {
         throw invalidAbilityInput("REQUESTED_EXECUTION_MODE_INVALID", abilityId);
     }
+    if (isControlledLiveWriteCommand && requestedExecutionModeFromContract !== "live_write") {
+        throw invalidAbilityInput("REQUESTED_EXECUTION_MODE_INVALID", abilityId);
+    }
     const inferredIssueScope = resolveInferredIssueScopeForContract({
         ...canonicalOptions,
         ...(legacyProjectedActionType ? { action_type: legacyProjectedActionType } : {}),
@@ -837,7 +906,8 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
         explicitIssueScope !== "issue_208" &&
         explicitIssueScope !== "issue_209" &&
         explicitIssueScope !== "issue_753" &&
-        explicitIssueScope !== "issue_755") {
+        explicitIssueScope !== "issue_755" &&
+        explicitIssueScope !== "issue_835") {
         throw invalidAbilityInput("ISSUE_SCOPE_INVALID", abilityId);
     }
     if (upstreamAuthorization && legacyActionType && legacyActionType !== legacyProjectedActionType) {
@@ -895,6 +965,13 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
                     requestedExecutionModeFromContract !== "recon"))) {
             throw invalidAbilityInput("TARGET_PAGE_INVALID", abilityId);
         }
+        if (isControlledLiveWriteCommand &&
+            (inferredIssueScope !== "issue_835" ||
+                targetDomain !== XHS_WRITE_DOMAIN ||
+                targetPage !== "creator_publish_tab" ||
+                requestedExecutionModeFromContract !== "live_write")) {
+            throw invalidAbilityInput("TARGET_PAGE_INVALID", abilityId);
+        }
         const allowedResourceKinds = asStringArray(upstreamAuthorization.authorization_grant.binding_scope.allowed_resource_kinds);
         const allowedProfileRefs = asStringArray(upstreamAuthorization.authorization_grant.binding_scope.allowed_profile_refs);
         const allowedDomains = asStringArray(upstreamAuthorization.authorization_grant.target_scope.allowed_domains);
@@ -918,7 +995,8 @@ export const normalizeGateOptionsForContract = (options, abilityId, input) => {
     const canonicalIssueScope = !upstreamAuthorization &&
         (inferredIssueScope === "issue_209" ||
             inferredIssueScope === "issue_753" ||
-            inferredIssueScope === "issue_755")
+            inferredIssueScope === "issue_755" ||
+            inferredIssueScope === "issue_835")
         ? inferredIssueScope
         : explicitIssueScope ?? inferredIssueScope ?? resolveCanonicalIssueScopeForContract({
             ...canonicalOptions,

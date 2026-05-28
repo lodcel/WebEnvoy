@@ -1063,6 +1063,11 @@ const evaluateXhsGateCore = (input) => {
     actionType !== null &&
     writeActionMatrixDecisions !== null &&
     writeActionMatrixDecisions.write_interaction_tier !== "observe_only";
+  const issue835ControlledLiveWrite =
+    issueScope === "issue_835" &&
+    actionType === "write" &&
+    requestedExecutionMode === "live_write" &&
+    input.controlledLiveWrite === true;
   const issue208EditorInputValidation = input.issue208EditorInputValidation === true;
   const fallbackMode = resolveXhsFallbackMode(requestedExecutionMode, riskState);
   const gateReasons = [];
@@ -1072,10 +1077,11 @@ const evaluateXhsGateCore = (input) => {
     requestedExecutionMode === "live_read_high_risk";
   const isBlockedByStateMatrix =
     !issue208WriteGateOnly &&
+    !issue835ControlledLiveWrite &&
     requestedExecutionMode !== null &&
     issueActionMatrix.blocked_actions.includes(requestedExecutionMode);
   const conditionalRequirement =
-    issue208WriteGateOnly || requestedExecutionMode === null
+    issue208WriteGateOnly || issue835ControlledLiveWrite || requestedExecutionMode === null
       ? null
       : issueActionMatrix.conditional_actions.find((entry) => entry.action === requestedExecutionMode) ??
         null;
@@ -1123,8 +1129,10 @@ const evaluateXhsGateCore = (input) => {
   }
   if (
     requestedExecutionMode === "live_write" &&
-    (!issue208WriteGateOnly ||
-      (input.treatMissingEditorValidationAsUnsupported === true && !issue208EditorInputValidation))
+    (!issue208WriteGateOnly && !issue835ControlledLiveWrite ||
+      (issue208WriteGateOnly &&
+        input.treatMissingEditorValidationAsUnsupported === true &&
+        !issue208EditorInputValidation))
   ) {
     pushReason(gateReasons, "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND");
   }
@@ -1145,16 +1153,24 @@ const evaluateXhsGateCore = (input) => {
       }
     }
 
-    if (issue208WriteGateOnly && actionType !== null && requestedExecutionMode !== null) {
+    if (
+      (issue208WriteGateOnly || issue835ControlledLiveWrite) &&
+      actionType !== null &&
+      requestedExecutionMode !== null
+    ) {
       const approvalRequirementGaps = resolveXhsApprovalRequirementGaps(
         [...XHS_WRITE_APPROVAL_REQUIREMENTS],
         approvalRecord
       );
       const approvalSatisfied = approvalRequirementGaps.length === 0;
-      if (issue208EditorInputValidation && riskState === "allowed" && approvalSatisfied) {
+      if (
+        ((issue208WriteGateOnly && issue208EditorInputValidation) || issue835ControlledLiveWrite) &&
+        riskState === "allowed" &&
+        approvalSatisfied
+      ) {
         writeGateOnlyEligible = true;
       } else {
-        if (!issue208EditorInputValidation) {
+        if (issue208WriteGateOnly && !issue208EditorInputValidation) {
           pushReason(gateReasons, "EDITOR_INPUT_VALIDATION_REQUIRED");
         }
         if (riskState !== "allowed") {
@@ -1197,7 +1213,10 @@ const evaluateXhsGateCore = (input) => {
     }
   }
 
-  if (input.includeWriteInteractionTierReason === true && issue208WriteGateOnly) {
+  if (
+    input.includeWriteInteractionTierReason === true &&
+    (issue208WriteGateOnly || issue835ControlledLiveWrite)
+  ) {
     pushReason(gateReasons, writeTierReason);
   }
 
@@ -1217,6 +1236,7 @@ const evaluateXhsGateCore = (input) => {
     writeActionMatrixDecisions,
     writeMatrixDecision,
     issue208WriteGateOnly,
+    issue835ControlledLiveWrite,
     issue208EditorInputValidation,
     writeTierReason,
     gateReasons,
@@ -1236,6 +1256,7 @@ const finalizeXhsGateOutcome = (input) => {
     requestedExecutionMode = state.requestedExecutionMode ?? null,
     fallbackMode = state.fallbackMode ?? "dry_run",
     issue208WriteGateOnly = state.issue208WriteGateOnly === true,
+    issue835ControlledLiveWrite = state.issue835ControlledLiveWrite === true,
     actionType = state.actionType ?? null,
     writeMatrixDecision = state.writeMatrixDecision ?? null,
     writeGateOnlyEligible,
@@ -1263,7 +1284,12 @@ const finalizeXhsGateOutcome = (input) => {
     };
   }
 
-  if (issue208WriteGateOnly && actionType && actionType !== "read" && requestedExecutionMode !== null) {
+  if (
+    (issue208WriteGateOnly || issue835ControlledLiveWrite) &&
+    actionType &&
+    actionType !== "read" &&
+    requestedExecutionMode !== null
+  ) {
     if (writeGateOnlyEligible) {
       if (
         input.writeGateOnlyEligibleBehavior === "block" ||
@@ -1345,12 +1371,18 @@ const buildXhsGatePolicyState = (input) => {
     actionType !== null &&
     writeActionMatrixDecisions !== null &&
     writeActionMatrixDecisions.write_interaction_tier !== "observe_only";
+  const issue835ControlledLiveWrite =
+    issueScope === "issue_835" &&
+    actionType === "write" &&
+    requestedExecutionMode === "live_write" &&
+    input.controlledLiveWrite === true;
   const writeTierReason = resolveXhsWriteTierReason(writeActionMatrixDecisions);
   const isLiveReadMode =
     requestedExecutionMode === "live_read_limited" ||
     requestedExecutionMode === "live_read_high_risk";
   const isBlockedByStateMatrix =
     !issue208WriteGateOnly &&
+    !issue835ControlledLiveWrite &&
     requestedExecutionMode !== null &&
     issueActionMatrix.blocked_actions.includes(requestedExecutionMode);
   const liveModeCanEnter =
@@ -1370,6 +1402,7 @@ const buildXhsGatePolicyState = (input) => {
     writeActionMatrixDecisions,
     writeMatrixDecision,
     issue208WriteGateOnly,
+    issue835ControlledLiveWrite,
     writeTierReason,
     isLiveReadMode,
     isBlockedByStateMatrix,
@@ -1428,8 +1461,9 @@ const collectXhsCommandGateReasons = (input) => {
   }
   if (
     requestedExecutionMode === "live_write" &&
-    (!input.issue208WriteGateOnly ||
-      (input.treatMissingEditorValidationAsUnsupported === true &&
+    (!input.issue208WriteGateOnly && !input.issue835ControlledLiveWrite ||
+      (input.issue208WriteGateOnly &&
+        input.treatMissingEditorValidationAsUnsupported === true &&
         input.issue208EditorInputValidation !== true))
   ) {
     pushReason(gateReasons, "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND");
@@ -1491,7 +1525,11 @@ const collectXhsMatrixGateReasons = (input) => {
       }
     }
 
-    if (state.issue208WriteGateOnly && state.actionType !== null && state.requestedExecutionMode !== null) {
+    if (
+      (state.issue208WriteGateOnly || state.issue835ControlledLiveWrite) &&
+      state.actionType !== null &&
+      state.requestedExecutionMode !== null
+    ) {
       const approvalRequirementGaps = resolveXhsApprovalRequirementGaps(
         [...XHS_WRITE_APPROVAL_REQUIREMENTS],
         approvalRecord
@@ -1502,7 +1540,7 @@ const collectXhsMatrixGateReasons = (input) => {
         state.writeMatrixDecision?.decision === "blocked" ||
         state.writeMatrixDecision?.decision === "not_applicable"
       ) {
-        if (input.issue208EditorInputValidation !== true) {
+        if (state.issue208WriteGateOnly && input.issue208EditorInputValidation !== true) {
           pushReason(gateReasons, "EDITOR_INPUT_VALIDATION_REQUIRED");
         }
         if (
@@ -1519,13 +1557,13 @@ const collectXhsMatrixGateReasons = (input) => {
         pushReason(gateReasons, `RISK_STATE_${state.riskState.toUpperCase()}`);
         pushReason(gateReasons, "ISSUE_ACTION_MATRIX_BLOCKED");
       } else if (
-        input.issue208EditorInputValidation === true &&
+        (state.issue835ControlledLiveWrite || input.issue208EditorInputValidation === true) &&
         state.riskState === "allowed" &&
         approvalSatisfied
       ) {
         writeGateOnlyEligible = true;
       } else {
-        if (input.issue208EditorInputValidation !== true) {
+        if (state.issue208WriteGateOnly && input.issue208EditorInputValidation !== true) {
           pushReason(gateReasons, "EDITOR_INPUT_VALIDATION_REQUIRED");
         }
         if (state.riskState !== "allowed") {
@@ -1559,7 +1597,8 @@ const collectXhsMatrixGateReasons = (input) => {
       state.actionType &&
       state.actionType !== "read" &&
       !issue753CreatorPublishAdmission &&
-      !issue755MediaUploadDiscovery
+      !issue755MediaUploadDiscovery &&
+      !state.issue835ControlledLiveWrite
     ) {
       if (state.isLiveReadMode) {
         pushReason(gateReasons, "ACTION_TYPE_MODE_MISMATCH");
@@ -1686,6 +1725,7 @@ const evaluateXhsGate = (input) => {
     actualTargetPage: input.actualTargetPage,
     requireActualTargetPage: input.requireActualTargetPage,
     issue208WriteGateOnly: state.issue208WriteGateOnly,
+    issue835ControlledLiveWrite: state.issue835ControlledLiveWrite,
     issue208EditorInputValidation: input.issue208EditorInputValidation === true,
     treatMissingEditorValidationAsUnsupported:
       input.treatMissingEditorValidationAsUnsupported === true,
