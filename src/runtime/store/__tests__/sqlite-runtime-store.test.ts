@@ -2119,6 +2119,74 @@ describeWithSqlite("sqlite-runtime-store", () => {
     expect(approval.decision_id).toBe("gate_decision_run-gate-custom-approval-001_req-1");
   });
 
+  it("persists FR-0032 issue_835 controlled live write audit records", async () => {
+    const cwd = await createTempCwd();
+    const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
+    await store.upsertRun({
+      runId: "run-gate-issue-835-controlled-live-write-001",
+      sessionId: "session-gate-issue-835-controlled-live-write-1",
+      profileName: "xhs_001",
+      command: "xhs.creator_publish.controlled_live_write",
+      status: "succeeded",
+      startedAt: "2026-05-29T00:33:00.000Z",
+      endedAt: "2026-05-29T00:33:01.000Z",
+      errorCode: null
+    });
+    await store.upsertApprovalRecord({
+      runId: "run-gate-issue-835-controlled-live-write-001",
+      decisionId: "gate_decision_run-gate-issue-835-controlled-live-write-001",
+      approved: true,
+      approver: "mcontheway",
+      approvedAt: "2026-05-29T00:33:00.000Z",
+      checks: {
+        target_domain_confirmed: true,
+        target_tab_confirmed: true,
+        target_page_confirmed: true,
+        risk_state_checked: true,
+        action_type_confirmed: true
+      }
+    });
+    await store.appendAuditRecord({
+      eventId: "gate_evt_run-gate-issue-835-controlled-live-write-001_1",
+      decisionId: "gate_decision_run-gate-issue-835-controlled-live-write-001",
+      approvalId: "gate_appr_gate_decision_run-gate-issue-835-controlled-live-write-001",
+      runId: "run-gate-issue-835-controlled-live-write-001",
+      sessionId: "session-gate-issue-835-controlled-live-write-1",
+      profile: "xhs_001",
+      issueScope: "issue_835",
+      riskState: "allowed",
+      nextState: "allowed",
+      transitionTrigger: "stability_window_passed_and_manual_approve",
+      targetDomain: "creator.xiaohongshu.com",
+      targetTabId: 1230458077,
+      targetPage: "creator_publish_tab",
+      actionType: "write",
+      requestedExecutionMode: "live_write",
+      effectiveExecutionMode: "live_write",
+      gateDecision: "allowed",
+      gateReasons: ["FR0032_CONTROLLED_LIVE_WRITE_APPROVED"],
+      approver: "mcontheway",
+      approvedAt: "2026-05-29T00:33:00.000Z",
+      recordedAt: "2026-05-29T00:33:01.000Z"
+    });
+
+    const trail = await store.getAuditTrailByRunId("run-gate-issue-835-controlled-live-write-001");
+    store.close();
+
+    expect(trail.audit_records).toHaveLength(1);
+    expect(trail.audit_records[0]).toMatchObject({
+      run_id: "run-gate-issue-835-controlled-live-write-001",
+      issue_scope: "issue_835",
+      target_domain: "creator.xiaohongshu.com",
+      target_page: "creator_publish_tab",
+      action_type: "write",
+      requested_execution_mode: "live_write",
+      effective_execution_mode: "live_write",
+      gate_decision: "allowed",
+      gate_reasons: ["FR0032_CONTROLLED_LIVE_WRITE_APPROVED"]
+    });
+  });
+
   it("falls back to a decision-scoped approval_id when a reused caller approval_id would hit a primary-key conflict", async () => {
     const cwd = await createTempCwd();
     const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
