@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { access } from "node:fs/promises";
-import { delimiter, isAbsolute, join } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 
 import type { JsonObject } from "../core/types.js";
 
@@ -88,6 +88,52 @@ const readTrimmedEnvString = (value: unknown): string | null => {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 };
+
+const parsePlistStringValue = (plist: string, key: string): string | null => {
+  const pattern = new RegExp(
+    `<key>\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*<\\/key>\\s*<string>([^<]+)<\\/string>`,
+    "u"
+  );
+  const match = plist.match(pattern);
+  return readTrimmedEnvString(match?.[1]);
+};
+
+const readMacAppBundleVersionOutput = async (executablePath: string): Promise<string | null> => {
+  const macOsDir = dirname(executablePath);
+  if (basename(macOsDir) !== "MacOS") {
+    return null;
+  }
+  const contentsDir = dirname(macOsDir);
+  if (basename(contentsDir) !== "Contents") {
+    return null;
+  }
+  const appBundleDir = dirname(contentsDir);
+  if (!basename(appBundleDir).endsWith(".app")) {
+    return null;
+  }
+
+  try {
+    const plist = await readFile(join(contentsDir, "Info.plist"), "utf8");
+    const version =
+      parsePlistStringValue(plist, "CFBundleShortVersionString") ??
+      parsePlistStringValue(plist, "KSVersion");
+    if (!version) {
+      return null;
+    }
+    const appBundleName = basename(appBundleDir, ".app");
+    const browserName =
+      (appBundleName.startsWith("Google Chrome") || appBundleName === "Chromium"
+        ? appBundleName
+        : null) ??
+      parsePlistStringValue(plist, "CFBundleName") ??
+      parsePlistStringValue(plist, "CFBundleExecutable") ??
+      basename(executablePath);
+    return `${browserName} ${version}`;
+  } catch {
+    return null;
+  }
+};
+
 const resolveCommandFromPath = async (command: string): Promise<string | null> => {
   const pathEnv = process.env.PATH ?? "";
   if (pathEnv.trim().length === 0) {
@@ -172,6 +218,10 @@ const readBrowserVersionOutput = async (executablePath: string): Promise<string 
   });
 };
 
+const resolveBrowserVersionOutput = async (executablePath: string): Promise<string | null> =>
+  readTrimmedEnvString(await readBrowserVersionOutput(executablePath)) ??
+  (process.platform === "darwin" ? await readMacAppBundleVersionOutput(executablePath) : null);
+
 export const isUnsupportedBrandedChromeForExtensions = (versionOutput: string | null): boolean => {
   if (!versionOutput) {
     return false;
@@ -209,7 +259,7 @@ export const resolveExecutablePath = async (
       continue;
     }
 
-    const versionOutput = await readBrowserVersionOutput(resolvedCandidate);
+    const versionOutput = await resolveBrowserVersionOutput(resolvedCandidate);
     if (isUnsupportedBrandedChromeForExtensions(versionOutput)) {
       if (options?.allowUnsupportedExtensionBrowser) {
         return resolvedCandidate;
@@ -258,9 +308,10 @@ const resolveExecutableCandidate = async (
   if (executablePath === null) {
     return null;
   }
+  const browserVersion = await resolveBrowserVersionOutput(executablePath);
   return {
     executablePath,
-    browserVersion: readTrimmedEnvString(await readBrowserVersionOutput(executablePath))
+    browserVersion
   };
 };
 
@@ -271,7 +322,7 @@ export const resolveBrowserVersionTruthSource = async (
   const executablePath = await resolveBrowserExecutablePath(params, options);
   return {
     executablePath,
-    browserVersion: readTrimmedEnvString(await readBrowserVersionOutput(executablePath))
+    browserVersion: await resolveBrowserVersionOutput(executablePath)
   };
 };
 
@@ -324,7 +375,7 @@ export const resolveBrowserVersionOutputForFingerprint = async (
   executablePath?: string
 ): Promise<string | null> => {
   if (executablePath) {
-    return readTrimmedEnvString(await readBrowserVersionOutput(executablePath));
+    return resolveBrowserVersionOutput(executablePath);
   }
   try {
     const truthSource = await resolveBrowserVersionTruthSource();
