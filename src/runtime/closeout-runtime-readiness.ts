@@ -131,11 +131,14 @@ const buildTargetBinding = (
   if (requested) {
     const hasManagedTarget =
       managedTargetTabId !== null || managedTargetDomain !== null || managedTargetPage !== null;
+    const targetTabMatches =
+      requestedTargetTabId === null
+        ? managedTargetTabId !== null
+        : managedTargetTabId === requestedTargetTabId;
     const exactMatch =
-      requestedTargetTabId !== null &&
+      targetTabMatches &&
       requestedTargetDomain !== null &&
       requestedTargetPage !== null &&
-      managedTargetTabId === requestedTargetTabId &&
       managedTargetDomain === requestedTargetDomain &&
       managedTargetPage === requestedTargetPage &&
       targetTabContinuity !== null;
