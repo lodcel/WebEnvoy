@@ -1360,7 +1360,7 @@ const createBrowserEnvironment = () => ({
         }
     },
     performEditorInputValidation: async (input) => await performEditorInputValidation(input),
-    performMediaUploadDiscovery: async () => buildXhsMediaUploadDiscoveryResult()
+    performMediaUploadDiscovery: async (input) => buildXhsMediaUploadDiscoveryResult(input)
 });
 const resolveTargetDomainFromHref = (href) => {
     try {
