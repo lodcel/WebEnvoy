@@ -203,6 +203,7 @@ export interface XhsGateCoreInput {
   decisionId?: unknown;
   approvalId?: unknown;
   issue208EditorInputValidation?: boolean;
+  controlledLiveWrite?: boolean;
   additionalGateReasons?: string[];
   includeWriteInteractionTierReason?: boolean;
   treatMissingEditorValidationAsUnsupported?: boolean;
@@ -352,6 +353,7 @@ export declare const buildXhsGatePolicyState: (input: {
   upstreamAuthorizationRequest?: unknown;
   upstream_authorization_request?: unknown;
   limitedReadRolloutReadyTrue?: boolean;
+  controlledLiveWrite?: boolean;
 }) => {
   issueScope: IssueScope;
   riskState: RiskState;
@@ -363,6 +365,7 @@ export declare const buildXhsGatePolicyState: (input: {
   writeActionMatrixDecisions: WriteActionMatrixDecisionsOutput;
   writeMatrixDecision: WriteActionMatrixDecision;
   issue208WriteGateOnly: boolean;
+  issue835ControlledLiveWrite: boolean;
   writeTierReason: string;
   isLiveReadMode: boolean;
   isBlockedByStateMatrix: boolean;
@@ -384,6 +387,7 @@ export declare const collectXhsCommandGateReasons: (input: {
   actualTargetPage?: unknown;
   requireActualTargetPage?: boolean;
   issue208WriteGateOnly?: boolean;
+  issue835ControlledLiveWrite?: boolean;
   issue208EditorInputValidation?: boolean;
   treatMissingEditorValidationAsUnsupported?: boolean;
   includeWriteInteractionTierReason?: boolean;

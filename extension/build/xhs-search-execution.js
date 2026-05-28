@@ -2,6 +2,7 @@ import { createPageContextNamespace, createSearchRequestShape, SEARCH_ENDPOINT, 
 import { createAuditRecord, createGateOnlySuccess, resolveGate } from "./xhs-search-gate.js";
 import { buildEditorInputEvidence, classifyXhsAccountSafetySurface, containsCookie, createDiagnosis, createFailure, createObservability, inferFailure, isTrustedEditorInputValidation, parseCount, resolveSimulatedResult, resolveRiskStateOutput } from "./xhs-search-telemetry.js";
 import { buildXhsMediaUploadDiscoveryResult } from "./xhs-media-upload-discovery.js";
+import { buildXhsControlledLiveWriteUnavailableResult } from "./xhs-controlled-live-write.js";
 import { buildXhsSearchLayer2InteractionEvidence } from "./layer2-humanized-events.js";
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
@@ -929,6 +930,125 @@ export const executeXhsSearch = async (input, env) => {
     if (gate.consumer_gate_result.effective_execution_mode === "dry_run" ||
         gate.consumer_gate_result.effective_execution_mode === "recon") {
         return withLayer2InteractionInSuccessPayload(createGateOnlySuccess(input, gate, auditRecord, env), layer2Interaction);
+    }
+    if (input.options.issue_scope === "issue_835" &&
+        input.options.controlled_live_write === true &&
+        input.options.target_page === "creator_publish_tab" &&
+        gate.consumer_gate_result.effective_execution_mode === "live_write") {
+        const publishVisibilityScope = input.options.publish_visibility_scope === "private_or_self_visible" ||
+            input.options.publish_visibility_scope === "limited_test_visibility" ||
+            input.options.publish_visibility_scope === "public_visible"
+            ? input.options.publish_visibility_scope
+            : null;
+        const cleanupPolicyRef = typeof input.options.cleanup_policy_ref === "string" &&
+            input.options.cleanup_policy_ref.trim().length > 0
+            ? input.options.cleanup_policy_ref.trim()
+            : null;
+        const liveWriteAttemptId = typeof input.params.live_write_attempt_id === "string" &&
+            input.params.live_write_attempt_id.trim().length > 0
+            ? input.params.live_write_attempt_id.trim()
+            : `fr0032-attempt-${input.executionContext.runId}`;
+        const sourceMediaRef = typeof input.params.source_media_ref === "string" ? input.params.source_media_ref : "";
+        const sourceMediaDigest = typeof input.params.source_media_digest === "string" ? input.params.source_media_digest : "";
+        const sourceMediaKind = input.params.source_media_kind === "video" || input.params.source_media_kind === "mixed"
+            ? input.params.source_media_kind
+            : "image";
+        if (!publishVisibilityScope || !cleanupPolicyRef) {
+            return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", "FR-0032 controlled live write policy missing", {
+                ability_id: input.abilityId,
+                stage: "execution",
+                reason: "FR0032_LIVE_WRITE_POLICY_MISSING"
+            }, createObservability({
+                href: env.getLocationHref(),
+                title: env.getDocumentTitle(),
+                readyState: env.getReadyState(),
+                requestId: `req-${env.randomId()}`,
+                outcome: "failed",
+                failureReason: "FR0032_LIVE_WRITE_POLICY_MISSING",
+                failureSite: {
+                    stage: "execution",
+                    component: "policy",
+                    target: "publish_visibility_scope.cleanup_policy_ref",
+                    summary: "FR-0032 publish visibility scope and cleanup policy are required"
+                }
+            }), createDiagnosis({
+                reason: "FR0032_LIVE_WRITE_POLICY_MISSING",
+                summary: "publish visibility scope and cleanup policy are required before live write",
+                category: "request_failed"
+            }), gate, auditRecord), gate.execution_audit);
+        }
+        const controlledLiveWriteInput = {
+            live_write_attempt_id: liveWriteAttemptId,
+            source_media_ref: sourceMediaRef,
+            source_media_digest: sourceMediaDigest,
+            source_media_kind: sourceMediaKind,
+            publish_visibility_scope: publishVisibilityScope,
+            cleanup_policy_ref: cleanupPolicyRef,
+            run_id: input.executionContext.runId,
+            profile_ref: input.options.__runtime_profile_ref ?? null,
+            target_tab_id: gate.consumer_gate_result.target_tab_id,
+            page_url: env.getLocationHref(),
+            latest_head_sha: typeof input.options.__runtime_latest_head_sha === "string"
+                ? input.options.__runtime_latest_head_sha
+                : null
+        };
+        const controlledLiveWriteResult = env.performControlledLiveWrite
+            ? await env.performControlledLiveWrite(controlledLiveWriteInput)
+            : buildXhsControlledLiveWriteUnavailableResult(controlledLiveWriteInput);
+        const liveWriteEvaluation = asRecord(controlledLiveWriteResult.live_write_evaluation);
+        const fullLiveWriteSuccess = liveWriteEvaluation?.full_live_write_success === true;
+        const outcome = fullLiveWriteSuccess ? "success" : "partial";
+        return {
+            ok: true,
+            payload: {
+                summary: {
+                    capability_result: {
+                        ability_id: input.abilityId,
+                        layer: input.abilityLayer,
+                        action: gate.consumer_gate_result.action_type ?? input.abilityAction,
+                        outcome,
+                        data_ref: {
+                            target_page: "creator_publish_tab",
+                            live_write_attempt_id: liveWriteAttemptId
+                        },
+                        metrics: {
+                            duration_ms: Math.max(0, env.now() - startedAt)
+                        }
+                    },
+                    scope_context: gate.scope_context,
+                    gate_input: {
+                        run_id: auditRecord.run_id,
+                        session_id: auditRecord.session_id,
+                        profile: auditRecord.profile,
+                        ...gate.gate_input
+                    },
+                    gate_outcome: gate.gate_outcome,
+                    read_execution_policy: gate.read_execution_policy,
+                    issue_action_matrix: gate.issue_action_matrix,
+                    write_interaction_tier: gate.write_interaction_tier,
+                    write_action_matrix_decisions: gate.write_action_matrix_decisions,
+                    consumer_gate_result: gate.consumer_gate_result,
+                    request_admission_result: gate.request_admission_result,
+                    execution_audit: gate.execution_audit,
+                    approval_record: gate.approval_record,
+                    risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+                    audit_record: auditRecord,
+                    ...layer2InteractionSummary(layer2Interaction),
+                    controlled_live_write: controlledLiveWriteResult,
+                    live_write_evidence: controlledLiveWriteResult.live_write_evidence,
+                    live_write_evaluation: controlledLiveWriteResult.live_write_evaluation
+                },
+                observability: createObservability({
+                    href: env.getLocationHref(),
+                    title: env.getDocumentTitle(),
+                    readyState: env.getReadyState(),
+                    requestId: `req-${env.randomId()}`,
+                    outcome: fullLiveWriteSuccess ? "completed" : "failed",
+                    failureReason: fullLiveWriteSuccess ? undefined : "FR0032_CONTROLLED_LIVE_WRITE_INCOMPLETE",
+                    includeKeyRequest: false
+                })
+            }
+        };
     }
     if (input.options.validation_action === "editor_input" &&
         input.options.issue_scope === "issue_208" &&

@@ -159,6 +159,7 @@ export const resolveGate = (
     decisionId,
     approvalId,
     issue208EditorInputValidation: isIssue208EditorInputValidation(options),
+    controlledLiveWrite: options.controlled_live_write === true || options.issue_scope === "issue_835",
     treatMissingEditorValidationAsUnsupported: true
   }) as XhsSearchGate;
 

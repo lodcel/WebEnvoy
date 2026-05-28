@@ -124,6 +124,7 @@ const XHS_GATE_COMMANDS = new Set([
     "xhs.editor_input.validate",
     "xhs.editor_text.write",
     "xhs.creator_publish.admit",
+    "xhs.creator_publish.controlled_live_write",
     "xhs.detail",
     "xhs.user_home"
 ]);
@@ -990,6 +991,7 @@ const resolveXhsGateCommandInput = (input) => {
         targetSiteLoggedIn: asOptionalBoolean(readGateParam("target_site_logged_in")),
         limitedReadRolloutReadyTrue: readGateParam("limited_read_rollout_ready_true") === true,
         validationAction: asNonEmptyString(readGateParam("validation_action")),
+        controlledLiveWrite: readGateParam("controlled_live_write") === true,
         requestedFingerprintContext: resolveFingerprintContext(commandParams)
     };
 };
@@ -1077,6 +1079,7 @@ const buildCanonicalGateAuditArtifacts = (input) => {
         auditRecord: input.auditRecord,
         admissionContext: input.admissionContext,
         limitedReadRolloutReadyTrue: input.limitedReadRolloutReadyTrue,
+        controlledLiveWrite: input.controlledLiveWrite,
         decisionId: resolveBridgeRequestGateDecisionId(input.request),
         approvalId: resolveGatePayloadApprovalId({
             approvalActive: input.requestedExecutionMode === "live_read_limited" ||
@@ -1279,9 +1282,14 @@ const createBridgeXhsGateOnlyPayload = (request, gatePayload) => {
                 ? {
                     target_page: "creator_publish_tab"
                 }
-                : {
-                    query: String(normalizedInput.query ?? "")
-                };
+                : command === "xhs.creator_publish.controlled_live_write"
+                    ? {
+                        target_page: "creator_publish_tab",
+                        live_write_attempt_id: String(normalizedInput.live_write_attempt_id ?? "")
+                    }
+                    : {
+                        query: String(normalizedInput.query ?? "")
+                    };
     const capabilityResult = {
         ability_id: String(ability.id ?? "xhs.note.search.v1"),
         layer: String(ability.layer ?? "L3"),
@@ -6344,7 +6352,7 @@ class ChromeBackgroundBridge {
     }
     async #evaluateXhsTargetGate(request) {
         const command = String(request.params.command ?? "");
-        const { commandParams, targetDomain, targetTabId: initialTargetTabId, targetPage, issueScope, riskState, actionType, abilityActionType, requestedExecutionMode, approvalRecord, auditRecord, admissionContext, admissionDraft, upstreamAuthorizationRequest, legacyRequestedExecutionMode, runtimeProfileRef, sessionRhythmWindowId, sessionRhythmDecisionId, anonymousIsolationVerified, targetSiteLoggedIn, gateInvocationId, limitedReadRolloutReadyTrue, validationAction, requestedFingerprintContext } = resolveXhsGateCommandInput(asRecord(request.params.command_params) ?? {});
+        const { commandParams, targetDomain, targetTabId: initialTargetTabId, targetPage, issueScope, riskState, actionType, abilityActionType, requestedExecutionMode, approvalRecord, auditRecord, admissionContext, admissionDraft, upstreamAuthorizationRequest, legacyRequestedExecutionMode, runtimeProfileRef, sessionRhythmWindowId, sessionRhythmDecisionId, anonymousIsolationVerified, targetSiteLoggedIn, gateInvocationId, limitedReadRolloutReadyTrue, validationAction, controlledLiveWrite, requestedFingerprintContext } = resolveXhsGateCommandInput(asRecord(request.params.command_params) ?? {});
         let fingerprintExecution = requestedFingerprintContext?.execution ?? null;
         let fingerprintReasonCodes = (Array.isArray(fingerprintExecution?.reason_codes) ? fingerprintExecution.reason_codes : []).filter((code) => typeof code === "string");
         let targetTabId = initialTargetTabId;
@@ -6368,7 +6376,8 @@ class ChromeBackgroundBridge {
             requestedExecutionMode,
             upstreamAuthorizationRequest,
             legacyRequestedExecutionMode,
-            limitedReadRolloutReadyTrue
+            limitedReadRolloutReadyTrue,
+            controlledLiveWrite
         });
         const canonicalIssueScope = gateState.issueScope;
         const canonicalRiskState = gateState.riskState;
@@ -6428,6 +6437,7 @@ class ChromeBackgroundBridge {
             targetTabId,
             targetPage,
             issue208WriteGateOnly: gateState.issue208WriteGateOnly,
+            issue835ControlledLiveWrite: gateState.issue835ControlledLiveWrite,
             issue208EditorInputValidation,
             treatMissingEditorValidationAsUnsupported: true
         });
@@ -6605,7 +6615,8 @@ class ChromeBackgroundBridge {
             admissionContext: canonicalAdmissionContext,
             limitedReadRolloutReadyTrue,
             gateInvocationId,
-            issue208EditorInputValidation
+            issue208EditorInputValidation,
+            controlledLiveWrite
         });
         const canonicalRequestAdmissionResult = asRecord(sharedCanonicalGate.request_admission_result);
         const canonicalExecutionAudit = asRecord(sharedCanonicalGate.execution_audit);

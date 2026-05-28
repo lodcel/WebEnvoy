@@ -526,6 +526,91 @@ describe("xhs-input", () => {
     }
   });
 
+  it("parses xhs.creator_publish.controlled_live_write as issue_835 live write only", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
+      input: {
+        live_write_attempt_id: "fr0032-attempt-001",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_kind: "image"
+      },
+      options: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        risk_state: "allowed",
+        confirm_live_write: true,
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/manual-delete-or-residual"
+      }
+    });
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.creator_publish.controlled_live_write",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "profile-a"
+    });
+
+    expect(parseXhsCommandInputForContract({
+      command: "xhs.creator_publish.controlled_live_write",
+      abilityId: envelope.ability.id,
+      abilityAction: envelope.ability.action,
+      payload: envelope.input,
+      options: gate.options
+    })).toEqual({
+      target_page: "creator_publish_tab",
+      live_write_attempt_id: "fr0032-attempt-001",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      source_media_kind: "image"
+    });
+    expect(gate).toMatchObject({
+      targetDomain: "creator.xiaohongshu.com",
+      targetTabId: 32,
+      targetPage: "creator_publish_tab",
+      requestedExecutionMode: "live_write",
+      options: {
+        issue_scope: "issue_835",
+        action_type: "write",
+        controlled_live_write: true
+      }
+    });
+  });
+
+  it("rejects xhs.creator_publish.controlled_live_write when source media ref leaks a local path", () => {
+    try {
+      parseXhsCommandInputForContract({
+        command: "xhs.creator_publish.controlled_live_write",
+        abilityId: "xhs.creator.publish.v1",
+        abilityAction: "write",
+        payload: {
+          live_write_attempt_id: "fr0032-attempt-unsafe",
+          source_media_ref: "/Users/mc/private/source.png",
+          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image"
+        },
+        options: {
+          issue_scope: "issue_835",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          controlled_live_write: true
+        }
+      });
+      throw new Error("expected unsafe source media ref to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: expect.objectContaining({
+          reason: "SOURCE_MEDIA_REF_INVALID"
+        })
+      });
+    }
+  });
+
   it("normalizes xhs.creator_publish.admit upstream authorization without upgrading to live_write", () => {
     const envelope = parseAbilityEnvelopeForContract({
       ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
