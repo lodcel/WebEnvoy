@@ -191,6 +191,12 @@ const resolvePreferredXhsReadPage = (command, targetPage) => {
     }
     return null;
 };
+const resolvePreferredXhsRuntimeBootstrapPage = (command, targetPage) => {
+    if (targetPage === "creator_publish_tab") {
+        return "creator_publish_tab";
+    }
+    return resolvePreferredXhsReadPage(command, targetPage);
+};
 const isXhsReadTargetPage = (value) => value === "search_result_tab" || value === "explore_detail_tab" || value === "profile_tab";
 const resolveRequestedXhsResourceId = (command, commandParams) => {
     const explicitTargetResourceId = resolveRuntimeBootstrapRequestedXhsResourceId(commandParams, resolvePreferredXhsReadPage(command, asNonEmptyString(commandParams.target_page)));
@@ -262,15 +268,17 @@ const scoreXhsTab = (tab, preferredPage) => {
     const url = typeof tab.url === "string" ? tab.url : "";
     const parsed = parseUrl(url);
     const pathname = parsed?.pathname ?? "";
-    const page = isXhsSearchResultDetailPath(pathname)
-        ? "explore_detail_tab"
-        : url.includes("/search_result")
-            ? "search_result_tab"
-            : isXhsDetailLikePath(pathname)
-                ? "explore_detail_tab"
-                : url.includes("/user/profile/")
-                    ? "profile_tab"
-                    : "other";
+    const page = parsed?.hostname === XHS_WRITE_DOMAIN && pathname.includes("/publish")
+        ? "creator_publish_tab"
+        : isXhsSearchResultDetailPath(pathname)
+            ? "explore_detail_tab"
+            : url.includes("/search_result")
+                ? "search_result_tab"
+                : isXhsDetailLikePath(pathname)
+                    ? "explore_detail_tab"
+                    : url.includes("/user/profile/")
+                        ? "profile_tab"
+                        : "other";
     if (preferredPage && page === preferredPage) {
         return 0;
     }
@@ -4723,7 +4731,7 @@ class ChromeBackgroundBridge {
             : options?.[key];
         const targetDomain = asNonEmptyString(readTarget("target_domain"));
         const targetPage = asNonEmptyString(readTarget("target_page"));
-        const preferredPage = resolvePreferredXhsReadPage("runtime.bootstrap", targetPage);
+        const preferredPage = resolvePreferredXhsRuntimeBootstrapPage("runtime.bootstrap", targetPage);
         if (!targetDomain || !XHS_DOMAIN_ALLOWLIST.has(targetDomain) || !preferredPage) {
             return {
                 binding: null,
@@ -7202,12 +7210,13 @@ class ChromeBackgroundBridge {
         const command = String(request.params.command ?? "");
         if (command === "runtime.ping" || command === "runtime.bootstrap") {
             const runtimeBootstrapTargetPage = asNonEmptyString(commandParams.target_page);
-            const preferredRuntimeBootstrapReadPage = resolvePreferredXhsReadPage(command, runtimeBootstrapTargetPage);
+            const preferredRuntimeBootstrapReadPage = resolvePreferredXhsRuntimeBootstrapPage(command, runtimeBootstrapTargetPage);
             const runtimeBootstrapRequestedResourceId = command === "runtime.bootstrap"
                 ? resolveRuntimeBootstrapRequestedXhsResourceId(commandParams, preferredRuntimeBootstrapReadPage)
                 : null;
             if (command === "runtime.bootstrap" &&
-                isXhsReadTargetPage(runtimeBootstrapTargetPage) &&
+                (isXhsReadTargetPage(runtimeBootstrapTargetPage) ||
+                    runtimeBootstrapTargetPage === "creator_publish_tab") &&
                 preferredRuntimeBootstrapReadPage) {
                 const runtimeBootstrapReadTabId = await resolveRuntimeBootstrapReadTargetTabId(this.chromeApi, preferredRuntimeBootstrapReadPage, runtimeBootstrapRequestedResourceId);
                 if (runtimeBootstrapReadTabId !== null) {
@@ -7294,7 +7303,9 @@ class ChromeBackgroundBridge {
     }
     async #prepareRuntimeBootstrapRequestContextCapture(request, commandParams) {
         if (!isXhsReadTargetPage(commandParams.target_page)) {
-            return;
+            if (commandParams.target_page !== "creator_publish_tab") {
+                return;
+            }
         }
         const targetTabId = await this.#resolveTargetTabId(request);
         if (targetTabId === null) {

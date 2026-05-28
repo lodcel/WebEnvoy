@@ -839,6 +839,190 @@ describe("extension service worker / bootstrap and trust", () => {
     });
   });
 
+  it("binds creator publish readiness by domain/page when target_tab_id is omitted", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query = vi.fn(async () => [
+      {
+        id: 32,
+        url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+        active: true
+      }
+    ]);
+    chromeApi.tabs.get = vi.fn(async () => ({
+      id: 32,
+      url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+      active: true
+    }));
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-readiness-creator-publish-domain-page-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-readiness-creator-publish-domain-page-001",
+        command: "runtime.readiness",
+        command_params: {
+          runtime_context_id: "ctx-readiness-creator-publish-domain-page-001",
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 50
+    });
+    await waitForBridgeTurn();
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-readiness-creator-publish-domain-page-001",
+      status: "success",
+      payload: expect.objectContaining({
+        managed_target_tab_id: 32,
+        managed_target_domain: "creator.xiaohongshu.com",
+        managed_target_page: "creator_publish_tab",
+        target_tab_continuity: "runtime_trust_state"
+      })
+    });
+  });
+
+  it("keeps creator publish managed target binding after targeted bootstrap without target_tab_id", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);
+    const fingerprintContext = createFingerprintRuntimeContext();
+    chromeApi.tabs.query = vi.fn(async () => [
+      {
+        id: 32,
+        url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+        active: true
+      }
+    ]);
+    chromeApi.tabs.get = vi.fn(async () => ({
+      id: 32,
+      url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+      active: true
+    }));
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-bootstrap-creator-domain-page-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-bootstrap-creator-domain-page-001",
+        command: "runtime.bootstrap",
+        command_params: {
+          version: "v1",
+          run_id: "run-bootstrap-creator-domain-page-001",
+          runtime_context_id: "ctx-bootstrap-creator-domain-page-001",
+          profile: "profile-a",
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          fingerprint_runtime: fingerprintContext,
+          fingerprint_patch_manifest: {
+            required_patches: ["audio_context"]
+          },
+          main_world_secret: "secret-bootstrap-creator-domain-page-001"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 500
+    });
+    await waitForBridgeTurn();
+    await vi.waitFor(() => {
+      expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
+        32,
+        expect.objectContaining({
+          id: "run-bootstrap-creator-domain-page-001"
+        })
+      );
+    });
+
+    runtimeMessageListeners[0]?.(
+      {
+        kind: "result",
+        id: "run-bootstrap-creator-domain-page-001",
+        ok: true,
+        payload: {
+          method: "runtime.bootstrap.ack",
+          result: {
+            version: "v1",
+            run_id: "run-bootstrap-creator-domain-page-001",
+            runtime_context_id: "ctx-bootstrap-creator-domain-page-001",
+            profile: "profile-a",
+            status: "ready"
+          },
+          fingerprint_runtime: {
+            ...fingerprintContext,
+            injection: {
+              installed: true,
+              required_patches: ["audio_context"],
+              missing_required_patches: [],
+              source: "main_world"
+            }
+          }
+        }
+      },
+      {
+        tab: {
+          id: 32,
+          url: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article"
+        }
+      }
+    );
+    await waitForBridgeTurn();
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-bootstrap-creator-domain-page-001",
+      status: "success",
+      payload: expect.objectContaining({
+        method: "runtime.bootstrap.ack",
+        result: expect.objectContaining({
+          status: "ready"
+        })
+      })
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-readiness-creator-domain-page-002",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-bootstrap-creator-domain-page-001",
+        command: "runtime.readiness",
+        command_params: {
+          runtime_context_id: "ctx-bootstrap-creator-domain-page-001",
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab"
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 50
+    });
+    await waitForBridgeTurn();
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-readiness-creator-domain-page-002",
+      status: "success",
+      payload: expect.objectContaining({
+        bootstrap_state: "ready",
+        managed_target_tab_id: 32,
+        managed_target_domain: "creator.xiaohongshu.com",
+        managed_target_page: "creator_publish_tab",
+        target_tab_continuity: "runtime_trust_state"
+      })
+    });
+  });
+
   it("accepts legacy trusted bootstrap records missing sourcePage on the next target-bound bootstrap", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);
