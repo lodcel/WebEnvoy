@@ -27,9 +27,14 @@ import { createLoopbackNativeBridgeTransport } from "../../runtime/native-messag
 import { ProfileStore } from "../../runtime/profile-store.js";
 import {
   SQLiteRuntimeStore,
-  resolveRuntimeStorePath
+  resolveRuntimeStorePath,
+  type GateAuditRecord
 } from "../../runtime/store/sqlite-runtime-store.js";
-import { persistXhsCloseoutValidationSignals } from "../../runtime/anti-detection-validation.js";
+import {
+  persistXhsCloseoutValidationSignals,
+  persistXhsCloseoutValidationSourceEvidence,
+  persistXhsCloseoutValidationSourceSamples
+} from "../../runtime/anti-detection-validation.js";
 import {
   buildSessionRhythmFormalView,
   markXhsCloseoutSingleProbeFailed,
@@ -119,12 +124,19 @@ const seedXhsCloseoutReady = async (input: {
   cwd: string;
   profile: string;
   effectiveExecutionMode?: "live_read_high_risk" | "live_read_limited" | "live_write";
+  validationTargetDomain?: "www.xiaohongshu.com" | "creator.xiaohongshu.com";
+  validationTargetPage?: "search_result_tab" | "creator_publish_tab";
+  validationEvidenceMode?: "live_read_high_risk" | "live_write";
+  validationProbeBundleRef?:
+    | "probe-bundle/xhs-closeout-min-v1"
+    | "probe-bundle/xhs-creator-live-write-admission-v1";
 }) => {
   const effectiveExecutionMode = input.effectiveExecutionMode ?? "live_read_high_risk";
-  const validationTargetDomain = "www.xiaohongshu.com";
-  const validationTargetPage = "search_result_tab";
-  const validationEvidenceMode = "live_read_high_risk";
-  const validationProbeBundleRef = "probe-bundle/xhs-closeout-min-v1";
+  const validationTargetDomain = input.validationTargetDomain ?? "www.xiaohongshu.com";
+  const validationTargetPage = input.validationTargetPage ?? "search_result_tab";
+  const validationEvidenceMode = input.validationEvidenceMode ?? "live_read_high_risk";
+  const validationProbeBundleRef =
+    input.validationProbeBundleRef ?? "probe-bundle/xhs-closeout-min-v1";
   const profileStore = new ProfileStore(join(input.cwd, ".webenvoy", "profiles"));
   const meta =
     (await profileStore.readMeta(input.profile, { mode: "readonly" }).catch(() => null)) ??
@@ -162,79 +174,137 @@ const seedXhsCloseoutReady = async (input: {
   const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(input.cwd));
   try {
     xhsCloseoutValidationSeedSequence += 1;
+    const validationRunId = `run-${input.profile}-xhs-closeout-validation-${process.pid}-${xhsCloseoutValidationSeedSequence}`;
+    const validationSignals = {
+      layer1_consistency: {
+        browser_returned_evidence: {
+          source: "main_world",
+          target_domain: validationTargetDomain,
+          target_page: validationTargetPage,
+          requested_execution_mode: validationEvidenceMode,
+          probe_bundle_ref: validationProbeBundleRef
+        },
+        fingerprint_runtime: {
+          fingerprint_profile_bundle_ref: "fingerprint-bundle/xhs-closeout",
+          fingerprint_patch_manifest: {
+            required_patches: ["audio_context", "battery", "navigator_plugins", "navigator_mime_types"]
+          },
+          injection: {
+            installed: true,
+            required_patches: ["audio_context", "battery", "navigator_plugins", "navigator_mime_types"],
+            missing_required_patches: [],
+            source: "main_world"
+          }
+        }
+      },
+      layer2_interaction: {
+        browser_returned_evidence: {
+          source: "main_world",
+          target_domain: validationTargetDomain,
+          target_page: validationTargetPage,
+          requested_execution_mode: validationEvidenceMode,
+          probe_bundle_ref: validationProbeBundleRef
+        },
+        event_strategy_profile: {
+          action_kind: "scroll",
+          preferred_path: "real_input"
+        },
+        event_chain_policy: {
+          chain_name: "scroll_segment",
+          required_events: ["wheel", "scroll"]
+        },
+        rhythm_profile: {
+          profile_name: "default_layer2",
+          scroll_segment_min_px: 120,
+          scroll_segment_max_px: 480,
+          source_run_id: validationRunId
+        },
+        strategy_selection: {
+          action_kind: "scroll",
+          selected_path: "real_input"
+        },
+        execution_trace: {
+          action_kind: "scroll",
+          selected_path: "real_input",
+          settled_wait_result: "settled",
+          action_ref: `action-${validationRunId}`,
+          session_id: "nm-session-001",
+          target_tab_id: 32
+        }
+      },
+      layer3_session_rhythm: {
+        browser_returned_evidence: {
+          source: "execution_audit",
+          target_domain: validationTargetDomain,
+          target_page: validationTargetPage,
+          requested_execution_mode: validationEvidenceMode,
+          probe_bundle_ref: validationProbeBundleRef
+        },
+        session_rhythm_window_id: `rhythm_win_${input.profile}_issue_209`,
+        session_rhythm_decision_id: `rhythm_decision_${input.profile}_single_probe`,
+        escalation: "recon_probe_to_live_admission"
+      }
+    };
+    if (validationTargetDomain === "creator.xiaohongshu.com") {
+      const sourceAudit: GateAuditRecord = {
+        event_id: `gate_evt_${validationRunId}`,
+        decision_id: `gate_decision_${validationRunId}`,
+        approval_id: `gate_approval_${validationRunId}`,
+        run_id: validationRunId,
+        session_id: "nm-session-001",
+        profile: input.profile,
+        issue_scope: "issue_835",
+        risk_state: "allowed",
+        next_state: "allowed",
+        transition_trigger: "gate_evaluation",
+        target_domain: validationTargetDomain,
+        target_tab_id: 32,
+        target_page: validationTargetPage,
+        action_type: "write",
+        action_ref: `action-${validationRunId}`,
+        requested_execution_mode: validationEvidenceMode,
+        effective_execution_mode: validationEvidenceMode,
+        gate_decision: "allowed",
+        gate_reasons: ["XHS_CREATOR_LIVE_WRITE_VALIDATION_SOURCE_APPROVED"],
+        approver: "runtime.xhs_closeout_validation_source",
+        approved_at: "2026-04-25T10:45:00.000Z",
+        recorded_at: "2026-04-25T10:45:00.000Z",
+        created_at: "2026-04-25T10:45:00.000Z"
+      };
+      const samples = await persistXhsCloseoutValidationSourceEvidence({
+        store,
+        profile: input.profile,
+        effectiveExecutionMode,
+        targetDomain: validationTargetDomain,
+        targetPage: validationTargetPage,
+        sourceRunId: validationRunId,
+        observedAt: "2026-04-25T10:45:00.000Z",
+        sourceAudit,
+        actionRef: `action-${validationRunId}`,
+        signals: validationSignals,
+        artifactRefs: [`artifact/xhs-creator-live-write-validation-source/${validationRunId}`]
+      });
+      await persistXhsCloseoutValidationSourceSamples({
+        store,
+        profile: input.profile,
+        effectiveExecutionMode,
+        targetDomain: validationTargetDomain,
+        targetPage: validationTargetPage,
+        validationRunId: `${validationRunId}-view`,
+        observedAt: "2026-04-25T10:45:05.000Z",
+        sourceRunId: validationRunId,
+        sourceSamples: samples
+      });
+      return;
+    }
     await persistXhsCloseoutValidationSignals({
       store,
       profile: input.profile,
       effectiveExecutionMode,
       targetDomain: validationTargetDomain,
-      runId: `run-${input.profile}-xhs-closeout-validation-${process.pid}-${xhsCloseoutValidationSeedSequence}`,
+      runId: validationRunId,
       observedAt: "2026-04-25T10:45:00.000Z",
-      signals: {
-        layer1_consistency: {
-          browser_returned_evidence: {
-            source: "main_world",
-            target_domain: validationTargetDomain,
-            target_page: validationTargetPage,
-            requested_execution_mode: validationEvidenceMode,
-            probe_bundle_ref: validationProbeBundleRef
-          },
-          fingerprint_runtime: {
-            fingerprint_profile_bundle_ref: "fingerprint-bundle/xhs-closeout",
-            fingerprint_patch_manifest: {
-              required_patches: ["audio_context", "battery", "navigator_plugins", "navigator_mime_types"]
-            },
-            injection: {
-              installed: true,
-              required_patches: ["audio_context", "battery", "navigator_plugins", "navigator_mime_types"],
-              missing_required_patches: [],
-              source: "main_world"
-            }
-          }
-        },
-        layer2_interaction: {
-          browser_returned_evidence: {
-            source: "main_world",
-            target_domain: validationTargetDomain,
-            target_page: validationTargetPage,
-            requested_execution_mode: validationEvidenceMode,
-            probe_bundle_ref: validationProbeBundleRef
-          },
-          event_strategy_profile: {
-            action_kind: "scroll",
-            preferred_path: "real_input"
-          },
-          event_chain_policy: {
-            chain_name: "scroll_segment",
-            required_events: ["wheel", "scroll"]
-          },
-          rhythm_profile: {
-            profile_name: "default_layer2",
-            scroll_segment_min_px: 120,
-            scroll_segment_max_px: 480
-          },
-          strategy_selection: {
-            action_kind: "scroll",
-            selected_path: "real_input"
-          },
-          execution_trace: {
-            action_kind: "scroll",
-            selected_path: "real_input",
-            settled_wait_result: "settled"
-          }
-        },
-        layer3_session_rhythm: {
-          browser_returned_evidence: {
-            source: "execution_audit",
-            target_domain: validationTargetDomain,
-            target_page: validationTargetPage,
-            requested_execution_mode: validationEvidenceMode,
-            probe_bundle_ref: validationProbeBundleRef
-          },
-          session_rhythm_window_id: `rhythm_win_${input.profile}_issue_209`,
-          session_rhythm_decision_id: `rhythm_decision_${input.profile}_single_probe`,
-          escalation: "recon_probe_to_live_admission"
-        }
-      }
+      signals: validationSignals
     });
   } finally {
     store.close();
@@ -9575,6 +9645,72 @@ describe("normalizeGateOptionsForContract", () => {
       } else {
         process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
       }
+    }
+  });
+
+  it("uses creator admission validation bundle for issue_835 controlled live write preflight", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-controlled-live-write-bundle-"));
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "profile-controlled-live-write-bundle-001",
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.controlled_live_write",
+            profile: "profile-controlled-live-write-bundle-001",
+            run_id: "run-controlled-live-write-bundle-001",
+            params: {
+              input: {
+                live_write_attempt_id: "fr0032-attempt-bundle-001",
+                source_media_ref: "media-ref/fr-0032/fixture-image-a",
+                source_media_digest:
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                source_media_kind: "image"
+              },
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "live_write",
+              risk_state: "allowed"
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          reason: "EXECUTION_MODE_GATE_BLOCKED"
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      await rm(cwd, { recursive: true, force: true });
     }
   });
 

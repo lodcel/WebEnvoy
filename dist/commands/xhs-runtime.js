@@ -19,7 +19,7 @@ import { isAccountSafetyReason, toAccountSafetyStatus } from "../runtime/account
 import { toSessionRhythmStatusView, toXhsCloseoutRhythmStatus } from "../runtime/xhs-closeout-rhythm.js";
 import { ProfileRuntimeService } from "../runtime/profile-runtime.js";
 import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
-import { readXhsCloseoutValidationGateView, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
+import { readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBundleRef, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
 import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseControlledLiveWriteInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
@@ -531,6 +531,9 @@ const LIVE_XHS_EXECUTION_MODES = new Set([
 ]);
 const isLiveXhsExecutionMode = (mode) => LIVE_XHS_EXECUTION_MODES.has(mode);
 const isLiveXhsReadExecutionMode = (mode) => mode === "live_read_limited" || mode === "live_read_high_risk";
+const shouldUseControlledLiveWriteValidationBundle = (input) => input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND &&
+    asString(input.options.issue_scope) === "issue_835" &&
+    input.options.controlled_live_write === true;
 const isLegacyXhsSearchEditorInputValidation = (input) => input.command === "xhs.search" &&
     input.ability.action === "write" &&
     asString(input.options.issue_scope) === "issue_208" &&
@@ -2526,10 +2529,21 @@ const xhsReadCommand = async (context, inputConfig) => {
                 let store = null;
                 try {
                     store = new SQLiteRuntimeStore(resolveRuntimeStorePath(context.cwd));
+                    const probeBundleRef = shouldUseControlledLiveWriteValidationBundle({
+                        command: context.command,
+                        options: gate.options
+                    })
+                        ? resolveXhsCloseoutValidationProbeBundleRef({
+                            effectiveExecutionMode: gate.requestedExecutionMode,
+                            targetDomain: gate.targetDomain,
+                            targetPage: gate.targetPage
+                        })
+                        : undefined;
                     antiDetectionValidationGate = await readXhsCloseoutValidationGateView({
                         store,
                         profile: context.profile,
-                        effectiveExecutionMode: resolveXhsCloseoutReadinessBaselineExecutionMode(gate.requestedExecutionMode)
+                        effectiveExecutionMode: resolveXhsCloseoutReadinessBaselineExecutionMode(gate.requestedExecutionMode),
+                        ...(probeBundleRef ? { probeBundleRef } : {})
                     });
                 }
                 catch (error) {
