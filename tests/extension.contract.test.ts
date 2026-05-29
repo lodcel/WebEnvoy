@@ -666,6 +666,7 @@ describe("extension build contract", () => {
     expect(contentScriptBuild).toContain("readPageStateViaMainWorld");
     expect(contentScriptBuild).toContain("requestXhsSearchJsonViaMainWorld");
     expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteUnavailableResult");
+    expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteFromDiscovery");
     expect(contentScriptBuild).toContain("__webenvoy_module_xhs_controlled_live_write");
     expect(contentScriptBuild.indexOf("const __webenvoy_module_xhs_controlled_live_write")).toBeGreaterThan(
       -1
