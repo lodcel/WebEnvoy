@@ -444,6 +444,247 @@ describe("extension background relay / controlled live write", () => {
     }
   });
 
+  it("uses a visible upload dropzone when the current creator page has no file input", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    const originalDragEvent = globalThis.DragEvent;
+    const dispatchedEvents: string[] = [];
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "upload-dropzone";
+      classList = ["upload-dropzone"];
+      textContent = "点击上传图片";
+      getAttribute = (name: string) => {
+        if (name === "aria-label") {
+          return "上传图片";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 64, height: 64 });
+      dispatchEvent = (event: Event) => {
+        dispatchedEvents.push(event.type);
+        return true;
+      };
+    }
+    class TestPreviewElement extends TestElement {
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      textContent = "";
+      getAttribute = () => null;
+    }
+    const dropzone = new TestElement();
+    const preview = new TestPreviewElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "DragEvent", {
+      configurable: true,
+      value: undefined
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [];
+          }
+          if (selector.includes("img")) {
+            return [preview];
+          }
+          if (selector.includes("upload")) {
+            return [dropzone];
+          }
+          return [preview];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-dropzone-upload",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-891-dropzone-upload",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(dispatchedEvents).toEqual(["dragenter", "dragover", "drop"]);
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+      Object.defineProperty(globalThis, "DragEvent", {
+        configurable: true,
+        value: originalDragEvent
+      });
+    }
+  });
+
+  it("rejects visible non-upload dropdown-like elements as upload dropzones", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    const originalDragEvent = globalThis.DragEvent;
+    const dispatchedEvents: string[] = [];
+    class TestDataTransfer {
+      items = {
+        add: () => undefined
+      };
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "dropdown upload-menu drop-shadow";
+      classList = ["dropdown", "upload-menu", "drop-shadow"];
+      textContent = "更多选项";
+      getAttribute = () => null;
+      getBoundingClientRect = () => ({ width: 64, height: 64 });
+      dispatchEvent = (event: Event) => {
+        dispatchedEvents.push(event.type);
+        return true;
+      };
+    }
+    const nonUploadElement = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "DragEvent", {
+      configurable: true,
+      value: undefined
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [];
+          }
+          if (selector.includes("upload")) {
+            return [nonUploadElement];
+          }
+          return [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-non-upload-dropzone",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-891-non-upload-dropzone",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(dispatchedEvents).toEqual([]);
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ENTRY_MISSING",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+      Object.defineProperty(globalThis, "DragEvent", {
+        configurable: true,
+        value: originalDragEvent
+      });
+    }
+  });
+
   it("does not accept a zero-size editor preview as upload success", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
