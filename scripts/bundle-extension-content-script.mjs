@@ -76,6 +76,9 @@ const buildContentScriptBundle = async () => {
   const xhsMediaUploadDiscoverySource = await readSource(
     join(buildRoot, "xhs-media-upload-discovery.js")
   );
+  const xhsControlledLiveWriteSource = await readSource(
+    join(buildRoot, "xhs-controlled-live-write.js")
+  );
   const xhsCommandContractSource = await readSource(join(buildRoot, "xhs-command-contract.js"));
   const contentScriptMainWorldSource = await readSource(
     join(buildRoot, "content-script-main-world.js")
@@ -348,7 +351,10 @@ const buildContentScriptBundle = async () => {
       "} = __webenvoy_module_xhs_search_telemetry;",
       "const {",
       "  buildXhsSearchLayer2InteractionEvidence",
-      "} = __webenvoy_module_layer2_humanized_events;"
+      "} = __webenvoy_module_layer2_humanized_events;",
+      "const {",
+      "  buildXhsControlledLiveWriteUnavailableResult",
+      "} = __webenvoy_module_xhs_controlled_live_write;"
     ].join("\n"),
     sourceBody: xhsSearchExecutionSource,
     exports: ["executeXhsSearch"]
@@ -407,6 +413,15 @@ const buildContentScriptBundle = async () => {
     moduleVar: "__webenvoy_module_xhs_media_upload_discovery",
     sourceBody: xhsMediaUploadDiscoverySource,
     exports: ["buildXhsMediaUploadDiscoveryResult"]
+  });
+
+  const xhsControlledLiveWriteModule = renderClassicModule({
+    moduleVar: "__webenvoy_module_xhs_controlled_live_write",
+    sourceBody: xhsControlledLiveWriteSource,
+    exports: [
+      "buildXhsControlledLiveWriteFromDiscovery",
+      "buildXhsControlledLiveWriteUnavailableResult"
+    ]
   });
 
   const xhsCommandContractModule = renderClassicModule({
@@ -554,6 +569,7 @@ const buildContentScriptBundle = async () => {
     xhsSearchTelemetryModule,
     xhsSearchGateModule,
     layer2HumanizedEventsModule,
+    xhsControlledLiveWriteModule,
     xhsSearchExecutionModule,
     xhsSearchModule,
     xhsReadExecutionModule,
@@ -571,6 +587,7 @@ const buildContentScriptBundle = async () => {
     "  __webenvoy_module_xhs_detail,",
     "  __webenvoy_module_xhs_user_home,",
     "  __webenvoy_module_xhs_search_gate,",
+    "  __webenvoy_module_xhs_controlled_live_write,",
     `  ${LAYER2_HUMANIZED_EVENTS_MODULE_VAR},`,
     "  __webenvoy_module_content_script_handler",
     "};"

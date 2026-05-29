@@ -40,12 +40,15 @@ type BundledXhsModuleVar =
   | "__webenvoy_module_xhs_search"
   | "__webenvoy_module_xhs_detail"
   | "__webenvoy_module_xhs_user_home"
+  | "__webenvoy_module_xhs_controlled_live_write"
   | "__webenvoy_module_layer2_humanized_events";
 
 type BundledXhsExportName =
   | "executeXhsSearch"
   | "executeXhsDetail"
   | "executeXhsUserHome"
+  | "buildXhsControlledLiveWriteUnavailableResult"
+  | "buildXhsControlledLiveWriteFromDiscovery"
   | "buildLayer2RhythmPlan"
   | "buildLayer2ScheduledEventChain"
   | "buildLayer2WriteBoundaryAudit"
@@ -662,6 +665,8 @@ describe("extension build contract", () => {
     expect(contentScriptBuild).toContain("installFingerprintRuntimeViaMainWorld");
     expect(contentScriptBuild).toContain("readPageStateViaMainWorld");
     expect(contentScriptBuild).toContain("requestXhsSearchJsonViaMainWorld");
+    expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteUnavailableResult");
+    expect(contentScriptBuild).toContain("__webenvoy_module_xhs_controlled_live_write");
     expect(xhsEditorInputBuild).toContain("performEditorInputValidation");
     expect(xhsEditorInputBuild).toContain("新的创作");
     expect(xhsEditorInputBuild).toContain("enter_editable_mode");
@@ -739,6 +744,84 @@ describe("extension build contract", () => {
           capability_result: {
             ability_id: "xhs.note.search.v1",
             outcome: "partial"
+          }
+        }
+      }
+    });
+  });
+
+  it("executes bundled controlled live write fallback without unresolved implementation references", async () => {
+    await expect(
+      executeBundledXhsCommand(contentScriptBuildPath, {
+        moduleVar: "__webenvoy_module_xhs_search",
+        exportName: "executeXhsSearch",
+        commandInput: {
+          command: "xhs.creator_publish.controlled_live_write",
+          abilityId: "xhs.creator.publish.v1",
+          abilityLayer: "L3",
+          abilityAction: "write",
+          params: {
+            target_page: "creator_publish_tab",
+            live_write_attempt_id: "fr0032-bundled-fallback-001",
+            source_media_ref: "media-ref/fr-0032/fixture-image-a",
+            source_media_digest:
+              "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_media_kind: "image"
+          },
+          options: {
+            issue_scope: "issue_835",
+            target_domain: "creator.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "creator_publish_tab",
+            actual_target_domain: "creator.xiaohongshu.com",
+            actual_target_tab_id: 32,
+            actual_target_page: "creator_publish_tab",
+            action_type: "write",
+            requested_execution_mode: "live_write",
+            risk_state: "allowed",
+            controlled_live_write: true,
+            publish_visibility_scope: "private_or_self_visible",
+            cleanup_policy_ref: "cleanup-policy/fr-0032/private-delete-or-hide-v1",
+            approval_record: {
+              approved: true,
+              approver: "bundle-test",
+              approved_at: "2026-05-29T00:00:00.000Z",
+              checks: {
+                target_domain_confirmed: true,
+                target_tab_confirmed: true,
+                target_page_confirmed: true,
+                risk_state_checked: true,
+                action_type_confirmed: true
+              }
+            }
+          },
+          executionContext: {
+            runId: "run-bundled-controlled-live-write-001",
+            sessionId: "nm-session-bundled-controlled-live-write-001",
+            profile: "profile-a"
+          }
+        },
+        envOverrides: {
+          getLocationHref: () => "https://creator.xiaohongshu.com/publish/publish",
+          getDocumentTitle: () => "Creator Publish"
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      payload: {
+        summary: {
+          capability_result: {
+            ability_id: "xhs.creator.publish.v1",
+            outcome: "partial"
+          },
+          live_write_evaluation: {
+            decision: "NO_GO",
+            full_live_write_success: false
+          },
+          controlled_live_write: {
+            uploaded: false,
+            submitted: false,
+            published: false
           }
         }
       }
