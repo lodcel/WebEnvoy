@@ -3,7 +3,7 @@ import { SEARCH_ENDPOINT, createPageContextNamespace, createSearchRequestShape, 
 import { executeXhsDetail } from "./xhs-detail.js";
 import { executeXhsUserHome } from "./xhs-user-home.js";
 import { performEditorInputValidation } from "./xhs-editor-input.js";
-import { buildXhsControlledLiveWriteUploadBlockedResult } from "./xhs-controlled-live-write.js";
+import { performXhsControlledLiveWriteWithApprovedSourceMedia } from "./xhs-controlled-live-write.js";
 import { buildXhsMediaUploadDiscoveryResult } from "./xhs-media-upload-discovery.js";
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { buildFailedFingerprintInjectionContext, hasInstalledFingerprintInjection, installFingerprintRuntimeWithVerification, resolveFingerprintContextForContract, resolveFingerprintContextFromMessage, resolveMissingRequiredFingerprintPatches, summarizeFingerprintRuntimeContext } from "./content-script-fingerprint.js";
@@ -1362,12 +1362,7 @@ const createBrowserEnvironment = () => ({
     },
     performEditorInputValidation: async (input) => await performEditorInputValidation(input),
     performMediaUploadDiscovery: async (input) => buildXhsMediaUploadDiscoveryResult(input),
-    performControlledLiveWrite: async (input) => buildXhsControlledLiveWriteUploadBlockedResult(input, {
-        blockerCode: "UPLOAD_ARTIFACT_MISSING",
-        blockerMessage: "Controlled live write cannot continue because the browser executor has no approved source media resolver.",
-        detailsRef: "controlled_source_media_resolver_unavailable",
-        requiredRecoveryAction: "provide an approved source media resolver that can supply uploadable media bytes without leaking local paths"
-    })
+    performControlledLiveWrite: async (input) => await performXhsControlledLiveWriteWithApprovedSourceMedia(input)
 });
 const resolveTargetDomainFromHref = (href) => {
     try {

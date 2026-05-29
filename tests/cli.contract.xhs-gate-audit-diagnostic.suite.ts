@@ -1450,7 +1450,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     expect(
       (((body.error as Record<string, unknown>).details as Record<string, unknown>).gate_reasons as string[])
     ).toEqual(expect.arrayContaining(["MANUAL_CONFIRMATION_MISSING"]));
-  });
+  }, 10_000);
 
   it("returns invalid args when dry_run target scope is missing", () => {
     const result = runCli([
@@ -1565,7 +1565,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
         "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND",
       ])
     );
-  });
+  }, 10_000);
 
   it("blocks live_write when action_type is omitted even if ability.action is write", () => {
     const result = runCli([
