@@ -12613,6 +12613,9 @@ const { executeXhsUserHome } = __webenvoy_module_xhs_user_home;
 const { performEditorInputValidation } = __webenvoy_module_xhs_editor_input;
 const { buildXhsMediaUploadDiscoveryResult } = __webenvoy_module_xhs_media_upload_discovery;
 const {
+  buildXhsControlledLiveWriteUploadBlockedResult
+} = __webenvoy_module_xhs_controlled_live_write;
+const {
   SEARCH_ENDPOINT,
   createPageContextNamespace,
   createSearchRequestShape,

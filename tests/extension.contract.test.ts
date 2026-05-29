@@ -942,6 +942,110 @@ describe("extension build contract", () => {
     );
   });
 
+  it("executes bundled content-script handler controlled live write fallback without unresolved builders", async () => {
+    const { ContentScriptHandler } = loadBundledContentScriptHandlerModule(contentScriptBuildPath, {
+      URL
+    });
+    const handler = new ContentScriptHandler({
+      xhsEnv: {
+        now: () => 1_710_000_000_000,
+        randomId: () => "bundle-handler-controlled-live-write-req-001",
+        getLocationHref: () => "https://creator.xiaohongshu.com/publish/publish",
+        getDocumentTitle: () => "Creator Publish",
+        getReadyState: () => "complete",
+        getCookie: () => "a1=session-cookie"
+      }
+    });
+
+    const resultPromise = new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        off();
+        reject(new Error("did not receive bundled controlled live write handler result"));
+      }, 500);
+      const off = handler.onResult((message) => {
+        clearTimeout(timeout);
+        off();
+        resolve(message as Record<string, unknown>);
+      });
+    });
+
+    expect(
+      handler.onBackgroundMessage({
+        kind: "forward",
+        id: "msg-bundled-handler-controlled-live-write-001",
+        runId: "run-bundled-handler-controlled-live-write-001",
+        tabId: 32,
+        profile: "profile-a",
+        cwd: "/tmp/webenvoy",
+        timeoutMs: 3_000,
+        command: "xhs.creator_publish.controlled_live_write",
+        params: {
+          session_id: "nm-session-bundled-handler-controlled-live-write-001"
+        },
+        commandParams: {
+          request_id: "req-bundled-handler-controlled-live-write-001",
+          ability: {
+            id: "xhs.creator.publish.v1",
+            layer: "L3",
+            action: "write"
+          },
+          input: {
+            live_write_attempt_id: "fr0032-bundled-handler-fallback-001",
+            source_media_ref: "media-ref/fr-0032/fixture-image-a",
+            source_media_digest:
+              "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_media_kind: "image"
+          },
+          options: {
+            issue_scope: "issue_835",
+            target_domain: "creator.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "creator_publish_tab",
+            actual_target_domain: "creator.xiaohongshu.com",
+            actual_target_tab_id: 32,
+            actual_target_page: "creator_publish_tab",
+            action_type: "write",
+            requested_execution_mode: "live_write",
+            risk_state: "allowed",
+            controlled_live_write: true,
+            confirm_live_write: true,
+            publish_visibility_scope: "private_or_self_visible",
+            cleanup_policy_ref: "cleanup-policy/fr-0032/private-delete-or-hide-v1",
+            approval_record: {
+              approved: true,
+              approver: "bundle-handler-test",
+              approved_at: "2026-05-29T00:00:00.000Z",
+              checks: {
+                target_domain_confirmed: true,
+                target_tab_confirmed: true,
+                target_page_confirmed: true,
+                risk_state_checked: true,
+                action_type_confirmed: true
+              }
+            }
+          }
+        }
+      })
+    ).toBe(true);
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      kind: "result",
+      ok: true,
+      payload: {
+        summary: {
+          live_write_evaluation: {
+            decision: "NO_GO",
+            full_live_write_success: false
+          }
+        }
+      }
+    });
+    expect((result.error as { message?: string } | undefined)?.message).not.toBe(
+      "buildXhsControlledLiveWriteUploadBlockedResult is not defined"
+    );
+  });
+
   it("forwards xhs recovery probe marker through bundled content-script handler", async () => {
     const { ContentScriptHandler } = loadBundledContentScriptHandlerModule(contentScriptBuildPath);
     const handler = new ContentScriptHandler({
