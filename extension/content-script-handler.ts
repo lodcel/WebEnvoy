@@ -13,6 +13,7 @@ import {
 import { executeXhsDetail } from "./xhs-detail.js";
 import { executeXhsUserHome } from "./xhs-user-home.js";
 import { performEditorInputValidation } from "./xhs-editor-input.js";
+import { buildXhsControlledLiveWriteUploadBlockedResult } from "./xhs-controlled-live-write.js";
 import { buildXhsMediaUploadDiscoveryResult } from "./xhs-media-upload-discovery.js";
 import {
   ensureFingerprintRuntimeContext,
@@ -1709,7 +1710,15 @@ const createBrowserEnvironment = (): XhsSearchEnvironment => ({
   ) => await performEditorInputValidation(input),
   performMediaUploadDiscovery: async (
     input: Parameters<NonNullable<XhsSearchEnvironment["performMediaUploadDiscovery"]>>[0]
-  ) => buildXhsMediaUploadDiscoveryResult(input)
+  ) => buildXhsMediaUploadDiscoveryResult(input),
+  performControlledLiveWrite: async (
+    input: Parameters<NonNullable<XhsSearchEnvironment["performControlledLiveWrite"]>>[0]
+  ) => buildXhsControlledLiveWriteUploadBlockedResult(input, {
+    blockerCode: "UPLOAD_ARTIFACT_MISSING",
+    blockerMessage: "Controlled live write cannot continue because the browser executor has no approved source media resolver.",
+    detailsRef: "controlled_source_media_resolver_unavailable",
+    requiredRecoveryAction: "provide an approved source media resolver that can supply uploadable media bytes without leaking local paths"
+  })
 });
 
 const resolveTargetDomainFromHref = (href: string): string | null => {

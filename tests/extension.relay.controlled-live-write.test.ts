@@ -6,6 +6,8 @@ import {
   ContentScriptHandler,
   waitForResponse
 } from "./extension.relay.shared.js";
+import { buildXhsControlledLiveWriteFromDiscovery } from "../extension/xhs-controlled-live-write.js";
+import { buildXhsMediaUploadDiscoveryResult } from "../extension/xhs-media-upload-discovery.js";
 
 const controlledLiveOptions = {
   issue_scope: "issue_835",
@@ -195,6 +197,56 @@ describe("extension background relay / controlled live write", () => {
       decision: "NO_GO",
       full_live_write_success: false,
       later_write_actions_blocked: true
+    });
+  });
+
+  it("converts default upload discovery into a precise upload blocker instead of executor unavailable", () => {
+    const input = {
+      live_write_attempt_id: "fr0032-attempt-default-executor-001",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      source_media_kind: "image" as const,
+      publish_visibility_scope: "private_or_self_visible" as const,
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-879-default-executor-001",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test"
+    };
+    const discovery = buildXhsMediaUploadDiscoveryResult({
+      source_media_ref: input.source_media_ref,
+      source_media_digest: input.source_media_digest,
+      source_media_kind: input.source_media_kind,
+      run_id: input.run_id,
+      profile_ref: input.profile_ref,
+      target_tab_id: input.target_tab_id,
+      page_url: input.page_url
+    });
+
+    const result = buildXhsControlledLiveWriteFromDiscovery(input, discovery);
+
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: false,
+      later_write_actions_blocked: true,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "UPLOAD_PLATFORM_REJECTED",
+          blocker_layer: "upload"
+        })
+      ]
+    });
+    expect(result.live_write_evidence).toMatchObject({
+      stop_classification: expect.objectContaining({
+        category: "upload_blocked",
+        stop_reason: "source_media_resolution_or_upload_acceptance_unavailable"
+      }),
+      stop_signal: expect.objectContaining({
+        blocker_code: "UPLOAD_PLATFORM_REJECTED",
+        later_write_actions_blocked: true
+      })
     });
   });
 });
