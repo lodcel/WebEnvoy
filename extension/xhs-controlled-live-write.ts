@@ -81,7 +81,6 @@ const findUploadFileInput = (): HTMLInputElement | null => {
   const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
   return (
     inputs.find((input) => !input.disabled && /image|\*/iu.test(input.accept || "image/*")) ??
-    inputs.find((input) => !input.disabled) ??
     null
   );
 };
@@ -103,6 +102,36 @@ const isVisibleElement = (element: Element): boolean => {
 
 const textContentOf = (element: Element): string =>
   (element.textContent ?? "").trim().replace(/\s+/g, " ");
+
+const imageModeTextPattern = /上传图文|图文|图片|image|photo/iu;
+
+const selectImagePublishMode = async (): Promise<void> => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return;
+  }
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      [
+        "button",
+        '[role="tab"]',
+        '[class*="tab" i]',
+        '[class*="upload" i]',
+        '[class*="publish" i]'
+      ].join(",")
+    )
+  );
+  const imageMode = candidates.find(
+    (element) =>
+      isVisibleElement(element) &&
+      imageModeTextPattern.test(textContentOf(element)) &&
+      typeof element.click === "function"
+  );
+  if (!imageMode) {
+    return;
+  }
+  imageMode.click();
+  await sleep(500);
+};
 
 const uploadIntentTextPattern = /上传|图片|图文|素材|拖拽|点击上传|upload|image|media|photo/iu;
 const nonUploadClassPattern = /dropdown|drop-down|drop_shadow|drop-shadow|backdrop/iu;
@@ -715,6 +744,9 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
   const resolvedFile = await resolveApprovedFixtureMediaFile(input);
   if (!isBrowserFile(resolvedFile)) {
     return buildXhsControlledLiveWriteUploadBlockedResult(input, resolvedFile);
+  }
+  if (input.source_media_kind === "image") {
+    await selectImagePublishMode();
   }
   const previousPreviewSignatures = collectEditorPreviewSignatures();
   const fileInput = findUploadFileInput();

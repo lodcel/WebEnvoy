@@ -448,6 +448,150 @@ describe("extension background relay / controlled live write", () => {
     }
   });
 
+  it("selects image publish mode before choosing an upload entry for the approved image fixture", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "";
+      classList = [] as string[];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 64, height: 32 });
+    }
+    class ImageModeTab extends TestElement {
+      textContent = "上传图文";
+      clicked = false;
+      click = () => {
+        this.clicked = true;
+        imageModeSelected = true;
+      };
+    }
+    class PreviewElement extends TestElement {
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-fixture";
+        }
+        return null;
+      };
+    }
+    let imageModeSelected = false;
+    let uploadDispatched = false;
+    const videoInput = {
+      accept: ".mp4,.mov",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        throw new Error("video input must not be used for image fixture");
+      }
+    };
+    const imageInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const imageModeTab = new ImageModeTab();
+    const preview = new PreviewElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [imageModeSelected ? imageInput : videoInput];
+          }
+          if (selector.includes("button") || selector.includes("tab")) {
+            return [imageModeTab];
+          }
+          return uploadDispatched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-select-image-mode",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-select-image-mode",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(imageModeTab.clicked).toBe(true);
+      expect(uploadDispatched).toBe(true);
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
   it("does not treat the creator upload icon as an uploaded media preview", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
