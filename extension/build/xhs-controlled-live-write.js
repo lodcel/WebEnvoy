@@ -48,6 +48,36 @@ const isVisibleElement = (element) => {
         rect.width > 0 &&
         rect.height > 0);
 };
+const textContentOf = (element) => (element.textContent ?? "").trim().replace(/\s+/g, " ");
+const uploadIntentTextPattern = /上传|图片|图文|素材|拖拽|点击上传|upload|image|media|photo/iu;
+const nonUploadClassPattern = /dropdown|drop-down|drop_shadow|drop-shadow|backdrop/iu;
+const hasUploadIntentSignal = (element) => {
+    const signalText = [
+        element.getAttribute("data-testid"),
+        element.getAttribute("data-test"),
+        element.getAttribute("aria-label"),
+        element.getAttribute("title"),
+        element.className,
+        textContentOf(element)
+    ]
+        .filter((value) => typeof value === "string" && value.trim().length > 0)
+        .join(" ");
+    return uploadIntentTextPattern.test(signalText) && !nonUploadClassPattern.test(signalText);
+};
+const findUploadDropzone = () => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return null;
+    }
+    const candidates = Array.from(document.querySelectorAll([
+        '[data-testid*="upload" i]',
+        '[class*="upload" i]',
+        '[aria-label*="上传" i]',
+        '[aria-label*="upload" i]',
+        '[title*="上传" i]',
+        '[title*="upload" i]'
+    ].join(",")));
+    return candidates.find((element) => isVisibleElement(element) && hasUploadIntentSignal(element)) ?? null;
+};
 const findEditorPreviewLocator = () => {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
         return null;
@@ -157,6 +187,47 @@ const dispatchFileInputUpload = (input, file) => {
             blockerMessage: "Controlled live upload cannot assign the approved media file to the page input.",
             detailsRef: "file_input_assignment_failed",
             requiredRecoveryAction: "provide a page-compatible controlled upload executor for the current creator UI"
+        };
+    }
+};
+const createControlledDragEvent = (type, transfer) => {
+    if (typeof DragEvent === "function") {
+        return new DragEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: transfer
+        });
+    }
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", {
+        configurable: true,
+        value: transfer
+    });
+    return event;
+};
+const dispatchDropzoneUpload = (dropzone, file) => {
+    if (typeof DataTransfer === "undefined") {
+        return {
+            blockerCode: "DATA_TRANSFER_UNAVAILABLE",
+            blockerMessage: "Controlled live upload cannot continue because DataTransfer is unavailable.",
+            detailsRef: "data_transfer_unavailable",
+            requiredRecoveryAction: "run controlled upload in a browser surface that supports DataTransfer"
+        };
+    }
+    try {
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        for (const eventName of ["dragenter", "dragover", "drop"]) {
+            dropzone.dispatchEvent(createControlledDragEvent(eventName, transfer));
+        }
+        return null;
+    }
+    catch {
+        return {
+            blockerCode: "DROPZONE_UPLOAD_DISPATCH_FAILED",
+            blockerMessage: "Controlled live upload cannot dispatch the approved media file to the page dropzone.",
+            detailsRef: "dropzone_upload_dispatch_failed",
+            requiredRecoveryAction: "provide a page-compatible controlled dropzone upload executor for the current creator UI"
         };
     }
 };
@@ -472,15 +543,18 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input
         return buildXhsControlledLiveWriteUploadBlockedResult(input, resolvedFile);
     }
     const fileInput = findUploadFileInput();
-    if (!fileInput) {
+    const dropzone = fileInput ? null : findUploadDropzone();
+    if (!fileInput && !dropzone) {
         return buildXhsControlledLiveWriteUploadBlockedResult(input, {
             blockerCode: "UPLOAD_ENTRY_MISSING",
-            blockerMessage: "Controlled live upload cannot find an enabled file input on the creator publish page.",
-            detailsRef: "upload_file_input_missing",
+            blockerMessage: "Controlled live upload cannot find an enabled file input or visible dropzone on the creator publish page.",
+            detailsRef: "upload_entry_missing",
             requiredRecoveryAction: "restore the creator publish target page or update the XHS upload entry locator"
         });
     }
-    const assignmentFailure = dispatchFileInputUpload(fileInput, resolvedFile);
+    const assignmentFailure = fileInput
+        ? dispatchFileInputUpload(fileInput, resolvedFile)
+        : dispatchDropzoneUpload(dropzone, resolvedFile);
     if (assignmentFailure) {
         return buildXhsControlledLiveWriteUploadBlockedResult(input, assignmentFailure);
     }
