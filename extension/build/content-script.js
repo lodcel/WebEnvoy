@@ -6712,7 +6712,7 @@ const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input) => {
         captured_at: timestamp
     });
 };
-return { buildXhsControlledLiveWriteFromDiscovery, buildXhsControlledLiveWriteUnavailableResult, buildXhsControlledLiveWriteUploadBlockedResult };
+return { performXhsControlledLiveWriteWithApprovedSourceMedia, buildXhsControlledLiveWriteFromDiscovery, buildXhsControlledLiveWriteUnavailableResult, buildXhsControlledLiveWriteUploadBlockedResult };
 })();
 const __webenvoy_module_xhs_search_execution = (() => {
 const {
@@ -12824,6 +12824,7 @@ const { executeXhsUserHome } = __webenvoy_module_xhs_user_home;
 const { performEditorInputValidation } = __webenvoy_module_xhs_editor_input;
 const { buildXhsMediaUploadDiscoveryResult } = __webenvoy_module_xhs_media_upload_discovery;
 const {
+  performXhsControlledLiveWriteWithApprovedSourceMedia,
   buildXhsControlledLiveWriteUploadBlockedResult
 } = __webenvoy_module_xhs_controlled_live_write;
 const {
