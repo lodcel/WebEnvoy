@@ -6,7 +6,10 @@ import {
   ContentScriptHandler,
   waitForResponse
 } from "./extension.relay.shared.js";
-import { buildXhsControlledLiveWriteFromDiscovery } from "../extension/xhs-controlled-live-write.js";
+import {
+  buildXhsControlledLiveWriteFromDiscovery,
+  performXhsControlledLiveWriteWithApprovedSourceMedia
+} from "../extension/xhs-controlled-live-write.js";
 import { buildXhsMediaUploadDiscoveryResult } from "../extension/xhs-media-upload-discovery.js";
 
 const controlledLiveOptions = {
@@ -248,5 +251,303 @@ describe("extension background relay / controlled live write", () => {
         later_write_actions_blocked: true
       })
     });
+  });
+
+  it("rejects approved fixture upload when the declared digest does not match", async () => {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-digest-mismatch",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-884-digest-mismatch",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test"
+    });
+
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      upload_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "SOURCE_MEDIA_DIGEST_MISMATCH",
+          blocker_layer: "upload"
+        })
+      ]
+    });
+    expect(result.live_write_evidence).toMatchObject({
+      stop_classification: expect.objectContaining({
+        stop_reason: "source_media_digest_mismatch"
+      }),
+      upload_artifact_identity: expect.objectContaining({
+        accepted_by_platform: false,
+        visible_in_editor: false
+      })
+    });
+  });
+
+  it("returns structured evidence when File construction is unavailable", async () => {
+    const originalFile = globalThis.File;
+    Object.defineProperty(globalThis, "File", {
+      configurable: true,
+      value: undefined
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-file-unavailable",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-884-file-unavailable",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "FILE_CONSTRUCTOR_UNAVAILABLE",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+    } finally {
+      Object.defineProperty(globalThis, "File", {
+        configurable: true,
+        value: originalFile
+      });
+    }
+  });
+
+  it("resolves the approved fixture without local paths but does not treat preview visibility as platform acceptance", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      classList = ["preview-image"];
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => true
+    };
+    const preview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return [preview];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-approved-fixture",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-884-approved-fixture",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        submit_success: false,
+        cleanup_required: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        execution_phase: "upload",
+        upload_artifact_identity: expect.objectContaining({
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest:
+            "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        }),
+        stop_signal: expect.objectContaining({
+          blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+          cleanup_required: false
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not accept a zero-size editor preview as upload success", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      classList = ["preview-image"];
+      getBoundingClientRect = () => ({ width: 0, height: 0 });
+    }
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => true
+    };
+    const preview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return [preview];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-zero-preview",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-884-zero-preview",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        stop_classification: expect.objectContaining({
+          stop_reason: "upload_preview_not_visible"
+        }),
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: false
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
   });
 });

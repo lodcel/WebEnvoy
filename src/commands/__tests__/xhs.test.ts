@@ -5852,6 +5852,10 @@ describe("normalizeGateOptionsForContract", () => {
 
   it("blocks the XHS closeout bundle until a recovery single-probe is requested", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-rhythm-blocked-"));
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
       const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
       const meta = await profileStore.initializeMeta(
@@ -5928,6 +5932,16 @@ describe("normalizeGateOptionsForContract", () => {
       });
     } finally {
       await rm(cwd, { recursive: true, force: true });
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
     }
   }, 15_000);
 
