@@ -351,11 +351,15 @@ describe("extension background relay / controlled live write", () => {
       classList = ["preview-image"];
       getBoundingClientRect = () => ({ width: 32, height: 32 });
     }
+    let uploadDispatched = false;
     const fileInput = {
       accept: "image/*",
       disabled: false,
       files: null as FileList | null,
-      dispatchEvent: () => true
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
     };
     const preview = new TestElement();
     Object.defineProperty(globalThis, "DataTransfer", {
@@ -377,7 +381,7 @@ describe("extension background relay / controlled live write", () => {
           if (selector === 'input[type="file"]') {
             return [fileInput];
           }
-          return [preview];
+          return uploadDispatched ? [preview] : [];
         }
       }
     });
@@ -417,6 +421,758 @@ describe("extension background relay / controlled live write", () => {
             "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
           accepted_by_platform: false,
           visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        }),
+        stop_signal: expect.objectContaining({
+          blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+          cleanup_required: false
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not treat the creator upload icon as an uploaded media preview", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "upload-icon";
+      classList = ["upload-icon"];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "upload-icon";
+        }
+        if (name === "src") {
+          return "data:image/png;base64,placeholder";
+        }
+        if (name === "alt") {
+          return "上传图片";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    let uploadDispatched = false;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const uploadIcon = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return [uploadIcon];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-upload-icon-placeholder",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-upload-icon-placeholder",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: false,
+          page_preview_locator: null
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not treat upload completion text alone as platform acceptance", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      textContent = "上传完成";
+      parentElement = null;
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-fixture";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    let uploadDispatched = false;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const preview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return uploadDispatched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-upload-complete-text-only",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-upload-complete-text-only",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        submit_success: false,
+        cleanup_required: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        execution_phase: "upload",
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          platform_staging_ref: null,
+          page_preview_locator: "img.preview-image"
+        }),
+        stop_signal: expect.objectContaining({
+          blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+          cleanup_required: false
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not treat pre-existing platform staging id as current upload acceptance", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/existing-decoration";
+        }
+        if (name === "data-upload-id") {
+          return "existing-upload-id";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => true
+    };
+    const existingPreview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return [existingPreview];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-existing-platform-staging-id",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-existing-platform-staging-id",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not accept a pre-existing platform staging id when the preview changes after upload", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    let uploadDispatched = false;
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return uploadDispatched
+            ? "blob:https://creator.xiaohongshu.com/changed-after-upload"
+            : "blob:https://creator.xiaohongshu.com/existing-decoration";
+        }
+        if (name === "data-upload-id") {
+          return "existing-upload-id";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const existingPreview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return [existingPreview];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-existing-platform-staging-id-changed-preview",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-existing-platform-staging-id-changed-preview",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        execution_phase: "upload",
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          platform_staging_ref: null,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not treat a changed platform media URL alone as upload acceptance", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      textContent = "";
+      parentElement = null;
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "https://sns-webpic-qc.xhscdn.com/20260529/fr0032-fixture.png";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    let uploadDispatched = false;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const preview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return uploadDispatched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-platform-staging-ref",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-platform-staging-ref",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        submit_success: false,
+        cleanup_required: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        execution_phase: "upload",
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          platform_staging_ref: null,
+          page_preview_locator: "img.preview-image"
+        }),
+        stop_signal: expect.objectContaining({
+          blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+          cleanup_required: false
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not treat a new preview data id as independent platform acceptance", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      textContent = "";
+      parentElement = null;
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-fixture";
+        }
+        if (name === "data-upload-id") {
+          return "current-upload-id";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    let uploadDispatched = false;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const preview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          return uploadDispatched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-explicit-platform-staging-id",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-explicit-platform-staging-id",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        submit_success: false,
+        cleanup_required: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        execution_phase: "upload",
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          platform_staging_ref: null,
           page_preview_locator: "img.preview-image"
         }),
         stop_signal: expect.objectContaining({
@@ -513,12 +1269,12 @@ describe("extension background relay / controlled live write", () => {
             return [];
           }
           if (selector.includes("img")) {
-            return [preview];
+            return dispatchedEvents.length > 0 ? [preview] : [];
           }
           if (selector.includes("upload")) {
             return [dropzone];
           }
-          return [preview];
+          return dispatchedEvents.length > 0 ? [preview] : [];
         }
       }
     });
