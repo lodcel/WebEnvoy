@@ -353,7 +353,8 @@ const buildContentScriptBundle = async () => {
       "  buildXhsSearchLayer2InteractionEvidence",
       "} = __webenvoy_module_layer2_humanized_events;",
       "const {",
-      "  buildXhsControlledLiveWriteUnavailableResult",
+      "  buildXhsControlledLiveWriteUnavailableResult,",
+      "  buildXhsControlledLiveWriteUploadBlockedResult",
       "} = __webenvoy_module_xhs_controlled_live_write;"
     ].join("\n"),
     sourceBody: xhsSearchExecutionSource,
@@ -420,7 +421,8 @@ const buildContentScriptBundle = async () => {
     sourceBody: xhsControlledLiveWriteSource,
     exports: [
       "buildXhsControlledLiveWriteFromDiscovery",
-      "buildXhsControlledLiveWriteUnavailableResult"
+      "buildXhsControlledLiveWriteUnavailableResult",
+      "buildXhsControlledLiveWriteUploadBlockedResult"
     ]
   });
 

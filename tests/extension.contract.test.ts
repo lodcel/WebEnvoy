@@ -666,6 +666,7 @@ describe("extension build contract", () => {
     expect(contentScriptBuild).toContain("readPageStateViaMainWorld");
     expect(contentScriptBuild).toContain("requestXhsSearchJsonViaMainWorld");
     expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteUnavailableResult");
+    expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteUploadBlockedResult");
     expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteFromDiscovery");
     expect(contentScriptBuild).toContain("__webenvoy_module_xhs_controlled_live_write");
     expect(contentScriptBuild.indexOf("const __webenvoy_module_xhs_controlled_live_write")).toBeGreaterThan(
@@ -675,7 +676,15 @@ describe("extension build contract", () => {
       contentScriptBuild.indexOf("const __webenvoy_module_xhs_controlled_live_write")
     );
     expect(() => {
-      loadBundleExports(contentScriptBuildPath, "__webenvoy_module_xhs_controlled_live_write");
+      const bundleExports = loadBundleExports(
+        contentScriptBuildPath,
+        "__webenvoy_module_xhs_controlled_live_write"
+      );
+      const controlledLiveWriteExports =
+        bundleExports.__webenvoy_module_xhs_controlled_live_write as Record<string, unknown>;
+      expect(controlledLiveWriteExports.buildXhsControlledLiveWriteUploadBlockedResult).toEqual(
+        expect.any(Function)
+      );
     }).not.toThrow();
     expect(xhsEditorInputBuild).toContain("performEditorInputValidation");
     expect(xhsEditorInputBuild).toContain("新的创作");

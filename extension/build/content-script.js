@@ -6501,7 +6501,7 @@ const buildXhsControlledLiveWriteFromDiscovery = (input, discovery) => {
         requiredRecoveryAction: "provide a controlled media resolver and real upload executor before submit/publish"
     });
 };
-return { buildXhsControlledLiveWriteFromDiscovery, buildXhsControlledLiveWriteUnavailableResult };
+return { buildXhsControlledLiveWriteFromDiscovery, buildXhsControlledLiveWriteUnavailableResult, buildXhsControlledLiveWriteUploadBlockedResult };
 })();
 const __webenvoy_module_xhs_search_execution = (() => {
 const {
@@ -6534,7 +6534,8 @@ const {
   buildXhsSearchLayer2InteractionEvidence
 } = __webenvoy_module_layer2_humanized_events;
 const {
-  buildXhsControlledLiveWriteUnavailableResult
+  buildXhsControlledLiveWriteUnavailableResult,
+  buildXhsControlledLiveWriteUploadBlockedResult
 } = __webenvoy_module_xhs_controlled_live_write;
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
