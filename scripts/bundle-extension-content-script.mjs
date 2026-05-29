@@ -420,6 +420,7 @@ const buildContentScriptBundle = async () => {
     moduleVar: "__webenvoy_module_xhs_controlled_live_write",
     sourceBody: xhsControlledLiveWriteSource,
     exports: [
+      "performXhsControlledLiveWriteWithApprovedSourceMedia",
       "buildXhsControlledLiveWriteFromDiscovery",
       "buildXhsControlledLiveWriteUnavailableResult",
       "buildXhsControlledLiveWriteUploadBlockedResult"
@@ -491,6 +492,7 @@ const buildContentScriptBundle = async () => {
       "const { performEditorInputValidation } = __webenvoy_module_xhs_editor_input;",
       "const { buildXhsMediaUploadDiscoveryResult } = __webenvoy_module_xhs_media_upload_discovery;",
       "const {",
+      "  performXhsControlledLiveWriteWithApprovedSourceMedia,",
       "  buildXhsControlledLiveWriteUploadBlockedResult",
       "} = __webenvoy_module_xhs_controlled_live_write;",
       "const {",

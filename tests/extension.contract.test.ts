@@ -665,6 +665,7 @@ describe("extension build contract", () => {
     expect(contentScriptBuild).toContain("installFingerprintRuntimeViaMainWorld");
     expect(contentScriptBuild).toContain("readPageStateViaMainWorld");
     expect(contentScriptBuild).toContain("requestXhsSearchJsonViaMainWorld");
+    expect(contentScriptBuild).toContain("performXhsControlledLiveWriteWithApprovedSourceMedia");
     expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteUnavailableResult");
     expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteUploadBlockedResult");
     expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteFromDiscovery");
@@ -682,6 +683,9 @@ describe("extension build contract", () => {
       );
       const controlledLiveWriteExports =
         bundleExports.__webenvoy_module_xhs_controlled_live_write as Record<string, unknown>;
+      expect(
+        controlledLiveWriteExports.performXhsControlledLiveWriteWithApprovedSourceMedia
+      ).toEqual(expect.any(Function));
       expect(controlledLiveWriteExports.buildXhsControlledLiveWriteUploadBlockedResult).toEqual(
         expect.any(Function)
       );
