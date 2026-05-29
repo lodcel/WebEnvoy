@@ -667,6 +667,15 @@ describe("extension build contract", () => {
     expect(contentScriptBuild).toContain("requestXhsSearchJsonViaMainWorld");
     expect(contentScriptBuild).toContain("buildXhsControlledLiveWriteUnavailableResult");
     expect(contentScriptBuild).toContain("__webenvoy_module_xhs_controlled_live_write");
+    expect(contentScriptBuild.indexOf("const __webenvoy_module_xhs_controlled_live_write")).toBeGreaterThan(
+      -1
+    );
+    expect(contentScriptBuild.indexOf("const __webenvoy_module_xhs_search_execution")).toBeGreaterThan(
+      contentScriptBuild.indexOf("const __webenvoy_module_xhs_controlled_live_write")
+    );
+    expect(() => {
+      loadBundleExports(contentScriptBuildPath, "__webenvoy_module_xhs_controlled_live_write");
+    }).not.toThrow();
     expect(xhsEditorInputBuild).toContain("performEditorInputValidation");
     expect(xhsEditorInputBuild).toContain("新的创作");
     expect(xhsEditorInputBuild).toContain("enter_editable_mode");
@@ -817,6 +826,11 @@ describe("extension build contract", () => {
           live_write_evaluation: {
             decision: "NO_GO",
             full_live_write_success: false
+          },
+          live_write_evidence: {
+            scope: {
+              execution_surface: "real_browser"
+            }
           },
           controlled_live_write: {
             uploaded: false,

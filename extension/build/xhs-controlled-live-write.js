@@ -34,7 +34,7 @@ export const buildXhsControlledLiveWriteUnavailableResult = (input) => {
             target_domain: "creator.xiaohongshu.com",
             target_page: "creator_publish_tab",
             browser_channel: "Google Chrome stable",
-            execution_surface: "not_evaluated",
+            execution_surface: "real_browser",
             requested_execution_mode: "live_write",
             profile_ref: input.profile_ref ?? "unknown",
             target_tab_id: input.target_tab_id ?? 0,
