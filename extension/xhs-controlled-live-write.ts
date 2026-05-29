@@ -140,29 +140,98 @@ const findUploadDropzone = (): HTMLElement | null => {
   return candidates.find((element) => isVisibleElement(element) && hasUploadIntentSignal(element)) ?? null;
 };
 
-const findEditorPreviewLocator = (): string | null => {
+type EditorPreviewEvidence = {
+  locator: string;
+  platformStagingRef: string | null;
+  acceptedByPlatform: boolean;
+};
+
+const uploadPlaceholderPattern = /upload[-_ ]?icon|upload[-_ ]?btn|placeholder|empty|add[-_ ]?(image|photo|media)|点击上传|上传图片|upload image|upload photo/iu;
+
+const locatorForElement = (element: Element): string => {
+  if (element.id) {
+    return `#${element.id}`;
+  }
+  const className = Array.from(element.classList).find((item) => item.trim().length > 0);
+  return className ? `${element.tagName.toLowerCase()}.${className}` : element.tagName.toLowerCase();
+};
+
+const getElementAttribute = (element: Element, name: string): string | null =>
+  typeof element.getAttribute === "function" ? element.getAttribute(name) : null;
+
+const signalTextForElement = (element: Element): string =>
+  [
+    element.id,
+    getElementAttribute(element, "class"),
+    getElementAttribute(element, "src"),
+    getElementAttribute(element, "alt"),
+    getElementAttribute(element, "aria-label"),
+    getElementAttribute(element, "title"),
+    textContentOf(element)
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+
+const isUploadPlaceholderPreview = (element: Element): boolean =>
+  uploadPlaceholderPattern.test(signalTextForElement(element));
+
+const editorPreviewSelector = [
+  'img[src^="blob:"]',
+  'img[src^="data:image/"]',
+  'img[src^="http://"]',
+  'img[src^="https://"]',
+  'video[src^="blob:"]',
+  'video[src^="http://"]',
+  'video[src^="https://"]',
+  '[class*="preview" i] img',
+  '[class*="cover" i] img',
+  '[class*="media" i] img'
+].join(",");
+
+const previewSignatureForElement = (element: Element): string =>
+  [
+    element.tagName.toLowerCase(),
+    locatorForElement(element),
+    getElementAttribute(element, "src") ?? "",
+    getElementAttribute(element, "data-upload-id") ?? "",
+    getElementAttribute(element, "data-media-id") ?? "",
+    getElementAttribute(element, "data-material-id") ?? "",
+    getElementAttribute(element, "data-asset-id") ?? "",
+    getElementAttribute(element, "data-file-id") ?? "",
+    getElementAttribute(element, "data-oss-id") ?? ""
+  ].join("|");
+
+const collectEditorPreviewSignatures = (): Set<string> => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return new Set();
+  }
+  return new Set(
+    Array.from(document.querySelectorAll<HTMLElement>(editorPreviewSelector))
+      .filter((element) => isVisibleElement(element) && !isUploadPlaceholderPreview(element))
+      .map(previewSignatureForElement)
+  );
+};
+
+const findEditorPreviewEvidence = (previousSignatures: Set<string>): EditorPreviewEvidence | null => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return null;
   }
   const preview = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      [
-        'img[src^="blob:"]',
-        'img[src^="data:image/"]',
-        '[class*="preview" i] img',
-        '[class*="upload" i] img',
-        '[class*="cover" i] img'
-      ].join(",")
-    )
-  ).find(isVisibleElement);
+    document.querySelectorAll<HTMLElement>(editorPreviewSelector)
+  ).find(
+    (element) =>
+      isVisibleElement(element) &&
+      !isUploadPlaceholderPreview(element) &&
+      !previousSignatures.has(previewSignatureForElement(element))
+  );
   if (!preview) {
     return null;
   }
-  if (preview.id) {
-    return `#${preview.id}`;
-  }
-  const className = Array.from(preview.classList).find((item) => item.trim().length > 0);
-  return className ? `${preview.tagName.toLowerCase()}.${className}` : preview.tagName.toLowerCase();
+  return {
+    locator: locatorForElement(preview),
+    platformStagingRef: null,
+    acceptedByPlatform: false
+  };
 };
 
 const resolveApprovedFixtureMediaFile = async (
@@ -548,9 +617,8 @@ export const buildXhsControlledLiveWriteUploadBlockedResult = (
 
 const buildXhsControlledLiveWriteSubmitBlockedResult = (
   input: XhsControlledLiveWriteInput,
-  discovery: MediaUploadDiscoveryResult
+  artifact: ControlledUploadArtifactIdentity | null
 ): XhsControlledLiveWriteResult => {
-  const artifact = discovery.controlled_upload_evidence?.upload_artifact_identity ?? null;
   const result = buildXhsControlledLiveWriteUploadBlockedResult(input, {
     blockerCode: "SUBMIT_EXECUTOR_UNAVAILABLE",
     blockerMessage: "Upload evidence exists, but submit/publish executor is not available.",
@@ -619,7 +687,10 @@ export const buildXhsControlledLiveWriteFromDiscovery = (
   discovery: MediaUploadDiscoveryResult
 ): XhsControlledLiveWriteResult => {
   if (discovery.controlled_upload_evidence?.upload_artifact_identity?.accepted_by_platform === true) {
-    return buildXhsControlledLiveWriteSubmitBlockedResult(input, discovery);
+    return buildXhsControlledLiveWriteSubmitBlockedResult(
+      input,
+      discovery.controlled_upload_evidence.upload_artifact_identity
+    );
   }
   const artifact = discovery.controlled_upload_evidence?.upload_artifact_identity ?? null;
   if (!artifact) {
@@ -645,6 +716,7 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
   if (!isBrowserFile(resolvedFile)) {
     return buildXhsControlledLiveWriteUploadBlockedResult(input, resolvedFile);
   }
+  const previousPreviewSignatures = collectEditorPreviewSignatures();
   const fileInput = findUploadFileInput();
   const dropzone = fileInput ? null : findUploadDropzone();
   if (!fileInput && !dropzone) {
@@ -663,8 +735,8 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
     return buildXhsControlledLiveWriteUploadBlockedResult(input, assignmentFailure);
   }
   await sleep(2_500);
-  const pagePreviewLocator = findEditorPreviewLocator();
-  if (!pagePreviewLocator) {
+  const previewEvidence = findEditorPreviewEvidence(previousPreviewSignatures);
+  if (!previewEvidence) {
     return buildXhsControlledLiveWriteUploadBlockedResult(input, {
       blockerCode: "UPLOAD_PREVIEW_NOT_VISIBLE",
       blockerMessage:
@@ -676,6 +748,20 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
   }
   const timestamp = nowIso();
   const uploadArtifactId = `upload-artifact/fr-0032/${input.run_id}/${input.source_media_digest.slice(7, 19)}`;
+  const uploadArtifact = {
+    upload_artifact_id: uploadArtifactId,
+    source_media_ref: input.source_media_ref,
+    source_media_digest: input.source_media_digest,
+    source_media_kind: input.source_media_kind,
+    platform_staging_ref: previewEvidence.platformStagingRef,
+    page_preview_locator: previewEvidence.locator,
+    accepted_by_platform: previewEvidence.acceptedByPlatform,
+    visible_in_editor: true,
+    captured_at: timestamp
+  };
+  if (previewEvidence.acceptedByPlatform) {
+    return buildXhsControlledLiveWriteSubmitBlockedResult(input, uploadArtifact);
+  }
   return buildXhsControlledLiveWriteUploadBlockedResult(input, {
     blockerCode: "UPLOAD_ACCEPTANCE_UNVERIFIED",
     blockerMessage:
@@ -683,15 +769,5 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
     detailsRef: "upload_acceptance_unverified",
     requiredRecoveryAction:
       "collect platform-returned upload acceptance evidence before submit/publish"
-  }, {
-    upload_artifact_id: uploadArtifactId,
-    source_media_ref: input.source_media_ref,
-    source_media_digest: input.source_media_digest,
-    source_media_kind: input.source_media_kind,
-    platform_staging_ref: null,
-    page_preview_locator: pagePreviewLocator,
-    accepted_by_platform: false,
-    visible_in_editor: true,
-    captured_at: timestamp
-  });
+  }, uploadArtifact);
 };
