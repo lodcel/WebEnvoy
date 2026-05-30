@@ -876,6 +876,22 @@ const waitForEditorPreviewEvidence = async (
   return latestVisiblePreview;
 };
 
+const uploadPreviewWaitOptions = (
+  stage: "file_input" | "dropzone"
+): { timeoutMs?: number; intervalMs?: number } => {
+  const isExtensionBrowserSurface =
+    typeof window !== "undefined" &&
+    typeof window.document !== "undefined" &&
+    "chrome" in globalThis;
+  if (!isExtensionBrowserSurface) {
+    return {};
+  }
+  return {
+    timeoutMs: stage === "file_input" ? 8_000 : 3_000,
+    intervalMs: 500
+  };
+};
+
 const resolveApprovedFixtureMediaFile = async (
   input: XhsControlledLiveWriteInput
 ): Promise<File | UploadBlockedInput> => {
@@ -1464,6 +1480,7 @@ export const buildXhsControlledLiveWriteFromDiscovery = (
 
 const privateVisibilityPattern = /仅自己可见|仅自己|自己可见|私密|仅本人|private|only\s*me|self[-_ ]?visible/iu;
 const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
+const visibilityTriggerPattern = /可见范围|谁可以看|谁能看|观看权限|权限设置|发布权限|visibility|privacy|permission/iu;
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
 const nonSubmitPublishPattern = /草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule/iu;
 const publishSuccessPattern = /发布成功|发布完成|已发布|提交成功|publish(ed)?\s*(success|complete)|success/iu;
@@ -1597,6 +1614,62 @@ const buildStepBlockedResult = (
   };
 };
 
+const visibilityControlSelector = [
+  "button",
+  "label",
+  '[role="button"]',
+  '[role="combobox"]',
+  '[role="radio"]',
+  '[role="menuitemradio"]',
+  '[role="option"]',
+  '[class*="visibility" i]',
+  '[class*="privacy" i]',
+  '[class*="permission" i]',
+  '[class*="select" i]',
+  '[class*="dropdown" i]'
+].join(",");
+
+const privateVisibilityOptionSelector = [
+  visibilityControlSelector,
+  '[role="menu"] *',
+  '[role="listbox"] *',
+  '[class*="popover" i] *',
+  '[class*="dropdown" i] *',
+  '[class*="select" i] *'
+].join(",");
+
+const findPrivateVisibilityOption = (): HTMLElement | null =>
+  findVisibleElementMatchingText(privateVisibilityOptionSelector, privateVisibilityPattern, publicVisibilityPattern);
+
+const findVisibilityTrigger = (): HTMLElement | null =>
+  findVisibleElementMatchingText(
+    visibilityControlSelector,
+    visibilityTriggerPattern,
+    new RegExp(`${submitPublishPattern.source}|${nonSubmitPublishPattern.source}`, "iu")
+  );
+
+const selectPrivateVisibilityControl = async (): Promise<HTMLElement | null> => {
+  const visiblePrivateOption = findPrivateVisibilityOption();
+  if (visiblePrivateOption) {
+    visiblePrivateOption.click();
+    await sleep(300);
+    return visiblePrivateOption;
+  }
+  const trigger = findVisibilityTrigger();
+  if (!trigger || typeof trigger.click !== "function") {
+    return null;
+  }
+  trigger.click();
+  await sleep(500);
+  const openedPrivateOption = findPrivateVisibilityOption();
+  if (!openedPrivateOption || typeof openedPrivateOption.click !== "function") {
+    return null;
+  }
+  openedPrivateOption.click();
+  await sleep(300);
+  return openedPrivateOption;
+};
+
 const currentHref = (): string | null =>
   typeof window !== "undefined" && window.location?.href
     ? window.location.href
@@ -1678,21 +1751,8 @@ const performControlledSubmitPublishCleanup = async (
       cleanupRequired: false
     }, null, uploadStageCleanupResult(input, timestamp, "non-private visibility refused before submit"));
   }
-  const visibilityControl = findVisibleElementMatchingText(
-    [
-      "button",
-      "label",
-      '[role="radio"]',
-      '[role="menuitemradio"]',
-      '[role="option"]',
-      '[class*="visibility" i]',
-      '[class*="privacy" i]',
-      '[class*="permission" i]'
-    ].join(","),
-    privateVisibilityPattern,
-    publicVisibilityPattern
-  );
-  if (!visibilityControl || typeof visibilityControl.click !== "function") {
+  const visibilityControl = await selectPrivateVisibilityControl();
+  if (!visibilityControl) {
     return buildStepBlockedResult(input, artifact, {
       blockerCode: "PUBLISH_VISIBILITY_CONTROL_MISSING",
       blockerMessage: "Controlled publish cannot find a private/self-visible visibility control.",
@@ -1704,8 +1764,6 @@ const performControlledSubmitPublishCleanup = async (
       cleanupRequired: false
     }, null, uploadStageCleanupResult(input, timestamp, "private visibility not selected before submit"));
   }
-  visibilityControl.click();
-  await sleep(500);
   const submitControl = findVisibleElementMatchingText(
     [
       "button",
@@ -1915,14 +1973,20 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
     if (assignmentFailure) {
       return buildXhsControlledLiveWriteUploadBlockedResult(input, assignmentFailure);
     }
-    previewEvidence = await waitForEditorPreviewEvidence(previousPreviewSignatures);
+    previewEvidence = await waitForEditorPreviewEvidence(
+      previousPreviewSignatures,
+      uploadPreviewWaitOptions("file_input")
+    );
   }
   if (!previewEvidence && dropzone) {
     assignmentFailure = dispatchDropzoneUpload(dropzone, resolvedFile);
     if (assignmentFailure && !fileInput) {
       return buildXhsControlledLiveWriteUploadBlockedResult(input, assignmentFailure);
     }
-    previewEvidence = await waitForEditorPreviewEvidence(previousPreviewSignatures);
+    previewEvidence = await waitForEditorPreviewEvidence(
+      previousPreviewSignatures,
+      uploadPreviewWaitOptions("dropzone")
+    );
   }
   if (!previewEvidence) {
     return buildXhsControlledLiveWriteUploadBlockedResult(input, {
