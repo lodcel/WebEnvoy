@@ -635,7 +635,7 @@ describe("extension background relay / controlled live write", () => {
       }
     };
     const imageInput = {
-      accept: "image/*",
+      accept: ".jpg,.jpeg,.png,.webp",
       disabled: false,
       files: null as FileList | null,
       dispatchEvent: () => {
@@ -712,6 +712,304 @@ describe("extension background relay / controlled live write", () => {
       Object.defineProperty(globalThis, "getComputedStyle", {
         configurable: true,
         value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("does not use a video-only upload entry for the approved image fixture", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "upload-entry";
+      classList = ["upload-entry"];
+      textContent = "上传";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 64, height: 32 });
+      dispatchEvent = () => true;
+    }
+    let videoInputTouched = false;
+    let dropzoneTouched = false;
+    const videoInput = {
+      accept: ".mp4,.mov,.flv,.mkv",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        videoInputTouched = true;
+        return true;
+      }
+    };
+    class UploadDropzone extends TestElement {
+      dispatchEvent = () => {
+        dropzoneTouched = true;
+        return true;
+      };
+    }
+    const dropzone = new UploadDropzone();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [videoInput];
+          }
+          if (selector.includes("upload")) {
+            return [dropzone];
+          }
+          return [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-video-input-rejected",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-898-video-input-rejected",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(videoInputTouched).toBe(false);
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "IMAGE_UPLOAD_ENTRY_MISSING",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(dropzoneTouched).toBe(false);
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("prefers an explicit image file input over a generic empty-accept input", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-fixture";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    let genericInputTouched = false;
+    let imageInputTouched = false;
+    const genericInput = {
+      accept: "",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        genericInputTouched = true;
+        return true;
+      }
+    };
+    const imageInput = {
+      accept: ".jpg,.jpeg,.png,.webp",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        imageInputTouched = true;
+        return true;
+      }
+    };
+    const preview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [genericInput, imageInput];
+          }
+          return imageInputTouched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-image-input-priority",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-898-image-input-priority",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(genericInputTouched).toBe(false);
+      expect(imageInputTouched).toBe(true);
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  });
+
+  it("rejects a generic empty-accept file input for the approved image fixture", async () => {
+    const originalDocument = globalThis.document;
+    const genericInput = {
+      accept: "",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        throw new Error("generic empty-accept input must not be used for image fixture");
+      }
+    };
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [genericInput];
+          }
+          return [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-empty-accept-rejected",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-898-empty-accept-rejected",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "IMAGE_UPLOAD_ENTRY_MISSING",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+    } finally {
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
       });
     }
   });
