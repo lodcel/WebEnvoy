@@ -320,6 +320,21 @@ const textContentOf = (element: Element): string =>
   (element.textContent ?? "").trim().replace(/\s+/g, " ");
 
 const imageModeTextPattern = /上传图文|图文|图片|image|photo/iu;
+const imageModeHrefPattern = /(?:[?&]target=image(?:&|$)|target%3Dimage)/iu;
+
+const imageModeCandidateScore = (element: HTMLElement): number => {
+  const href = getElementAttribute(element, "href") ?? "";
+  if (imageModeHrefPattern.test(href)) {
+    return 0;
+  }
+  if (element.getAttribute("role") === "tab") {
+    return 1;
+  }
+  if (element.tagName.toUpperCase() === "BUTTON") {
+    return 2;
+  }
+  return 3;
+};
 
 const selectImagePublishMode = async (): Promise<void> => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
@@ -328,25 +343,28 @@ const selectImagePublishMode = async (): Promise<void> => {
   const candidates = Array.from(
     document.querySelectorAll<HTMLElement>(
       [
+        'a[href*="target=image" i]',
+        '[href*="target=image" i]',
+        '[data-target*="image" i]',
         "button",
         '[role="tab"]',
         '[class*="tab" i]',
-        '[class*="upload" i]',
         '[class*="publish" i]'
       ].join(",")
     )
   );
-  const imageMode = candidates.find(
-    (element) =>
-      isVisibleElement(element) &&
-      imageModeTextPattern.test(textContentOf(element)) &&
-      typeof element.click === "function"
-  );
+  const imageMode = candidates
+    .filter((element) => {
+      const href = getElementAttribute(element, "href") ?? "";
+      const signal = `${href} ${textContentOf(element)}`;
+      return isVisibleElement(element) && imageModeTextPattern.test(signal) && typeof element.click === "function";
+    })
+    .sort((left, right) => imageModeCandidateScore(left) - imageModeCandidateScore(right))[0];
   if (!imageMode) {
     return;
   }
   imageMode.click();
-  await sleep(500);
+  await sleep(800);
 };
 
 const uploadIntentTextPattern = /上传|图片|图文|素材|拖拽|点击上传|upload|image|media|photo/iu;
@@ -427,10 +445,12 @@ const signalTextForElement = (element: Element): string =>
   [
     element.id,
     getElementAttribute(element, "class"),
+    getElementAttribute(element, "style"),
     getElementAttribute(element, "src"),
     getElementAttribute(element, "alt"),
     getElementAttribute(element, "aria-label"),
     getElementAttribute(element, "title"),
+    element instanceof HTMLElement ? getComputedStyle(element).backgroundImage : null,
     textContentOf(element)
   ]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
@@ -509,7 +529,11 @@ const editorPreviewSelector = [
   'video[src^="https://"]',
   '[class*="preview" i] img',
   '[class*="cover" i] img',
-  '[class*="media" i] img'
+  '[class*="media" i] img',
+  '[style*="background-image" i]',
+  '[class*="preview" i]',
+  '[class*="cover" i]',
+  '[class*="media" i]'
 ].join(",");
 
 const previewSignatureForElement = (element: Element): string =>
@@ -517,6 +541,7 @@ const previewSignatureForElement = (element: Element): string =>
     element.tagName.toLowerCase(),
     locatorForElement(element),
     getElementAttribute(element, "src") ?? "",
+    getElementAttribute(element, "style") ?? "",
     getElementAttribute(element, "data-upload-id") ?? "",
     getElementAttribute(element, "data-media-id") ?? "",
     getElementAttribute(element, "data-material-id") ?? "",
