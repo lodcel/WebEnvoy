@@ -248,7 +248,7 @@ const ancestorSignalTextForElement = (element: Element, maxDepth = 3): string =>
   return parts.join(" ");
 };
 
-const platformStagingRefForElement = (element: Element): string | null => {
+const platformStagingRefForElementOnly = (element: Element): string | null => {
   for (const attributeName of platformStagingAttributeNames) {
     const value = getElementAttribute(element, attributeName);
     if (!value) {
@@ -259,6 +259,20 @@ const platformStagingRefForElement = (element: Element): string | null => {
       continue;
     }
     return `${attributeName}:${normalized}`;
+  }
+  return null;
+};
+
+const platformStagingRefForElement = (element: Element, maxDepth = 3): string | null => {
+  let current: Element | null = element;
+  let depth = 0;
+  while (current && depth <= maxDepth) {
+    const stagingRef = platformStagingRefForElementOnly(current);
+    if (stagingRef) {
+      return stagingRef;
+    }
+    current = current.parentElement;
+    depth += 1;
   }
   return null;
 };

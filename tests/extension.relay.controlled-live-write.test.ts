@@ -572,7 +572,7 @@ describe("extension background relay / controlled live write", () => {
     }
   }, 8_000);
 
-  it("waits past the first visible preview until platform staging and completion are both observed", async () => {
+  it("waits past the first visible preview until ancestor platform staging and completion are both observed", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
     const originalHTMLElement = globalThis.HTMLElement;
@@ -602,6 +602,9 @@ describe("extension background relay / controlled live write", () => {
         if (name === "class") {
           return "upload-card";
         }
+        if (name === "data-upload-id" && previewQueryCount >= 3) {
+          return "xhs-upload-fr0032-accepted";
+        }
         return null;
       };
       getBoundingClientRect = () => ({ width: 64, height: 64 });
@@ -621,9 +624,6 @@ describe("extension background relay / controlled live write", () => {
           return previewQueryCount >= 3
             ? "https://sns-webpic-qc.xhscdn.com/20260530/fr0032-fixture.png"
             : "blob:https://creator.xiaohongshu.com/fr0032-fixture";
-        }
-        if (name === "data-upload-id" && previewQueryCount >= 3) {
-          return "xhs-upload-fr0032-accepted";
         }
         return null;
       };
