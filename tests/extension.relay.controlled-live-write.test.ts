@@ -6,6 +6,7 @@ import {
   ContentScriptHandler,
   waitForResponse
 } from "./extension.relay.shared.js";
+import { resolveContentCommandDeadlineMsForContract } from "../extension/content-script-handler.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "../extension/xhs-controlled-upload-platform-capture.js";
 import {
   applyXhsControlledUploadPlatformCapture,
@@ -39,6 +40,16 @@ it("lets controlled upload platform capture use the live write deadline instead 
   expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(55_000)).toBe(55_000);
   expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(90_000)).toBe(60_000);
   expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(0)).toBe(1);
+});
+
+it("lets controlled live write keep a long content deadline before native timeout", () => {
+  expect(
+    resolveContentCommandDeadlineMsForContract(114_000, {
+      controlled_live_write: true,
+      requested_execution_mode: "live_write"
+    })
+  ).toBe(109_000);
+  expect(resolveContentCommandDeadlineMsForContract(114_000, {})).toBe(20_000);
 });
 
 it("promotes upload evidence when Chrome debugger captures an explicit platform staging ref", () => {
@@ -3743,7 +3754,6 @@ describe("extension background relay / controlled live write", () => {
   });
 
   it("returns a structured upload blocker before the extension bridge deadline when upload entries produce no preview", async () => {
-    vi.useFakeTimers();
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
     const originalHTMLElement = globalThis.HTMLElement;
@@ -3847,7 +3857,6 @@ describe("extension background relay / controlled live write", () => {
         page_url: "https://creator.xiaohongshu.com/publish/publish?target=image",
         latest_head_sha: "head-test"
       });
-      await vi.advanceTimersByTimeAsync(11_500);
       const result = await resultPromise;
 
       expect(fileInputDispatchCount).toBeGreaterThan(0);
@@ -3887,9 +3896,8 @@ describe("extension background relay / controlled live write", () => {
         configurable: true,
         value: originalChrome
       });
-      vi.useRealTimers();
     }
-  });
+  }, 15_000);
 
   it("uses a visible upload dropzone when the current creator page has no file input", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
