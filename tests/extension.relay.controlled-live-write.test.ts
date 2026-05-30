@@ -592,6 +592,145 @@ describe("extension background relay / controlled live write", () => {
     }
   });
 
+  it("falls back to the upload dropzone when image file input assignment produces no editor preview", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "";
+      classList = [] as string[];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 64, height: 32 });
+    }
+    class DropzoneElement extends TestElement {
+      className = "upload-dropzone";
+      classList = ["upload-dropzone"];
+      textContent = "点击上传图片";
+      dispatchedEvents: string[] = [];
+      dispatchEvent = (event: Event) => {
+        this.dispatchedEvents.push(event.type);
+        dropzoneDispatched = true;
+        return true;
+      };
+    }
+    class PreviewElement extends TestElement {
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-dropzone-fixture";
+        }
+        return null;
+      };
+    }
+    let fileInputDispatched = false;
+    let dropzoneDispatched = false;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        fileInputDispatched = true;
+        return true;
+      }
+    };
+    const dropzone = new DropzoneElement();
+    const preview = new PreviewElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          if (selector.includes("upload") && !dropzoneDispatched) {
+            return [dropzone];
+          }
+          return dropzoneDispatched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-dropzone-fallback",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-893-dropzone-fallback",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(fileInputDispatched).toBe(true);
+      expect(dropzone.dispatchedEvents).toEqual(["dragenter", "dragover", "drop"]);
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: false,
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  }, 8_000);
+
   it("does not treat the creator upload icon as an uploaded media preview", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
