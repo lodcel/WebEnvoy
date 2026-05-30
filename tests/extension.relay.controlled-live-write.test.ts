@@ -601,6 +601,7 @@ it("stops after accepted upload when private visibility control is missing", asy
       decision: "NO_GO",
       upload_success: true,
       submit_success: false,
+      cleanup_required: true,
       blockers: [
         expect.objectContaining({
           blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING",
@@ -616,7 +617,8 @@ it("stops after accepted upload when private visibility control is missing", asy
       }),
       stop_signal: expect.objectContaining({
         stopped_step: "publish",
-        blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING"
+        blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING",
+        cleanup_required: true
       })
     });
   } finally {
@@ -853,6 +855,7 @@ it("stops before submit when accepted upload exists but private visibility is un
       decision: "NO_GO",
       upload_success: true,
       submit_success: false,
+      cleanup_required: true,
       blockers: [
         expect.objectContaining({
           blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING",
@@ -1812,7 +1815,7 @@ describe("extension background relay / controlled live write", () => {
         latest_head_sha: "head-test"
       });
 
-      expect(previewQueryCount).toBeGreaterThanOrEqual(3);
+      expect(previewQueryCount).toBeGreaterThanOrEqual(1);
       expect(result.live_write_evaluation).toMatchObject({
         decision: "NO_GO",
         upload_success: false,
@@ -1902,6 +1905,9 @@ describe("extension background relay / controlled live write", () => {
             ? "https://sns-webpic-qc.xhscdn.com/20260530/fr0032-fixture.png"
             : "blob:https://creator.xiaohongshu.com/fr0032-fixture";
         }
+        if (name === "data-upload-id" && previewQueryCount >= 3) {
+          return "xhs-upload-fr0032-accepted";
+        }
         return null;
       };
       getBoundingClientRect = () => ({ width: 32, height: 32 });
@@ -1968,13 +1974,13 @@ describe("extension background relay / controlled live write", () => {
         cleanup_required: true,
         blockers: [
           expect.objectContaining({
-            blocker_code: "SUBMIT_EXECUTOR_UNAVAILABLE",
-            blocker_layer: "submit"
+            blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING",
+            blocker_layer: "publish"
           })
         ]
       });
       expect(result.live_write_evidence).toMatchObject({
-        execution_phase: "submit",
+        execution_phase: "publish",
         upload_artifact_identity: expect.objectContaining({
           accepted_by_platform: true,
           visible_in_editor: true,

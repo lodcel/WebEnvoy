@@ -1391,7 +1391,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             stoppedStep: "publish",
             blockerLayer: "publish",
             riskKind: "submit_failure",
-            cleanupRequired: false
+            cleanupRequired: true
         }, null, uploadStageCleanupResult(input, timestamp, "non-private visibility refused before submit"));
     }
     const visibilityControl = await selectPrivateVisibilityControl();
@@ -1404,7 +1404,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             stoppedStep: "publish",
             blockerLayer: "publish",
             riskKind: "submit_failure",
-            cleanupRequired: false
+            cleanupRequired: true
         }, null, uploadStageCleanupResult(input, timestamp, "private visibility not selected before submit"));
     }
     const submitControl = findVisibleElementMatchingText([
@@ -1424,7 +1424,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             stoppedStep: "submit",
             blockerLayer: "submit",
             riskKind: "submit_failure",
-            cleanupRequired: false
+            cleanupRequired: true
         }, null, uploadStageCleanupResult(input, nowIso(), "submit control missing before publish"));
     }
     const initialHref = currentHref() ?? input.page_url;
@@ -1630,7 +1630,7 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input
         preview_diagnostics: previewEvidence.diagnostics
     };
     if (previewEvidence.acceptedByPlatform) {
-        return buildXhsControlledLiveWriteSubmitBlockedResult(input, uploadArtifact);
+        return await performControlledSubmitPublishCleanup(input, uploadArtifact);
     }
     return buildXhsControlledLiveWriteUploadBlockedResult(input, {
         blockerCode: "UPLOAD_ACCEPTANCE_UNVERIFIED",
