@@ -14,6 +14,10 @@ const xhsControlledUploadPlatformEndpointAllowlist = [
     {
         host: "edith.xiaohongshu.com",
         path: /^\/api\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
+    },
+    {
+        host: "upload.xiaohongshu.com",
+        path: /^\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
     }
 ];
 export const isXhsControlledUploadPlatformCaptureUrl = (url, method) => {
@@ -72,6 +76,9 @@ const trustedPlatformRefKeys = new Set([
     "assetId",
     "file_id",
     "fileId",
+    "fileid",
+    "image_file_id",
+    "imageFileId",
     "oss_id",
     "ossId",
     "image_id",
