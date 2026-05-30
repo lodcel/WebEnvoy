@@ -196,6 +196,18 @@ type EditorPreviewEvidence = {
 };
 
 const uploadPlaceholderPattern = /upload[-_ ]?icon|upload[-_ ]?btn|placeholder|empty|add[-_ ]?(image|photo|media)|点击上传|上传图片|upload image|upload photo/iu;
+const uploadCompleteTextPattern = /上传完成|上传成功|上传完毕|处理完成|已上传|upload(ed)? complete|upload(ed)? success|done|complete/iu;
+const uploadPendingTextPattern = /上传中|处理中|加载中|转码中|uploading|processing|loading|progress/iu;
+const uploadFailureTextPattern = /上传失败|上传错误|重新上传|upload failed|upload error|retry upload/iu;
+const platformStagingAttributeNames = [
+  "data-upload-id",
+  "data-media-id",
+  "data-material-id",
+  "data-asset-id",
+  "data-file-id",
+  "data-oss-id",
+  "data-image-id"
+] as const;
 
 const locatorForElement = (element: Element): string => {
   if (element.id) {
@@ -223,6 +235,52 @@ const signalTextForElement = (element: Element): string =>
 
 const isUploadPlaceholderPreview = (element: Element): boolean =>
   uploadPlaceholderPattern.test(signalTextForElement(element));
+
+const ancestorSignalTextForElement = (element: Element, maxDepth = 3): string => {
+  const parts = [signalTextForElement(element)];
+  let current = element.parentElement;
+  let depth = 0;
+  while (current && depth < maxDepth) {
+    parts.push(signalTextForElement(current));
+    current = current.parentElement;
+    depth += 1;
+  }
+  return parts.join(" ");
+};
+
+const platformStagingRefForElement = (element: Element): string | null => {
+  for (const attributeName of platformStagingAttributeNames) {
+    const value = getElementAttribute(element, attributeName);
+    if (!value) {
+      continue;
+    }
+    const normalized = value.trim();
+    if (normalized.length === 0 || normalized.startsWith("blob:") || normalized.startsWith("data:")) {
+      continue;
+    }
+    return `${attributeName}:${normalized}`;
+  }
+  return null;
+};
+
+const hasUploadCompletionSignal = (element: Element): boolean => {
+  const text = ancestorSignalTextForElement(element);
+  return (
+    uploadCompleteTextPattern.test(text) &&
+    !uploadPendingTextPattern.test(text) &&
+    !uploadFailureTextPattern.test(text)
+  );
+};
+
+const evidenceForPreviewElement = (preview: Element): EditorPreviewEvidence => {
+  const hasCompletionSignal = hasUploadCompletionSignal(preview);
+  const platformStagingRef = hasCompletionSignal ? platformStagingRefForElement(preview) : null;
+  return {
+    locator: locatorForElement(preview),
+    platformStagingRef,
+    acceptedByPlatform: platformStagingRef !== null
+  };
+};
 
 const editorPreviewSelector = [
   'img[src^="blob:"]',
@@ -276,11 +334,7 @@ const findEditorPreviewEvidence = (previousSignatures: Set<string>): EditorPrevi
   if (!preview) {
     return null;
   }
-  return {
-    locator: locatorForElement(preview),
-    platformStagingRef: null,
-    acceptedByPlatform: false
-  };
+  return evidenceForPreviewElement(preview);
 };
 
 const waitForEditorPreviewEvidence = async (
@@ -297,17 +351,21 @@ const waitForEditorPreviewEvidence = async (
   const timeoutMs = options.timeoutMs ?? (isExtensionBrowserSurface ? 10_000 : 50);
   const intervalMs = options.intervalMs ?? (isExtensionBrowserSurface ? 500 : 10);
   const deadline = Date.now() + timeoutMs;
+  let latestVisiblePreview: EditorPreviewEvidence | null = null;
   do {
     const previewEvidence = findEditorPreviewEvidence(previousSignatures);
     if (previewEvidence) {
-      return previewEvidence;
+      latestVisiblePreview = previewEvidence;
+      if (previewEvidence.acceptedByPlatform) {
+        return previewEvidence;
+      }
     }
     if (Date.now() >= deadline) {
       break;
     }
     await sleep(intervalMs);
   } while (true);
-  return null;
+  return latestVisiblePreview;
 };
 
 const resolveApprovedFixtureMediaFile = async (

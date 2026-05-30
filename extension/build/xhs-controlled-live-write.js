@@ -112,6 +112,18 @@ const findUploadDropzone = () => {
     return (candidates.find((element) => isPotentialDropzoneTarget(element) && isVisibleElement(element) && hasUploadIntentSignal(element)) ?? null);
 };
 const uploadPlaceholderPattern = /upload[-_ ]?icon|upload[-_ ]?btn|placeholder|empty|add[-_ ]?(image|photo|media)|点击上传|上传图片|upload image|upload photo/iu;
+const uploadCompleteTextPattern = /上传完成|上传成功|上传完毕|处理完成|已上传|upload(ed)? complete|upload(ed)? success|done|complete/iu;
+const uploadPendingTextPattern = /上传中|处理中|加载中|转码中|uploading|processing|loading|progress/iu;
+const uploadFailureTextPattern = /上传失败|上传错误|重新上传|upload failed|upload error|retry upload/iu;
+const platformStagingAttributeNames = [
+    "data-upload-id",
+    "data-media-id",
+    "data-material-id",
+    "data-asset-id",
+    "data-file-id",
+    "data-oss-id",
+    "data-image-id"
+];
 const locatorForElement = (element) => {
     if (element.id) {
         return `#${element.id}`;
@@ -132,6 +144,46 @@ const signalTextForElement = (element) => [
     .filter((value) => typeof value === "string" && value.trim().length > 0)
     .join(" ");
 const isUploadPlaceholderPreview = (element) => uploadPlaceholderPattern.test(signalTextForElement(element));
+const ancestorSignalTextForElement = (element, maxDepth = 3) => {
+    const parts = [signalTextForElement(element)];
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < maxDepth) {
+        parts.push(signalTextForElement(current));
+        current = current.parentElement;
+        depth += 1;
+    }
+    return parts.join(" ");
+};
+const platformStagingRefForElement = (element) => {
+    for (const attributeName of platformStagingAttributeNames) {
+        const value = getElementAttribute(element, attributeName);
+        if (!value) {
+            continue;
+        }
+        const normalized = value.trim();
+        if (normalized.length === 0 || normalized.startsWith("blob:") || normalized.startsWith("data:")) {
+            continue;
+        }
+        return `${attributeName}:${normalized}`;
+    }
+    return null;
+};
+const hasUploadCompletionSignal = (element) => {
+    const text = ancestorSignalTextForElement(element);
+    return (uploadCompleteTextPattern.test(text) &&
+        !uploadPendingTextPattern.test(text) &&
+        !uploadFailureTextPattern.test(text));
+};
+const evidenceForPreviewElement = (preview) => {
+    const hasCompletionSignal = hasUploadCompletionSignal(preview);
+    const platformStagingRef = hasCompletionSignal ? platformStagingRefForElement(preview) : null;
+    return {
+        locator: locatorForElement(preview),
+        platformStagingRef,
+        acceptedByPlatform: platformStagingRef !== null
+    };
+};
 const editorPreviewSelector = [
     'img[src^="blob:"]',
     'img[src^="data:image/"]',
@@ -173,11 +225,7 @@ const findEditorPreviewEvidence = (previousSignatures) => {
     if (!preview) {
         return null;
     }
-    return {
-        locator: locatorForElement(preview),
-        platformStagingRef: null,
-        acceptedByPlatform: false
-    };
+    return evidenceForPreviewElement(preview);
 };
 const waitForEditorPreviewEvidence = async (previousSignatures, options = {}) => {
     const isExtensionBrowserSurface = typeof window !== "undefined" &&
@@ -186,17 +234,21 @@ const waitForEditorPreviewEvidence = async (previousSignatures, options = {}) =>
     const timeoutMs = options.timeoutMs ?? (isExtensionBrowserSurface ? 10_000 : 50);
     const intervalMs = options.intervalMs ?? (isExtensionBrowserSurface ? 500 : 10);
     const deadline = Date.now() + timeoutMs;
+    let latestVisiblePreview = null;
     do {
         const previewEvidence = findEditorPreviewEvidence(previousSignatures);
         if (previewEvidence) {
-            return previewEvidence;
+            latestVisiblePreview = previewEvidence;
+            if (previewEvidence.acceptedByPlatform) {
+                return previewEvidence;
+            }
         }
         if (Date.now() >= deadline) {
             break;
         }
         await sleep(intervalMs);
     } while (true);
-    return null;
+    return latestVisiblePreview;
 };
 const resolveApprovedFixtureMediaFile = async (input) => {
     if (input.source_media_ref !== FR0032_FIXTURE_IMAGE_A_REF) {
