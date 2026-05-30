@@ -9126,7 +9126,8 @@ class ChromeBackgroundBridge {
       ? await uploadCaptureController.read().finally(() => uploadCaptureController.stop())
       : null;
     const controlledUploadPlatformCaptureStatus = uploadCaptureController?.status() ?? null;
-    const controlledLiveWrite = asRecord(payload.controlled_live_write);
+    const controlledLiveWrite =
+      asRecord(payload.controlled_live_write) ?? asRecord(summary?.controlled_live_write);
     if (controlledLiveWrite && controlledUploadPlatformCapture) {
       const mergedControlledLiveWrite = applyXhsControlledUploadPlatformCapture(
         controlledLiveWrite as XhsControlledLiveWriteResult,
