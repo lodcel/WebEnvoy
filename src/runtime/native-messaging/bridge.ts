@@ -106,6 +106,14 @@ const runWithTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promis
   }
 };
 
+const reserveBridgeResponseTimeoutMs = (timeoutMs: number): number => {
+  if (timeoutMs <= 1_000) {
+    return timeoutMs;
+  }
+  const responseMarginMs = Math.min(5_000, Math.max(1_000, Math.floor(timeoutMs * 0.05)));
+  return Math.max(1, timeoutMs - responseMarginMs);
+};
+
 const asObject = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -537,6 +545,7 @@ export class NativeMessagingBridge {
     await this.#pulseHeartbeat(budget);
 
     const forwardTimeoutMs = budget.remainingMs();
+    const relayTimeoutMs = reserveBridgeResponseTimeoutMs(forwardTimeoutMs);
     const sessionId = this.#session.sessionIdOrThrow();
     const request = createBridgeForwardRequest({
       id: this.#nextId("run"),
@@ -546,7 +555,7 @@ export class NativeMessagingBridge {
       command: input.command,
       commandParams: resolveForwardCommandParams(input.params, input.runId, sessionId, input.command),
       cwd: input.cwd,
-      timeoutMs: forwardTimeoutMs
+      timeoutMs: relayTimeoutMs
     });
 
     try {
@@ -572,6 +581,7 @@ export class NativeMessagingBridge {
       await this.#pulseHeartbeat(budget);
 
       const retryTimeoutMs = budget.remainingMs();
+      const retryRelayTimeoutMs = reserveBridgeResponseTimeoutMs(retryTimeoutMs);
       const retrySessionId = this.#session.sessionIdOrThrow();
       const retryRequest = createBridgeForwardRequest({
         id: this.#nextId("run"),
@@ -586,7 +596,7 @@ export class NativeMessagingBridge {
           input.command
         ),
         cwd: input.cwd,
-        timeoutMs: retryTimeoutMs
+        timeoutMs: retryRelayTimeoutMs
       });
 
       try {
