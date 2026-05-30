@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   asRecord,
   BackgroundRelay,
@@ -369,6 +369,143 @@ it("continues from accepted upload artifact through private submit publish clean
       }),
       risk_signals: [],
       stop_signal: null
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
+it("opens visibility selector before choosing the private publish option", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalWindow = globalThis.window;
+  class TestElement {
+    id = "";
+    tagName = "BUTTON";
+    className = "";
+    classList = [] as string[];
+    textContent = "";
+    clicked = false;
+    getAttribute = (name: string) => {
+      if (name === "class") {
+        return this.className;
+      }
+      if (name === "role") {
+        return "button";
+      }
+      return null;
+    };
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const visibilityTrigger = new TestElement();
+  visibilityTrigger.className = "visibility-select";
+  visibilityTrigger.classList = ["visibility-select"];
+  visibilityTrigger.textContent = "可见范围 公开";
+  let privateOptionVisible = false;
+  visibilityTrigger.click = () => {
+    visibilityTrigger.clicked = true;
+    privateOptionVisible = true;
+  };
+  const privateOption = new TestElement();
+  privateOption.className = "visibility-option";
+  privateOption.classList = ["visibility-option"];
+  privateOption.textContent = "仅自己可见";
+  const submit = new TestElement();
+  submit.className = "publish-submit";
+  submit.classList = ["publish-submit"];
+  submit.textContent = "发布";
+  const documentElement = new TestElement();
+  documentElement.tagName = "HTML";
+  documentElement.textContent = "发布成功";
+  const locationState = {
+    href: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
+  };
+  submit.click = () => {
+    submit.clicked = true;
+    locationState.href = "https://creator.xiaohongshu.com/publish/success/64b7d8ef000000001f03abce";
+  };
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: locationState }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement,
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("visibility") || selector.includes("privacy") || selector.includes("permission")) {
+          return privateOptionVisible ? [visibilityTrigger, privateOption] : [visibilityTrigger];
+        }
+        if (selector.includes("publish") || selector.includes("submit") || selector.includes("button")) {
+          return privateOptionVisible ? [visibilityTrigger, privateOption, submit] : [visibilityTrigger, submit];
+        }
+        return [];
+      }
+    }
+  });
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-open-private-visibility-selector",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-929-open-private-visibility-selector",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/private-selector",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/private-selector",
+        page_preview_locator: "img.preview-image",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-05-30T20:16:08.000Z"
+      }
+    });
+
+    expect(visibilityTrigger.clicked).toBe(true);
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "GO",
+      full_live_write_success: true,
+      submit_success: true,
+      publish_success: true
     });
   } finally {
     Object.defineProperty(globalThis, "document", {
@@ -3490,6 +3627,155 @@ describe("extension background relay / controlled live write", () => {
         configurable: true,
         value: originalGetComputedStyle
       });
+    }
+  });
+
+  it("returns a structured upload blocker before the extension bridge deadline when upload entries produce no preview", async () => {
+    vi.useFakeTimers();
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    const originalWindow = globalThis.window;
+    const originalChrome = (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "upload-dropzone";
+      classList = ["upload-dropzone"];
+      textContent = "点击上传图片";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        if (name === "aria-label") {
+          return "上传图片";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 64, height: 64 });
+      dispatchEvent = () => true;
+    }
+    let fileInputDispatchCount = 0;
+    let dropzoneDispatchCount = 0;
+    const fileInput = {
+      accept: ".jpg,.jpeg,.png,.webp",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        fileInputDispatchCount += 1;
+        return true;
+      }
+    };
+    class UploadDropzone extends TestElement {
+      dispatchEvent = () => {
+        dropzoneDispatchCount += 1;
+        return true;
+      };
+    }
+    const dropzone = new UploadDropzone();
+    const fakeDocument = {
+      querySelectorAll: (selector: string) => {
+        if (selector === 'input[type="file"]') {
+          return [fileInput];
+        }
+        if (selector.includes("upload")) {
+          return [dropzone];
+        }
+        return [];
+      }
+    };
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: fakeDocument
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { document: fakeDocument }
+    });
+    Object.defineProperty(globalThis, "chrome", {
+      configurable: true,
+      value: {}
+    });
+    try {
+      const resultPromise = performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-extension-no-preview-time-budget",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-928-extension-no-preview-time-budget",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish?target=image",
+        latest_head_sha: "head-test"
+      });
+      await vi.advanceTimersByTimeAsync(11_500);
+      const result = await resultPromise;
+
+      expect(fileInputDispatchCount).toBeGreaterThan(0);
+      expect(dropzoneDispatchCount).toBeGreaterThan(0);
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_PREVIEW_NOT_VISIBLE",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow
+      });
+      Object.defineProperty(globalThis, "chrome", {
+        configurable: true,
+        value: originalChrome
+      });
+      vi.useRealTimers();
     }
   });
 
