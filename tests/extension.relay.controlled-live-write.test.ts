@@ -7,7 +7,13 @@ import {
   waitForResponse
 } from "./extension.relay.shared.js";
 import {
+  applyXhsControlledUploadPlatformCapture,
+  applyXhsControlledUploadPlatformCaptureStatus,
+  buildXhsControlledLiveWriteUploadBlockedResult,
   buildXhsControlledLiveWriteFromDiscovery,
+  decodeXhsControlledUploadNetworkResponseBody,
+  extractXhsControlledUploadPlatformCapture,
+  isXhsControlledUploadPlatformCaptureUrl,
   performXhsControlledLiveWriteWithApprovedSourceMedia
 } from "../extension/xhs-controlled-live-write.js";
 import { buildXhsMediaUploadDiscoveryResult } from "../extension/xhs-media-upload-discovery.js";
@@ -26,6 +32,326 @@ const controlledLiveOptions = {
   risk_state: "allowed",
   approval_record: completeIssue208ApprovalRecord
 } as const;
+
+it("promotes upload evidence when Chrome debugger captures an explicit platform staging ref", () => {
+  const result = buildXhsControlledLiveWriteUploadBlockedResult(
+    {
+      live_write_attempt_id: "fr0032-attempt-debugger-upload-ref",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-898-debugger-upload-ref",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test"
+    },
+    {
+      blockerCode: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+      blockerMessage:
+        "Controlled live upload observed an editor preview, but platform upload acceptance is not independently verified.",
+      detailsRef: "upload_acceptance_unverified",
+      requiredRecoveryAction:
+        "collect platform-returned upload acceptance evidence before submit/publish"
+    },
+    {
+      upload_artifact_id: "upload-artifact/fr0032-test",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      platform_staging_ref: null,
+      page_preview_locator: "img.img",
+      accepted_by_platform: false,
+      visible_in_editor: true,
+      captured_at: "2026-05-30T00:00:00.000Z"
+    }
+  );
+
+  const promoted = applyXhsControlledUploadPlatformCapture(result, {
+    source: "chrome_debugger_network",
+    platform_staging_ref: "image_id:platform-image-123",
+    url: "https://creator.xiaohongshu.com/api/media/upload",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-05-30T00:00:01.000Z"
+  });
+
+  expect(promoted.uploaded).toBe(true);
+  expect(promoted.live_write_evaluation).toMatchObject({
+    upload_success: true,
+    submit_success: false,
+    cleanup_required: true,
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "SUBMIT_EXECUTOR_UNAVAILABLE",
+        blocker_layer: "submit"
+      })
+    ]
+  });
+  expect(promoted.live_write_evidence).toMatchObject({
+    execution_phase: "submit",
+    upload_artifact_identity: expect.objectContaining({
+      accepted_by_platform: true,
+      platform_staging_ref: "image_id:platform-image-123"
+    }),
+    platform_upload_acceptance_capture: expect.objectContaining({
+      source: "chrome_debugger_network",
+      status: 200
+    }),
+    stop_signal: expect.objectContaining({
+      stopped_step: "submit",
+      blocker_code: "SUBMIT_EXECUTOR_UNAVAILABLE"
+    })
+  });
+});
+
+it("records debugger upload capture status without promoting upload success", () => {
+  const result = buildXhsControlledLiveWriteUploadBlockedResult(
+    {
+      live_write_attempt_id: "fr0032-attempt-debugger-upload-timeout",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-898-debugger-upload-timeout",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test"
+    },
+    {
+      blockerCode: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+      blockerMessage:
+        "Controlled live upload observed an editor preview, but platform upload acceptance is not independently verified.",
+      detailsRef: "upload_acceptance_unverified",
+      requiredRecoveryAction:
+        "collect platform-returned upload acceptance evidence before submit/publish"
+    }
+  );
+
+  const annotated = applyXhsControlledUploadPlatformCaptureStatus(result, {
+    attempted: true,
+    status: "timeout",
+    reason: "no_platform_upload_acceptance_response_captured",
+    recorded_at: "2026-05-30T00:00:01.000Z"
+  });
+
+  expect(annotated.uploaded).toBe(false);
+  expect(annotated.live_write_evaluation).toMatchObject({
+    upload_success: false,
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED"
+      })
+    ]
+  });
+  expect(annotated.live_write_evidence).toMatchObject({
+    platform_upload_acceptance_capture_status: {
+      attempted: true,
+      status: "timeout",
+      reason: "no_platform_upload_acceptance_response_captured"
+    }
+  });
+});
+
+it("extracts only explicit platform upload ids from upload response bodies", () => {
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/upload",
+      method: "POST",
+      status: 200,
+      body: {
+        success: true,
+        data: {
+          image_id: "platform-image-123",
+          url: "https://sns-webpic-qc.xhscdn.com/20260530/fr0032.png"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toMatchObject({
+    platform_staging_ref: "image_id:platform-image-123",
+    source: "chrome_debugger_network"
+  });
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/upload",
+      method: "POST",
+      status: 200,
+      body: {
+        success: true,
+        data: {
+          url: "https://sns-webpic-qc.xhscdn.com/20260530/fr0032.png"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/upload",
+      method: "POST",
+      status: 500,
+      body: {
+        data: {
+          image_id: "platform-image-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/upload",
+      method: "POST",
+      status: 200,
+      body: '{"code":0,"data":{"image_id":"platform-image-from-text"}',
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toMatchObject({
+    platform_staging_ref: "image_id:platform-image-from-text"
+  });
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://sns-webpic-qc.xhscdn.com/20260530/upload/fr0032.png",
+      method: "GET",
+      status: 200,
+      body: {
+        data: {
+          image_id: "platform-image-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/upload",
+      method: "GET",
+      status: 200,
+      body: {
+        data: {
+          image_id: "platform-image-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/user/profile",
+      method: "POST",
+      status: 200,
+      body: {
+        data: {
+          uploadid: "too-broad-key-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/upload",
+      method: "POST",
+      status: 200,
+      body: {
+        data: {
+          uploadid: "too-broad-key-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+});
+
+it("uses an explicit host/path/method allowlist before upload response body capture", () => {
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://creator.xiaohongshu.com/api/media/upload",
+      "POST"
+    )
+  ).toBe(true);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://edith.xiaohongshu.com/api/material/image/create",
+      "PUT"
+    )
+  ).toBe(true);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://sns-webpic-qc.xhscdn.com/20260530/upload/fr0032.png",
+      "GET"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://upload.xiaohongshu.com/api/media/upload",
+      "POST"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://creator.xiaohongshu.com/api/user/profile",
+      "POST"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://creator.xiaohongshu.com/api/media/upload",
+      "GET"
+    )
+  ).toBe(false);
+});
+
+it("decodes bounded upload network bodies consistently with explicit string fallback", () => {
+  expect(
+    decodeXhsControlledUploadNetworkResponseBody({
+      body: '{"code":0,"data":{"image_id":"platform-image-123"}}',
+      base64Encoded: false
+    })
+  ).toMatchObject({
+    code: 0,
+    data: {
+      image_id: "platform-image-123"
+    }
+  });
+  expect(
+    decodeXhsControlledUploadNetworkResponseBody({
+      body: btoa('{"code":0,"data":{"image_id":"platform-image-encoded"}}'),
+      base64Encoded: true
+    })
+  ).toMatchObject({
+    data: {
+      image_id: "platform-image-encoded"
+    }
+  });
+  expect(
+    decodeXhsControlledUploadNetworkResponseBody({
+      body: '"image_id":"platform-image-from-fragment"',
+      base64Encoded: false
+    })
+  ).toBe('"image_id":"platform-image-from-fragment"');
+  expect(
+    decodeXhsControlledUploadNetworkResponseBody({
+      body: "x".repeat(33),
+      maxBodyBytes: 32
+    })
+  ).toBeNull();
+});
 
 const createRelay = () => {
   const contentScript = new ContentScriptHandler({
