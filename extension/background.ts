@@ -7689,8 +7689,16 @@ class ChromeBackgroundBridge {
       }),
       stop: async () => undefined
     });
-    if (this.#controlledUploadPlatformCapturesByTab.has(tabId)) {
-      return unavailableController("same_tab_capture_already_active");
+    const existingController = this.#controlledUploadPlatformCapturesByTab.get(tabId);
+    if (existingController) {
+      const stillReferenced = [...this.#controlledUploadPlatformCapturesByRequest.values()].some(
+        (controller) => controller === existingController
+      );
+      if (stillReferenced) {
+        return unavailableController("same_tab_capture_already_active");
+      }
+      await existingController.stop().catch(() => undefined);
+      this.#controlledUploadPlatformCapturesByTab.delete(tabId);
     }
     const debuggerApi = this.chromeApi.debugger;
     if (!debuggerApi) {
