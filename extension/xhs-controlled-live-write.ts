@@ -90,6 +90,12 @@ const xhsControlledUploadCredentialEndpointPattern =
 const isXhsControlledObjectUploadTransportHost = (host: string): boolean =>
   /^ros-upload(?:-[a-z0-9]+)?\.(?:xiaohongshu\.com|xhscdn\.com)$/iu.test(host);
 
+const isXhsControlledUploadDiagnosticWriteHost = (host: string): boolean =>
+  host === "creator.xiaohongshu.com" ||
+  host === "edith.xiaohongshu.com" ||
+  host === "upload.xiaohongshu.com" ||
+  isXhsControlledObjectUploadTransportHost(host);
+
 const xhsControlledUploadPlatformEndpointAllowlist = [
   {
     host: "creator.xiaohongshu.com",
@@ -140,12 +146,19 @@ export const summarizeXhsControlledUploadObservedRequest = (
     const isKnownHost =
       parsed.hostname.endsWith("xiaohongshu.com") || parsed.hostname.endsWith("xhscdn.com");
     const objectUploadTransport = isXhsControlledObjectUploadTransportHost(parsed.hostname);
+    const diagnosticWriteHost = isXhsControlledUploadDiagnosticWriteHost(parsed.hostname);
     const uploadLikeHost = parsed.hostname.includes("upload");
     const uploadLikePath = xhsControlledUploadSignalPattern.test(parsed.pathname);
     const credentialEndpoint = xhsControlledUploadCredentialEndpointPattern.test(parsed.pathname);
     if (
       !isKnownHost ||
-      (!objectUploadTransport && !uploadLikeHost && !uploadLikePath && !credentialEndpoint)
+      (
+        !diagnosticWriteHost &&
+        !objectUploadTransport &&
+        !uploadLikeHost &&
+        !uploadLikePath &&
+        !credentialEndpoint
+      )
     ) {
       return null;
     }
@@ -161,7 +174,9 @@ export const summarizeXhsControlledUploadObservedRequest = (
           ? "object_upload_transport_not_platform_acceptance"
           : credentialEndpoint
             ? "credential_endpoint_not_platform_acceptance"
-            : "url_not_allowlisted"
+            : diagnosticWriteHost
+              ? "xhs_write_request_not_upload_signal"
+              : "url_not_allowlisted"
     };
   } catch {
     return null;

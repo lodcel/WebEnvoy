@@ -522,6 +522,25 @@ it("classifies ros-upload object transports as diagnostics, not platform accepta
     capture_candidate: false,
     rejection_reason: "credential_endpoint_not_platform_acceptance"
   });
+
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit",
+      "POST"
+    )
+  ).toMatchObject({
+    host: "creator.xiaohongshu.com",
+    path: "/api/sns/web/v1/note/commit",
+    capture_candidate: false,
+    rejection_reason: "xhs_write_request_not_upload_signal"
+  });
+
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit",
+      "GET"
+    )
+  ).toBeNull();
 });
 
 it("decodes bounded upload network bodies consistently with explicit string fallback", () => {
