@@ -237,7 +237,18 @@ const resolveRuntimeBuildMetadataHeadForCwd = (cwd) => {
     }
 };
 const asPositiveInteger = (value) => typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
-export const resolveForwardTimeoutMsForContract = (params) => asPositiveInteger(params.timeout_ms);
+const XHS_CONTROLLED_LIVE_WRITE_DEFAULT_TIMEOUT_MS = 120_000;
+export const resolveForwardTimeoutMsForContract = (params) => {
+    const explicitTimeoutMs = asPositiveInteger(params.timeout_ms);
+    if (explicitTimeoutMs !== null) {
+        return explicitTimeoutMs;
+    }
+    return null;
+};
+export const resolveXhsCommandForwardTimeoutMsForContract = (params, command) => resolveForwardTimeoutMsForContract(params) ??
+    (command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+        ? XHS_CONTROLLED_LIVE_WRITE_DEFAULT_TIMEOUT_MS
+        : null);
 const toSessionRhythmIdPart = (value) => value.replace(/[^A-Za-z0-9._-]+/gu, "_");
 const SESSION_RHYTHM_STORE_ISSUE_SCOPES = new Set([
     "issue_208",
@@ -2642,7 +2653,7 @@ const xhsReadCommand = async (context, inputConfig) => {
                 issueScope: explicitIssueScope
             })
             : null;
-        const forwardTimeoutMs = resolveForwardTimeoutMsForContract(context.params);
+        const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
         const runtimeGateOptions = {
             ...injectActiveApiFetchFallbackRuntimeAttestation({
                 options: preparedGateOptions,

@@ -10,6 +10,7 @@ export {
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
   requiresCanonicalExecutionAuditForContract,
   resolveForwardTimeoutMsForContract,
+  resolveXhsCommandForwardTimeoutMsForContract,
   resolveXhsCloseoutRuntimeLatestHeadShaForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract,
   xhsCommands

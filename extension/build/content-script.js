@@ -15432,10 +15432,14 @@ const resolveContentCommandDeadlineMs = (messageTimeoutMs, options) => {
         ? Math.floor(options.timeout_ms)
         : normalizedMessageTimeout;
     const closeoutCaptureRequested = options.closeout_evidence_evaluation === true || options.closeout_audit_required === true;
+    const controlledLiveWriteRequested = options.controlled_live_write === true &&
+        options.requested_execution_mode === "live_write";
     const nativeSafetyWindowMs = Math.max(1, normalizedMessageTimeout - 5_000);
-    const maxCommandDeadlineMs = closeoutCaptureRequested
-        ? Math.max(20_000, Math.min(55_000, nativeSafetyWindowMs))
-        : 20_000;
+    const maxCommandDeadlineMs = controlledLiveWriteRequested
+        ? Math.max(55_000, Math.min(110_000, nativeSafetyWindowMs))
+        : closeoutCaptureRequested
+            ? Math.max(20_000, Math.min(55_000, nativeSafetyWindowMs))
+            : 20_000;
     return Math.max(1, Math.min(normalizedMessageTimeout, optionTimeout, maxCommandDeadlineMs));
 };
 const resolveContentCommandDeadlineMsForContract = resolveContentCommandDeadlineMs;

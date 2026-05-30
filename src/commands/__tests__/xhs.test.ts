@@ -17,6 +17,7 @@ import {
   requiresCloseoutAuditForXhsBridgeSummaryForContract,
   requiresCanonicalExecutionAuditForContract,
   resolveForwardTimeoutMsForContract,
+  resolveXhsCommandForwardTimeoutMsForContract,
   resolveXhsCloseoutRuntimeLatestHeadShaForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract
 } from "../xhs.js";
@@ -4827,6 +4828,24 @@ describe("normalizeGateOptionsForContract", () => {
   describe("resolveForwardTimeoutMsForContract", () => {
     it("keeps a valid top-level timeout_ms for native bridge forwarding", () => {
       expect(resolveForwardTimeoutMsForContract({ timeout_ms: 120_000 })).toBe(120_000);
+    });
+
+    it("defaults controlled live write to a longer native bridge timeout", () => {
+      expect(
+        resolveXhsCommandForwardTimeoutMsForContract(
+          {},
+          "xhs.creator_publish.controlled_live_write"
+        )
+      ).toBe(120_000);
+    });
+
+    it("keeps explicit timeout_ms for controlled live write when provided", () => {
+      expect(
+        resolveXhsCommandForwardTimeoutMsForContract(
+          { timeout_ms: 70_000 },
+          "xhs.creator_publish.controlled_live_write"
+        )
+      ).toBe(70_000);
     });
 
     it("rejects invalid timeout_ms values instead of forwarding ambiguous budgets", () => {
