@@ -84,6 +84,7 @@ const hasUploadIntentSignal = (element) => {
         .join(" ");
     return uploadIntentTextPattern.test(signalText) && !nonUploadClassPattern.test(signalText);
 };
+const isPotentialDropzoneTarget = (element) => !["IMG", "VIDEO", "SVG", "CANVAS"].includes(element.tagName.toUpperCase());
 const findUploadDropzone = () => {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
         return null;
@@ -96,7 +97,7 @@ const findUploadDropzone = () => {
         '[title*="上传" i]',
         '[title*="upload" i]'
     ].join(",")));
-    return candidates.find((element) => isVisibleElement(element) && hasUploadIntentSignal(element)) ?? null;
+    return (candidates.find((element) => isPotentialDropzoneTarget(element) && isVisibleElement(element) && hasUploadIntentSignal(element)) ?? null);
 };
 const uploadPlaceholderPattern = /upload[-_ ]?icon|upload[-_ ]?btn|placeholder|empty|add[-_ ]?(image|photo|media)|点击上传|上传图片|upload image|upload photo/iu;
 const locatorForElement = (element) => {
@@ -614,7 +615,7 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input
     }
     const previousPreviewSignatures = collectEditorPreviewSignatures();
     const fileInput = findUploadFileInput();
-    const dropzone = fileInput ? null : findUploadDropzone();
+    const dropzone = findUploadDropzone();
     if (!fileInput && !dropzone) {
         return buildXhsControlledLiveWriteUploadBlockedResult(input, {
             blockerCode: "UPLOAD_ENTRY_MISSING",
@@ -623,14 +624,24 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input
             requiredRecoveryAction: "restore the creator publish target page or update the XHS upload entry locator"
         });
     }
-    const assignmentFailure = fileInput
-        ? dispatchFileInputUpload(fileInput, resolvedFile)
-        : dispatchDropzoneUpload(dropzone, resolvedFile);
-    if (assignmentFailure) {
-        return buildXhsControlledLiveWriteUploadBlockedResult(input, assignmentFailure);
+    let assignmentFailure = null;
+    let previewEvidence = null;
+    if (fileInput) {
+        assignmentFailure = dispatchFileInputUpload(fileInput, resolvedFile);
+        if (assignmentFailure) {
+            return buildXhsControlledLiveWriteUploadBlockedResult(input, assignmentFailure);
+        }
+        await sleep(2_500);
+        previewEvidence = findEditorPreviewEvidence(previousPreviewSignatures);
     }
-    await sleep(2_500);
-    const previewEvidence = findEditorPreviewEvidence(previousPreviewSignatures);
+    if (!previewEvidence && dropzone) {
+        assignmentFailure = dispatchDropzoneUpload(dropzone, resolvedFile);
+        if (assignmentFailure && !fileInput) {
+            return buildXhsControlledLiveWriteUploadBlockedResult(input, assignmentFailure);
+        }
+        await sleep(2_500);
+        previewEvidence = findEditorPreviewEvidence(previousPreviewSignatures);
+    }
     if (!previewEvidence) {
         return buildXhsControlledLiveWriteUploadBlockedResult(input, {
             blockerCode: "UPLOAD_PREVIEW_NOT_VISIBLE",
