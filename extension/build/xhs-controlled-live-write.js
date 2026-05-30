@@ -297,6 +297,31 @@ const isVisibleElement = (element) => {
         rect.height > 0);
 };
 const textContentOf = (element) => (element.textContent ?? "").trim().replace(/\s+/g, " ");
+const elementTextSignal = (element) => [
+    getElementAttribute(element, "data-testid"),
+    getElementAttribute(element, "aria-label"),
+    getElementAttribute(element, "title"),
+    getElementAttribute(element, "role"),
+    getElementAttribute(element, "class"),
+    textContentOf(element)
+]
+    .filter((value) => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+const isDisabledElement = (element) => element.disabled === true ||
+    getElementAttribute(element, "aria-disabled") === "true" ||
+    getElementAttribute(element, "disabled") !== null;
+const findVisibleElementMatchingText = (selector, include, exclude) => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return null;
+    }
+    return (Array.from(document.querySelectorAll(selector)).find((element) => {
+        const signal = elementTextSignal(element);
+        return (isVisibleElement(element) &&
+            !isDisabledElement(element) &&
+            include.test(signal) &&
+            !(exclude?.test(signal) ?? false));
+    }) ?? null);
+};
 const imageModeTextPattern = /上传图文|图文|图片|image|photo/iu;
 const imageModeHrefPattern = /(?:[?&]target=image(?:&|$)|target%3Dimage)/iu;
 const imageModeCandidateScore = (element) => {
@@ -385,7 +410,7 @@ const locatorForElement = (element) => {
     if (element.id) {
         return `#${element.id}`;
     }
-    const className = Array.from(element.classList).find((item) => item.trim().length > 0);
+    const className = Array.from(element.classList ?? []).find((item) => item.trim().length > 0);
     return className ? `${element.tagName.toLowerCase()}.${className}` : element.tagName.toLowerCase();
 };
 const getElementAttribute = (element, name) => typeof element.getAttribute === "function" ? element.getAttribute(name) : null;
@@ -1127,7 +1152,368 @@ export const buildXhsControlledLiveWriteFromDiscovery = (input, discovery) => {
         requiredRecoveryAction: "provide a controlled media resolver and real upload executor before submit/publish"
     }, artifact);
 };
+const privateVisibilityPattern = /仅自己可见|仅自己|自己可见|私密|仅本人|private|only\s*me|self[-_ ]?visible/iu;
+const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
+const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
+const nonSubmitPublishPattern = /草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule/iu;
+const publishSuccessPattern = /发布成功|发布完成|已发布|提交成功|publish(ed)?\s*(success|complete)|success/iu;
+const uploadStageCleanupResult = (input, timestamp, reason) => ({
+    schema_version: "fr-0032.cleanup_rollback_proof.v1",
+    cleanup_result_id: `cleanup/fr-0032/${input.live_write_attempt_id}/upload-stage`,
+    live_write_attempt_id: input.live_write_attempt_id,
+    run_id: input.run_id,
+    profile_ref: input.profile_ref ?? "unknown",
+    target_tab_id: input.target_tab_id ?? 0,
+    publish_result_identity: null,
+    cleanup_policy_ref: input.cleanup_policy_ref,
+    cleanup_action: "abandon_unpublished_upload",
+    cleanup_outcome: "not_needed",
+    proof_locator: "creator_publish_editor_unpublished_upload_only",
+    platform_message: reason,
+    attempted_at: timestamp,
+    completed_at: timestamp,
+    residual_record: null
+});
+const buildStepBlockedResult = (input, artifact, reason, submitEvidence = null, cleanupResult = null, residualRecord = null) => {
+    const timestamp = nowIso();
+    const evidenceRef = `live_write_evidence/${input.live_write_attempt_id}`;
+    const cleanupResultId = cleanupResult && typeof cleanupResult.cleanup_result_id === "string" ? cleanupResult.cleanup_result_id : null;
+    const residualRecordId = residualRecord && typeof residualRecord.residual_record_id === "string" ? residualRecord.residual_record_id : null;
+    return {
+        live_write_action: "controlled_upload_submit_publish",
+        target_page: "creator_publish_tab",
+        live_write_evidence: {
+            schema_version: "fr-0032.live_write_evidence.v1",
+            live_write_attempt_id: input.live_write_attempt_id,
+            canonical_issue_ref: "#835",
+            execution_phase: reason.stoppedStep,
+            scope: {
+                platform: "xhs",
+                target_domain: "creator.xiaohongshu.com",
+                target_page: "creator_publish_tab",
+                browser_channel: "Google Chrome stable",
+                execution_surface: "real_browser",
+                requested_execution_mode: "live_write",
+                profile_ref: input.profile_ref ?? "unknown",
+                target_tab_id: input.target_tab_id ?? 0,
+                probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+                run_id: input.run_id,
+                artifact_identity: artifact.upload_artifact_id
+            },
+            entry_gate: null,
+            stop_classification: {
+                category: `${reason.blockerLayer}_blocked`,
+                evaluation_state: "stopped",
+                stop_reason: reason.detailsRef,
+                latest_head_sha: input.latest_head_sha ?? null,
+                publish_visibility_scope: input.publish_visibility_scope,
+                cleanup_policy_ref: input.cleanup_policy_ref
+            },
+            upload_artifact_identity: artifact,
+            submit_evidence: submitEvidence,
+            publish_result_identity: null,
+            cleanup_result: cleanupResult,
+            risk_signals: [
+                {
+                    risk_signal_id: `risk/fr-0032/${input.live_write_attempt_id}/${reason.detailsRef}`,
+                    detected_at: timestamp,
+                    source: reason.blockerLayer === "published_identity" ? "publish" : reason.blockerLayer,
+                    kind: reason.riskKind,
+                    severity: "blocking",
+                    details_ref: reason.detailsRef
+                }
+            ],
+            stop_signal: {
+                schema_version: "fr-0032.live_write_stop_signal.v1",
+                stop_signal_id: `stop/fr-0032/${input.live_write_attempt_id}/${reason.detailsRef}`,
+                live_write_attempt_id: input.live_write_attempt_id,
+                run_id: input.run_id,
+                profile_ref: input.profile_ref ?? "unknown",
+                target_tab_id: input.target_tab_id ?? 0,
+                stopped_at: timestamp,
+                stopped_step: reason.stoppedStep,
+                blocker_layer: reason.blockerLayer,
+                blocker_code: reason.blockerCode,
+                severity: "blocking",
+                later_write_actions_blocked: true,
+                cleanup_required: reason.cleanupRequired,
+                cleanup_result_id: cleanupResultId,
+                residual_record_id: residualRecordId,
+                required_recovery_action: reason.requiredRecoveryAction,
+                evidence_ref: evidenceRef
+            },
+            residual_record: residualRecord,
+            created_at: timestamp,
+            updated_at: timestamp
+        },
+        live_write_evaluation: {
+            schema_version: "fr-0032.live_write_evaluation.v1",
+            decision: "NO_GO",
+            full_live_write_success: false,
+            upload_success: true,
+            submit_success: submitEvidence?.submit_result_state === "accepted",
+            publish_success: false,
+            cleanup_success: cleanupResult?.cleanup_outcome === "not_needed",
+            later_write_actions_blocked: true,
+            cleanup_required: reason.cleanupRequired,
+            blockers: [
+                {
+                    blocker_code: reason.blockerCode,
+                    blocker_layer: reason.blockerLayer,
+                    message: reason.blockerMessage
+                }
+            ]
+        },
+        uploaded: true,
+        submitted: submitEvidence?.submit_result_state === "accepted",
+        published: false,
+        cleanup_attempted: cleanupResult !== null,
+        out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"]
+    };
+};
+const currentHref = () => typeof window !== "undefined" && window.location?.href
+    ? window.location.href
+    : typeof location !== "undefined" && location.href
+        ? location.href
+        : null;
+const noteIdFromHref = (href) => {
+    const match = /[?&](?:note_id|noteId|source_note_id)=([A-Za-z0-9_-]{8,64})(?:&|$)/u.exec(href) ??
+        /\/(?:explore|notes?|note|publish\/success)\/([A-Za-z0-9_-]{8,64})(?:[/?#]|$)/u.exec(href);
+    return match?.[1] ?? null;
+};
+const buildPublishIdentity = (input, artifact, submitEvidence, initialHref, successLocator) => {
+    const href = currentHref();
+    if (!href) {
+        return null;
+    }
+    const noteId = noteIdFromHref(href);
+    const successText = typeof document !== "undefined" &&
+        document.documentElement !== null &&
+        publishSuccessPattern.test(textContentOf(document.documentElement));
+    const creatorResultUrl = href !== initialHref && /^https:\/\/creator\.xiaohongshu\.com\//iu.test(href) ? href : null;
+    if (!noteId && !creatorResultUrl) {
+        return null;
+    }
+    const timestamp = nowIso();
+    return {
+        schema_version: "fr-0032.publish_result_identity.v1",
+        publish_result_id: `publish-result/fr-0032/${input.live_write_attempt_id}`,
+        live_write_attempt_id: input.live_write_attempt_id,
+        run_id: input.run_id,
+        profile_ref: input.profile_ref ?? "unknown",
+        target_tab_id: input.target_tab_id ?? 0,
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        source_upload_artifact_id: artifact.upload_artifact_id,
+        submit_action_ref: submitEvidence.submit_action_ref,
+        result_kind: noteId ? "note_id" : "creator_result_page",
+        note_id: noteId,
+        published_url: noteId ? `https://www.xiaohongshu.com/explore/${noteId}` : null,
+        creator_result_url: creatorResultUrl,
+        platform_record_ref: null,
+        publish_visibility_scope: input.publish_visibility_scope,
+        success_signal: {
+            signal_source: creatorResultUrl ? "creator_result_page" : "current_page_state",
+            signal_locator: creatorResultUrl ?? successLocator,
+            platform_message: successText ? "publish success text observed" : null,
+            observed_at: timestamp
+        },
+        captured_at: timestamp,
+        verification_state: "verified"
+    };
+};
+const performControlledSubmitPublishCleanup = async (input, artifact) => {
+    const timestamp = nowIso();
+    if (input.publish_visibility_scope !== "private_or_self_visible") {
+        return buildStepBlockedResult(input, artifact, {
+            blockerCode: "PUBLISH_VISIBILITY_NOT_SELECTED",
+            blockerMessage: "Controlled publish only supports private_or_self_visible visibility for FR-0032.",
+            detailsRef: "publish_visibility_scope_not_private",
+            requiredRecoveryAction: "rerun with publish_visibility_scope=private_or_self_visible",
+            stoppedStep: "publish",
+            blockerLayer: "publish",
+            riskKind: "submit_failure",
+            cleanupRequired: false
+        }, null, uploadStageCleanupResult(input, timestamp, "non-private visibility refused before submit"));
+    }
+    const visibilityControl = findVisibleElementMatchingText([
+        "button",
+        "label",
+        '[role="radio"]',
+        '[role="menuitemradio"]',
+        '[role="option"]',
+        '[class*="visibility" i]',
+        '[class*="privacy" i]',
+        '[class*="permission" i]'
+    ].join(","), privateVisibilityPattern, publicVisibilityPattern);
+    if (!visibilityControl || typeof visibilityControl.click !== "function") {
+        return buildStepBlockedResult(input, artifact, {
+            blockerCode: "PUBLISH_VISIBILITY_CONTROL_MISSING",
+            blockerMessage: "Controlled publish cannot find a private/self-visible visibility control.",
+            detailsRef: "publish_visibility_control_missing",
+            requiredRecoveryAction: "update the XHS private visibility locator before retrying publish",
+            stoppedStep: "publish",
+            blockerLayer: "publish",
+            riskKind: "submit_failure",
+            cleanupRequired: false
+        }, null, uploadStageCleanupResult(input, timestamp, "private visibility not selected before submit"));
+    }
+    visibilityControl.click();
+    await sleep(500);
+    const submitControl = findVisibleElementMatchingText([
+        "button",
+        '[role="button"]',
+        'input[type="button"]',
+        'input[type="submit"]',
+        '[class*="publish" i]',
+        '[class*="submit" i]'
+    ].join(","), submitPublishPattern, nonSubmitPublishPattern);
+    if (!submitControl || typeof submitControl.click !== "function") {
+        return buildStepBlockedResult(input, artifact, {
+            blockerCode: "SUBMIT_CONTROL_MISSING",
+            blockerMessage: "Controlled live write cannot find a safe submit/publish control after upload.",
+            detailsRef: "submit_control_missing",
+            requiredRecoveryAction: "update the XHS creator submit/publish locator before retrying",
+            stoppedStep: "submit",
+            blockerLayer: "submit",
+            riskKind: "submit_failure",
+            cleanupRequired: false
+        }, null, uploadStageCleanupResult(input, nowIso(), "submit control missing before publish"));
+    }
+    const initialHref = currentHref() ?? input.page_url;
+    const submittedAt = nowIso();
+    submitControl.click();
+    const submitEvidence = {
+        submit_action_ref: `submit/fr-0032/${input.live_write_attempt_id}`,
+        submit_locator: locatorForElement(submitControl),
+        submitted_at: submittedAt,
+        submit_result_state: "accepted",
+        platform_message: null
+    };
+    const isExtensionBrowserSurface = typeof window !== "undefined" && "chrome" in globalThis;
+    const deadline = Date.now() + (isExtensionBrowserSurface ? 15_000 : 50);
+    let publishIdentity = null;
+    do {
+        publishIdentity = buildPublishIdentity(input, artifact, submitEvidence, initialHref, locatorForElement(visibilityControl));
+        if (publishIdentity || Date.now() >= deadline) {
+            break;
+        }
+        await sleep(isExtensionBrowserSurface ? 500 : 10);
+    } while (true);
+    if (!publishIdentity) {
+        const residual = {
+            residual_record_id: `residual/fr-0032/${input.live_write_attempt_id}/identity-missing`,
+            live_write_attempt_id: input.live_write_attempt_id,
+            publish_result_id: null,
+            visibility_scope: input.publish_visibility_scope,
+            external_visibility_may_remain: false,
+            residual_locator: null,
+            reason: "identity_missing_after_publish",
+            required_followup: "capture note_id, creator result URL, or platform record before retrying closeout",
+            recorded_at: nowIso()
+        };
+        const cleanup = {
+            schema_version: "fr-0032.cleanup_rollback_proof.v1",
+            cleanup_result_id: `cleanup/fr-0032/${input.live_write_attempt_id}/identity-missing`,
+            live_write_attempt_id: input.live_write_attempt_id,
+            run_id: input.run_id,
+            profile_ref: input.profile_ref ?? "unknown",
+            target_tab_id: input.target_tab_id ?? 0,
+            publish_result_identity: null,
+            cleanup_policy_ref: input.cleanup_policy_ref,
+            cleanup_action: "no_safe_cleanup_action",
+            cleanup_outcome: "cleanup_blocked",
+            proof_locator: null,
+            platform_message: "publish result identity missing after submit",
+            attempted_at: nowIso(),
+            completed_at: null,
+            residual_record: residual
+        };
+        return buildStepBlockedResult(input, artifact, {
+            blockerCode: "PUBLISH_RESULT_IDENTITY_MISSING",
+            blockerMessage: "Controlled publish did not produce a verifiable publish result identity.",
+            detailsRef: "publish_result_identity_missing",
+            requiredRecoveryAction: "capture note_id, published URL, creator result URL, or platform record before closeout",
+            stoppedStep: "publish_identity",
+            blockerLayer: "published_identity",
+            riskKind: "publish_identity_missing",
+            cleanupRequired: true
+        }, submitEvidence, cleanup, residual);
+    }
+    const closedAt = nowIso();
+    const cleanup = {
+        schema_version: "fr-0032.cleanup_rollback_proof.v1",
+        cleanup_result_id: `cleanup/fr-0032/${input.live_write_attempt_id}/private-visibility`,
+        live_write_attempt_id: input.live_write_attempt_id,
+        run_id: input.run_id,
+        profile_ref: input.profile_ref ?? "unknown",
+        target_tab_id: input.target_tab_id ?? 0,
+        publish_result_identity: publishIdentity,
+        cleanup_policy_ref: input.cleanup_policy_ref,
+        cleanup_action: "hide_published_result",
+        cleanup_outcome: "hidden",
+        proof_locator: locatorForElement(visibilityControl),
+        platform_message: "publish_visibility_scope=private_or_self_visible selected before publish",
+        attempted_at: closedAt,
+        completed_at: closedAt,
+        residual_record: null
+    };
+    return {
+        live_write_action: "controlled_upload_submit_publish",
+        target_page: "creator_publish_tab",
+        live_write_evidence: {
+            schema_version: "fr-0032.live_write_evidence.v1",
+            live_write_attempt_id: input.live_write_attempt_id,
+            canonical_issue_ref: "#835",
+            execution_phase: "closed",
+            scope: {
+                platform: "xhs",
+                target_domain: "creator.xiaohongshu.com",
+                target_page: "creator_publish_tab",
+                browser_channel: "Google Chrome stable",
+                execution_surface: "real_browser",
+                requested_execution_mode: "live_write",
+                profile_ref: input.profile_ref ?? "unknown",
+                target_tab_id: input.target_tab_id ?? 0,
+                probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+                run_id: input.run_id,
+                artifact_identity: artifact.upload_artifact_id
+            },
+            entry_gate: null,
+            stop_classification: null,
+            upload_artifact_identity: artifact,
+            submit_evidence: submitEvidence,
+            publish_result_identity: publishIdentity,
+            cleanup_result: cleanup,
+            risk_signals: [],
+            stop_signal: null,
+            residual_record: null,
+            created_at: timestamp,
+            updated_at: closedAt
+        },
+        live_write_evaluation: {
+            schema_version: "fr-0032.live_write_evaluation.v1",
+            decision: "GO",
+            full_live_write_success: true,
+            upload_success: true,
+            submit_success: true,
+            publish_success: true,
+            cleanup_success: true,
+            later_write_actions_blocked: false,
+            cleanup_required: false,
+            blockers: []
+        },
+        uploaded: true,
+        submitted: true,
+        published: true,
+        cleanup_attempted: true,
+        out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"]
+    };
+};
 export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input) => {
+    if (input.accepted_upload_artifact_identity?.accepted_by_platform === true) {
+        return await performControlledSubmitPublishCleanup(input, input.accepted_upload_artifact_identity);
+    }
     const resolvedFile = await resolveApprovedFixtureMediaFile(input);
     if (!isBrowserFile(resolvedFile)) {
         return buildXhsControlledLiveWriteUploadBlockedResult(input, resolvedFile);

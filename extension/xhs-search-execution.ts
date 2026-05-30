@@ -1328,6 +1328,12 @@ export const executeXhsSearch = async (
       latest_head_sha:
         typeof input.options.__runtime_latest_head_sha === "string"
           ? input.options.__runtime_latest_head_sha
+          : null,
+      accepted_upload_artifact_identity:
+        typeof input.params.accepted_upload_artifact_identity === "object" &&
+        input.params.accepted_upload_artifact_identity !== null &&
+        !Array.isArray(input.params.accepted_upload_artifact_identity)
+          ? input.params.accepted_upload_artifact_identity as Parameters<NonNullable<XhsSearchEnvironment["performControlledLiveWrite"]>>[0]["accepted_upload_artifact_identity"]
           : null
     };
     const controlledLiveWriteResult = env.performControlledLiveWrite

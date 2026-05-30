@@ -578,6 +578,55 @@ describe("xhs-input", () => {
     });
   });
 
+  it("parses accepted upload artifact identity for the controlled submit/publish phase", () => {
+    const envelope = parseAbilityEnvelopeForContract({
+      ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
+      input: {
+        live_write_attempt_id: "fr0032-attempt-submit-001",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_kind: "image",
+        accepted_upload_artifact_identity: {
+          upload_artifact_id: "upload-artifact/fr0032-accepted",
+          accepted_by_platform: true,
+          visible_in_editor: true,
+          platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/abc"
+        }
+      },
+      options: {
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        risk_state: "allowed",
+        confirm_live_write: true,
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/manual-delete-or-residual"
+      }
+    });
+    const gate = normalizeGateOptionsForContract(envelope.options, envelope.ability.id, {
+      command: "xhs.creator_publish.controlled_live_write",
+      abilityAction: envelope.ability.action,
+      runtimeProfile: "profile-a"
+    });
+
+    expect(parseXhsCommandInputForContract({
+      command: "xhs.creator_publish.controlled_live_write",
+      abilityId: envelope.ability.id,
+      abilityAction: envelope.ability.action,
+      payload: envelope.input,
+      options: gate.options
+    })).toMatchObject({
+      target_page: "creator_publish_tab",
+      live_write_attempt_id: "fr0032-attempt-submit-001",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr0032-accepted",
+        accepted_by_platform: true,
+        visible_in_editor: true
+      }
+    });
+  });
+
   it("rejects xhs.creator_publish.controlled_live_write when source media ref leaks a local path", () => {
     try {
       parseXhsCommandInputForContract({

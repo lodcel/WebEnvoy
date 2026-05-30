@@ -117,6 +117,7 @@ export interface XhsControlledLiveWriteInputContract extends JsonObject {
   source_media_ref: string;
   source_media_digest: string;
   source_media_kind: "image" | "video" | "mixed";
+  accepted_upload_artifact_identity?: JsonObject;
 }
 
 export interface XhsEditorTextWriteInputContract extends JsonObject {
@@ -1047,12 +1048,27 @@ export const parseControlledLiveWriteInputForContract = (
   if (!SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
     throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", abilityId);
   }
+  const acceptedUploadArtifactIdentity =
+    hasOwn(input, "accepted_upload_artifact_identity") &&
+    input.accepted_upload_artifact_identity !== undefined
+      ? asObject(input.accepted_upload_artifact_identity)
+      : undefined;
+  if (
+    hasOwn(input, "accepted_upload_artifact_identity") &&
+    input.accepted_upload_artifact_identity !== undefined &&
+    !acceptedUploadArtifactIdentity
+  ) {
+    throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_IDENTITY_INVALID", abilityId);
+  }
   return {
     target_page: "creator_publish_tab",
     live_write_attempt_id: liveWriteAttemptId,
     source_media_ref: sourceMediaRef,
     source_media_digest: sourceMediaDigest,
-    source_media_kind: sourceMediaKind as "image" | "video" | "mixed"
+    source_media_kind: sourceMediaKind as "image" | "video" | "mixed",
+    ...(acceptedUploadArtifactIdentity
+      ? { accepted_upload_artifact_identity: cloneJsonObject(acceptedUploadArtifactIdentity) }
+      : {})
   };
 };
 

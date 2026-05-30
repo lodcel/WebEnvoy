@@ -2,6 +2,11 @@ export type ExtensionAbilityAction = "read" | "write" | "download";
 
 type JsonRecord = Record<string, unknown>;
 
+const asRecord = (value: unknown): JsonRecord | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
+
 export type ExtensionXhsMediaUploadDiscoveryInput = {
   target_page: "creator_publish_tab";
   discovery_action: "media_upload_path";
@@ -16,6 +21,7 @@ export type ExtensionXhsControlledLiveWriteInput = {
   source_media_ref: string;
   source_media_digest: string;
   source_media_kind: "image" | "video" | "mixed";
+  accepted_upload_artifact_identity?: JsonRecord;
 };
 
 export class ExtensionContractError extends Error {
@@ -249,6 +255,10 @@ export const validateXhsCommandInputForExtension = (input: {
     const sourceMediaRef = asNonEmptyString(input.payload.source_media_ref);
     const sourceMediaDigest = asNonEmptyString(input.payload.source_media_digest);
     const sourceMediaKind = asNonEmptyString(input.payload.source_media_kind);
+    const acceptedUploadArtifactIdentity =
+      input.payload.accepted_upload_artifact_identity === undefined
+        ? undefined
+        : asRecord(input.payload.accepted_upload_artifact_identity);
     if (
       input.abilityId !== "xhs.creator.publish.v1" ||
       input.abilityAction !== "write" ||
@@ -265,7 +275,9 @@ export const validateXhsCommandInputForExtension = (input: {
       !sourceMediaDigest ||
       !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest) ||
       !sourceMediaKind ||
-      !SOURCE_MEDIA_KINDS.has(sourceMediaKind)
+      !SOURCE_MEDIA_KINDS.has(sourceMediaKind) ||
+      (input.payload.accepted_upload_artifact_identity !== undefined &&
+        !acceptedUploadArtifactIdentity)
     ) {
       throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
     }
@@ -274,7 +286,14 @@ export const validateXhsCommandInputForExtension = (input: {
       live_write_attempt_id: liveWriteAttemptId,
       source_media_ref: sourceMediaRef,
       source_media_digest: sourceMediaDigest,
-      source_media_kind: sourceMediaKind as "image" | "video" | "mixed"
+      source_media_kind: sourceMediaKind as "image" | "video" | "mixed",
+      ...(acceptedUploadArtifactIdentity
+        ? {
+            accepted_upload_artifact_identity: JSON.parse(
+              JSON.stringify(acceptedUploadArtifactIdentity)
+            ) as JsonRecord
+          }
+        : {})
     };
   }
   if (input.command === "xhs.detail") {
