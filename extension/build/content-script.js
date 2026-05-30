@@ -6235,6 +6235,9 @@ const isXhsControlledUploadPlatformCaptureUrl = (url, method) => {
         if (xhsControlledUploadCredentialEndpointPattern.test(parsed.pathname)) {
             return false;
         }
+        if (method.toUpperCase() === "PUT" && objectUploadTransportStagingRef(url)) {
+            return true;
+        }
         return xhsControlledUploadPlatformEndpointAllowlist.some((entry) => parsed.hostname === entry.host && entry.path.test(parsed.pathname));
     }
     catch {
@@ -6387,11 +6390,39 @@ const findTrustedPlatformStagingRef = (value) => {
     }
     return null;
 };
+const objectUploadTransportStagingRef = (url) => {
+    try {
+        const parsed = new URL(url);
+        if (!isXhsControlledObjectUploadTransportHost(parsed.hostname)) {
+            return null;
+        }
+        const path = parsed.pathname.trim();
+        if (!/^\/spectrum\/[A-Za-z0-9_-]{32,256}$/u.test(path)) {
+            return null;
+        }
+        return `object_upload:${parsed.hostname}${path}`;
+    }
+    catch {
+        return null;
+    }
+};
 const extractXhsControlledUploadPlatformCapture = (input) => {
     if (input.status < 200 ||
         input.status >= 300 ||
         !isXhsControlledUploadPlatformCaptureUrl(input.url, input.method)) {
         return null;
+    }
+    const objectUploadStagingRef = objectUploadTransportStagingRef(input.url);
+    if (objectUploadStagingRef) {
+        return {
+            source: "chrome_debugger_network",
+            platform_staging_ref: objectUploadStagingRef,
+            evidence_basis: "object_upload_transport_2xx",
+            url: input.url,
+            method: input.method,
+            status: input.status,
+            captured_at: input.captured_at
+        };
     }
     const platformStagingRef = findTrustedPlatformStagingRef(input.body);
     if (!platformStagingRef) {
@@ -6400,6 +6431,7 @@ const extractXhsControlledUploadPlatformCapture = (input) => {
     return {
         source: "chrome_debugger_network",
         platform_staging_ref: platformStagingRef,
+        evidence_basis: "trusted_platform_response_body",
         url: input.url,
         method: input.method,
         status: input.status,
@@ -7183,6 +7215,10 @@ const applyXhsControlledUploadPlatformCapture = (result, capture) => {
     const evidence = result.live_write_evidence;
     const uploadArtifact = evidence.upload_artifact_identity;
     if (!uploadArtifact || uploadArtifact.accepted_by_platform === true) {
+        return result;
+    }
+    if (capture.evidence_basis === "object_upload_transport_2xx" &&
+        (uploadArtifact.visible_in_editor !== true || !uploadArtifact.page_preview_locator)) {
         return result;
     }
     const timestamp = nowIso();

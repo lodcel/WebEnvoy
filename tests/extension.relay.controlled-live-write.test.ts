@@ -117,6 +117,65 @@ it("promotes upload evidence when Chrome debugger captures an explicit platform 
   });
 });
 
+it("requires editor-visible upload evidence before promoting object transport staging refs", () => {
+  const result = buildXhsControlledLiveWriteUploadBlockedResult(
+    {
+      live_write_attempt_id: "fr0032-attempt-object-upload-without-preview",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-911-object-upload-without-preview",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test"
+    },
+    {
+      blockerCode: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+      blockerMessage:
+        "Controlled live upload observed an editor preview, but platform upload acceptance is not independently verified.",
+      detailsRef: "upload_acceptance_unverified",
+      requiredRecoveryAction:
+        "collect platform-returned upload acceptance evidence before submit/publish"
+    },
+    {
+      upload_artifact_id: "upload-artifact/fr0032-object-no-preview",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      platform_staging_ref: null,
+      page_preview_locator: null,
+      accepted_by_platform: false,
+      visible_in_editor: false,
+      captured_at: "2026-05-30T00:00:00.000Z"
+    }
+  );
+
+  const promoted = applyXhsControlledUploadPlatformCapture(result, {
+    source: "chrome_debugger_network",
+    evidence_basis: "object_upload_transport_2xx",
+    platform_staging_ref:
+      "object_upload:ros-upload-d4.xhscdn.com/spectrum/XbAJSnnddgqFkj8Nst9wiMCtHGGO9a3Rp4vxdqzli0PBySQ",
+    url: "https://ros-upload-d4.xhscdn.com/spectrum/XbAJSnnddgqFkj8Nst9wiMCtHGGO9a3Rp4vxdqzli0PBySQ",
+    method: "PUT",
+    status: 200,
+    captured_at: "2026-05-30T00:00:01.000Z"
+  });
+
+  expect(promoted.uploaded).toBe(false);
+  expect(promoted.live_write_evidence).toMatchObject({
+    upload_artifact_identity: expect.objectContaining({
+      accepted_by_platform: false,
+      platform_staging_ref: null,
+      visible_in_editor: false
+    })
+  });
+});
+
 it("records debugger upload capture status without promoting upload success", () => {
   const result = buildXhsControlledLiveWriteUploadBlockedResult(
     {
@@ -428,6 +487,12 @@ it("uses an explicit host/path/method allowlist before upload response body capt
   ).toBe(false);
   expect(
     isXhsControlledUploadPlatformCaptureUrl(
+      "https://ros-upload-d4.xhscdn.com/spectrum/XbAJSnnddgqFkj8Nst9wiMCtHGGO9a3Rp4vxdqzli0PBySQ",
+      "PUT"
+    )
+  ).toBe(true);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
       "https://creator.xiaohongshu.com/api/user/profile",
       "POST"
     )
@@ -452,7 +517,7 @@ it("uses an explicit host/path/method allowlist before upload response body capt
   ).toBe(false);
 });
 
-it("classifies ros-upload object transports as diagnostics, not platform acceptance candidates", () => {
+it("classifies 2xx ros-upload object transports as platform staging candidates", () => {
   expect(
     summarizeXhsControlledUploadObservedRequest(
       "https://ros-upload.xiaohongshu.com/spectrum/Yrtpg81qA4U9bTfi4jcmtQPKo2Kh8nQAU7M62npADlDeyCw",
@@ -462,8 +527,8 @@ it("classifies ros-upload object transports as diagnostics, not platform accepta
     method: "PUT",
     host: "ros-upload.xiaohongshu.com",
     path: "/spectrum/Yrtpg81qA4U9bTfi4jcmtQPKo2Kh8nQAU7M62npADlDeyCw",
-    capture_candidate: false,
-    rejection_reason: "object_upload_transport_not_platform_acceptance"
+    capture_candidate: true,
+    rejection_reason: null
   });
 
   expect(
@@ -475,6 +540,20 @@ it("classifies ros-upload object transports as diagnostics, not platform accepta
     host: "ros-upload-d4.xhscdn.com",
     capture_candidate: false,
     rejection_reason: "object_upload_transport_not_platform_acceptance"
+  });
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://ros-upload-d4.xhscdn.com/spectrum/XbAJSnnddgqFkj8Nst9wiMCtHGGO9a3Rp4vxdqzli0PBySQ",
+      method: "PUT",
+      status: 200,
+      body: null,
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toMatchObject({
+    evidence_basis: "object_upload_transport_2xx",
+    platform_staging_ref:
+      "object_upload:ros-upload-d4.xhscdn.com/spectrum/XbAJSnnddgqFkj8Nst9wiMCtHGGO9a3Rp4vxdqzli0PBySQ"
   });
 
   expect(
