@@ -417,9 +417,9 @@ it("opens visibility selector before choosing the private publish option", async
     };
   }
   const visibilityTrigger = new TestElement();
-  visibilityTrigger.className = "visibility-select";
-  visibilityTrigger.classList = ["visibility-select"];
-  visibilityTrigger.textContent = "可见范围 公开";
+  visibilityTrigger.className = "publish-setting";
+  visibilityTrigger.classList = ["publish-setting"];
+  visibilityTrigger.textContent = "公开";
   let privateOptionVisible = false;
   visibilityTrigger.click = () => {
     visibilityTrigger.clicked = true;
