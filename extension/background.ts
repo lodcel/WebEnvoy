@@ -68,7 +68,7 @@ import {
   type XhsControlledUploadPlatformCaptureStatus
 } from "./xhs-controlled-live-write.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
-import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
+import { createPageContextNamespace, SEARCH_ENDPOINT, type JsonRecord } from "./xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
@@ -2392,6 +2392,91 @@ const isFingerprintRuntimeContextEquivalent = (
 const TRUST_INVALIDATION_COMMANDS = new Set(["runtime.stop", "runtime.start", "runtime.login"]);
 // Trust must come from startup trust bound to an allowlist page, not generic bridge commands.
 const TRUST_PRIMING_COMMANDS = new Set<string>(["runtime.ping"]);
+const XHS_CONTROLLED_LIVE_WRITE_COMMAND = "xhs.creator_publish.controlled_live_write";
+const XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_MARKER =
+  "__background_upload_capture_continuation";
+const XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_REASON =
+  "platform_capture_accepted_upload_after_content_upload_unverified";
+
+const isAcceptedControlledUploadArtifactIdentity = (
+  value: unknown
+): value is JsonRecord => {
+  const artifact = asRecord(value);
+  if (!artifact || artifact.accepted_by_platform !== true || artifact.visible_in_editor !== true) {
+    return false;
+  }
+  const sourceMediaKind = artifact.source_media_kind;
+  return (
+    asNonEmptyString(artifact.upload_artifact_id) !== null &&
+    asNonEmptyString(artifact.source_media_ref) !== null &&
+    asNonEmptyString(artifact.source_media_digest) !== null &&
+    (sourceMediaKind === "image" || sourceMediaKind === "video" || sourceMediaKind === "mixed") &&
+    asNonEmptyString(artifact.platform_staging_ref) !== null &&
+    asNonEmptyString(artifact.page_preview_locator) !== null &&
+    asNonEmptyString(artifact.captured_at) !== null
+  );
+};
+
+const hasAcceptedUploadContinuationArtifact = (
+  commandParams: Record<string, unknown>
+): boolean => {
+  const input = asRecord(commandParams.input);
+  return isAcceptedControlledUploadArtifactIdentity(input?.accepted_upload_artifact_identity);
+};
+
+const isBackgroundUploadCaptureContinuation = (
+  commandParams: Record<string, unknown>
+): boolean => {
+  const input = asRecord(commandParams.input);
+  return input?.[XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_MARKER] === true;
+};
+
+const buildBackgroundUploadCaptureContinuationKey = (
+  request: BridgeRequest,
+  targetTabId: number | null
+): string => {
+  const sessionId = asNonEmptyString(request.params.session_id) ?? "unknown-session";
+  const runId = asNonEmptyString(request.params.run_id) ?? "unknown-run";
+  return [
+    sessionId,
+    runId,
+    String(targetTabId ?? "unknown-tab"),
+    request.id,
+    XHS_CONTROLLED_LIVE_WRITE_COMMAND
+  ].join(":");
+};
+
+const resolveBackgroundUploadCaptureContinuationArtifact = (
+  result: XhsControlledLiveWriteResult
+): JsonRecord | null => {
+  const evidence = result.live_write_evidence;
+  const evaluation = result.live_write_evaluation;
+  const blockers = Array.isArray(evaluation.blockers) ? evaluation.blockers : [];
+  const submitExecutorBlocked = blockers.some((blocker) => {
+    const record = asRecord(blocker);
+    return (
+      record?.blocker_code === "SUBMIT_EXECUTOR_UNAVAILABLE" &&
+      record?.blocker_layer === "submit"
+    );
+  });
+  const platformCapture = asRecord(evidence.platform_upload_acceptance_capture);
+  const platformCaptureAccepted =
+    platformCapture?.source === "chrome_debugger_network" &&
+    typeof platformCapture.status === "number" &&
+    platformCapture.status >= 200 &&
+    platformCapture.status < 300 &&
+    asNonEmptyString(platformCapture.platform_staging_ref) !== null;
+  const uploadArtifact = evidence.upload_artifact_identity;
+  if (
+    evaluation.upload_success !== true ||
+    !submitExecutorBlocked ||
+    !platformCaptureAccepted ||
+    !isAcceptedControlledUploadArtifactIdentity(uploadArtifact)
+  ) {
+    return null;
+  }
+  return uploadArtifact;
+};
 
 export class BackgroundRelay extends ExtractedBackgroundRelay {
   constructor(
@@ -2422,6 +2507,7 @@ class ChromeBackgroundBridge {
     string,
     XhsControlledUploadPlatformCaptureController
   >();
+  #controlledLiveWriteContinuationKeys = new Set<string>();
   #recoveryState: NativeBridgeRecoveryState;
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -6343,6 +6429,7 @@ class ChromeBackgroundBridge {
     let commandParams = XHS_GATE_COMMANDS.has(command)
       ? normalizeXhsSearchCommandParams(rawCommandParams)
       : rawCommandParams;
+    const hasAcceptedUploadContinuation = hasAcceptedUploadContinuationArtifact(commandParams);
     const activeSessionId =
       asNonEmptyString(this.#sessionId) ?? asNonEmptyString(request.params.session_id);
     if (activeSessionId) {
@@ -6721,7 +6808,7 @@ class ChromeBackgroundBridge {
       ? reserveXhsForwardResponseSafetyMs(forwardTimeoutMs)
       : forwardTimeoutMs;
     const controlledUploadPlatformCapture =
-      command === "xhs.creator_publish.controlled_live_write"
+      command === XHS_CONTROLLED_LIVE_WRITE_COMMAND && !hasAcceptedUploadContinuation
         ? await this.#startXhsControlledUploadPlatformCapture(
             tabId,
             resolveXhsControlledUploadPlatformCaptureTimeoutMs(pendingTimeoutMs)
@@ -9013,6 +9100,182 @@ class ChromeBackgroundBridge {
     }
   }
 
+  #buildXhsControlledLiveWriteContinuationRequest(
+    request: BridgeRequest,
+    targetTabId: number | null,
+    acceptedUploadArtifact: Record<string, unknown>
+  ): { pendingRequest: BridgeRequest; forwardId: string } | null {
+    if (String(request.params.command ?? "") !== XHS_CONTROLLED_LIVE_WRITE_COMMAND) {
+      return null;
+    }
+    const rawCommandParams = asRecord(request.params.command_params);
+    const rawInput = asRecord(rawCommandParams?.input);
+    if (!rawCommandParams || !rawInput) {
+      return null;
+    }
+    if (
+      hasAcceptedUploadContinuationArtifact(rawCommandParams) ||
+      isBackgroundUploadCaptureContinuation(rawCommandParams)
+    ) {
+      return null;
+    }
+    const continuationKey = buildBackgroundUploadCaptureContinuationKey(request, targetTabId);
+    if (this.#controlledLiveWriteContinuationKeys.has(continuationKey)) {
+      return null;
+    }
+    this.#controlledLiveWriteContinuationKeys.add(continuationKey);
+    const forwardId = `${request.id}-xhs-controlled-live-write-continuation-1`;
+    const continuedCommandParams = {
+      ...rawCommandParams,
+      input: {
+        ...rawInput,
+        [XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_MARKER]: true,
+        background_upload_capture_continuation_reason:
+          XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_REASON,
+        accepted_upload_artifact_identity: JSON.parse(JSON.stringify(acceptedUploadArtifact)) as JsonRecord
+      }
+    };
+    return {
+      forwardId,
+      pendingRequest: {
+        ...request,
+        params: {
+          ...request.params,
+          command_params: continuedCommandParams
+        }
+      }
+    };
+  }
+
+  async #dispatchXhsControlledLiveWriteContinuation(input: {
+    pendingRequest: BridgeRequest;
+    forwardId: string;
+    parentPending: {
+      consumerGateResult?: Record<string, unknown> | null;
+      gatePayload?: Record<string, unknown> | null;
+      suppressHostResponse?: boolean;
+    };
+    targetTabId: number;
+  }): Promise<void> {
+    const commandParams = asRecord(input.pendingRequest.params.command_params) ?? {};
+    const timeoutMs = this.#resolveForwardTimeoutMs(input.pendingRequest);
+    const pendingTimeoutMs = reserveXhsForwardResponseSafetyMs(timeoutMs);
+    const timeout = setTimeout(() => {
+      const pending = this.#pendingState.take(input.forwardId);
+      if (!pending || pending.suppressHostResponse === true) {
+        return;
+      }
+      this.#emit({
+        id: pending.request.id,
+        status: "error",
+        summary: {
+          relay_path: "host>background>content-script>background>host"
+        },
+        payload: {
+          ...(pending.gatePayload ? { ...pending.gatePayload } : {}),
+          background_upload_capture_continuation: {
+            attempted: true,
+            reason: XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_REASON,
+            continuation_key: buildBackgroundUploadCaptureContinuationKey(
+              pending.request,
+              input.targetTabId
+            ),
+            max_attempts: 1,
+            failure_reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
+          }
+        },
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          message: "controlled live write continuation timed out"
+        }
+      });
+    }, pendingTimeoutMs);
+    this.#pendingState.register(input.forwardId, {
+      request: input.pendingRequest,
+      timeout,
+      ...(input.parentPending.consumerGateResult
+        ? { consumerGateResult: input.parentPending.consumerGateResult }
+        : {}),
+      ...(input.parentPending.gatePayload ? { gatePayload: input.parentPending.gatePayload } : {}),
+      suppressHostResponse: input.parentPending.suppressHostResponse === true
+    });
+    const forward: BackgroundToContentMessage = {
+      kind: "forward",
+      id: input.forwardId,
+      runId: String(input.pendingRequest.params.run_id ?? input.pendingRequest.id),
+      tabId: input.targetTabId,
+      profile:
+        typeof input.pendingRequest.profile === "string" ? input.pendingRequest.profile : null,
+      cwd: String(input.pendingRequest.params.cwd ?? ""),
+      timeoutMs,
+      command: XHS_CONTROLLED_LIVE_WRITE_COMMAND,
+      params:
+        typeof input.pendingRequest.params === "object" && input.pendingRequest.params !== null
+          ? { ...(input.pendingRequest.params as Record<string, unknown>) }
+          : {},
+      commandParams,
+      fingerprintContext: resolveFingerprintContext(commandParams)
+    };
+    try {
+      await this.#sendMessageWithContentScriptRecovery(
+        input.targetTabId,
+        forward,
+        input.pendingRequest
+      );
+    } catch (error) {
+      const pending = this.#pendingState.take(input.forwardId);
+      if (!pending || pending.suppressHostResponse === true) {
+        return;
+      }
+      this.#emit({
+        id: pending.request.id,
+        status: "error",
+        summary: {
+          relay_path: "host>background>content-script>background>host"
+        },
+        payload: {
+          ...(pending.gatePayload ? { ...pending.gatePayload } : {}),
+          background_upload_capture_continuation: {
+            attempted: true,
+            reason: XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_REASON,
+            continuation_key: buildBackgroundUploadCaptureContinuationKey(
+              pending.request,
+              input.targetTabId
+            ),
+            max_attempts: 1,
+            failure_reason: "CONTENT_SCRIPT_DISPATCH_FAILED"
+          }
+        },
+        error: {
+          code: "ERR_TRANSPORT_FORWARD_FAILED",
+          message: error instanceof Error ? error.message : "controlled live write continuation dispatch failed"
+        }
+      });
+    }
+  }
+
+  #annotateBackgroundUploadCaptureContinuation(
+    request: BridgeRequest,
+    targetTabId: number | null,
+    payload: Record<string, unknown>,
+    summary: Record<string, unknown> | null
+  ): void {
+    const rawCommandParams = asRecord(request.params.command_params);
+    if (!rawCommandParams || !isBackgroundUploadCaptureContinuation(rawCommandParams)) {
+      return;
+    }
+    const continuation = {
+      attempted: true,
+      reason: XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_REASON,
+      continuation_key: buildBackgroundUploadCaptureContinuationKey(request, targetTabId),
+      max_attempts: 1
+    };
+    payload.background_upload_capture_continuation = continuation;
+    if (summary !== null) {
+      summary.background_upload_capture_continuation = continuation;
+    }
+  }
+
   async #onContentScriptResult(message: unknown, sender: RuntimeMessageSender): Promise<void> {
     const result = message as Partial<ContentToBackgroundMessage> | null;
     if (!result || result.kind !== "result" || typeof result.id !== "string") {
@@ -9127,6 +9390,26 @@ class ChromeBackgroundBridge {
         controlledLiveWrite as XhsControlledLiveWriteResult,
         controlledUploadPlatformCapture as XhsControlledUploadPlatformCapture
       ) as Record<string, unknown>;
+      const continuationArtifact =
+        resolveBackgroundUploadCaptureContinuationArtifact(
+          mergedControlledLiveWrite as XhsControlledLiveWriteResult
+        );
+      const continuationDispatch = continuationArtifact
+        ? this.#buildXhsControlledLiveWriteContinuationRequest(
+            request,
+            sender.tab?.id ?? null,
+            continuationArtifact as unknown as Record<string, unknown>
+          )
+        : null;
+      const continuationTabId = typeof sender.tab?.id === "number" ? sender.tab.id : null;
+      if (continuationDispatch && continuationTabId !== null) {
+        await this.#dispatchXhsControlledLiveWriteContinuation({
+          ...continuationDispatch,
+          parentPending: pending,
+          targetTabId: continuationTabId
+        });
+        return;
+      }
       payload.controlled_live_write = mergedControlledLiveWrite;
       payload.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
       payload.live_write_evaluation = mergedControlledLiveWrite.live_write_evaluation;
@@ -9148,6 +9431,7 @@ class ChromeBackgroundBridge {
       }
     }
     const senderTabId = typeof sender.tab?.id === "number" ? sender.tab.id : null;
+    this.#annotateBackgroundUploadCaptureContinuation(request, senderTabId, payload, summary);
     this.#emit({
       id: request.id,
       status: "success",
