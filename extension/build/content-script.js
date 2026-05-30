@@ -7152,7 +7152,11 @@ const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input) => {
     const previousPreviewSignatures = collectEditorPreviewSignatures();
     const fileInputs = collectUploadFileInputs();
     const fileInput = findUploadFileInput(fileInputs);
-    if (input.source_media_kind === "image" && !fileInput && fileInputs.some((candidate) => !candidate.disabled)) {
+    const dropzone = findUploadDropzone();
+    if (input.source_media_kind === "image" &&
+        !fileInput &&
+        !dropzone &&
+        fileInputs.some((candidate) => !candidate.disabled)) {
         return buildXhsControlledLiveWriteUploadBlockedResult(input, {
             blockerCode: "IMAGE_UPLOAD_ENTRY_MISSING",
             blockerMessage: "Controlled live upload found file inputs, but none accept the approved image fixture after selecting image publish mode.",
@@ -7160,7 +7164,6 @@ const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input) => {
             requiredRecoveryAction: "open the creator image publish target or update the XHS image mode selector before controlled upload"
         });
     }
-    const dropzone = findUploadDropzone();
     if (!fileInput && !dropzone) {
         return buildXhsControlledLiveWriteUploadBlockedResult(input, {
             blockerCode: "UPLOAD_ENTRY_MISSING",

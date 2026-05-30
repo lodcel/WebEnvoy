@@ -1195,7 +1195,7 @@ describe("extension background relay / controlled live write", () => {
     }
   });
 
-  it("does not use a video-only upload entry for the approved image fixture", async () => {
+  it("falls back to a visible dropzone when only video file inputs are present", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
     const originalHTMLElement = globalThis.HTMLElement;
@@ -1243,7 +1243,23 @@ describe("extension background relay / controlled live write", () => {
         return true;
       };
     }
+    class PreviewImage extends TestElement {
+      tagName = "IMG";
+      className = "uploaded-preview";
+      classList = ["uploaded-preview"];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-dropzone-fallback";
+        }
+        return null;
+      };
+    }
     const dropzone = new UploadDropzone();
+    const preview = new PreviewImage();
     Object.defineProperty(globalThis, "DataTransfer", {
       configurable: true,
       value: TestDataTransfer
@@ -1262,6 +1278,9 @@ describe("extension background relay / controlled live write", () => {
         querySelectorAll: (selector: string) => {
           if (selector === 'input[type="file"]') {
             return [videoInput];
+          }
+          if (selector.includes("img")) {
+            return dropzoneTouched ? [preview] : [];
           }
           if (selector.includes("upload")) {
             return [dropzone];
@@ -1292,12 +1311,16 @@ describe("extension background relay / controlled live write", () => {
         upload_success: false,
         blockers: [
           expect.objectContaining({
-            blocker_code: "IMAGE_UPLOAD_ENTRY_MISSING",
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
             blocker_layer: "upload"
           })
         ]
       });
-      expect(dropzoneTouched).toBe(false);
+      expect(dropzoneTouched).toBe(true);
+      expect(result.live_write_evidence.upload_artifact_identity).toMatchObject({
+        visible_in_editor: true,
+        page_preview_locator: "img.uploaded-preview"
+      });
     } finally {
       Object.defineProperty(globalThis, "DataTransfer", {
         configurable: true,

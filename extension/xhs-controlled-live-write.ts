@@ -1176,7 +1176,13 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
   const previousPreviewSignatures = collectEditorPreviewSignatures();
   const fileInputs = collectUploadFileInputs();
   const fileInput = findUploadFileInput(fileInputs);
-  if (input.source_media_kind === "image" && !fileInput && fileInputs.some((candidate) => !candidate.disabled)) {
+  const dropzone = findUploadDropzone();
+  if (
+    input.source_media_kind === "image" &&
+    !fileInput &&
+    !dropzone &&
+    fileInputs.some((candidate) => !candidate.disabled)
+  ) {
     return buildXhsControlledLiveWriteUploadBlockedResult(input, {
       blockerCode: "IMAGE_UPLOAD_ENTRY_MISSING",
       blockerMessage:
@@ -1186,7 +1192,6 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
         "open the creator image publish target or update the XHS image mode selector before controlled upload"
     });
   }
-  const dropzone = findUploadDropzone();
   if (!fileInput && !dropzone) {
     return buildXhsControlledLiveWriteUploadBlockedResult(input, {
       blockerCode: "UPLOAD_ENTRY_MISSING",
