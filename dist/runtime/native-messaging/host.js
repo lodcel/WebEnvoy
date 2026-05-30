@@ -83,6 +83,13 @@ const asTransportError = (error, fallback) => {
     const normalized = error instanceof Error ? error : new Error(String(error));
     return withTransportCode(normalized, fallback);
 };
+const socketResponseTimeoutMs = (requestTimeoutMs) => {
+    if (requestTimeoutMs <= 1_000) {
+        return requestTimeoutMs;
+    }
+    const responseMarginMs = Math.min(5_000, Math.max(1_000, Math.floor(requestTimeoutMs * 0.05)));
+    return requestTimeoutMs + responseMarginMs;
+};
 export class NativeHostBridgeTransport {
     #hostCommand;
     #hostSpec;
@@ -280,7 +287,7 @@ export class NativeHostBridgeTransport {
             const socket = connectSocket(socketPath);
             let buffer = Buffer.alloc(0);
             let settled = false;
-            const timeoutMs = request.timeout_ms ?? DEFAULT_TRANSPORT_TIMEOUT_MS;
+            const timeoutMs = socketResponseTimeoutMs(request.timeout_ms ?? DEFAULT_TRANSPORT_TIMEOUT_MS);
             const timeout = setTimeout(() => {
                 if (settled) {
                     return;
