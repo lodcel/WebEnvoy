@@ -6,6 +6,7 @@ import {
   ContentScriptHandler,
   waitForResponse
 } from "./extension.relay.shared.js";
+import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "../extension/background.js";
 import {
   applyXhsControlledUploadPlatformCapture,
   applyXhsControlledUploadPlatformCaptureStatus,
@@ -33,6 +34,12 @@ const controlledLiveOptions = {
   risk_state: "allowed",
   approval_record: completeIssue208ApprovalRecord
 } as const;
+
+it("lets controlled upload platform capture use the live write deadline instead of a short fixed cap", () => {
+  expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(55_000)).toBe(55_000);
+  expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(90_000)).toBe(60_000);
+  expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(0)).toBe(1);
+});
 
 it("promotes upload evidence when Chrome debugger captures an explicit platform staging ref", () => {
   const result = buildXhsControlledLiveWriteUploadBlockedResult(
@@ -150,6 +157,8 @@ it("records debugger upload capture status without promoting upload success", ()
         status: 200,
         body_kind: "object",
         top_level_keys: ["success", "data"],
+        body_values_recorded: false,
+        body_recording_policy: "shape_only",
         rejection_reason: "trusted_platform_ref_missing"
       }
     ]
@@ -262,6 +271,37 @@ it("extracts trusted platform upload acceptance refs from upload responses", () 
       body: {
         data: {
           image_id: "platform-image-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/v1/upload/creator/permit",
+      method: "POST",
+      status: 200,
+      body: {
+        data: {
+          fileId: "platform-file-permit-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toMatchObject({
+    platform_staging_ref: "fileId:platform-file-permit-123"
+  });
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/v1/upload/creator/permit",
+      method: "POST",
+      status: 200,
+      body: {
+        data: {
+          token: "temporary-upload-token-123",
+          policy: "temporary-upload-policy-123"
         }
       },
       captured_at: "2026-05-30T00:00:00.000Z"
@@ -462,6 +502,25 @@ it("classifies ros-upload object transports as diagnostics, not platform accepta
     capture_candidate: true,
     rejection_reason: null
   });
+
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/resource/permit",
+      "POST"
+    )
+  ).toMatchObject({
+    host: "creator.xiaohongshu.com",
+    path: "/api/sns/web/v1/resource/permit",
+    capture_candidate: true,
+    rejection_reason: null
+  });
+
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/resource/token",
+      "POST"
+    )
+  ).toBeNull();
 });
 
 it("decodes bounded upload network bodies consistently with explicit string fallback", () => {

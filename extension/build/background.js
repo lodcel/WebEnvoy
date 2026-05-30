@@ -94,6 +94,7 @@ const hashMainWorldBridgeProbeSecret = (value) => {
     }
     return `mwprobe_${(hash >>> 0).toString(36)}`;
 };
+export const resolveXhsControlledUploadPlatformCaptureTimeoutMs = (forwardResponseTimeoutMs) => Math.max(1, Math.min(60_000, Math.floor(forwardResponseTimeoutMs)));
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
 const XHS_READ_API_DOMAIN = "edith.xiaohongshu.com";
@@ -5318,7 +5319,7 @@ class ChromeBackgroundBridge {
             ? reserveXhsForwardResponseSafetyMs(forwardTimeoutMs)
             : forwardTimeoutMs;
         const controlledUploadPlatformCapture = command === "xhs.creator_publish.controlled_live_write"
-            ? await this.#startXhsControlledUploadPlatformCapture(tabId, Math.max(1, Math.min(15_000, pendingTimeoutMs)))
+            ? await this.#startXhsControlledUploadPlatformCapture(tabId, resolveXhsControlledUploadPlatformCaptureTimeoutMs(pendingTimeoutMs))
             : null;
         if (controlledUploadPlatformCapture) {
             this.#controlledUploadPlatformCapturesByRequest.set(dispatchRequest.id, controlledUploadPlatformCapture);
@@ -6020,18 +6021,24 @@ class ChromeBackgroundBridge {
             if (Array.isArray(value)) {
                 return {
                     body_kind: "array",
-                    top_level_keys: []
+                    top_level_keys: [],
+                    body_values_recorded: false,
+                    body_recording_policy: "shape_only"
                 };
             }
             if (typeof value === "object" && value !== null) {
                 return {
                     body_kind: "object",
-                    top_level_keys: Object.keys(value).slice(0, 30)
+                    top_level_keys: Object.keys(value).slice(0, 30),
+                    body_values_recorded: false,
+                    body_recording_policy: "shape_only"
                 };
             }
             return {
                 body_kind: typeof value,
-                top_level_keys: []
+                top_level_keys: [],
+                body_values_recorded: false,
+                body_recording_policy: "shape_only"
             };
         };
         return new Promise((resolve) => {

@@ -6,20 +6,20 @@ const asPlainRecord = (value) => typeof value === "object" && value !== null && 
     ? value
     : null;
 const xhsControlledUploadCaptureDefaultMaxBodyBytes = 256_000;
-const xhsControlledUploadSignalPattern = /(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu;
+const xhsControlledUploadSignalPattern = /(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu;
 const isXhsControlledObjectUploadTransportHost = (host) => /^ros-upload(?:-[a-z0-9]+)?\.(?:xiaohongshu\.com|xhscdn\.com)$/iu.test(host);
 const xhsControlledUploadPlatformEndpointAllowlist = [
     {
         host: "creator.xiaohongshu.com",
-        path: /^\/(?:api|web_api)\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
+        path: /^\/(?:api|web_api)\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu
     },
     {
         host: "edith.xiaohongshu.com",
-        path: /^\/api\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
+        path: /^\/api\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu
     },
     {
         host: "upload.xiaohongshu.com",
-        path: /^\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
+        path: /^\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu
     }
 ];
 export const isXhsControlledUploadPlatformCaptureUrl = (url, method) => {
