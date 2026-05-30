@@ -1655,6 +1655,278 @@ describe("extension background relay / controlled live write", () => {
     }
   }, 8_000);
 
+  it("selects the creator image publish target before controlled image upload", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "";
+      classList = [] as string[];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 80, height: 32 });
+    }
+    class ImageModeLink extends TestElement {
+      tagName = "A";
+      className = "publish-tab";
+      classList = ["publish-tab"];
+      textContent = "上传图文";
+      getAttribute = (name: string) => {
+        if (name === "href") {
+          return "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image";
+        }
+        if (name === "class") {
+          return this.className;
+        }
+        return null;
+      };
+      click = () => {
+        imageModeSelected = true;
+      };
+    }
+    class PreviewElement extends TestElement {
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-image-mode";
+        }
+        return null;
+      };
+    }
+    let imageModeSelected = false;
+    let fileInputDispatched = false;
+    const imageModeLink = new ImageModeLink();
+    const imageInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        fileInputDispatched = true;
+        return true;
+      }
+    };
+    const preview = new PreviewElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1", backgroundImage: "none" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector.includes("target=image") || selector.includes("role=\"tab\"")) {
+            return [imageModeLink];
+          }
+          if (selector === 'input[type="file"]') {
+            return imageModeSelected ? [imageInput] : [];
+          }
+          return fileInputDispatched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-select-image-mode",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-909-select-image-mode",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(imageModeSelected).toBe(true);
+      expect(fileInputDispatched).toBe(true);
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  }, 8_000);
+
+  it("recognizes background-image editor previews after controlled upload", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "";
+      classList = [] as string[];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 96, height: 96 });
+    }
+    class BackgroundPreviewElement extends TestElement {
+      className = "preview-card";
+      classList = ["preview-card"];
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-card";
+        }
+        if (name === "style") {
+          return 'background-image: url("blob:https://creator.xiaohongshu.com/fr0032-background-preview")';
+        }
+        return null;
+      };
+    }
+    let uploadDispatched = false;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const preview = new BackgroundPreviewElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({
+        display: "block",
+        visibility: "visible",
+        opacity: "1",
+        backgroundImage: 'url("blob:https://creator.xiaohongshu.com/fr0032-background-preview")'
+      })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          if (selector.includes("background-image") || selector.includes("preview")) {
+            return uploadDispatched ? [preview] : [];
+          }
+          return [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-background-preview",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-909-background-preview",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          visible_in_editor: true,
+          page_preview_locator: "div.preview-card"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  }, 8_000);
+
   it("does not treat the creator upload icon as an uploaded media preview", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
