@@ -9,6 +9,7 @@ import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.j
 import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsCommandGateReasons, evaluateXhsGate, collectXhsMatrixGateReasons, finalizeXhsGateOutcome, resolveXhsGateApprovalId, resolveXhsGateDecisionId, resolveXhsActionType, resolveXhsExecutionMode, normalizeXhsApprovalRecord } from "../shared/xhs-gate.js";
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
 import { applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledUploadPlatformCapture, isXhsControlledUploadPlatformCaptureUrl, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
+import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
@@ -5318,7 +5319,7 @@ class ChromeBackgroundBridge {
             ? reserveXhsForwardResponseSafetyMs(forwardTimeoutMs)
             : forwardTimeoutMs;
         const controlledUploadPlatformCapture = command === "xhs.creator_publish.controlled_live_write"
-            ? await this.#startXhsControlledUploadPlatformCapture(tabId, Math.max(1, Math.min(15_000, pendingTimeoutMs)))
+            ? await this.#startXhsControlledUploadPlatformCapture(tabId, resolveXhsControlledUploadPlatformCaptureTimeoutMs(pendingTimeoutMs))
             : null;
         if (controlledUploadPlatformCapture) {
             this.#controlledUploadPlatformCapturesByRequest.set(dispatchRequest.id, controlledUploadPlatformCapture);
@@ -6020,18 +6021,24 @@ class ChromeBackgroundBridge {
             if (Array.isArray(value)) {
                 return {
                     body_kind: "array",
-                    top_level_keys: []
+                    top_level_keys: [],
+                    body_values_recorded: false,
+                    body_recording_policy: "shape_only"
                 };
             }
             if (typeof value === "object" && value !== null) {
                 return {
                     body_kind: "object",
-                    top_level_keys: Object.keys(value).slice(0, 30)
+                    top_level_keys: Object.keys(value).slice(0, 30),
+                    body_values_recorded: false,
+                    body_recording_policy: "shape_only"
                 };
             }
             return {
                 body_kind: typeof value,
-                top_level_keys: []
+                top_level_keys: [],
+                body_values_recorded: false,
+                body_recording_policy: "shape_only"
             };
         };
         return new Promise((resolve) => {

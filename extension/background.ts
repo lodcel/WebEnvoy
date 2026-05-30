@@ -67,6 +67,7 @@ import {
   type XhsControlledUploadPlatformCapture,
   type XhsControlledUploadPlatformCaptureStatus
 } from "./xhs-controlled-live-write.js";
+import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -6723,7 +6724,7 @@ class ChromeBackgroundBridge {
       command === "xhs.creator_publish.controlled_live_write"
         ? await this.#startXhsControlledUploadPlatformCapture(
             tabId,
-            Math.max(1, Math.min(15_000, pendingTimeoutMs))
+            resolveXhsControlledUploadPlatformCaptureTimeoutMs(pendingTimeoutMs)
           )
         : null;
     if (controlledUploadPlatformCapture) {
@@ -7519,18 +7520,24 @@ class ChromeBackgroundBridge {
       if (Array.isArray(value)) {
         return {
           body_kind: "array",
-          top_level_keys: []
+          top_level_keys: [],
+          body_values_recorded: false,
+          body_recording_policy: "shape_only"
         };
       }
       if (typeof value === "object" && value !== null) {
         return {
           body_kind: "object",
-          top_level_keys: Object.keys(value as Record<string, unknown>).slice(0, 30)
+          top_level_keys: Object.keys(value as Record<string, unknown>).slice(0, 30),
+          body_values_recorded: false,
+          body_recording_policy: "shape_only"
         };
       }
       return {
         body_kind: typeof value,
-        top_level_keys: []
+        top_level_keys: [],
+        body_values_recorded: false,
+        body_recording_policy: "shape_only"
       };
     };
     return new Promise((resolve) => {
