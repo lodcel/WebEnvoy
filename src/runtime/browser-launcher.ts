@@ -355,6 +355,63 @@ const readProfileSingletonLockOwnerPid = async (profileDir: string): Promise<num
   }
 };
 
+const commandReferencesUserDataDir = (command: string, profileDir: string): boolean => {
+  const quotedProfileDir = profileDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`--user-data-dir=["']?${quotedProfileDir}(?:["']?(?:\\s|$))`).test(command);
+};
+
+const commandStartsWithExecutablePath = (command: string, executablePath: string): boolean =>
+  command === executablePath ||
+  command.startsWith(`${executablePath} `) ||
+  command.includes(` ${executablePath} `);
+
+const findProfileUserDataDirProcessPid = async (input: {
+  profileDir: string;
+  executablePath: string;
+}): Promise<number | null> => {
+  const ps = spawn("ps", ["-axo", "pid=,command="], {
+    stdio: ["ignore", "pipe", "ignore"]
+  });
+  let stdout = "";
+  ps.stdout.setEncoding("utf8");
+  ps.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  const exitCode = await new Promise<number | null>((resolve) => {
+    ps.once("error", () => {
+      resolve(null);
+    });
+    ps.once("exit", (code) => {
+      resolve(code);
+    });
+  });
+  if (exitCode !== 0) {
+    return null;
+  }
+  const currentPid = process.pid;
+  const candidates: number[] = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    const match = /^(\d+)\s+(.+)$/.exec(trimmed);
+    if (!match) {
+      continue;
+    }
+    const pid = Number(match[1]);
+    const command = match[2] ?? "";
+    if (
+      Number.isInteger(pid) &&
+      pid > 0 &&
+      pid !== currentPid &&
+      commandStartsWithExecutablePath(command, input.executablePath) &&
+      commandReferencesUserDataDir(command, input.profileDir) &&
+      isProcessAlive(pid)
+    ) {
+      candidates.push(pid);
+    }
+  }
+  return candidates.length === 1 ? candidates[0] ?? null : null;
+};
+
 const cleanupStaleProfileSingletonLock = async (profileDir: string): Promise<void> => {
   await Promise.all(
     CHROME_SINGLETON_FILENAMES.map((filename) => deleteFileQuietly(join(profileDir, filename)))
@@ -820,7 +877,8 @@ const waitForBrowserReady = async (
   launchedAtMs: number,
   stateFilePath: string,
   processOwnership: "owned_child" | "external_persistent_app" = "owned_child",
-  controllerPid: number | null = null
+  controllerPid: number | null = null,
+  executablePath: string | null = null
 ): Promise<void> => {
   const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
   const readyWaitMaxAttempts =
@@ -850,8 +908,12 @@ const waitForBrowserReady = async (
         throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
       }
       const profileLockReady = await pathEntryExists(join(profileDir, "SingletonLock"));
+      const profileProcessReady =
+        profileLockReady ||
+        (executablePath !== null &&
+          (await findProfileUserDataDirProcessPid({ profileDir, executablePath })) !== null);
       if (
-        (markerReady || (startupFlagReady && profileLockReady)) &&
+        ((markerReady && profileProcessReady) || (startupFlagReady && profileLockReady)) &&
         Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS
       ) {
         await sleep(READY_CONFIRM_DELAY_MS);
@@ -1016,7 +1078,12 @@ const pinExternalBrowserPidFromProfileLock = async (input: {
   if (input.fallbackState.processOwnership !== "external_persistent_app") {
     return input.fallbackState;
   }
-  const ownerPid = await readProfileSingletonLockOwnerPid(input.profileDir);
+  const ownerPid =
+    (await readProfileSingletonLockOwnerPid(input.profileDir)) ??
+    (await findProfileUserDataDirProcessPid({
+      profileDir: input.profileDir,
+      executablePath: input.fallbackState.browserPath
+    }));
   if (ownerPid === null || !isProcessAlive(ownerPid)) {
     throw new BrowserLaunchError(
       "BROWSER_LAUNCH_FAILED",
@@ -1191,7 +1258,8 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
       launched.launchedAtMs,
       artifactPaths.stateFilePath,
       state.processOwnership,
-      state.controllerPid
+      state.controllerPid,
+      executablePath
     );
     const pinnedState = await pinExternalBrowserPidFromProfileLock({
       profileDir: input.profileDir,

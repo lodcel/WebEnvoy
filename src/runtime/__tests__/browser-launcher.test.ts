@@ -1,4 +1,5 @@
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -173,7 +174,12 @@ setTimeout(() => process.exit(0), 50);
 };
 
 const createMockOpenExecutable = async (
-  options?: { skipProfileMarkers?: boolean; childOwnsProfileLock?: boolean; delayProfileLockMs?: number }
+  options?: {
+    skipProfileMarkers?: boolean;
+    childOwnsProfileLock?: boolean;
+    childOwnsProfileProcess?: boolean;
+    delayProfileLockMs?: number;
+  }
 ): Promise<{ scriptPath: string; logPath: string }> => {
   const dir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-"));
   tempDirs.push(dir);
@@ -191,12 +197,23 @@ if (logPath) {
 }
 const argsIndex = argv.indexOf("--args");
 const browserArgs = argsIndex >= 0 ? argv.slice(argsIndex + 1) : [];
+const appIndex = argv.indexOf("-a");
+const appPath = appIndex >= 0 ? argv[appIndex + 1] : "";
 const delayProfileLockMs = ${JSON.stringify(options?.delayProfileLockMs ?? 0)};
 let profileDir = "";
 for (const arg of browserArgs) {
   if (arg.startsWith("--user-data-dir=")) {
     profileDir = arg.slice("--user-data-dir=".length);
   }
+}
+if (profileDir && appPath && ${JSON.stringify(options?.childOwnsProfileProcess === true)}) {
+  const child = spawn(appPath, browserArgs, {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, WEBENVOY_MOCK_PROFILE_DIR: profileDir }
+  });
+  child.unref();
+  process.exit(0);
 }
 if (profileDir && ${JSON.stringify(options?.childOwnsProfileLock === true)}) {
   const child = spawn(process.execPath, ["-e", ${JSON.stringify(`
@@ -206,11 +223,11 @@ mkdirSync(profileDir + "/Default", { recursive: true });
 writeFileSync(profileDir + "/Local State", "{}");
 writeFileSync(profileDir + "/Default/Preferences", "{}");
 const singletonLock = profileDir + "/SingletonLock";
-if (!existsSync(singletonLock)) {
+if (${JSON.stringify(options?.childOwnsProfileLock === true)} && !existsSync(singletonLock)) {
   symlinkSync("mockhost-" + process.pid, singletonLock);
 }
 setInterval(() => {}, 1000);
-`)}], {
+`)}, "--", "--user-data-dir=" + profileDir], {
     detached: true,
     stdio: "ignore",
     env: { ...process.env, WEBENVOY_MOCK_PROFILE_DIR: profileDir }
@@ -1014,6 +1031,110 @@ while true; do sleep 1; done
       controllerPid: launched.controllerPid,
       runId: "run-launcher-test-official-open-delayed-001"
     });
+  });
+
+  it("pins LaunchServices owner from the user-data-dir process when Chrome omits SingletonLock", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath } = await createMockOpenExecutable({
+      childOwnsProfileProcess: true
+    });
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy browser launcher open no lock "));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+    process.env.WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS = "1";
+    process.env.WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS = "40";
+    process.env.WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS = "25";
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: null,
+      runId: "run-launcher-test-official-open-no-lock-001",
+      params: {
+        headless: false,
+        startUrl: "https://creator.xiaohongshu.com/publish/publish"
+      },
+      launchMode: "official_chrome_persistent_extension"
+    });
+
+    expect(launched.executionSurface).toBe("real_browser");
+    expect(launched.launchSurface).toBe("macos_launchservices");
+    expect(launched.processOwnership).toBe("external_persistent_app");
+    expect(launched.browserPid).not.toBe(launched.controllerPid);
+    expect(() => process.kill(launched.browserPid, 0)).not.toThrow();
+
+    try {
+      await shutdownBrowserSession({
+        profileDir,
+        controllerPid: launched.controllerPid,
+        runId: "run-launcher-test-official-open-no-lock-001"
+      });
+    } finally {
+      try {
+        process.kill(launched.browserPid, "SIGTERM");
+        await waitForExit(launched.browserPid);
+      } catch {
+        // ignore cleanup failure
+      }
+    }
+  });
+
+  it("rejects LaunchServices user-data-dir process pinning when candidate ownership is ambiguous", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath } = await createMockOpenExecutable({
+      childOwnsProfileProcess: true
+    });
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy browser launcher ambiguous no lock "));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+    process.env.WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS = "1";
+    process.env.WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS = "3";
+    process.env.WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS = "25";
+
+    const duplicate = spawn(browserPath, [`--user-data-dir=${profileDir}`, "about:blank"], {
+      detached: true,
+      stdio: "ignore"
+    });
+    duplicate.unref();
+    if (typeof duplicate.pid !== "number") {
+      throw new Error("expected duplicate process pid");
+    }
+
+    try {
+      await expect(
+        launchBrowser({
+          command: "runtime.start",
+          profileDir,
+          proxyUrl: null,
+          runId: "run-launcher-test-official-open-ambiguous-no-lock-001",
+          params: {
+            headless: false,
+            startUrl: "https://creator.xiaohongshu.com/publish/publish"
+          },
+          launchMode: "official_chrome_persistent_extension"
+        })
+      ).rejects.toMatchObject({
+        name: "BrowserLaunchError",
+        code: "BROWSER_LAUNCH_FAILED"
+      } satisfies Partial<BrowserLaunchError>);
+    } finally {
+      try {
+        process.kill(duplicate.pid, "SIGTERM");
+        await waitForExit(duplicate.pid);
+      } catch {
+        // ignore cleanup failure
+      }
+    }
   });
 
   it("refuses to reuse a managed LaunchServices instance when launch args change", async () => {
