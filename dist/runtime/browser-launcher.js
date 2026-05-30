@@ -11,6 +11,7 @@ export { EXTENSION_BOOTSTRAP_FILENAME, EXTENSION_BOOTSTRAP_SCRIPT_FILENAME, EXTE
 export const BROWSER_STATE_FILENAME = "__webenvoy_browser_instance.json";
 export const BROWSER_CONTROL_FILENAME = "__webenvoy_browser_control.json";
 const READY_WAIT_MAX_ATTEMPTS = 80;
+const EXTERNAL_READY_WAIT_MAX_ATTEMPTS = 240;
 const READY_WAIT_INTERVAL_MS = 150;
 const READY_MIN_UPTIME_MS = 600;
 const READY_CONFIRM_DELAY_MS = 120;
@@ -554,9 +555,21 @@ const assertProcessAlive = (pid) => {
         throw error;
     }
 };
+const readPositiveIntegerEnv = (name, fallback) => {
+    const raw = process.env[name];
+    if (raw === undefined) {
+        return fallback;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
 const waitForBrowserReady = async (profileDir, pid, launchedAtMs, stateFilePath, processOwnership = "owned_child", controllerPid = null) => {
     const readyMarkers = [join(profileDir, "Local State"), join(profileDir, "Default", "Preferences")];
-    for (let attempt = 0; attempt < READY_WAIT_MAX_ATTEMPTS; attempt += 1) {
+    const readyWaitMaxAttempts = processOwnership === "external_persistent_app"
+        ? readPositiveIntegerEnv("WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS", EXTERNAL_READY_WAIT_MAX_ATTEMPTS)
+        : readPositiveIntegerEnv("WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS", READY_WAIT_MAX_ATTEMPTS);
+    const readyWaitIntervalMs = readPositiveIntegerEnv("WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS", READY_WAIT_INTERVAL_MS);
+    for (let attempt = 0; attempt < readyWaitMaxAttempts; attempt += 1) {
         let markerReady = false;
         for (const marker of readyMarkers) {
             if (await isFreshReadyMarker(marker, launchedAtMs)) {
@@ -594,7 +607,7 @@ const waitForBrowserReady = async (profileDir, pid, launchedAtMs, stateFilePath,
             }
             return;
         }
-        await sleep(READY_WAIT_INTERVAL_MS);
+        await sleep(readyWaitIntervalMs);
     }
     throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器启动超时，未完成最小 profile 初始化");
 };
@@ -750,7 +763,11 @@ const cleanupFailedBrowserLaunch = async (input) => {
     if (state?.processOwnership === "external_persistent_app") {
         // LaunchServices gives us the wrapper pid, not a reliable Chrome app pid.
         // Failed startup cleanup may terminate that wrapper; successful stop paths must not.
-        await terminateBrowserPid(state.browserPid, 500).catch(() => false);
+        const pinnedState = await pinExternalBrowserPidFromProfileLock({
+            profileDir: input.profileDir,
+            fallbackState: state
+        }).catch(() => state);
+        await terminateBrowserPid(pinnedState.browserPid, 500).catch(() => false);
         await cleanupSupervisorArtifacts(input.profileDir).catch(() => undefined);
         await cleanupStagedExtensions(input.profileDir);
     }

@@ -33,6 +33,9 @@ let realBrowserPathBeforeTest: string | undefined;
 let browserVersionBeforeTest: string | undefined;
 let browserForceLaunchServicesBeforeTest: string | undefined;
 let openPathBeforeTest: string | undefined;
+let browserReadyWaitMaxAttemptsBeforeTest: string | undefined;
+let browserExternalReadyWaitMaxAttemptsBeforeTest: string | undefined;
+let browserReadyWaitIntervalBeforeTest: string | undefined;
 let pathBeforeTest: string | undefined;
 let platformBeforeTest: NodeJS.Platform;
 const createFingerprintRuntimeContext = () => ({
@@ -103,7 +106,10 @@ const restoreEnv = (
     | "WEBENVOY_REAL_BROWSER_PATH"
     | "WEBENVOY_BROWSER_VERSION"
     | "WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES"
-    | "WEBENVOY_OPEN_PATH",
+    | "WEBENVOY_OPEN_PATH"
+    | "WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS"
+    | "WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS"
+    | "WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS",
   value: string | undefined
 ): void => {
   if (value === undefined) {
@@ -167,7 +173,7 @@ setTimeout(() => process.exit(0), 50);
 };
 
 const createMockOpenExecutable = async (
-  options?: { skipProfileMarkers?: boolean; childOwnsProfileLock?: boolean }
+  options?: { skipProfileMarkers?: boolean; childOwnsProfileLock?: boolean; delayProfileLockMs?: number }
 ): Promise<{ scriptPath: string; logPath: string }> => {
   const dir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-"));
   tempDirs.push(dir);
@@ -185,6 +191,7 @@ if (logPath) {
 }
 const argsIndex = argv.indexOf("--args");
 const browserArgs = argsIndex >= 0 ? argv.slice(argsIndex + 1) : [];
+const delayProfileLockMs = ${JSON.stringify(options?.delayProfileLockMs ?? 0)};
 let profileDir = "";
 for (const arg of browserArgs) {
   if (arg.startsWith("--user-data-dir=")) {
@@ -211,7 +218,7 @@ setInterval(() => {}, 1000);
   child.unref();
   process.exit(0);
 }
-if (profileDir) {
+const initializeProfile = () => {
   mkdirSync(profileDir + "/Default", { recursive: true });
   if (!${JSON.stringify(options?.skipProfileMarkers === true)}) {
     writeFileSync(profileDir + "/Local State", "{}");
@@ -220,6 +227,13 @@ if (profileDir) {
   const singletonLock = profileDir + "/SingletonLock";
   if (!existsSync(singletonLock)) {
     symlinkSync("mockhost-" + process.pid, singletonLock);
+  }
+};
+if (profileDir) {
+  if (delayProfileLockMs > 0) {
+    setTimeout(initializeProfile, delayProfileLockMs);
+  } else {
+    initializeProfile();
   }
 }
 setInterval(() => {}, 1000);
@@ -544,6 +558,10 @@ beforeEach(() => {
   browserVersionBeforeTest = process.env.WEBENVOY_BROWSER_VERSION;
   browserForceLaunchServicesBeforeTest = process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES;
   openPathBeforeTest = process.env.WEBENVOY_OPEN_PATH;
+  browserReadyWaitMaxAttemptsBeforeTest = process.env.WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS;
+  browserExternalReadyWaitMaxAttemptsBeforeTest =
+    process.env.WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS;
+  browserReadyWaitIntervalBeforeTest = process.env.WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS;
   pathBeforeTest = process.env.PATH;
   platformBeforeTest = process.platform;
 });
@@ -557,6 +575,12 @@ afterEach(async () => {
   restoreEnv("WEBENVOY_BROWSER_VERSION", browserVersionBeforeTest);
   restoreEnv("WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES", browserForceLaunchServicesBeforeTest);
   restoreEnv("WEBENVOY_OPEN_PATH", openPathBeforeTest);
+  restoreEnv("WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS", browserReadyWaitMaxAttemptsBeforeTest);
+  restoreEnv(
+    "WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS",
+    browserExternalReadyWaitMaxAttemptsBeforeTest
+  );
+  restoreEnv("WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS", browserReadyWaitIntervalBeforeTest);
   if (pathBeforeTest === undefined) {
     delete process.env.PATH;
   } else {
@@ -949,6 +973,49 @@ while true; do sleep 1; done
     }
   });
 
+  it("waits longer for delayed LaunchServices profile readiness than direct launch readiness", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath, logPath } = await createMockOpenExecutable({
+      delayProfileLockMs: 220
+    });
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-delayed-"));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_LOG = logPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+    process.env.WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS = "1";
+    process.env.WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS = "40";
+    process.env.WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS = "25";
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: null,
+      runId: "run-launcher-test-official-open-delayed-001",
+      params: {
+        headless: false,
+        startUrl: "https://creator.xiaohongshu.com/publish/publish"
+      },
+      launchMode: "official_chrome_persistent_extension"
+    });
+
+    expect(launched.executionSurface).toBe("real_browser");
+    expect(launched.launchSurface).toBe("macos_launchservices");
+    expect(launched.processOwnership).toBe("external_persistent_app");
+    const openArgs = parseLaunchArgs(await waitForLaunchLog(logPath));
+    expect(openArgs).toContain("https://creator.xiaohongshu.com/publish/publish");
+
+    await shutdownBrowserSession({
+      profileDir,
+      controllerPid: launched.controllerPid,
+      runId: "run-launcher-test-official-open-delayed-001"
+    });
+  });
+
   it("refuses to reuse a managed LaunchServices instance when launch args change", async () => {
     const { scriptPath: browserPath } = await createMockBrowserExecutable(
       "Google Chrome 148.0.7778.98"
@@ -1176,6 +1243,8 @@ while true; do sleep 1; done
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
     process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
     process.env.WEBENVOY_OPEN_PATH = openPath;
+    process.env.WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS = "20";
+    process.env.WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS = "25";
 
     await expect(
       launchBrowser({
