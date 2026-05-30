@@ -74,15 +74,28 @@ const decodeBase64Bytes = (value: string): Uint8Array | null => {
   return bytes;
 };
 
-const findUploadFileInput = (): HTMLInputElement | null => {
-  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
-    return null;
+const imageAcceptTokenPattern = /(^|\W)(image\/|\*\/\*|\*|\.jpe?g|\.png|\.webp|\.gif|\.bmp|\.heic|\.heif)(\W|$)/iu;
+
+const acceptsImageMedia = (accept: string | null | undefined): boolean => {
+  const normalized = (accept ?? "").trim();
+  if (normalized.length === 0) {
+    return false;
   }
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
-  return (
-    inputs.find((input) => !input.disabled && /image|\*/iu.test(input.accept || "image/*")) ??
-    null
-  );
+  return normalized
+    .split(",")
+    .map((token) => token.trim().toLowerCase())
+    .some((token) => imageAcceptTokenPattern.test(token));
+};
+
+const collectUploadFileInputs = (): HTMLInputElement[] => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return [];
+  }
+  return Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+};
+
+const findUploadFileInput = (inputs: HTMLInputElement[]): HTMLInputElement | null => {
+  return inputs.find((input) => !input.disabled && acceptsImageMedia(input.accept)) ?? null;
 };
 
 const isVisibleElement = (element: Element): boolean => {
@@ -783,7 +796,18 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
     await selectImagePublishMode();
   }
   const previousPreviewSignatures = collectEditorPreviewSignatures();
-  const fileInput = findUploadFileInput();
+  const fileInputs = collectUploadFileInputs();
+  const fileInput = findUploadFileInput(fileInputs);
+  if (input.source_media_kind === "image" && !fileInput && fileInputs.some((candidate) => !candidate.disabled)) {
+    return buildXhsControlledLiveWriteUploadBlockedResult(input, {
+      blockerCode: "IMAGE_UPLOAD_ENTRY_MISSING",
+      blockerMessage:
+        "Controlled live upload found file inputs, but none accept the approved image fixture after selecting image publish mode.",
+      detailsRef: "image_upload_entry_missing",
+      requiredRecoveryAction:
+        "open the creator image publish target or update the XHS image mode selector before controlled upload"
+    });
+  }
   const dropzone = findUploadDropzone();
   if (!fileInput && !dropzone) {
     return buildXhsControlledLiveWriteUploadBlockedResult(input, {
