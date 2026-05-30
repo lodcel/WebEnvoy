@@ -488,6 +488,7 @@ type EditorPreviewEvidence = {
   locator: string;
   platformStagingRef: string | null;
   acceptedByPlatform: boolean;
+  diagnostics: JsonRecord;
 };
 
 const uploadPlaceholderPattern = /upload[-_ ]?icon|upload[-_ ]?btn|placeholder|empty|add[-_ ]?(image|photo|media)|点击上传|上传图片|upload image|upload photo/iu;
@@ -574,6 +575,76 @@ const platformStagingRefForElement = (element: Element, maxDepth = 3): string | 
   return null;
 };
 
+const srcKindForElement = (element: Element): string | null => {
+  const src = getElementAttribute(element, "src") ?? getElementAttribute(element, "poster");
+  if (!src) {
+    return null;
+  }
+  if (src.startsWith("blob:")) {
+    return "blob";
+  }
+  if (src.startsWith("data:")) {
+    return "data";
+  }
+  if (/^https?:\/\//iu.test(src)) {
+    return "remote";
+  }
+  return "other";
+};
+
+const attributeNamesForElement = (element: Element): string[] => {
+  const attributes = element.attributes;
+  if (!attributes) {
+    return [];
+  }
+  const names: string[] = [];
+  for (let index = 0; index < attributes.length; index += 1) {
+    const attribute = attributes.item(index);
+    if (attribute?.name) {
+      names.push(attribute.name);
+    }
+  }
+  return names.sort();
+};
+
+const previewAttributeDiagnosticsForElement = (
+  element: Element,
+  depth: number
+): JsonRecord => {
+  const attributeNames = attributeNamesForElement(element);
+  return {
+    depth,
+    tag_name: element.tagName.toLowerCase(),
+    locator: locatorForElement(element),
+    attribute_names: attributeNames.slice(0, 40),
+    data_attribute_names: attributeNames.filter((name) => name.startsWith("data-")).slice(0, 40),
+    platform_ref_attribute_names: platformStagingAttributeNames.filter(
+      (attributeName) => getElementAttribute(element, attributeName) !== null
+    ),
+    src_kind: srcKindForElement(element),
+    has_upload_completion_signal: hasUploadCompletionSignal(element),
+    has_upload_pending_signal: uploadPendingTextPattern.test(ancestorSignalTextForElement(element, 0)),
+    has_upload_failure_signal: uploadFailureTextPattern.test(ancestorSignalTextForElement(element, 0))
+  };
+};
+
+const previewDiagnosticsForElement = (element: Element, maxDepth = 3): JsonRecord => {
+  const chain: JsonRecord[] = [];
+  let current: Element | null = element;
+  let depth = 0;
+  while (current && depth <= maxDepth) {
+    chain.push(previewAttributeDiagnosticsForElement(current, depth));
+    current = current.parentElement;
+    depth += 1;
+  }
+  return {
+    schema_version: "fr-0032.preview_dom_diagnostics.v1",
+    values_recorded: false,
+    recording_policy: "attribute_names_and_signal_flags_only",
+    preview_chain: chain
+  };
+};
+
 const hasUploadCompletionSignal = (element: Element): boolean => {
   const text = ancestorSignalTextForElement(element);
   return (
@@ -589,7 +660,8 @@ const evidenceForPreviewElement = (preview: Element): EditorPreviewEvidence => {
   return {
     locator: locatorForElement(preview),
     platformStagingRef,
-    acceptedByPlatform: platformStagingRef !== null
+    acceptedByPlatform: platformStagingRef !== null,
+    diagnostics: previewDiagnosticsForElement(preview)
   };
 };
 
@@ -901,7 +973,8 @@ export const buildXhsControlledLiveWriteUnavailableResult = (
       page_preview_locator: null,
       accepted_by_platform: false,
       visible_in_editor: false,
-      captured_at: timestamp
+      captured_at: timestamp,
+      preview_diagnostics: null
     },
     submit_evidence: null,
     publish_result_identity: null,
@@ -1015,7 +1088,8 @@ export const buildXhsControlledLiveWriteUploadBlockedResult = (
       page_preview_locator: null,
       accepted_by_platform: false,
       visible_in_editor: false,
-      captured_at: timestamp
+      captured_at: timestamp,
+      preview_diagnostics: null
     },
     submit_evidence: null,
     publish_result_identity: null,
@@ -1337,7 +1411,8 @@ export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (
     page_preview_locator: previewEvidence.locator,
     accepted_by_platform: previewEvidence.acceptedByPlatform,
     visible_in_editor: true,
-    captured_at: timestamp
+    captured_at: timestamp,
+    preview_diagnostics: previewEvidence.diagnostics
   };
   if (previewEvidence.acceptedByPlatform) {
     return buildXhsControlledLiveWriteSubmitBlockedResult(input, uploadArtifact);

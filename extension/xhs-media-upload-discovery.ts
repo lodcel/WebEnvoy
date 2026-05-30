@@ -32,6 +32,7 @@ export type ControlledUploadArtifactIdentity = {
   accepted_by_platform: boolean;
   visible_in_editor: boolean;
   captured_at: string;
+  preview_diagnostics: Record<string, unknown> | null;
 };
 
 export type ControlledUploadNonPublishEvidence = {
@@ -218,7 +219,8 @@ const buildControlledUploadEvidence = (input: {
       page_preview_locator: input.page_preview_locator,
       accepted_by_platform: false,
       visible_in_editor: false,
-      captured_at: new Date().toISOString()
+      captured_at: new Date().toISOString(),
+      preview_diagnostics: null
     },
     file_selection_boundary: input.file_selection_boundary,
     stop_signal: null,

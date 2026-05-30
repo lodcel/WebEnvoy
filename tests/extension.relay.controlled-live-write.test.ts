@@ -973,7 +973,24 @@ describe("extension background relay / controlled live write", () => {
             "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
           accepted_by_platform: false,
           visible_in_editor: true,
-          page_preview_locator: "img.preview-image"
+          page_preview_locator: "img.preview-image",
+          preview_diagnostics: expect.objectContaining({
+            schema_version: "fr-0032.preview_dom_diagnostics.v1",
+            values_recorded: false,
+            recording_policy: "attribute_names_and_signal_flags_only",
+            preview_chain: [
+              expect.objectContaining({
+                depth: 0,
+                tag_name: "img",
+                locator: "img.preview-image",
+                attribute_names: [],
+                src_kind: null,
+                has_upload_completion_signal: false,
+                has_upload_pending_signal: false,
+                has_upload_failure_signal: false
+              })
+            ]
+          })
         }),
         stop_signal: expect.objectContaining({
           blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",

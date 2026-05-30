@@ -85,7 +85,8 @@ const createRelay = () => {
             page_preview_locator: "input[type=file]",
             accepted_by_platform: false,
             visible_in_editor: false,
-            captured_at: "2026-05-28T00:00:00.000Z"
+            captured_at: "2026-05-28T00:00:00.000Z",
+            preview_diagnostics: null
           },
           file_selection_boundary: {
             file_bytes_read: false,
@@ -253,7 +254,8 @@ describe("extension background relay / media upload discovery", () => {
       source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       source_media_kind: "image",
       accepted_by_platform: false,
-      visible_in_editor: false
+      visible_in_editor: false,
+      preview_diagnostics: null
     });
     expect(controlledUploadEvidence?.file_selection_boundary).toMatchObject({
       file_bytes_read: false,
