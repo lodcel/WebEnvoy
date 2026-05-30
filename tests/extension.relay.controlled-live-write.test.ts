@@ -139,7 +139,19 @@ it("records debugger upload capture status without promoting upload success", ()
     attempted: true,
     status: "timeout",
     reason: "no_platform_upload_acceptance_response_captured",
-    recorded_at: "2026-05-30T00:00:01.000Z"
+    recorded_at: "2026-05-30T00:00:01.000Z",
+    observed_requests: [
+      {
+        method: "POST",
+        host: "creator.xiaohongshu.com",
+        path: "/api/media/upload",
+        capture_candidate: true,
+        status: 200,
+        body_kind: "object",
+        top_level_keys: ["success", "data"],
+        rejection_reason: "trusted_platform_ref_missing"
+      }
+    ]
   });
 
   expect(annotated.uploaded).toBe(false);
@@ -155,7 +167,13 @@ it("records debugger upload capture status without promoting upload success", ()
     platform_upload_acceptance_capture_status: {
       attempted: true,
       status: "timeout",
-      reason: "no_platform_upload_acceptance_response_captured"
+      reason: "no_platform_upload_acceptance_response_captured",
+      observed_requests: [
+        expect.objectContaining({
+          path: "/api/media/upload",
+          rejection_reason: "trusted_platform_ref_missing"
+        })
+      ]
     }
   });
 });

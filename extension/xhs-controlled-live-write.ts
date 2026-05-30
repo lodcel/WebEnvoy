@@ -44,6 +44,7 @@ export type XhsControlledUploadPlatformCaptureStatus = {
   status: "not_started" | "started" | "timeout";
   reason: string | null;
   recorded_at: string;
+  observed_requests?: JsonRecord[];
 };
 
 export type XhsControlledUploadNetworkResponseInput = {

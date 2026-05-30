@@ -6008,15 +6008,64 @@ class ChromeBackgroundBridge {
         const debuggerApi = this.chromeApi.debugger;
         const onEvent = debuggerApi?.onEvent;
         if (!debuggerApi || !onEvent) {
-            return Promise.resolve(null);
+            return Promise.resolve({ capture: null, observedRequests: [] });
         }
         if (signal?.aborted) {
-            return Promise.resolve(null);
+            return Promise.resolve({ capture: null, observedRequests: [] });
         }
         const pending = new Map();
+        const observedRequests = [];
+        const uploadSignalPattern = /(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu;
+        const summarizeUploadLikeRequest = (url, method) => {
+            if (!/^(POST|PUT|PATCH)$/iu.test(method)) {
+                return null;
+            }
+            try {
+                const parsed = new URL(url);
+                const uploadLikeHost = parsed.hostname.includes("upload");
+                const uploadLikePath = uploadSignalPattern.test(parsed.pathname);
+                if (!(parsed.hostname.endsWith("xiaohongshu.com") ||
+                    parsed.hostname.endsWith("xhscdn.com")) ||
+                    (!uploadLikeHost && !uploadLikePath)) {
+                    return null;
+                }
+                const captureCandidate = isXhsControlledUploadPlatformCaptureUrl(url, method);
+                return {
+                    captureCandidate,
+                    summary: {
+                        method,
+                        host: parsed.hostname,
+                        path: parsed.pathname,
+                        capture_candidate: captureCandidate,
+                        rejection_reason: captureCandidate ? null : "url_not_allowlisted"
+                    }
+                };
+            }
+            catch {
+                return null;
+            }
+        };
+        const summarizeResponseBody = (value) => {
+            if (Array.isArray(value)) {
+                return {
+                    body_kind: "array",
+                    top_level_keys: []
+                };
+            }
+            if (typeof value === "object" && value !== null) {
+                return {
+                    body_kind: "object",
+                    top_level_keys: Object.keys(value).slice(0, 30)
+                };
+            }
+            return {
+                body_kind: typeof value,
+                top_level_keys: []
+            };
+        };
         return new Promise((resolve) => {
             let settled = false;
-            const finish = (value) => {
+            const finish = (capture) => {
                 if (settled) {
                     return;
                 }
@@ -6029,7 +6078,10 @@ class ChromeBackgroundBridge {
                     // Listener removal best effort.
                 }
                 signal?.removeEventListener("abort", abortHandler);
-                resolve(value);
+                resolve({
+                    capture,
+                    observedRequests: observedRequests.slice(-25)
+                });
             };
             const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
             const abortHandler = () => finish(null);
@@ -6046,6 +6098,8 @@ class ChromeBackgroundBridge {
                     const request = asRecord(params.request);
                     const url = asNonEmptyString(request?.url);
                     const requestMethod = asNonEmptyString(request?.method);
+                    const observed = url && requestMethod ? summarizeUploadLikeRequest(url, requestMethod) : null;
+                    const observedIndex = observed ? observedRequests.push(observed.summary) - 1 : null;
                     if (!url ||
                         !requestMethod ||
                         !isXhsControlledUploadPlatformCaptureUrl(url, requestMethod)) {
@@ -6055,7 +6109,8 @@ class ChromeBackgroundBridge {
                         url,
                         method: requestMethod,
                         status: null,
-                        capturedAt: Date.now()
+                        capturedAt: Date.now(),
+                        observedIndex
                     });
                     return;
                 }
@@ -6066,11 +6121,23 @@ class ChromeBackgroundBridge {
                     }
                     const response = asRecord(params.response);
                     entry.status = typeof response?.status === "number" ? response.status : null;
+                    if (entry.observedIndex !== null) {
+                        observedRequests[entry.observedIndex] = {
+                            ...observedRequests[entry.observedIndex],
+                            status: entry.status
+                        };
+                    }
                     return;
                 }
                 if (method === "Network.loadingFinished") {
                     const entry = pending.get(requestId);
                     if (!entry || entry.status === null || entry.status < 200 || entry.status >= 300) {
+                        if (entry?.observedIndex !== null && entry?.observedIndex !== undefined) {
+                            observedRequests[entry.observedIndex] = {
+                                ...observedRequests[entry.observedIndex],
+                                rejection_reason: "http_status_not_success"
+                            };
+                        }
                         return;
                     }
                     void (async () => {
@@ -6089,6 +6156,13 @@ class ChromeBackgroundBridge {
                                 captured_at: new Date(entry.capturedAt).toISOString()
                             });
                             if (!platformCapture) {
+                                if (entry.observedIndex !== null) {
+                                    observedRequests[entry.observedIndex] = {
+                                        ...observedRequests[entry.observedIndex],
+                                        ...summarizeResponseBody(responseBody),
+                                        rejection_reason: "trusted_platform_ref_missing"
+                                    };
+                                }
                                 return;
                             }
                             finish(platformCapture);
@@ -6138,11 +6212,12 @@ class ChromeBackgroundBridge {
                     const result = await capture;
                     captureStatus = {
                         attempted: true,
-                        status: result ? "started" : "timeout",
-                        reason: result ? null : "no_platform_upload_acceptance_response_captured",
-                        recorded_at: new Date().toISOString()
+                        status: result.capture ? "started" : "timeout",
+                        reason: result.capture ? null : "no_platform_upload_acceptance_response_captured",
+                        recorded_at: new Date().toISOString(),
+                        observed_requests: result.observedRequests
                     };
-                    return result;
+                    return result.capture;
                 },
                 status: () => captureStatus,
                 stop: async () => {
