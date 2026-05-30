@@ -155,7 +155,7 @@ describe("extension background relay / controlled live write", () => {
           input: {
             live_write_attempt_id: "fr0032-attempt-relay-001",
             source_media_ref: "media-ref/fr-0032/fixture-image-a",
-            source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_media_digest: "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
             source_media_kind: "image"
           },
           options: controlledLiveOptions
@@ -207,7 +207,7 @@ describe("extension background relay / controlled live write", () => {
     const input = {
       live_write_attempt_id: "fr0032-attempt-default-executor-001",
       source_media_ref: "media-ref/fr-0032/fixture-image-a",
-      source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      source_media_digest: "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
       source_media_kind: "image" as const,
       publish_visibility_scope: "private_or_self_visible" as const,
       cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -300,7 +300,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-file-unavailable",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -390,7 +390,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-approved-fixture",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -418,7 +418,7 @@ describe("extension background relay / controlled live write", () => {
         upload_artifact_identity: expect.objectContaining({
           source_media_ref: "media-ref/fr-0032/fixture-image-a",
           source_media_digest:
-            "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+            "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
           accepted_by_platform: false,
           visible_in_editor: true,
           page_preview_locator: "img.preview-image"
@@ -447,6 +447,130 @@ describe("extension background relay / controlled live write", () => {
       });
     }
   });
+
+  it("waits for delayed editor preview before classifying upload as preview missing", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-delayed-fixture";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    let uploadDispatched = false;
+    let previewQueryCount = 0;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const preview = new TestElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          if (!uploadDispatched) {
+            return [];
+          }
+          previewQueryCount += 1;
+          return previewQueryCount >= 3 ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-delayed-preview",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-898-delayed-preview",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(previewQueryCount).toBeGreaterThanOrEqual(3);
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: false,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+            blocker_layer: "upload"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  }, 8_000);
 
   it("selects image publish mode before choosing an upload entry for the approved image fixture", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
@@ -552,7 +676,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-select-image-mode",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -691,7 +815,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-dropzone-fallback",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -806,7 +930,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-upload-icon-placeholder",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -927,7 +1051,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-upload-complete-text-only",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -1054,7 +1178,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-existing-platform-staging-id",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -1172,7 +1296,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-existing-platform-staging-id-changed-preview",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -1295,7 +1419,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-platform-staging-ref",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -1427,7 +1551,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-explicit-platform-staging-id",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -1566,7 +1690,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-dropzone-upload",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -1679,7 +1803,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-non-upload-dropzone",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
@@ -1781,7 +1905,7 @@ describe("extension background relay / controlled live write", () => {
         live_write_attempt_id: "fr0032-attempt-zero-preview",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
-          "sha256:4b5c5c92cec3b23e6a294fc0eea43234ef5126c5a64f4c6c531ac8430ab0b844",
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
         source_media_kind: "image",
         publish_visibility_scope: "private_or_self_visible",
         cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
