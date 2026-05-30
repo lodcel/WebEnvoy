@@ -56,6 +56,16 @@ import {
   validateXhsCommandInputForExtension,
   type ExtensionAbilityAction
 } from "./xhs-command-contract.js";
+import {
+  applyXhsControlledUploadPlatformCapture,
+  applyXhsControlledUploadPlatformCaptureStatus,
+  decodeXhsControlledUploadNetworkResponseBody,
+  extractXhsControlledUploadPlatformCapture,
+  isXhsControlledUploadPlatformCaptureUrl,
+  type XhsControlledLiveWriteResult,
+  type XhsControlledUploadPlatformCapture,
+  type XhsControlledUploadPlatformCaptureStatus
+} from "./xhs-controlled-live-write.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -118,6 +128,7 @@ const xhsTargetRestoreNavigationPollMs = 100;
 const xhsOpenResultCardNavigationTimeoutMs = 5_000;
 const xhsForwardResponseSafetyMs = 5_000;
 const xhsPreForwardStageTimeoutMs = 5_000;
+const xhsControlledUploadCaptureMaxBodyBytes = 256_000;
 const xhsStaleRestoreBindingLeaseMaxAgeMs = 120_000;
 const xhsSearchInputSelectors = [
   'input[type="search"]',
@@ -348,6 +359,12 @@ type XhsSearchDebuggerActionResponseMessage = {
   ok: boolean;
   result?: Record<string, unknown>;
   error?: { code: string; message: string };
+};
+
+type XhsControlledUploadPlatformCaptureController = {
+  read: () => Promise<Record<string, unknown> | null>;
+  status: () => XhsControlledUploadPlatformCaptureStatus;
+  stop: () => Promise<void>;
 };
 
 interface NativeHeartbeatMessage {
@@ -2390,6 +2407,14 @@ class ChromeBackgroundBridge {
   });
   #staleRestoreBindingLeases = new Map<string, StaleRestoreBindingLease>();
   #pendingMainWorldBridgeEnsures = new Map<number, Promise<void>>();
+  #controlledUploadPlatformCapturesByTab = new Map<
+    number,
+    XhsControlledUploadPlatformCaptureController
+  >();
+  #controlledUploadPlatformCapturesByRequest = new Map<
+    string,
+    XhsControlledUploadPlatformCaptureController
+  >();
   #recoveryState: NativeBridgeRecoveryState;
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -2434,7 +2459,7 @@ class ChromeBackgroundBridge {
         void this.#handleXhsMainWorldRequest(message, sender, sendResponse);
         return true;
       }
-      this.#onContentScriptResult(message, sender);
+      void this.#onContentScriptResult(message, sender);
       return undefined;
     });
     this.chromeApi.runtime.onInstalled?.addListener(() => this.#connectNativePort());
@@ -6688,6 +6713,19 @@ class ChromeBackgroundBridge {
     const pendingTimeoutMs = XHS_GATE_COMMANDS.has(command) || command === "runtime.bootstrap"
       ? reserveXhsForwardResponseSafetyMs(forwardTimeoutMs)
       : forwardTimeoutMs;
+    const controlledUploadPlatformCapture =
+      command === "xhs.creator_publish.controlled_live_write"
+        ? await this.#startXhsControlledUploadPlatformCapture(
+            tabId,
+            Math.max(1, Math.min(15_000, pendingTimeoutMs))
+          )
+        : null;
+    if (controlledUploadPlatformCapture) {
+      this.#controlledUploadPlatformCapturesByRequest.set(
+        dispatchRequest.id,
+        controlledUploadPlatformCapture
+      );
+    }
     const timeoutError =
       command === "runtime.bootstrap"
         ? {
@@ -6710,6 +6748,9 @@ class ChromeBackgroundBridge {
       if (!pending || pending.suppressHostResponse === true) {
         return;
       }
+      const uploadCapture = this.#controlledUploadPlatformCapturesByRequest.get(dispatchRequest.id);
+      this.#controlledUploadPlatformCapturesByRequest.delete(dispatchRequest.id);
+      void uploadCapture?.stop();
       this.#emit({
         id: dispatchRequest.id,
         status: "error",
@@ -6790,6 +6831,8 @@ class ChromeBackgroundBridge {
     try {
       await this.#sendMessageWithContentScriptRecovery(tabId, forward, dispatchRequest);
     } catch (error) {
+      this.#controlledUploadPlatformCapturesByRequest.delete(dispatchRequest.id);
+      await controlledUploadPlatformCapture?.stop();
       if (dispatchFailurePayload && !gatePayload) {
         const existing = this.#pendingState.take(dispatchRequest.id);
         if (!existing || existing.suppressHostResponse === true) {
@@ -7122,10 +7165,13 @@ class ChromeBackgroundBridge {
       if (typeof value !== "string" || value.length === 0) {
         return null;
       }
+      if (value.length > xhsControlledUploadCaptureMaxBodyBytes) {
+        return null;
+      }
       try {
         return JSON.parse(value) as unknown;
       } catch {
-        return value;
+        return null;
       }
     };
     const parseHeaderRecord = (value: unknown): Record<string, string> => {
@@ -7225,10 +7271,17 @@ class ChromeBackgroundBridge {
                 await debuggerApi.sendCommand({ tabId }, "Network.getResponseBody", { requestId })
               );
               const rawBody = asNonEmptyString(bodyResult?.body);
-              const responseBody =
-                bodyResult?.base64Encoded === true && rawBody
-                  ? parseBody(atob(rawBody))
-                  : parseBody(rawBody);
+              let decodedBody: string | null = null;
+              if (bodyResult?.base64Encoded === true && rawBody) {
+                if (rawBody.length <= xhsControlledUploadCaptureMaxBodyBytes) {
+                  const decoded = atob(rawBody);
+                  decodedBody =
+                    decoded.length <= xhsControlledUploadCaptureMaxBodyBytes ? decoded : null;
+                }
+              } else {
+                decodedBody = rawBody;
+              }
+              const responseBody = parseBody(decodedBody);
               finish({
                 source: "chrome_debugger_network",
                 route_evidence_class: "passive_api_capture",
@@ -7285,10 +7338,13 @@ class ChromeBackgroundBridge {
       if (typeof value !== "string" || value.length === 0) {
         return null;
       }
+      if (value.length > xhsControlledUploadCaptureMaxBodyBytes) {
+        return null;
+      }
       try {
         return JSON.parse(value) as unknown;
       } catch {
-        return value;
+        return null;
       }
     };
     const parseHeaderRecord = (value: unknown): Record<string, string> => {
@@ -7427,6 +7483,194 @@ class ChromeBackgroundBridge {
       };
       onEvent.addListener(listener);
     });
+  }
+
+  #waitForXhsControlledUploadPlatformCapture(
+    tabId: number,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<Record<string, unknown> | null> {
+    const debuggerApi = this.chromeApi.debugger;
+    const onEvent = debuggerApi?.onEvent;
+    if (!debuggerApi || !onEvent) {
+      return Promise.resolve(null);
+    }
+    if (signal?.aborted) {
+      return Promise.resolve(null);
+    }
+
+    type PendingRequest = {
+      url: string;
+      method: string;
+      status: number | null;
+      capturedAt: number;
+    };
+    const pending = new Map<string, PendingRequest>();
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: Record<string, unknown> | null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          onEvent.removeListener(listener);
+        } catch {
+          // Listener removal best effort.
+        }
+        signal?.removeEventListener("abort", abortHandler);
+        resolve(value);
+      };
+      const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
+      const abortHandler = () => finish(null);
+      signal?.addEventListener("abort", abortHandler, { once: true });
+      const listener = (
+        source: { tabId?: number },
+        method: string,
+        params?: Record<string, unknown>
+      ) => {
+        if (settled || source.tabId !== tabId || !params) {
+          return;
+        }
+        const requestId = asNonEmptyString(params.requestId);
+        if (!requestId) {
+          return;
+        }
+        if (method === "Network.requestWillBeSent") {
+          const request = asRecord(params.request);
+          const url = asNonEmptyString(request?.url);
+          const requestMethod = asNonEmptyString(request?.method);
+          if (
+            !url ||
+            !requestMethod ||
+            !isXhsControlledUploadPlatformCaptureUrl(url, requestMethod)
+          ) {
+            return;
+          }
+          pending.set(requestId, {
+            url,
+            method: requestMethod,
+            status: null,
+            capturedAt: Date.now()
+          });
+          return;
+        }
+        if (method === "Network.responseReceived") {
+          const entry = pending.get(requestId);
+          if (!entry) {
+            return;
+          }
+          const response = asRecord(params.response);
+          entry.status = typeof response?.status === "number" ? response.status : null;
+          return;
+        }
+        if (method === "Network.loadingFinished") {
+          const entry = pending.get(requestId);
+          if (!entry || entry.status === null || entry.status < 200 || entry.status >= 300) {
+            return;
+          }
+          void (async () => {
+            try {
+              const bodyResult = asRecord(
+                await debuggerApi.sendCommand({ tabId }, "Network.getResponseBody", { requestId })
+              );
+              const responseBody = decodeXhsControlledUploadNetworkResponseBody({
+                body: bodyResult?.body,
+                base64Encoded: bodyResult?.base64Encoded,
+                maxBodyBytes: xhsControlledUploadCaptureMaxBodyBytes
+              });
+              const platformCapture = extractXhsControlledUploadPlatformCapture({
+                url: entry.url,
+                method: entry.method,
+                status: entry.status ?? 0,
+                body: responseBody,
+                captured_at: new Date(entry.capturedAt).toISOString()
+              });
+              if (!platformCapture) {
+                return;
+              }
+              finish(platformCapture);
+            } catch {
+              finish(null);
+            }
+          })();
+        }
+      };
+      onEvent.addListener(listener);
+    });
+  }
+
+  async #startXhsControlledUploadPlatformCapture(
+    tabId: number,
+    timeoutMs: number
+  ): Promise<XhsControlledUploadPlatformCaptureController> {
+    const unavailableController = (
+      reason: string
+    ): XhsControlledUploadPlatformCaptureController => ({
+      read: async () => null,
+      status: () => ({
+        attempted: true,
+        status: "not_started",
+        reason,
+        recorded_at: new Date().toISOString()
+      }),
+      stop: async () => undefined
+    });
+    if (this.#controlledUploadPlatformCapturesByTab.has(tabId)) {
+      return unavailableController("same_tab_capture_already_active");
+    }
+    const debuggerApi = this.chromeApi.debugger;
+    if (!debuggerApi) {
+      return unavailableController("chrome_debugger_unavailable");
+    }
+    let attached = false;
+    try {
+      await debuggerApi.attach({ tabId }, debuggerProtocolVersion);
+      attached = true;
+      await debuggerApi.sendCommand({ tabId }, "Network.enable");
+      const abortController = new AbortController();
+      const capture = this.#waitForXhsControlledUploadPlatformCapture(
+        tabId,
+        timeoutMs,
+        abortController.signal
+      );
+      let captureStatus: XhsControlledUploadPlatformCaptureStatus = {
+        attempted: true,
+        status: "started",
+        reason: null,
+        recorded_at: new Date().toISOString()
+      };
+      const controller: XhsControlledUploadPlatformCaptureController = {
+        read: async () => {
+          const result = await capture;
+          captureStatus = {
+            attempted: true,
+            status: result ? "started" : "timeout",
+            reason: result ? null : "no_platform_upload_acceptance_response_captured",
+            recorded_at: new Date().toISOString()
+          };
+          return result;
+        },
+        status: () => captureStatus,
+        stop: async () => {
+          abortController.abort();
+          if (attached) {
+            await debuggerApi.detach({ tabId }).catch(() => undefined);
+            attached = false;
+          }
+          this.#controlledUploadPlatformCapturesByTab.delete(tabId);
+        }
+      };
+      this.#controlledUploadPlatformCapturesByTab.set(tabId, controller);
+      return controller;
+    } catch {
+      if (attached) {
+        await debuggerApi.detach({ tabId }).catch(() => undefined);
+      }
+      this.#controlledUploadPlatformCapturesByTab.delete(tabId);
+      return unavailableController("chrome_debugger_attach_or_enable_failed");
+    }
   }
 
   #waitForXhsUserHomeDebuggerNetworkCapture(
@@ -8688,7 +8932,7 @@ class ChromeBackgroundBridge {
     }
   }
 
-  #onContentScriptResult(message: unknown, sender: RuntimeMessageSender): void {
+  async #onContentScriptResult(message: unknown, sender: RuntimeMessageSender): Promise<void> {
     const result = message as Partial<ContentToBackgroundMessage> | null;
     if (!result || result.kind !== "result" || typeof result.id !== "string") {
       return;
@@ -8717,6 +8961,8 @@ class ChromeBackgroundBridge {
       return;
     }
     this.#rememberTrustedFingerprintContext(request, payload, result.ok === true);
+    const uploadCaptureController = this.#controlledUploadPlatformCapturesByRequest.get(result.id);
+    this.#controlledUploadPlatformCapturesByRequest.delete(result.id);
     const backfilledExecutionFailure = pending.gatePayload
       ? this.#backfillExecutionFailureIntoGatePayload(pending.gatePayload, payload)
       : false;
@@ -8765,6 +9011,7 @@ class ChromeBackgroundBridge {
     }
 
     if (result.ok !== true) {
+      await uploadCaptureController?.stop();
       if (suppressHostResponse) {
         return;
       }
@@ -8785,7 +9032,38 @@ class ChromeBackgroundBridge {
     }
 
     if (suppressHostResponse) {
+      await uploadCaptureController?.stop();
       return;
+    }
+    const controlledUploadPlatformCapture = uploadCaptureController
+      ? await uploadCaptureController.read().finally(() => uploadCaptureController.stop())
+      : null;
+    const controlledUploadPlatformCaptureStatus = uploadCaptureController?.status() ?? null;
+    const controlledLiveWrite = asRecord(payload.controlled_live_write);
+    if (controlledLiveWrite && controlledUploadPlatformCapture) {
+      const mergedControlledLiveWrite = applyXhsControlledUploadPlatformCapture(
+        controlledLiveWrite as XhsControlledLiveWriteResult,
+        controlledUploadPlatformCapture as XhsControlledUploadPlatformCapture
+      ) as Record<string, unknown>;
+      payload.controlled_live_write = mergedControlledLiveWrite;
+      payload.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
+      payload.live_write_evaluation = mergedControlledLiveWrite.live_write_evaluation;
+      if (summary !== null) {
+        summary.controlled_live_write = mergedControlledLiveWrite;
+        summary.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
+        summary.live_write_evaluation = mergedControlledLiveWrite.live_write_evaluation;
+      }
+    } else if (controlledLiveWrite && controlledUploadPlatformCaptureStatus) {
+      const mergedControlledLiveWrite = applyXhsControlledUploadPlatformCaptureStatus(
+        controlledLiveWrite as XhsControlledLiveWriteResult,
+        controlledUploadPlatformCaptureStatus
+      ) as Record<string, unknown>;
+      payload.controlled_live_write = mergedControlledLiveWrite;
+      payload.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
+      if (summary !== null) {
+        summary.controlled_live_write = mergedControlledLiveWrite;
+        summary.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
+      }
     }
     const senderTabId = typeof sender.tab?.id === "number" ? sender.tab.id : null;
     this.#emit({

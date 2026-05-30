@@ -2,6 +2,153 @@ const FR0032_FIXTURE_IMAGE_A_REF = "media-ref/fr-0032/fixture-image-a";
 const FR0032_FIXTURE_IMAGE_A_DIGEST = "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18";
 const FR0032_FIXTURE_IMAGE_A_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD0eNT6AAAG5ElEQVR42u3WMQ0AAAjAMGQhB//BA5jgo0cN7Fp01gAAv4QIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAHBnAVzllrXr0ZtlAAAAAElFTkSuQmCC";
 const nowIso = () => new Date().toISOString();
+const asPlainRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value
+    : null;
+const xhsControlledUploadCaptureDefaultMaxBodyBytes = 256_000;
+const xhsControlledUploadPlatformEndpointAllowlist = [
+    {
+        host: "creator.xiaohongshu.com",
+        path: /^\/(?:api|web_api)\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
+    },
+    {
+        host: "edith.xiaohongshu.com",
+        path: /^\/api\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
+    }
+];
+export const isXhsControlledUploadPlatformCaptureUrl = (url, method) => {
+    if (!/^(POST|PUT|PATCH)$/iu.test(method)) {
+        return false;
+    }
+    try {
+        const parsed = new URL(url);
+        return xhsControlledUploadPlatformEndpointAllowlist.some((entry) => parsed.hostname === entry.host && entry.path.test(parsed.pathname));
+    }
+    catch {
+        return false;
+    }
+};
+export const parseXhsControlledUploadNetworkResponseBody = (value, maxBodyBytes = xhsControlledUploadCaptureDefaultMaxBodyBytes) => {
+    if (typeof value !== "string" || value.length === 0 || value.length > maxBodyBytes) {
+        return null;
+    }
+    try {
+        return JSON.parse(value);
+    }
+    catch {
+        return value;
+    }
+};
+export const decodeXhsControlledUploadNetworkResponseBody = (input) => {
+    const maxBodyBytes = input.maxBodyBytes ?? xhsControlledUploadCaptureDefaultMaxBodyBytes;
+    if (typeof input.body !== "string" || input.body.length === 0) {
+        return null;
+    }
+    if (input.body.length > maxBodyBytes) {
+        return null;
+    }
+    if (input.base64Encoded === true) {
+        if (typeof atob !== "function") {
+            return null;
+        }
+        try {
+            const decoded = atob(input.body);
+            return parseXhsControlledUploadNetworkResponseBody(decoded, maxBodyBytes);
+        }
+        catch {
+            return null;
+        }
+    }
+    return parseXhsControlledUploadNetworkResponseBody(input.body, maxBodyBytes);
+};
+const trustedPlatformRefKeys = new Set([
+    "upload_id",
+    "uploadId",
+    "media_id",
+    "mediaId",
+    "material_id",
+    "materialId",
+    "asset_id",
+    "assetId",
+    "file_id",
+    "fileId",
+    "oss_id",
+    "ossId",
+    "image_id",
+    "imageId"
+]);
+const normalizePlatformRefValue = (value) => {
+    if (typeof value !== "string" && typeof value !== "number") {
+        return null;
+    }
+    const normalized = String(value).trim();
+    if (normalized.length < 6 ||
+        normalized.length > 256 ||
+        normalized.startsWith("blob:") ||
+        normalized.startsWith("data:") ||
+        /^https?:\/\//iu.test(normalized)) {
+        return null;
+    }
+    return normalized;
+};
+const findTrustedPlatformStagingRef = (value) => {
+    if (typeof value === "string") {
+        for (const key of trustedPlatformRefKeys) {
+            const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+            const match = new RegExp(`["']${escapedKey}["']\\s*:\\s*["']([^"']{6,256})["']`, "u").exec(value);
+            const normalizedValue = normalizePlatformRefValue(match?.[1]);
+            if (normalizedValue) {
+                return `${key}:${normalizedValue}`;
+            }
+        }
+        return null;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const nested = findTrustedPlatformStagingRef(item);
+            if (nested) {
+                return nested;
+            }
+        }
+        return null;
+    }
+    const record = asPlainRecord(value);
+    if (!record) {
+        return null;
+    }
+    for (const [key, item] of Object.entries(record)) {
+        const normalizedValue = normalizePlatformRefValue(item);
+        if (trustedPlatformRefKeys.has(key) && normalizedValue) {
+            return `${key}:${normalizedValue}`;
+        }
+    }
+    for (const item of Object.values(record)) {
+        const nested = findTrustedPlatformStagingRef(item);
+        if (nested) {
+            return nested;
+        }
+    }
+    return null;
+};
+export const extractXhsControlledUploadPlatformCapture = (input) => {
+    if (input.status < 200 ||
+        input.status >= 300 ||
+        !isXhsControlledUploadPlatformCaptureUrl(input.url, input.method)) {
+        return null;
+    }
+    const platformStagingRef = findTrustedPlatformStagingRef(input.body);
+    if (!platformStagingRef) {
+        return null;
+    }
+    return {
+        source: "chrome_debugger_network",
+        platform_staging_ref: platformStagingRef,
+        url: input.url,
+        method: input.method,
+        status: input.status,
+        captured_at: input.captured_at
+    };
+};
 const sourceMediaKind = (value) => value === "video" || value === "mixed" ? value : "image";
 const sha256DigestForBytes = async (bytes) => {
     const subtle = globalThis.crypto?.subtle;
@@ -679,6 +826,100 @@ const buildXhsControlledLiveWriteSubmitBlockedResult = (input, artifact) => {
         },
         uploaded: true,
         cleanup_attempted: false
+    };
+};
+export const applyXhsControlledUploadPlatformCapture = (result, capture) => {
+    if (!capture) {
+        return result;
+    }
+    const evidence = result.live_write_evidence;
+    const uploadArtifact = evidence.upload_artifact_identity;
+    if (!uploadArtifact || uploadArtifact.accepted_by_platform === true) {
+        return result;
+    }
+    const timestamp = nowIso();
+    const acceptedArtifact = {
+        ...uploadArtifact,
+        platform_staging_ref: capture.platform_staging_ref,
+        accepted_by_platform: true,
+        captured_at: capture.captured_at
+    };
+    const stopSignal = evidence.stop_signal;
+    const nextStopSignal = stopSignal
+        ? {
+            ...stopSignal,
+            stop_signal_id: `stop/fr-0032/${String(evidence.live_write_attempt_id ?? "unknown")}/submit-unavailable`,
+            stopped_step: "submit",
+            blocker_layer: "submit",
+            blocker_code: "SUBMIT_EXECUTOR_UNAVAILABLE",
+            cleanup_required: true,
+            required_recovery_action: "provide a submit/publish executor and cleanup policy executor before continuing after upload"
+        }
+        : null;
+    const nextEvidence = {
+        ...evidence,
+        execution_phase: "submit",
+        stop_classification: {
+            ...(evidence.stop_classification ?? {}),
+            category: "submit_blocked",
+            evaluation_state: "stopped",
+            stop_reason: "submit_executor_unavailable"
+        },
+        upload_artifact_identity: acceptedArtifact,
+        platform_upload_acceptance_capture: capture,
+        risk_signals: [
+            {
+                risk_signal_id: `risk/fr-0032/${String(evidence.live_write_attempt_id ?? "unknown")}/submit-unavailable`,
+                detected_at: timestamp,
+                source: "submit",
+                kind: "submit_failure",
+                severity: "blocking",
+                details_ref: "submit_executor_unavailable"
+            }
+        ],
+        stop_signal: nextStopSignal,
+        updated_at: timestamp
+    };
+    return {
+        ...result,
+        live_write_evidence: nextEvidence,
+        live_write_evaluation: {
+            schema_version: "fr-0032.live_write_evaluation.v1",
+            decision: "NO_GO",
+            full_live_write_success: false,
+            upload_success: true,
+            submit_success: false,
+            publish_success: false,
+            cleanup_success: false,
+            later_write_actions_blocked: true,
+            cleanup_required: true,
+            blockers: [
+                {
+                    blocker_code: "SUBMIT_EXECUTOR_UNAVAILABLE",
+                    blocker_layer: "submit",
+                    message: "Upload evidence exists, but submit/publish executor is not available."
+                }
+            ]
+        },
+        uploaded: true,
+        cleanup_attempted: false
+    };
+};
+export const applyXhsControlledUploadPlatformCaptureStatus = (result, status) => {
+    if (!status) {
+        return result;
+    }
+    const evidence = result.live_write_evidence;
+    if (evidence.platform_upload_acceptance_capture) {
+        return result;
+    }
+    return {
+        ...result,
+        live_write_evidence: {
+            ...evidence,
+            platform_upload_acceptance_capture_status: status,
+            updated_at: nowIso()
+        }
     };
 };
 export const buildXhsControlledLiveWriteFromDiscovery = (input, discovery) => {
