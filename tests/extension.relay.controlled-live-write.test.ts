@@ -160,7 +160,7 @@ it("records debugger upload capture status without promoting upload success", ()
   });
 });
 
-it("extracts only explicit platform upload ids from upload response bodies", () => {
+it("extracts trusted platform upload acceptance refs from upload responses", () => {
   expect(
     extractXhsControlledUploadPlatformCapture({
       url: "https://creator.xiaohongshu.com/api/media/upload",
@@ -276,6 +276,68 @@ it("extracts only explicit platform upload ids from upload response bodies", () 
       captured_at: "2026-05-30T00:00:00.000Z"
     })
   ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://upload.xiaohongshu.com/api/media/upload",
+      method: "POST",
+      status: 200,
+      body: {
+        data: {
+          fileid: "platform-file-lowercase-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toMatchObject({
+    platform_staging_ref: "fileid:platform-file-lowercase-123"
+  });
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://creator.xiaohongshu.com/api/media/upload",
+      method: "POST",
+      status: 200,
+      body: {
+        data: {
+          imageFileId: "platform-image-file-123"
+        }
+      },
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toMatchObject({
+    platform_staging_ref: "imageFileId:platform-image-file-123"
+  });
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://ros-upload.xiaohongshu.com/creator/20260530/fr0032-fixture.png",
+      method: "GET",
+      status: 200,
+      body: null,
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://sns-webpic-qc.xhscdn.com/20260530/upload/fr0032.png",
+      method: "PUT",
+      status: 200,
+      body: null,
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
+
+  expect(
+    extractXhsControlledUploadPlatformCapture({
+      url: "https://ros-upload-d4.xhscdn.com/creator/20260530/fr0032-fixture.png",
+      method: "POST",
+      status: 204,
+      body: null,
+      captured_at: "2026-05-30T00:00:00.000Z"
+    })
+  ).toBeNull();
 });
 
 it("uses an explicit host/path/method allowlist before upload response body capture", () => {
@@ -302,6 +364,24 @@ it("uses an explicit host/path/method allowlist before upload response body capt
       "https://upload.xiaohongshu.com/api/media/upload",
       "POST"
     )
+  ).toBe(true);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://upload.xiaohongshu.com/api/account/status",
+      "POST"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://ros-upload.xiaohongshu.com/creator/20260530/fr0032-fixture.png",
+      "PUT"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://ros-upload-d4.xhscdn.com/creator/20260530/fr0032-fixture.png",
+      "POST"
+    )
   ).toBe(false);
   expect(
     isXhsControlledUploadPlatformCaptureUrl(
@@ -313,6 +393,18 @@ it("uses an explicit host/path/method allowlist before upload response body capt
     isXhsControlledUploadPlatformCaptureUrl(
       "https://creator.xiaohongshu.com/api/media/upload",
       "GET"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://ros-upload.xiaohongshu.com/creator/20260530/fr0032-fixture.png",
+      "GET"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledUploadPlatformCaptureUrl(
+      "https://sns-webpic-qc.xhscdn.com/20260530/upload/fr0032.png",
+      "PUT"
     )
   ).toBe(false);
 });
