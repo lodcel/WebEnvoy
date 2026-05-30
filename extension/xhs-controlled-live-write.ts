@@ -1480,7 +1480,10 @@ export const buildXhsControlledLiveWriteFromDiscovery = (
 
 const privateVisibilityPattern = /仅自己可见|仅自己|自己可见|私密|仅本人|private|only\s*me|self[-_ ]?visible/iu;
 const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
-const visibilityTriggerPattern = /可见范围|谁可以看|谁能看|观看权限|权限设置|发布权限|visibility|privacy|permission/iu;
+const visibilityTriggerPattern =
+  /可见范围|谁可以看|谁能看|观看权限|权限设置|发布权限|visibility|privacy|permission/iu;
+const visibilityStructuralPattern =
+  /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience/iu;
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
 const nonSubmitPublishPattern = /草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule/iu;
 const publishSuccessPattern = /发布成功|发布完成|已发布|提交成功|publish(ed)?\s*(success|complete)|success/iu;
@@ -1619,12 +1622,18 @@ const visibilityControlSelector = [
   "label",
   '[role="button"]',
   '[role="combobox"]',
+  '[role="listbox"]',
   '[role="radio"]',
   '[role="menuitemradio"]',
   '[role="option"]',
+  '[class*="option" i]',
+  '[class*="radio" i]',
   '[class*="visibility" i]',
   '[class*="privacy" i]',
   '[class*="permission" i]',
+  '[class*="setting" i]',
+  '[class*="scope" i]',
+  '[class*="range" i]',
   '[class*="select" i]',
   '[class*="dropdown" i]'
 ].join(",");
@@ -1641,12 +1650,37 @@ const privateVisibilityOptionSelector = [
 const findPrivateVisibilityOption = (): HTMLElement | null =>
   findVisibleElementMatchingText(privateVisibilityOptionSelector, privateVisibilityPattern, publicVisibilityPattern);
 
-const findVisibilityTrigger = (): HTMLElement | null =>
-  findVisibleElementMatchingText(
-    visibilityControlSelector,
-    visibilityTriggerPattern,
-    new RegExp(`${submitPublishPattern.source}|${nonSubmitPublishPattern.source}`, "iu")
+const visibilityStructuralSignal = (element: Element): string =>
+  [
+    getElementAttribute(element, "data-testid"),
+    getElementAttribute(element, "aria-label"),
+    getElementAttribute(element, "title"),
+    getElementAttribute(element, "role"),
+    getElementAttribute(element, "class")
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+
+const findVisibilityTrigger = (): HTMLElement | null => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return null;
+  }
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>(visibilityControlSelector)).find((element) => {
+      const textSignal = elementTextSignal(element);
+      const structuralSignal = visibilityStructuralSignal(element);
+      const explicitContext = visibilityTriggerPattern.test(textSignal);
+      const publicDefaultWithVisibilityStructure =
+        publicVisibilityPattern.test(textSignal) && visibilityStructuralPattern.test(structuralSignal);
+      return (
+        isVisibleElement(element) &&
+        !isDisabledElement(element) &&
+        (explicitContext || publicDefaultWithVisibilityStructure) &&
+        !nonSubmitPublishPattern.test(textContentOf(element))
+      );
+    }) ?? null
   );
+};
 
 const selectPrivateVisibilityControl = async (): Promise<HTMLElement | null> => {
   const visiblePrivateOption = findPrivateVisibilityOption();
@@ -1769,9 +1803,7 @@ const performControlledSubmitPublishCleanup = async (
       "button",
       '[role="button"]',
       'input[type="button"]',
-      'input[type="submit"]',
-      '[class*="publish" i]',
-      '[class*="submit" i]'
+      'input[type="submit"]'
     ].join(","),
     submitPublishPattern,
     nonSubmitPublishPattern

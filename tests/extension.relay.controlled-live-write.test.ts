@@ -417,9 +417,9 @@ it("opens visibility selector before choosing the private publish option", async
     };
   }
   const visibilityTrigger = new TestElement();
-  visibilityTrigger.className = "visibility-select";
-  visibilityTrigger.classList = ["visibility-select"];
-  visibilityTrigger.textContent = "可见范围 公开";
+  visibilityTrigger.className = "publish-setting";
+  visibilityTrigger.classList = ["publish-setting"];
+  visibilityTrigger.textContent = "公开";
   let privateOptionVisible = false;
   visibilityTrigger.click = () => {
     visibilityTrigger.clicked = true;
@@ -430,6 +430,7 @@ it("opens visibility selector before choosing the private publish option", async
   privateOption.classList = ["visibility-option"];
   privateOption.textContent = "仅自己可见";
   const submit = new TestElement();
+  submit.tagName = "BUTTON";
   submit.className = "publish-submit";
   submit.classList = ["publish-submit"];
   submit.textContent = "发布";
@@ -463,7 +464,10 @@ it("opens visibility selector before choosing the private publish option", async
         if (selector.includes("visibility") || selector.includes("privacy") || selector.includes("permission")) {
           return privateOptionVisible ? [visibilityTrigger, privateOption] : [visibilityTrigger];
         }
-        if (selector.includes("publish") || selector.includes("submit") || selector.includes("button")) {
+        if (selector.includes("button")) {
+          return [submit];
+        }
+        if (selector.includes("publish") || selector.includes("submit")) {
           return privateOptionVisible ? [visibilityTrigger, privateOption, submit] : [visibilityTrigger, submit];
         }
         return [];
@@ -523,6 +527,108 @@ it("opens visibility selector before choosing the private publish option", async
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: originalWindow
+    });
+  }
+});
+
+it("does not use non-actionable publish text containers as submit controls", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    textContent = "";
+    clicked = false;
+    getAttribute = (name: string) => (name === "class" ? this.className : null);
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const privateOption = new TestElement();
+  privateOption.className = "visibility-option";
+  privateOption.classList = ["visibility-option"];
+  privateOption.textContent = "仅自己可见";
+  const publishContainer = new TestElement();
+  publishContainer.className = "publish-panel";
+  publishContainer.classList = ["publish-panel"];
+  publishContainer.textContent = "发布";
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("visibility") || selector.includes("option")) {
+          return [privateOption];
+        }
+        if (selector.includes('class*="publish"')) {
+          return [publishContainer];
+        }
+        return [];
+      }
+    }
+  });
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-submit-container-not-clicked",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-929-submit-container-not-clicked",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/submit-container",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/submit-container",
+        page_preview_locator: "img.preview-image",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-05-30T20:16:08.000Z"
+      }
+    });
+
+    expect(publishContainer.clicked).toBe(false);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      submit_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "SUBMIT_CONTROL_MISSING",
+          blocker_layer: "submit"
+        })
+      ]
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
     });
   }
 });
