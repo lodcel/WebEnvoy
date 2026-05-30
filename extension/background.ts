@@ -67,6 +67,7 @@ import {
   type XhsControlledUploadPlatformCapture,
   type XhsControlledUploadPlatformCaptureStatus
 } from "./xhs-controlled-live-write.js";
+import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -372,10 +373,6 @@ type XhsControlledUploadPlatformCaptureProbeResult = {
   capture: Record<string, unknown> | null;
   observedRequests: Record<string, unknown>[];
 };
-
-export const resolveXhsControlledUploadPlatformCaptureTimeoutMs = (
-  forwardResponseTimeoutMs: number
-): number => Math.max(1, Math.min(60_000, Math.floor(forwardResponseTimeoutMs)));
 
 interface NativeHeartbeatMessage {
   id: string;

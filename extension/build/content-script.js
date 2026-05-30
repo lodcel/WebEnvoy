@@ -6205,20 +6205,21 @@ const asPlainRecord = (value) => typeof value === "object" && value !== null && 
     ? value
     : null;
 const xhsControlledUploadCaptureDefaultMaxBodyBytes = 256_000;
-const xhsControlledUploadSignalPattern = /(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu;
+const xhsControlledUploadSignalPattern = /(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu;
+const xhsControlledUploadCredentialEndpointPattern = /(?:^|[/_.-])(?:permit|token|credential|policy|sign|sts)(?:$|[/_.-])/iu;
 const isXhsControlledObjectUploadTransportHost = (host) => /^ros-upload(?:-[a-z0-9]+)?\.(?:xiaohongshu\.com|xhscdn\.com)$/iu.test(host);
 const xhsControlledUploadPlatformEndpointAllowlist = [
     {
         host: "creator.xiaohongshu.com",
-        path: /^\/(?:api|web_api)\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu
+        path: /^\/(?:api|web_api)\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
     },
     {
         host: "edith.xiaohongshu.com",
-        path: /^\/api\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu
+        path: /^\/api\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
     },
     {
         host: "upload.xiaohongshu.com",
-        path: /^\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo|permit)(?:$|[/_.-])/iu
+        path: /^\/.*(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu
     }
 ];
 const isXhsControlledUploadPlatformCaptureUrl = (url, method) => {
@@ -6227,6 +6228,9 @@ const isXhsControlledUploadPlatformCaptureUrl = (url, method) => {
     }
     try {
         const parsed = new URL(url);
+        if (xhsControlledUploadCredentialEndpointPattern.test(parsed.pathname)) {
+            return false;
+        }
         return xhsControlledUploadPlatformEndpointAllowlist.some((entry) => parsed.hostname === entry.host && entry.path.test(parsed.pathname));
     }
     catch {
@@ -6243,7 +6247,9 @@ const summarizeXhsControlledUploadObservedRequest = (url, method) => {
         const objectUploadTransport = isXhsControlledObjectUploadTransportHost(parsed.hostname);
         const uploadLikeHost = parsed.hostname.includes("upload");
         const uploadLikePath = xhsControlledUploadSignalPattern.test(parsed.pathname);
-        if (!isKnownHost || (!objectUploadTransport && !uploadLikeHost && !uploadLikePath)) {
+        const credentialEndpoint = xhsControlledUploadCredentialEndpointPattern.test(parsed.pathname);
+        if (!isKnownHost ||
+            (!objectUploadTransport && !uploadLikeHost && !uploadLikePath && !credentialEndpoint)) {
             return null;
         }
         const captureCandidate = isXhsControlledUploadPlatformCaptureUrl(url, method);
@@ -6256,7 +6262,9 @@ const summarizeXhsControlledUploadObservedRequest = (url, method) => {
                 ? null
                 : objectUploadTransport
                     ? "object_upload_transport_not_platform_acceptance"
-                    : "url_not_allowlisted"
+                    : credentialEndpoint
+                        ? "credential_endpoint_not_platform_acceptance"
+                        : "url_not_allowlisted"
         };
     }
     catch {

@@ -6,7 +6,7 @@ import {
   ContentScriptHandler,
   waitForResponse
 } from "./extension.relay.shared.js";
-import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "../extension/background.js";
+import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "../extension/xhs-controlled-upload-platform-capture.js";
 import {
   applyXhsControlledUploadPlatformCapture,
   applyXhsControlledUploadPlatformCaptureStatus,
@@ -284,22 +284,6 @@ it("extracts trusted platform upload acceptance refs from upload responses", () 
       status: 200,
       body: {
         data: {
-          fileId: "platform-file-permit-123"
-        }
-      },
-      captured_at: "2026-05-30T00:00:00.000Z"
-    })
-  ).toMatchObject({
-    platform_staging_ref: "fileId:platform-file-permit-123"
-  });
-
-  expect(
-    extractXhsControlledUploadPlatformCapture({
-      url: "https://creator.xiaohongshu.com/api/media/v1/upload/creator/permit",
-      method: "POST",
-      status: 200,
-      body: {
-        data: {
           token: "temporary-upload-token-123",
           policy: "temporary-upload-policy-123"
         }
@@ -511,8 +495,8 @@ it("classifies ros-upload object transports as diagnostics, not platform accepta
   ).toMatchObject({
     host: "creator.xiaohongshu.com",
     path: "/api/sns/web/v1/resource/permit",
-    capture_candidate: true,
-    rejection_reason: null
+    capture_candidate: false,
+    rejection_reason: "credential_endpoint_not_platform_acceptance"
   });
 
   expect(
@@ -520,7 +504,24 @@ it("classifies ros-upload object transports as diagnostics, not platform accepta
       "https://creator.xiaohongshu.com/api/sns/web/v1/resource/token",
       "POST"
     )
-  ).toBeNull();
+  ).toMatchObject({
+    host: "creator.xiaohongshu.com",
+    path: "/api/sns/web/v1/resource/token",
+    capture_candidate: false,
+    rejection_reason: "credential_endpoint_not_platform_acceptance"
+  });
+
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://creator.xiaohongshu.com/api/media/v1/upload/creator/permit",
+      "POST"
+    )
+  ).toMatchObject({
+    host: "creator.xiaohongshu.com",
+    path: "/api/media/v1/upload/creator/permit",
+    capture_candidate: false,
+    rejection_reason: "credential_endpoint_not_platform_acceptance"
+  });
 });
 
 it("decodes bounded upload network bodies consistently with explicit string fallback", () => {

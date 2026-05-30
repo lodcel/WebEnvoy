@@ -9,6 +9,7 @@ import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.j
 import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsCommandGateReasons, evaluateXhsGate, collectXhsMatrixGateReasons, finalizeXhsGateOutcome, resolveXhsGateApprovalId, resolveXhsGateDecisionId, resolveXhsActionType, resolveXhsExecutionMode, normalizeXhsApprovalRecord } from "../shared/xhs-gate.js";
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
 import { applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledUploadPlatformCapture, isXhsControlledUploadPlatformCaptureUrl, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
+import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
@@ -94,7 +95,6 @@ const hashMainWorldBridgeProbeSecret = (value) => {
     }
     return `mwprobe_${(hash >>> 0).toString(36)}`;
 };
-export const resolveXhsControlledUploadPlatformCaptureTimeoutMs = (forwardResponseTimeoutMs) => Math.max(1, Math.min(60_000, Math.floor(forwardResponseTimeoutMs)));
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
 const XHS_READ_API_DOMAIN = "edith.xiaohongshu.com";
