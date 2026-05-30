@@ -55,6 +55,13 @@ const runWithTimeout = async (promise, timeoutMs) => {
         }
     }
 };
+const reserveBridgeResponseTimeoutMs = (timeoutMs) => {
+    if (timeoutMs <= 1_000) {
+        return timeoutMs;
+    }
+    const responseMarginMs = Math.min(5_000, Math.max(1_000, Math.floor(timeoutMs * 0.05)));
+    return Math.max(1, timeoutMs - responseMarginMs);
+};
 const asObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
@@ -352,6 +359,7 @@ export class NativeMessagingBridge {
         await this.#ensureReady(input.profile, budget);
         await this.#pulseHeartbeat(budget);
         const forwardTimeoutMs = budget.remainingMs();
+        const relayTimeoutMs = reserveBridgeResponseTimeoutMs(forwardTimeoutMs);
         const sessionId = this.#session.sessionIdOrThrow();
         const request = createBridgeForwardRequest({
             id: this.#nextId("run"),
@@ -361,7 +369,7 @@ export class NativeMessagingBridge {
             command: input.command,
             commandParams: resolveForwardCommandParams(input.params, input.runId, sessionId, input.command),
             cwd: input.cwd,
-            timeoutMs: forwardTimeoutMs
+            timeoutMs: relayTimeoutMs
         });
         try {
             this.#session.beginForward();
@@ -384,6 +392,7 @@ export class NativeMessagingBridge {
             await this.#ensureReady(input.profile, budget);
             await this.#pulseHeartbeat(budget);
             const retryTimeoutMs = budget.remainingMs();
+            const retryRelayTimeoutMs = reserveBridgeResponseTimeoutMs(retryTimeoutMs);
             const retrySessionId = this.#session.sessionIdOrThrow();
             const retryRequest = createBridgeForwardRequest({
                 id: this.#nextId("run"),
@@ -393,7 +402,7 @@ export class NativeMessagingBridge {
                 command: input.command,
                 commandParams: resolveForwardCommandParams(input.params, input.runId, retrySessionId, input.command),
                 cwd: input.cwd,
-                timeoutMs: retryTimeoutMs
+                timeoutMs: retryRelayTimeoutMs
             });
             try {
                 const response = await runWithTimeout(this.#transport.forward(retryRequest), retryTimeoutMs);

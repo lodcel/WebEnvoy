@@ -81,6 +81,67 @@ describe("native messaging bridge", () => {
     expect(bridge.currentSessionId()).toBe("nm-session-real-209");
   });
 
+  it("reserves native response time beyond the extension relay timeout", async () => {
+    let forwardedTimeoutMs: number | null = null;
+    const bridge = new NativeMessagingBridge({
+      now: () => 1_000,
+      transport: {
+        async open(request) {
+          return {
+            id: request.id,
+            status: "success",
+            summary: {
+              protocol: "webenvoy.native-bridge.v1",
+              session_id: "nm-session-timeout-margin-001",
+              state: "ready"
+            },
+            error: null
+          };
+        },
+        async heartbeat(request) {
+          return {
+            id: request.id,
+            status: "success",
+            summary: {
+              session_id: "nm-session-timeout-margin-001"
+            },
+            error: null
+          };
+        },
+        async forward(request) {
+          forwardedTimeoutMs = request.timeout_ms ?? null;
+          return {
+            id: request.id,
+            status: "success",
+            summary: {
+              session_id: "nm-session-timeout-margin-001",
+              run_id: String(request.params.run_id ?? request.id),
+              command: String(request.params.command ?? "xhs.creator_publish.controlled_live_write")
+            },
+            payload: {
+              summary: {}
+            },
+            error: null
+          };
+        }
+      }
+    });
+
+    await expect(
+      bridge.runCommand({
+        runId: "run-timeout-margin-001",
+        profile: "xhs_001",
+        cwd: "/tmp",
+        command: "xhs.creator_publish.controlled_live_write",
+        params: {
+          timeout_ms: 70_000
+        }
+      })
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(forwardedTimeoutMs).toBe(66_500);
+  });
+
   it("maps timeout to transport timeout error", async () => {
     const bridge = new NativeMessagingBridge({
       transport: createFakeNativeBridgeTransport({
