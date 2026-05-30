@@ -257,6 +257,86 @@ describe("native host bridge transport classification", () => {
     }
   });
 
+  it("keeps the profile socket open long enough to receive a delayed structured response", async () => {
+    const baseDir = await mkdtemp("/tmp/webenvoy-host-socket-delayed-response-");
+    const profile = "xhs_208_probe";
+    const profileDir = path.join(baseDir, ".webenvoy", "profiles", profile);
+    const socketPath = path.join(profileDir, PROFILE_NATIVE_BRIDGE_SOCKET_FILENAME);
+    const previousCwd = process.cwd();
+    await mkdir(profileDir, { recursive: true });
+
+    const server = createServer((socket) => {
+      let buffer = Buffer.alloc(0);
+      socket.on("data", (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (buffer.length < 4) {
+          return;
+        }
+        const frameLength = buffer.readUInt32LE(0);
+        const frameEnd = 4 + frameLength;
+        if (buffer.length < frameEnd) {
+          return;
+        }
+        const frame = buffer.subarray(4, frameEnd);
+        const request = JSON.parse(frame.toString("utf8")) as {
+          id: string;
+          method: string;
+          params: { command?: string; session_id?: string };
+        };
+        const payload = {
+          id: request.id,
+          status: "success",
+          summary: {
+            session_id: request.params.session_id ?? "nm-session-delayed",
+            run_id: "run-delayed-socket-001",
+            command: request.params.command ?? "runtime.ping",
+            relay_path: "host>background>content-script>background>host"
+          },
+          payload: {
+            message: "delayed-pong"
+          },
+          error: null
+        };
+        const body = Buffer.from(JSON.stringify(payload), "utf8");
+        const header = Buffer.alloc(4);
+        header.writeUInt32LE(body.length, 0);
+        setTimeout(() => {
+          socket.end(Buffer.concat([header, body]));
+        }, 1_150);
+      });
+    });
+
+    try {
+      await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+      process.chdir(baseDir);
+      const transport = new NativeHostBridgeTransport(`"${process.execPath}" "/tmp/does-not-exist.mjs"`);
+
+      await expect(
+        transport.forward(
+          createBridgeForwardRequest({
+            id: "forward-socket-delayed-response-001",
+            profile,
+            sessionId: "nm-session-delayed",
+            runId: "run-delayed-socket-001",
+            command: "runtime.ping",
+            commandParams: {},
+            cwd: baseDir,
+            timeoutMs: 1_100
+          })
+        )
+      ).resolves.toMatchObject({
+        status: "success",
+        payload: {
+          message: "delayed-pong"
+        }
+      });
+    } finally {
+      process.chdir(previousCwd);
+      server.close();
+      await rm(baseDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not reuse a previous profile socket when opening a different profile", async () => {
     const baseDir = await mkdtemp("/tmp/webenvoy-host-profile-switch-");
     const profileA = "xhs_profile_a";
