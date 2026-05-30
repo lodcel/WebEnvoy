@@ -572,6 +572,159 @@ describe("extension background relay / controlled live write", () => {
     }
   }, 8_000);
 
+  it("waits past the first visible preview until platform staging and completion are both observed", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    let previewQueryCount = 0;
+    class PreviewContainer {
+      id = "";
+      tagName = "DIV";
+      className = "upload-card";
+      classList = ["upload-card"];
+      parentElement = null;
+      get textContent() {
+        return previewQueryCount >= 3 ? "上传完成" : "上传中";
+      }
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "upload-card";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 64, height: 64 });
+    }
+    class PreviewElement {
+      id = "";
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      textContent = "";
+      parentElement = new PreviewContainer();
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return previewQueryCount >= 3
+            ? "https://sns-webpic-qc.xhscdn.com/20260530/fr0032-fixture.png"
+            : "blob:https://creator.xiaohongshu.com/fr0032-fixture";
+        }
+        if (name === "data-upload-id" && previewQueryCount >= 3) {
+          return "xhs-upload-fr0032-accepted";
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 32, height: 32 });
+    }
+    let uploadDispatched = false;
+    const fileInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        uploadDispatched = true;
+        return true;
+      }
+    };
+    const preview = new PreviewElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: PreviewElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector === 'input[type="file"]') {
+            return [fileInput];
+          }
+          if (!uploadDispatched) {
+            return [];
+          }
+          previewQueryCount += 1;
+          return [preview];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-delayed-upload-acceptance",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-898-delayed-upload-acceptance",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(previewQueryCount).toBeGreaterThanOrEqual(3);
+      expect(result.live_write_evaluation).toMatchObject({
+        decision: "NO_GO",
+        upload_success: true,
+        submit_success: false,
+        cleanup_required: true,
+        blockers: [
+          expect.objectContaining({
+            blocker_code: "SUBMIT_EXECUTOR_UNAVAILABLE",
+            blocker_layer: "submit"
+          })
+        ]
+      });
+      expect(result.live_write_evidence).toMatchObject({
+        execution_phase: "submit",
+        upload_artifact_identity: expect.objectContaining({
+          accepted_by_platform: true,
+          visible_in_editor: true,
+          platform_staging_ref: "data-upload-id:xhs-upload-fr0032-accepted",
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  }, 8_000);
+
   it("selects image publish mode before choosing an upload entry for the approved image fixture", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
