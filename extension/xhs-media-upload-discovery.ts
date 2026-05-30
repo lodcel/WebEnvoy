@@ -32,7 +32,27 @@ export type ControlledUploadArtifactIdentity = {
   accepted_by_platform: boolean;
   visible_in_editor: boolean;
   captured_at: string;
-  preview_diagnostics: Record<string, unknown> | null;
+  preview_diagnostics: EditorPreviewDiagnostics | null;
+};
+
+export type EditorPreviewAttributeDiagnostics = {
+  depth: number;
+  tag_name: string;
+  locator: string;
+  attribute_names: string[];
+  data_attribute_names: string[];
+  platform_ref_attribute_names: string[];
+  src_kind: "blob" | "data" | "remote" | "other" | null;
+  has_upload_completion_signal: boolean;
+  has_upload_pending_signal: boolean;
+  has_upload_failure_signal: boolean;
+};
+
+export type EditorPreviewDiagnostics = {
+  schema_version: "fr-0032.preview_dom_diagnostics.v1";
+  values_recorded: false;
+  recording_policy: "attribute_names_and_signal_flags_only";
+  preview_chain: EditorPreviewAttributeDiagnostics[];
 };
 
 export type ControlledUploadNonPublishEvidence = {

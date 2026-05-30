@@ -1,6 +1,8 @@
 import type { JsonRecord } from "./xhs-search-types.js";
 import type {
   ControlledUploadArtifactIdentity,
+  EditorPreviewAttributeDiagnostics,
+  EditorPreviewDiagnostics,
   MediaUploadDiscoveryResult
 } from "./xhs-media-upload-discovery.js";
 
@@ -488,7 +490,7 @@ type EditorPreviewEvidence = {
   locator: string;
   platformStagingRef: string | null;
   acceptedByPlatform: boolean;
-  diagnostics: JsonRecord;
+  diagnostics: EditorPreviewDiagnostics;
 };
 
 const uploadPlaceholderPattern = /upload[-_ ]?icon|upload[-_ ]?btn|placeholder|empty|add[-_ ]?(image|photo|media)|点击上传|上传图片|upload image|upload photo/iu;
@@ -575,7 +577,7 @@ const platformStagingRefForElement = (element: Element, maxDepth = 3): string | 
   return null;
 };
 
-const srcKindForElement = (element: Element): string | null => {
+const srcKindForElement = (element: Element): EditorPreviewAttributeDiagnostics["src_kind"] => {
   const src = getElementAttribute(element, "src") ?? getElementAttribute(element, "poster");
   if (!src) {
     return null;
@@ -610,7 +612,7 @@ const attributeNamesForElement = (element: Element): string[] => {
 const previewAttributeDiagnosticsForElement = (
   element: Element,
   depth: number
-): JsonRecord => {
+): EditorPreviewAttributeDiagnostics => {
   const attributeNames = attributeNamesForElement(element);
   return {
     depth,
@@ -628,8 +630,8 @@ const previewAttributeDiagnosticsForElement = (
   };
 };
 
-const previewDiagnosticsForElement = (element: Element, maxDepth = 3): JsonRecord => {
-  const chain: JsonRecord[] = [];
+const previewDiagnosticsForElement = (element: Element, maxDepth = 3): EditorPreviewDiagnostics => {
+  const chain: EditorPreviewAttributeDiagnostics[] = [];
   let current: Element | null = element;
   let depth = 0;
   while (current && depth <= maxDepth) {
