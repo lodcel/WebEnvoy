@@ -1,3 +1,6 @@
+const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value
+    : null;
 export class ExtensionContractError extends Error {
     code;
     details;
@@ -168,6 +171,9 @@ export const validateXhsCommandInputForExtension = (input) => {
         const sourceMediaRef = asNonEmptyString(input.payload.source_media_ref);
         const sourceMediaDigest = asNonEmptyString(input.payload.source_media_digest);
         const sourceMediaKind = asNonEmptyString(input.payload.source_media_kind);
+        const acceptedUploadArtifactIdentity = input.payload.accepted_upload_artifact_identity === undefined
+            ? undefined
+            : asRecord(input.payload.accepted_upload_artifact_identity);
         if (input.abilityId !== "xhs.creator.publish.v1" ||
             input.abilityAction !== "write" ||
             input.options.issue_scope !== XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE ||
@@ -183,7 +189,9 @@ export const validateXhsCommandInputForExtension = (input) => {
             !sourceMediaDigest ||
             !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest) ||
             !sourceMediaKind ||
-            !SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
+            !SOURCE_MEDIA_KINDS.has(sourceMediaKind) ||
+            (input.payload.accepted_upload_artifact_identity !== undefined &&
+                !acceptedUploadArtifactIdentity)) {
             throw invalidAbilityInput("ACTION_REQUEST_INVALID", input.abilityId);
         }
         return {
@@ -191,7 +199,12 @@ export const validateXhsCommandInputForExtension = (input) => {
             live_write_attempt_id: liveWriteAttemptId,
             source_media_ref: sourceMediaRef,
             source_media_digest: sourceMediaDigest,
-            source_media_kind: sourceMediaKind
+            source_media_kind: sourceMediaKind,
+            ...(acceptedUploadArtifactIdentity
+                ? {
+                    accepted_upload_artifact_identity: JSON.parse(JSON.stringify(acceptedUploadArtifactIdentity))
+                }
+                : {})
         };
     }
     if (input.command === "xhs.detail") {

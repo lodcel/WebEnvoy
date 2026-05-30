@@ -2737,6 +2737,7 @@ export class ContentScriptHandler {
                 source_media_ref: string;
                 source_media_digest: string;
                 source_media_kind: "image" | "video" | "mixed";
+                accepted_upload_artifact_identity?: Record<string, unknown> | null;
               }
             : null;
         result = await maybeWithContentCommandDeadline(
@@ -2759,7 +2760,13 @@ export class ContentScriptHandler {
                       live_write_attempt_id: controlledLiveWriteInput.live_write_attempt_id,
                       source_media_ref: controlledLiveWriteInput.source_media_ref,
                       source_media_digest: controlledLiveWriteInput.source_media_digest,
-                      source_media_kind: controlledLiveWriteInput.source_media_kind
+                      source_media_kind: controlledLiveWriteInput.source_media_kind,
+                      ...(controlledLiveWriteInput.accepted_upload_artifact_identity
+                        ? {
+                            accepted_upload_artifact_identity:
+                              controlledLiveWriteInput.accepted_upload_artifact_identity
+                          }
+                        : {})
                     }
                   : {}),
                 ...(mediaUploadInput?.source_media_ref
