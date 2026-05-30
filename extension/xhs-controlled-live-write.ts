@@ -82,6 +82,11 @@ const asPlainRecord = (value: unknown): Record<string, unknown> | null =>
     : null;
 
 const xhsControlledUploadCaptureDefaultMaxBodyBytes = 256_000;
+const xhsControlledUploadSignalPattern =
+  /(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu;
+
+const isXhsControlledObjectUploadTransportHost = (host: string): boolean =>
+  /^ros-upload(?:-[a-z0-9]+)?\.(?:xiaohongshu\.com|xhscdn\.com)$/iu.test(host);
 
 const xhsControlledUploadPlatformEndpointAllowlist = [
   {
@@ -115,6 +120,40 @@ export const isXhsControlledUploadPlatformCaptureUrl = (
     );
   } catch {
     return false;
+  }
+};
+
+export const summarizeXhsControlledUploadObservedRequest = (
+  url: string,
+  method: string
+): JsonRecord | null => {
+  if (!/^(POST|PUT|PATCH)$/iu.test(method)) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    const isKnownHost =
+      parsed.hostname.endsWith("xiaohongshu.com") || parsed.hostname.endsWith("xhscdn.com");
+    const objectUploadTransport = isXhsControlledObjectUploadTransportHost(parsed.hostname);
+    const uploadLikeHost = parsed.hostname.includes("upload");
+    const uploadLikePath = xhsControlledUploadSignalPattern.test(parsed.pathname);
+    if (!isKnownHost || (!objectUploadTransport && !uploadLikeHost && !uploadLikePath)) {
+      return null;
+    }
+    const captureCandidate = isXhsControlledUploadPlatformCaptureUrl(url, method);
+    return {
+      method,
+      host: parsed.hostname,
+      path: parsed.pathname,
+      capture_candidate: captureCandidate,
+      rejection_reason: captureCandidate
+        ? null
+        : objectUploadTransport
+          ? "object_upload_transport_not_platform_acceptance"
+          : "url_not_allowlisted"
+    };
+  } catch {
+    return null;
   }
 };
 

@@ -62,6 +62,7 @@ import {
   decodeXhsControlledUploadNetworkResponseBody,
   extractXhsControlledUploadPlatformCapture,
   isXhsControlledUploadPlatformCaptureUrl,
+  summarizeXhsControlledUploadObservedRequest,
   type XhsControlledLiveWriteResult,
   type XhsControlledUploadPlatformCapture,
   type XhsControlledUploadPlatformCaptureStatus
@@ -7512,43 +7513,8 @@ class ChromeBackgroundBridge {
       observedIndex: number | null;
     };
     const pending = new Map<string, PendingRequest>();
+    const observedRequestIndexes = new Map<string, number>();
     const observedRequests: Record<string, unknown>[] = [];
-    const uploadSignalPattern = /(?:^|[/_.-])(?:upload|media|material|asset|image|file|oss|pic|photo)(?:$|[/_.-])/iu;
-    const summarizeUploadLikeRequest = (
-      url: string,
-      method: string
-    ): { summary: Record<string, unknown>; captureCandidate: boolean } | null => {
-      if (!/^(POST|PUT|PATCH)$/iu.test(method)) {
-        return null;
-      }
-      try {
-        const parsed = new URL(url);
-        const uploadLikeHost = parsed.hostname.includes("upload");
-        const uploadLikePath = uploadSignalPattern.test(parsed.pathname);
-        if (
-          !(
-            parsed.hostname.endsWith("xiaohongshu.com") ||
-            parsed.hostname.endsWith("xhscdn.com")
-          ) ||
-          (!uploadLikeHost && !uploadLikePath)
-        ) {
-          return null;
-        }
-        const captureCandidate = isXhsControlledUploadPlatformCaptureUrl(url, method);
-        return {
-          captureCandidate,
-          summary: {
-            method,
-            host: parsed.hostname,
-            path: parsed.pathname,
-            capture_candidate: captureCandidate,
-            rejection_reason: captureCandidate ? null : "url_not_allowlisted"
-          }
-        };
-      } catch {
-        return null;
-      }
-    };
     const summarizeResponseBody = (value: unknown): Record<string, unknown> => {
       if (Array.isArray(value)) {
         return {
@@ -7605,8 +7571,14 @@ class ChromeBackgroundBridge {
           const request = asRecord(params.request);
           const url = asNonEmptyString(request?.url);
           const requestMethod = asNonEmptyString(request?.method);
-          const observed = url && requestMethod ? summarizeUploadLikeRequest(url, requestMethod) : null;
-          const observedIndex = observed ? observedRequests.push(observed.summary) - 1 : null;
+          const observed =
+            url && requestMethod
+              ? summarizeXhsControlledUploadObservedRequest(url, requestMethod)
+              : null;
+          const observedIndex = observed ? observedRequests.push(observed) - 1 : null;
+          if (observedIndex !== null) {
+            observedRequestIndexes.set(requestId, observedIndex);
+          }
           if (
             !url ||
             !requestMethod ||
@@ -7625,10 +7597,17 @@ class ChromeBackgroundBridge {
         }
         if (method === "Network.responseReceived") {
           const entry = pending.get(requestId);
+          const response = asRecord(params.response);
+          const observedIndex = observedRequestIndexes.get(requestId);
+          if (observedIndex !== undefined) {
+            observedRequests[observedIndex] = {
+              ...observedRequests[observedIndex],
+              status: typeof response?.status === "number" ? response.status : null
+            };
+          }
           if (!entry) {
             return;
           }
-          const response = asRecord(params.response);
           entry.status = typeof response?.status === "number" ? response.status : null;
           if (entry.observedIndex !== null) {
             observedRequests[entry.observedIndex] = {

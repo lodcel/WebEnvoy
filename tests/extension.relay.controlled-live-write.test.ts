@@ -14,7 +14,8 @@ import {
   decodeXhsControlledUploadNetworkResponseBody,
   extractXhsControlledUploadPlatformCapture,
   isXhsControlledUploadPlatformCaptureUrl,
-  performXhsControlledLiveWriteWithApprovedSourceMedia
+  performXhsControlledLiveWriteWithApprovedSourceMedia,
+  summarizeXhsControlledUploadObservedRequest
 } from "../extension/xhs-controlled-live-write.js";
 import { buildXhsMediaUploadDiscoveryResult } from "../extension/xhs-media-upload-discovery.js";
 
@@ -425,6 +426,42 @@ it("uses an explicit host/path/method allowlist before upload response body capt
       "PUT"
     )
   ).toBe(false);
+});
+
+it("classifies ros-upload object transports as diagnostics, not platform acceptance candidates", () => {
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://ros-upload.xiaohongshu.com/spectrum/Yrtpg81qA4U9bTfi4jcmtQPKo2Kh8nQAU7M62npADlDeyCw",
+      "PUT"
+    )
+  ).toMatchObject({
+    method: "PUT",
+    host: "ros-upload.xiaohongshu.com",
+    path: "/spectrum/Yrtpg81qA4U9bTfi4jcmtQPKo2Kh8nQAU7M62npADlDeyCw",
+    capture_candidate: false,
+    rejection_reason: "object_upload_transport_not_platform_acceptance"
+  });
+
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://ros-upload-d4.xhscdn.com/spectrum/XbAJSnnddgqFkj8Nst9wiMCtHGGO9a3Rp4vxdqzli0PBySQ",
+      "POST"
+    )
+  ).toMatchObject({
+    host: "ros-upload-d4.xhscdn.com",
+    capture_candidate: false,
+    rejection_reason: "object_upload_transport_not_platform_acceptance"
+  });
+
+  expect(
+    summarizeXhsControlledUploadObservedRequest(
+      "https://upload.xiaohongshu.com/api/media/upload",
+      "POST"
+    )
+  ).toMatchObject({
+    capture_candidate: true,
+    rejection_reason: null
+  });
 });
 
 it("decodes bounded upload network bodies consistently with explicit string fallback", () => {
