@@ -351,7 +351,7 @@ const resolveRuntimeBuildMetadataHeadForCwd = (cwd: string): string | null => {
 const asPositiveInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 
-const XHS_CONTROLLED_LIVE_WRITE_DEFAULT_TIMEOUT_MS = 120_000;
+const XHS_CONTROLLED_LIVE_WRITE_DEFAULT_TIMEOUT_MS = 240_000;
 
 export const resolveForwardTimeoutMsForContract = (params: JsonObject): number | null => {
   const explicitTimeoutMs = asPositiveInteger(params.timeout_ms);
@@ -3475,6 +3475,7 @@ const xhsReadCommand = async (
     const fingerprintContext = buildFingerprintContextForMeta(context.profile ?? "unknown", profileMeta, {
       requestedExecutionMode: gate.requestedExecutionMode
     });
+    const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
     let officialChromeRuntimeStatus: JsonObject | null = null;
     if (liveXhsCommandRequested || recoveryProbeRequested || reconXhsCommandRequested) {
       officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(
@@ -3490,7 +3491,8 @@ const xhsReadCommand = async (
       );
     }
     const bridgeSessionId = await bridge.ensureSession({
-      profile: context.profile
+      profile: context.profile,
+      ...(forwardTimeoutMs ? { timeoutMs: forwardTimeoutMs } : {})
     });
     if (context.profile && recoveryProbeRequested) {
       await profileRuntime.claimXhsCloseoutSingleProbe({
@@ -3518,7 +3520,6 @@ const xhsReadCommand = async (
           issueScope: explicitIssueScope
         })
       : null;
-    const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
     const runtimeGateOptions = {
       ...injectActiveApiFetchFallbackRuntimeAttestation({
         options: preparedGateOptions,

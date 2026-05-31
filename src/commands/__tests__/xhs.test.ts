@@ -4836,7 +4836,7 @@ describe("normalizeGateOptionsForContract", () => {
           {},
           "xhs.creator_publish.controlled_live_write"
         )
-      ).toBe(120_000);
+      ).toBe(240_000);
     });
 
     it("keeps explicit timeout_ms for controlled live write when provided", () => {

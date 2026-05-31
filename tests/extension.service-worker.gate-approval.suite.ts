@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { resolveXhsControlledLiveWriteContinuationTimeoutMsForContract } from "../extension/background.js";
 import { createMockPort, createEditorInputProbeResult, createChromeApi, respondHandshake, waitForBridgeTurn, waitForPostedMessage, primeTrustedFingerprintContext, promoteBootstrapReadinessThroughPing, createXhsCommandParams, createRequestBoundXhsCommandParams, createXhsEditorInputCommandParams, createApprovedReadApprovalRecord, createApprovedReadAuditRecordForRequest, createApprovedReadAdmissionContext, createFingerprintRuntimeContext, asRecord, resolveWriteInteractionTier, startChromeBackgroundBridge } from "./extension.service-worker.shared.js";
 
 const createRestoreSafetyGate = (
@@ -72,6 +73,13 @@ const createManagedTabBindingGate = (
   action_ref: input.actionRef ?? runId,
   active_fetch_performed: false,
   closeout_bundle_entered: false
+});
+
+it("keeps controlled live write continuation inside the original native socket deadline", () => {
+  expect(resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(240_000, 65_000)).toBe(
+    175_000
+  );
+  expect(resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(240_000, 241_000)).toBe(1);
 });
 
 const primeManagedXhsBootstrap = async (
