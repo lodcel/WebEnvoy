@@ -542,6 +542,181 @@ it("opens visibility selector before choosing the private publish option", async
   }
 });
 
+it("opens public visibility value from an explicit visibility setting row", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalWindow = globalThis.window;
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList = [] as string[];
+    textContent = "";
+    clicked = false;
+    parentElement: TestElement | null = null;
+    children: TestElement[] = [];
+    queryCount = 0;
+    getAttribute = (name: string) => {
+      if (name === "class") {
+        return this.className;
+      }
+      if (name === "role" && this.className === "plain-current-value") {
+        return "button";
+      }
+      return null;
+    };
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+    querySelectorAll = () => {
+      this.queryCount += 1;
+      return this.children;
+    };
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const settingRow = new TestElement();
+  settingRow.className = "publish-form-row";
+  const visibilityLabel = new TestElement();
+  visibilityLabel.className = "form-label";
+  visibilityLabel.textContent = "可见范围";
+  const visibilityTrigger = new TestElement();
+  visibilityTrigger.className = "plain-current-value";
+  visibilityTrigger.textContent = "公开";
+  let privateOptionVisible = false;
+  let privateOptionQueriedBeforeTrigger = false;
+  const clickOrder: string[] = [];
+  visibilityTrigger.click = () => {
+    visibilityTrigger.clicked = true;
+    clickOrder.push("trigger");
+    privateOptionVisible = true;
+  };
+  const privateOption = new TestElement();
+  privateOption.className = "visibility-option";
+  privateOption.classList = ["visibility-option"];
+  privateOption.textContent = "仅自己可见";
+  privateOption.click = () => {
+    privateOption.clicked = true;
+    clickOrder.push("private-option");
+  };
+  const submit = new TestElement();
+  submit.tagName = "BUTTON";
+  submit.className = "publish-submit";
+  submit.classList = ["publish-submit"];
+  submit.textContent = "发布";
+  const documentElement = new TestElement();
+  documentElement.tagName = "HTML";
+  documentElement.textContent = "发布成功";
+  const locationState = {
+    href: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
+  };
+  submit.click = () => {
+    submit.clicked = true;
+    clickOrder.push("submit");
+    locationState.href = "https://creator.xiaohongshu.com/publish/success/64b7d8ef000000001f03abce";
+  };
+  visibilityLabel.parentElement = settingRow;
+  visibilityTrigger.parentElement = settingRow;
+  settingRow.children = [visibilityLabel, visibilityTrigger];
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: locationState }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement,
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("span,p")) {
+          return [visibilityLabel];
+        }
+        if (
+          (selector.includes("visibility") || selector.includes("privacy") || selector.includes("permission"))
+        ) {
+          if (!visibilityTrigger.clicked) {
+            privateOptionQueriedBeforeTrigger = true;
+            return [];
+          }
+          return privateOptionVisible ? [privateOption] : [];
+        }
+        if (selector.includes("label") || selector.includes("setting") || selector.includes("scope")) {
+          return [visibilityLabel];
+        }
+        if (selector.includes("button")) {
+          return [submit];
+        }
+        return [];
+      }
+    }
+  });
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-explicit-visibility-row",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-929-explicit-visibility-row",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/explicit-visibility-row",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/explicit-visibility-row",
+        page_preview_locator: "img.preview-image",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-05-30T20:16:08.000Z"
+      }
+    });
+
+    expect(settingRow.queryCount).toBeGreaterThan(0);
+    expect(privateOptionQueriedBeforeTrigger).toBe(true);
+    expect(visibilityTrigger.clicked).toBe(true);
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(clickOrder).toEqual(["trigger", "private-option", "submit"]);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "GO",
+      full_live_write_success: true,
+      submit_success: true,
+      publish_success: true
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
 it("does not use non-actionable publish text containers as submit controls", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;

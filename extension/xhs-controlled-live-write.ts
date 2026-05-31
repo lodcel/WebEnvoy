@@ -1484,6 +1484,7 @@ const visibilityTriggerPattern =
   /可见范围|谁可以看|谁能看|观看权限|权限设置|发布权限|visibility|privacy|permission/iu;
 const visibilityStructuralPattern =
   /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience/iu;
+const visibilityTriggerActionPattern = /button|combobox|listbox|radio|menuitemradio|option|select|dropdown/iu;
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
 const nonSubmitPublishPattern = /草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule/iu;
 const publishSuccessPattern = /发布成功|发布完成|已发布|提交成功|publish(ed)?\s*(success|complete)|success/iu;
@@ -1661,6 +1662,76 @@ const visibilityStructuralSignal = (element: Element): string =>
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join(" ");
 
+const visibilityContextSelector = [
+  "label",
+  "div",
+  "span",
+  "p",
+  '[class*="label" i]',
+  '[class*="title" i]',
+  '[class*="setting" i]',
+  '[class*="scope" i]',
+  '[class*="range" i]',
+  '[class*="permission" i]'
+].join(",");
+
+const visibilityContextContainer = (element: HTMLElement): HTMLElement | null => {
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    const currentText = textContentOf(current);
+    if (publicVisibilityPattern.test(currentText) || privateVisibilityPattern.test(currentText)) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return element.parentElement;
+};
+
+const visibilityContextTriggerSelector = [
+  "button",
+  '[role="button"]',
+  '[role="combobox"]',
+  '[role="listbox"]',
+  '[role="radio"]',
+  '[role="menuitemradio"]',
+  '[role="option"]',
+  "label",
+  "div",
+  "span",
+  '[class*="select" i]',
+  '[class*="dropdown" i]',
+  '[class*="radio" i]',
+  '[class*="option" i]'
+].join(",");
+
+const findVisibilityTriggerFromExplicitContext = (): HTMLElement | null => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return null;
+  }
+  const context = Array.from(document.querySelectorAll<HTMLElement>(visibilityContextSelector)).find((element) => {
+    const signal = elementTextSignal(element);
+    return isVisibleElement(element) && visibilityTriggerPattern.test(signal);
+  });
+  const container = context ? visibilityContextContainer(context) : null;
+  if (!container || typeof container.querySelectorAll !== "function") {
+    return null;
+  }
+  const candidates = Array.from(container.querySelectorAll<HTMLElement>(visibilityContextTriggerSelector));
+  return (
+    candidates.find((element) => {
+      const signal = elementTextSignal(element);
+      return (
+        element !== context &&
+        isVisibleElement(element) &&
+        !isDisabledElement(element) &&
+        publicVisibilityPattern.test(signal) &&
+        !privateVisibilityPattern.test(signal) &&
+        !nonSubmitPublishPattern.test(signal)
+      );
+    }) ?? null
+  );
+};
+
 const findVisibilityTrigger = (): HTMLElement | null => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return null;
@@ -1670,15 +1741,22 @@ const findVisibilityTrigger = (): HTMLElement | null => {
       const textSignal = elementTextSignal(element);
       const structuralSignal = visibilityStructuralSignal(element);
       const explicitContext = visibilityTriggerPattern.test(textSignal);
+      const explicitActionableContext =
+        explicitContext &&
+        visibilityTriggerActionPattern.test(
+          `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""} ${structuralSignal}`
+        );
       const publicDefaultWithVisibilityStructure =
         publicVisibilityPattern.test(textSignal) && visibilityStructuralPattern.test(structuralSignal);
       return (
         isVisibleElement(element) &&
         !isDisabledElement(element) &&
-        (explicitContext || publicDefaultWithVisibilityStructure) &&
+        (explicitActionableContext || publicDefaultWithVisibilityStructure) &&
         !nonSubmitPublishPattern.test(textContentOf(element))
       );
-    }) ?? null
+    }) ??
+    findVisibilityTriggerFromExplicitContext() ??
+    null
   );
 };
 
