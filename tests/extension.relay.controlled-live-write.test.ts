@@ -49,6 +49,12 @@ it("lets controlled live write keep a long content deadline before native timeou
       requested_execution_mode: "live_write"
     })
   ).toBe(109_000);
+  expect(
+    resolveContentCommandDeadlineMsForContract(234_000, {
+      controlled_live_write: true,
+      requested_execution_mode: "live_write"
+    })
+  ).toBe(229_000);
   expect(resolveContentCommandDeadlineMsForContract(114_000, {})).toBe(20_000);
 });
 

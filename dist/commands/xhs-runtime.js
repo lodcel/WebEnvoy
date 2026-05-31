@@ -237,7 +237,7 @@ const resolveRuntimeBuildMetadataHeadForCwd = (cwd) => {
     }
 };
 const asPositiveInteger = (value) => typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
-const XHS_CONTROLLED_LIVE_WRITE_DEFAULT_TIMEOUT_MS = 120_000;
+const XHS_CONTROLLED_LIVE_WRITE_DEFAULT_TIMEOUT_MS = 240_000;
 export const resolveForwardTimeoutMsForContract = (params) => {
     const explicitTimeoutMs = asPositiveInteger(params.timeout_ms);
     if (explicitTimeoutMs !== null) {
@@ -2621,6 +2621,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         const fingerprintContext = buildFingerprintContextForMeta(context.profile ?? "unknown", profileMeta, {
             requestedExecutionMode: gate.requestedExecutionMode
         });
+        const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
         let officialChromeRuntimeStatus = null;
         if (liveXhsCommandRequested || recoveryProbeRequested || reconXhsCommandRequested) {
             officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(context, envelope.ability, gate.requestedExecutionMode, bridge, fingerprintContext, {
@@ -2629,7 +2630,8 @@ const xhsReadCommand = async (context, inputConfig) => {
             });
         }
         const bridgeSessionId = await bridge.ensureSession({
-            profile: context.profile
+            profile: context.profile,
+            ...(forwardTimeoutMs ? { timeoutMs: forwardTimeoutMs } : {})
         });
         if (context.profile && recoveryProbeRequested) {
             await profileRuntime.claimXhsCloseoutSingleProbe({
@@ -2653,7 +2655,6 @@ const xhsReadCommand = async (context, inputConfig) => {
                 issueScope: explicitIssueScope
             })
             : null;
-        const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
         const runtimeGateOptions = {
             ...injectActiveApiFetchFallbackRuntimeAttestation({
                 options: preparedGateOptions,

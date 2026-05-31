@@ -1780,7 +1780,7 @@ const resolveContentCommandDeadlineMs = (
     options.requested_execution_mode === "live_write";
   const nativeSafetyWindowMs = Math.max(1, normalizedMessageTimeout - 5_000);
   const maxCommandDeadlineMs = controlledLiveWriteRequested
-    ? Math.max(55_000, Math.min(110_000, nativeSafetyWindowMs))
+    ? Math.max(55_000, Math.min(230_000, nativeSafetyWindowMs))
     : closeoutCaptureRequested
       ? Math.max(20_000, Math.min(55_000, nativeSafetyWindowMs))
       : 20_000;

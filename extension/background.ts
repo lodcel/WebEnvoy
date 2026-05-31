@@ -144,6 +144,10 @@ const reserveXhsForwardResponseSafetyMs = (timeoutMs: number): number =>
   timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
     : timeoutMs;
+export const resolveXhsControlledLiveWriteContinuationTimeoutMsForContract = (
+  absoluteRequestDeadlineMs: number,
+  nowMs: number
+): number => Math.max(1, Math.floor(absoluteRequestDeadlineMs - nowMs));
 const reserveXhsPassiveCaptureResponseSafetyMs = (timeoutMs: number): number => {
   if (timeoutMs <= 1) {
     return 1;
@@ -6903,6 +6907,7 @@ class ChromeBackgroundBridge {
     this.#pendingState.register(dispatchRequest.id, {
       request: dispatchRequest,
       timeout,
+      requestDeadlineMs,
       consumerGateResult,
       gatePayload,
       suppressHostResponse
@@ -9169,6 +9174,7 @@ class ChromeBackgroundBridge {
   async #dispatchXhsControlledLiveWriteContinuation(input: {
     pendingRequest: BridgeRequest;
     forwardId: string;
+    requestDeadlineMs: number;
     parentPending: {
       consumerGateResult?: Record<string, unknown> | null;
       gatePayload?: Record<string, unknown> | null;
@@ -9180,7 +9186,10 @@ class ChromeBackgroundBridge {
     const continuationKey =
       this.#controlledLiveWriteContinuationKeysByForwardId.get(input.forwardId) ??
       buildBackgroundUploadCaptureContinuationKey(input.pendingRequest, input.targetTabId);
-    const timeoutMs = this.#resolveForwardTimeoutMs(input.pendingRequest);
+    const timeoutMs = resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(
+      input.requestDeadlineMs,
+      Date.now()
+    );
     const pendingTimeoutMs = reserveXhsForwardResponseSafetyMs(timeoutMs);
     const timeout = setTimeout(() => {
       const pending = this.#pendingState.take(input.forwardId);
@@ -9215,6 +9224,7 @@ class ChromeBackgroundBridge {
     this.#pendingState.register(input.forwardId, {
       request: input.pendingRequest,
       timeout,
+      requestDeadlineMs: input.requestDeadlineMs,
       ...(input.parentPending.consumerGateResult
         ? { consumerGateResult: input.parentPending.consumerGateResult }
         : {}),
@@ -9445,6 +9455,9 @@ class ChromeBackgroundBridge {
       if (continuationDispatch && continuationTabId !== null) {
         await this.#dispatchXhsControlledLiveWriteContinuation({
           ...continuationDispatch,
+          requestDeadlineMs:
+            pending.requestDeadlineMs ??
+            Date.now() + this.#resolveForwardTimeoutMs(continuationDispatch.pendingRequest),
           parentPending: pending,
           targetTabId: continuationTabId
         });

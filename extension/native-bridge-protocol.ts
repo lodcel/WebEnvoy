@@ -31,6 +31,7 @@ export type PendingForward<
 > = {
   request: NativeBridgeRequest;
   timeout: ReturnType<typeof setTimeout>;
+  requestDeadlineMs?: number;
   consumerGateResult?: TConsumerGateResult;
   gatePayload?: TGatePayload;
   suppressHostResponse?: boolean;
