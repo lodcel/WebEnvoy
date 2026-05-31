@@ -76,10 +76,21 @@ const createManagedTabBindingGate = (
 });
 
 it("keeps controlled live write continuation inside the original native socket deadline", () => {
-  expect(resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(240_000, 65_000)).toBe(
-    175_000
-  );
-  expect(resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(240_000, 241_000)).toBe(1);
+  const requestStartedAtMs = 1_780_000_000_000;
+  const absoluteRequestDeadlineMs = requestStartedAtMs + 240_000;
+
+  expect(
+    resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(
+      absoluteRequestDeadlineMs,
+      requestStartedAtMs + 65_000
+    )
+  ).toBe(175_000);
+  expect(
+    resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(
+      absoluteRequestDeadlineMs,
+      requestStartedAtMs + 241_000
+    )
+  ).toBe(1);
 });
 
 const primeManagedXhsBootstrap = async (

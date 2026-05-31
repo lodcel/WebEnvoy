@@ -52,7 +52,7 @@ const xhsSearchInputSelectors = [
 const reserveXhsForwardResponseSafetyMs = (timeoutMs) => timeoutMs > xhsForwardResponseSafetyMs
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
     : timeoutMs;
-export const resolveXhsControlledLiveWriteContinuationTimeoutMsForContract = (requestDeadlineMs, nowMs) => Math.max(1, Math.floor(requestDeadlineMs - nowMs));
+export const resolveXhsControlledLiveWriteContinuationTimeoutMsForContract = (absoluteRequestDeadlineMs, nowMs) => Math.max(1, Math.floor(absoluteRequestDeadlineMs - nowMs));
 const reserveXhsPassiveCaptureResponseSafetyMs = (timeoutMs) => {
     if (timeoutMs <= 1) {
         return 1;
