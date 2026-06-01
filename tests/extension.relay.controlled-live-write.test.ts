@@ -723,6 +723,164 @@ it("opens public visibility value from an explicit visibility setting row", asyn
   }
 });
 
+it("selects a private option rendered as a plain dropdown item after opening visibility", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalWindow = globalThis.window;
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList = [] as string[];
+    textContent = "";
+    clicked = false;
+    parentElement: TestElement | null = null;
+    children: TestElement[] = [];
+    getAttribute = (name: string) => {
+      if (name === "class") {
+        return this.className;
+      }
+      return null;
+    };
+    getBoundingClientRect = () => ({ width: 128, height: 32 });
+    querySelectorAll = () => this.children;
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const settingRow = new TestElement();
+  settingRow.className = "publish-setting-row";
+  const visibilityLabel = new TestElement();
+  visibilityLabel.className = "label";
+  visibilityLabel.textContent = "可见权限";
+  const visibilityTrigger = new TestElement();
+  visibilityTrigger.className = "current-value";
+  visibilityTrigger.textContent = "公开可见";
+  let privateOptionVisible = false;
+  const clickOrder: string[] = [];
+  visibilityTrigger.click = () => {
+    visibilityTrigger.clicked = true;
+    privateOptionVisible = true;
+    clickOrder.push("trigger");
+  };
+  const privateOption = new TestElement();
+  privateOption.tagName = "LI";
+  privateOption.className = "reds-dropdown-item";
+  privateOption.classList = ["reds-dropdown-item"];
+  privateOption.textContent = "仅自己可见";
+  privateOption.click = () => {
+    privateOption.clicked = true;
+    clickOrder.push("private-option");
+  };
+  const submit = new TestElement();
+  submit.tagName = "BUTTON";
+  submit.textContent = "发布";
+  const documentElement = new TestElement();
+  documentElement.tagName = "HTML";
+  documentElement.textContent = "发布成功";
+  const locationState = {
+    href: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
+  };
+  submit.click = () => {
+    submit.clicked = true;
+    clickOrder.push("submit");
+    locationState.href = "https://creator.xiaohongshu.com/publish/success/64b7d8ef000000001f03abce";
+  };
+  visibilityLabel.parentElement = settingRow;
+  visibilityTrigger.parentElement = settingRow;
+  settingRow.children = [visibilityLabel, visibilityTrigger];
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: locationState }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement,
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("label") || selector.includes("permission") || selector.includes("visibility")) {
+          return [visibilityLabel];
+        }
+        if (selector.includes("value") || selector.includes("current")) {
+          return [visibilityTrigger];
+        }
+        if (selector.includes("dropdown") || selector.includes("item") || selector.includes(" li")) {
+          return privateOptionVisible ? [privateOption] : [];
+        }
+        if (selector.includes("button")) {
+          return [submit];
+        }
+        return [];
+      }
+    }
+  });
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-plain-dropdown-private-option",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-929-plain-dropdown-private-option",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/plain-dropdown-private-option",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/plain-dropdown-private-option",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-01T00:00:00.000Z"
+      }
+    });
+
+    expect(visibilityTrigger.clicked).toBe(true);
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(clickOrder).toEqual(["trigger", "private-option", "submit"]);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "GO",
+      full_live_write_success: true,
+      submit_success: true,
+      publish_success: true
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
 it("does not use non-actionable publish text containers as submit controls", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
