@@ -1483,7 +1483,7 @@ const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
 const visibilityTriggerPattern =
   /可见范围|可见权限|可见用户|谁可以看|谁能看|观看权限|查看权限|浏览权限|权限设置|发布权限|内容权限|笔记权限|visibility|privacy|permission/iu;
 const visibilityStructuralPattern =
-  /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience/iu;
+  /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience|current|value|trigger|selector|reds-select|d-select|el-select|semi-select|ant-select/iu;
 const visibilityTriggerActionPattern = /button|combobox|listbox|radio|menuitemradio|option|select|dropdown/iu;
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
 const nonSubmitPublishPattern = /草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule/iu;
@@ -1743,6 +1743,35 @@ const visibilityContextTriggerSelector = [
   '[class*="current" i]'
 ].join(",");
 
+const isVisibilityClickTarget = (element: HTMLElement): boolean => {
+  const actionSignal = `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""}`;
+  const structuralSignal = visibilityStructuralSignal(element);
+  return (
+    isVisibleElement(element) &&
+    !isDisabledElement(element) &&
+    !nonSubmitPublishPattern.test(textContentOf(element)) &&
+    (visibilityTriggerActionPattern.test(actionSignal) ||
+      visibilityStructuralPattern.test(structuralSignal))
+  );
+};
+
+const resolveVisibilityClickTarget = (
+  element: HTMLElement,
+  boundary: HTMLElement | null = null
+): HTMLElement => {
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    if (isVisibilityClickTarget(current)) {
+      return current;
+    }
+    if (current === boundary) {
+      break;
+    }
+    current = current.parentElement;
+  }
+  return element;
+};
+
 const findVisibilityTriggerFromExplicitContext = (): HTMLElement | null => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return null;
@@ -1757,17 +1786,19 @@ const findVisibilityTriggerFromExplicitContext = (): HTMLElement | null => {
   }
   const candidates = Array.from(container.querySelectorAll<HTMLElement>(visibilityContextTriggerSelector));
   return (
-    candidates.find((element) => {
-      const signal = elementTextSignal(element);
-      return (
-        element !== context &&
-        isVisibleElement(element) &&
-        !isDisabledElement(element) &&
-        publicVisibilityPattern.test(signal) &&
-        !privateVisibilityPattern.test(signal) &&
-        !nonSubmitPublishPattern.test(signal)
-      );
-    }) ?? null
+    candidates
+      .map((element) => {
+        const signal = elementTextSignal(element);
+        const matches =
+          element !== context &&
+          isVisibleElement(element) &&
+          !isDisabledElement(element) &&
+          publicVisibilityPattern.test(signal) &&
+          !privateVisibilityPattern.test(signal) &&
+          !nonSubmitPublishPattern.test(signal);
+        return matches ? resolveVisibilityClickTarget(element, container) : null;
+      })
+      .find((element): element is HTMLElement => element !== null) ?? null
   );
 };
 
@@ -1777,23 +1808,31 @@ const findVisibilityTrigger = (): HTMLElement | null => {
   }
   return (
     Array.from(document.querySelectorAll<HTMLElement>(visibilityControlSelector)).find((element) => {
-      const textSignal = elementTextSignal(element);
-      const structuralSignal = visibilityStructuralSignal(element);
-      const explicitContext = visibilityTriggerPattern.test(textSignal);
-      const explicitActionableContext =
-        explicitContext &&
-        visibilityTriggerActionPattern.test(
-          `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""} ${structuralSignal}`
-        );
-      const publicDefaultWithVisibilityStructure =
-        publicVisibilityPattern.test(textSignal) && visibilityStructuralPattern.test(structuralSignal);
+      const signal = elementTextSignal(element);
       return (
         isVisibleElement(element) &&
         !isDisabledElement(element) &&
-        (explicitActionableContext || publicDefaultWithVisibilityStructure) &&
+        visibilityTriggerPattern.test(signal) &&
+        visibilityTriggerActionPattern.test(
+          `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""} ${visibilityStructuralSignal(element)}`
+        ) &&
         !nonSubmitPublishPattern.test(textContentOf(element))
       );
     }) ??
+    Array.from(document.querySelectorAll<HTMLElement>(visibilityControlSelector))
+      .map((element) => {
+        const textSignal = elementTextSignal(element);
+        const structuralSignal = visibilityStructuralSignal(element);
+        const publicDefaultWithVisibilityStructure =
+          publicVisibilityPattern.test(textSignal) && visibilityStructuralPattern.test(structuralSignal);
+        return publicDefaultWithVisibilityStructure &&
+          isVisibleElement(element) &&
+          !isDisabledElement(element) &&
+          !nonSubmitPublishPattern.test(textContentOf(element))
+          ? resolveVisibilityClickTarget(element)
+          : null;
+      })
+      .find((element): element is HTMLElement => element !== null) ??
     findVisibilityTriggerFromExplicitContext() ??
     null
   );
