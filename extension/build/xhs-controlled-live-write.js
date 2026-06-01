@@ -1166,7 +1166,7 @@ export const buildXhsControlledLiveWriteFromDiscovery = (input, discovery) => {
 };
 const privateVisibilityPattern = /仅自己可见|仅自己|自己可见|仅自己看|仅我可见|仅我|私密发布|私密|仅本人|不公开|private|only\s*me|self[-_ ]?visible/iu;
 const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
-const visibilityTriggerPattern = /可见范围|可见权限|可见用户|谁可以看|谁能看|观看权限|查看权限|浏览权限|权限设置|发布权限|内容权限|笔记权限|visibility|privacy|permission/iu;
+const visibilityTriggerPattern = /可见范围|可见权限|可见用户|可见性|谁可以看|谁可以查看|谁能看|谁可见|谁能见|观看权限|查看权限|浏览权限|权限设置|发布权限|内容权限|笔记权限|visibility|privacy|permission/iu;
 const visibilityStructuralPattern = /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience|current|value|trigger|selector|reds-select|d-select|el-select|semi-select|ant-select/iu;
 const visibilityTriggerActionPattern = /button|combobox|listbox|radio|menuitemradio|option|select|dropdown/iu;
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
@@ -1318,12 +1318,21 @@ const openedPlainPrivateVisibilityOptionSelector = [
     '[role="menu"] li',
     '[role="menu"] div',
     '[role="menu"] span',
+    '[class*="menu" i] li',
+    '[class*="menu" i] div',
+    '[class*="menu" i] span',
     '[role="listbox"] li',
     '[role="listbox"] div',
     '[role="listbox"] span',
+    '[class*="popper" i] li',
+    '[class*="popper" i] div',
+    '[class*="popper" i] span',
     '[class*="popover" i] li',
     '[class*="popover" i] div',
     '[class*="popover" i] span',
+    '[class*="portal" i] li',
+    '[class*="portal" i] div',
+    '[class*="portal" i] span',
     '[class*="dropdown" i]',
     '[class*="dropdown" i] li',
     '[class*="dropdown" i] div',
@@ -1365,17 +1374,6 @@ const visibilityContextSelector = [
     '[class*="visibility" i]',
     '[class*="privacy" i]'
 ].join(",");
-const visibilityContextContainer = (element) => {
-    let current = element;
-    for (let depth = 0; current && depth < 4; depth += 1) {
-        const currentText = textContentOf(current);
-        if (publicVisibilityPattern.test(currentText) || privateVisibilityPattern.test(currentText)) {
-            return current;
-        }
-        current = current.parentElement;
-    }
-    return element.parentElement;
-};
 const visibilityContextTriggerSelector = [
     "button",
     '[role="button"]',
@@ -1394,6 +1392,35 @@ const visibilityContextTriggerSelector = [
     '[class*="value" i]',
     '[class*="current" i]'
 ].join(",");
+const hasPublicVisibilityCandidate = (element, context) => {
+    if (typeof element.querySelectorAll !== "function") {
+        return false;
+    }
+    return Array.from(element.querySelectorAll(visibilityContextTriggerSelector)).some((candidate) => {
+        const signal = elementTextSignal(candidate);
+        return (candidate !== context &&
+            isVisibleElement(candidate) &&
+            !isDisabledElement(candidate) &&
+            publicVisibilityPattern.test(signal) &&
+            !privateVisibilityPattern.test(signal) &&
+            !nonSubmitPublishPattern.test(signal));
+    });
+};
+const visibilityContextContainer = (element) => {
+    let current = element;
+    let nearestPublicCandidateContainer = null;
+    for (let depth = 0; current && depth < 8; depth += 1) {
+        const currentText = textContentOf(current);
+        if (publicVisibilityPattern.test(currentText) || privateVisibilityPattern.test(currentText)) {
+            return current;
+        }
+        if (!nearestPublicCandidateContainer && hasPublicVisibilityCandidate(current, element)) {
+            nearestPublicCandidateContainer = current;
+        }
+        current = current.parentElement;
+    }
+    return nearestPublicCandidateContainer ?? element.parentElement;
+};
 const isVisibilityClickTarget = (element) => {
     const actionSignal = `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""}`;
     const structuralSignal = visibilityStructuralSignal(element);
