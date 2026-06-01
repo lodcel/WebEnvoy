@@ -7717,8 +7717,8 @@ const selectPrivateVisibilityControl = async () => {
     return selectPrivateVisibilityControlAfterBoundedScroll();
 };
 const scrollPublishEditorForLazyVisibilityControls = () => {
-    const scrollTarget = resolvePublishEditorScrollTarget();
-    if (!scrollTarget) {
+    const scrollTargets = resolvePublishEditorScrollTargets();
+    if (scrollTargets.length === 0) {
         return false;
     }
     const viewportHeight = typeof window !== "undefined" &&
@@ -7726,17 +7726,32 @@ const scrollPublishEditorForLazyVisibilityControls = () => {
         ? window.innerHeight
         : 800;
     const scrollDistance = Math.max(240, Math.floor(viewportHeight * 0.7));
-    const before = scrollTarget.scrollTop;
-    if (typeof scrollTarget.scrollBy === "function") {
-        scrollTarget.scrollBy({ top: scrollDistance, left: 0, behavior: "instant" });
-        return true;
+    let scrolled = false;
+    for (const scrollTarget of scrollTargets) {
+        const before = scrollTarget.scrollTop;
+        if (typeof scrollTarget.scrollBy === "function") {
+            scrollTarget.scrollBy({ top: scrollDistance, left: 0, behavior: "instant" });
+        }
+        if (scrollTarget.scrollTop === before && canScrollPublishEditorElement(scrollTarget)) {
+            scrollTarget.scrollTop = before + scrollDistance;
+        }
+        scrolled = scrollTarget.scrollTop !== before || scrolled;
     }
-    scrollTarget.scrollTop = before + scrollDistance;
-    return scrollTarget.scrollTop !== before;
+    if (typeof window !== "undefined" && typeof window.scrollBy === "function") {
+        const beforeWindowScroll = typeof window.scrollY === "number" && Number.isFinite(window.scrollY)
+            ? window.scrollY
+            : null;
+        window.scrollBy({ top: scrollDistance, left: 0, behavior: "instant" });
+        const afterWindowScroll = typeof window.scrollY === "number" && Number.isFinite(window.scrollY)
+            ? window.scrollY
+            : null;
+        scrolled = (beforeWindowScroll !== null && afterWindowScroll !== beforeWindowScroll) || scrolled;
+    }
+    return scrolled;
 };
-const resolvePublishEditorScrollTarget = () => {
+const resolvePublishEditorScrollTargets = () => {
     if (typeof document === "undefined" || typeof document.querySelector !== "function") {
-        return null;
+        return [];
     }
     const href = typeof location !== "undefined" && typeof location.href === "string"
         ? location.href
@@ -7751,7 +7766,7 @@ const resolvePublishEditorScrollTarget = () => {
         pageUrl = null;
     }
     if (pageUrl?.hostname !== "creator.xiaohongshu.com" || !pageUrl.pathname.startsWith("/publish")) {
-        return null;
+        return [];
     }
     const editorRoots = uniqueVisibilityElements(Array.from(document.querySelectorAll([
         ".publish-page-content",
@@ -7760,16 +7775,16 @@ const resolvePublishEditorScrollTarget = () => {
         '[class*="publish-page" i]',
         ".style-override-container"
     ].join(","))).filter((element) => isVisibleElement(element))).sort((left, right) => publishEditorRootPriority(left) - publishEditorRootPriority(right));
-    if (editorRoots.length === 0) {
-        return null;
-    }
-    for (const editorRoot of editorRoots) {
-        const scrollable = findNearestScrollablePublishEditorContainer(editorRoot);
-        if (scrollable) {
-            return scrollable;
-        }
-    }
-    return editorRoots[0] ?? null;
+    const scrollingElement = document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null;
+    const documentElement = document.documentElement instanceof HTMLElement ? document.documentElement : null;
+    const body = document.body instanceof HTMLElement ? document.body : null;
+    const scrollableRoots = uniqueVisibilityElements(editorRoots.map((editorRoot) => findNearestScrollablePublishEditorContainer(editorRoot)));
+    return uniqueVisibilityElements([
+        ...(scrollableRoots.length > 0 ? scrollableRoots : [editorRoots[0] ?? null]),
+        scrollingElement,
+        documentElement,
+        body
+    ]);
 };
 const publishEditorRootPriority = (element) => {
     const classSignal = getElementAttribute(element, "class") ?? "";
@@ -7784,14 +7799,17 @@ const publishEditorRootPriority = (element) => {
     }
     return 3;
 };
+const canScrollPublishEditorElement = (element) => {
+    const style = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
+    const overflowY = style?.overflowY ?? "";
+    const canScrollByGeometry = element.scrollHeight > element.clientHeight + 16;
+    const canScrollByStyle = /auto|scroll|overlay/iu.test(overflowY);
+    return canScrollByGeometry || canScrollByStyle;
+};
 const findNearestScrollablePublishEditorContainer = (element) => {
     let current = element;
     for (let depth = 0; current && depth < 5; depth += 1) {
-        const style = typeof getComputedStyle === "function" ? getComputedStyle(current) : null;
-        const overflowY = style?.overflowY ?? "";
-        const canScrollByGeometry = current.scrollHeight > current.clientHeight + 16;
-        const canScrollByStyle = /auto|scroll|overlay/iu.test(overflowY);
-        if (canScrollByGeometry || canScrollByStyle) {
+        if (canScrollPublishEditorElement(current)) {
             return current;
         }
         current = current.parentElement;
