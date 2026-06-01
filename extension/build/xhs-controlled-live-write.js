@@ -1422,6 +1422,16 @@ const visibilityContextTriggerSelector = [
     '[class*="value" i]',
     '[class*="current" i]'
 ].join(",");
+const plainPublicVisibilityValueSelector = [
+    "button",
+    '[role="button"]',
+    '[role="combobox"]'
+].join(",");
+const plainPublicVisibilityTextValueSelector = [
+    "div",
+    "span",
+    "p"
+].join(",");
 const visibilitySettingsDisclosureSelector = [
     "button",
     "summary",
@@ -1483,6 +1493,65 @@ const resolveVisibilityClickTarget = (element, boundary = null) => {
         current = current.parentElement;
     }
     return element;
+};
+const isShortPublicVisibilityValue = (element) => {
+    const text = textContentOf(element).replace(/\s+/gu, "");
+    return (text.length > 0 &&
+        text.length <= 12 &&
+        publicVisibilityPattern.test(text) &&
+        !privateVisibilityPattern.test(text) &&
+        !nonSubmitPublishPattern.test(text));
+};
+const isPublishSettingsLikeContainer = (element) => {
+    const signal = `${elementTextSignal(element)} ${visibilityStructuralSignal(element)}`;
+    return (/publish|发布|setting|form|field|row|item|option|select|dropdown|scope|range|permission|visibility|privacy|visible|audience|viewer/iu.test(signal) ||
+        visibilityTriggerPattern.test(signal));
+};
+const hasPlainPublicVisibilityTextContext = (element) => {
+    let current = element.parentElement;
+    for (let depth = 0; current && depth < 5; depth += 1) {
+        const text = textContentOf(current);
+        if (text.length > 160) {
+            current = current.parentElement;
+            continue;
+        }
+        const signal = `${elementTextSignal(current)} ${visibilityStructuralSignal(current)}`;
+        if ((visibilityTriggerPattern.test(signal) || isPublishSettingsLikeContainer(current)) &&
+            publicVisibilityPattern.test(text) &&
+            !privateVisibilityPattern.test(text) &&
+            !nonSubmitPublishPattern.test(text)) {
+            return true;
+        }
+        current = current.parentElement;
+    }
+    return false;
+};
+const resolvePlainPublicVisibilityClickTarget = (element) => {
+    const actionSignal = `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""}`;
+    if (visibilityTriggerActionPattern.test(actionSignal) && typeof element.click === "function") {
+        return element;
+    }
+    if (!hasPlainPublicVisibilityTextContext(element)) {
+        return null;
+    }
+    if (typeof element.click === "function") {
+        return element;
+    }
+    let current = element;
+    let nearestSettingsLike = null;
+    for (let depth = 0; current && depth < 6; depth += 1) {
+        if (current !== element && isPublishSettingsLikeContainer(current)) {
+            nearestSettingsLike = current;
+        }
+        if (isVisibilityClickTarget(current)) {
+            return current;
+        }
+        current = current.parentElement;
+    }
+    if (nearestSettingsLike && textContentOf(nearestSettingsLike).length <= 80) {
+        return nearestSettingsLike;
+    }
+    return isVisibilityClickTarget(element) ? element : null;
 };
 const uniqueVisibilityElements = (elements) => {
     const seen = new Set();
@@ -1576,8 +1645,22 @@ const findVisibilityTriggers = () => {
     return uniqueVisibilityElements([
         ...explicitContextTriggers,
         ...directTriggers,
-        ...publicDefaultTriggers
+        ...publicDefaultTriggers,
+        ...findPlainPublicVisibilityValueFallbackTriggers()
     ]);
+};
+const findPlainPublicVisibilityValueFallbackTriggers = () => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return [];
+    }
+    const interactiveTriggers = Array.from(document.querySelectorAll(plainPublicVisibilityValueSelector));
+    const textTriggers = Array.from(document.querySelectorAll(plainPublicVisibilityTextValueSelector)).filter(hasPlainPublicVisibilityTextContext);
+    return uniqueVisibilityElements([...interactiveTriggers, ...textTriggers].map((element) => {
+        if (!isVisibleElement(element) || isDisabledElement(element) || !isShortPublicVisibilityValue(element)) {
+            return null;
+        }
+        return resolvePlainPublicVisibilityClickTarget(element);
+    }));
 };
 const clickFirstOpenedPrivateVisibilityOption = async (triggers) => {
     for (const trigger of triggers) {
