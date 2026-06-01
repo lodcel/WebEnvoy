@@ -7753,17 +7753,36 @@ const resolvePublishEditorScrollTarget = () => {
     if (pageUrl?.hostname !== "creator.xiaohongshu.com" || !pageUrl.pathname.startsWith("/publish")) {
         return null;
     }
-    const editorRoot = document.querySelector([
-        ".publish-page",
+    const editorRoots = uniqueVisibilityElements(Array.from(document.querySelectorAll([
         ".publish-page-content",
-        ".style-override-container",
+        '[class*="publish-content" i]',
+        ".publish-page",
         '[class*="publish-page" i]',
-        '[class*="publish-content" i]'
-    ].join(","));
-    if (!editorRoot || !isVisibleElement(editorRoot)) {
+        ".style-override-container"
+    ].join(","))).filter((element) => isVisibleElement(element))).sort((left, right) => publishEditorRootPriority(left) - publishEditorRootPriority(right));
+    if (editorRoots.length === 0) {
         return null;
     }
-    return findNearestScrollablePublishEditorContainer(editorRoot) ?? editorRoot;
+    for (const editorRoot of editorRoots) {
+        const scrollable = findNearestScrollablePublishEditorContainer(editorRoot);
+        if (scrollable) {
+            return scrollable;
+        }
+    }
+    return editorRoots[0] ?? null;
+};
+const publishEditorRootPriority = (element) => {
+    const classSignal = getElementAttribute(element, "class") ?? "";
+    if (/publish-page-content|publish-content/iu.test(classSignal)) {
+        return 0;
+    }
+    if (/publish-page/iu.test(classSignal)) {
+        return 1;
+    }
+    if (/style-override-container/iu.test(classSignal)) {
+        return 2;
+    }
+    return 3;
 };
 const findNearestScrollablePublishEditorContainer = (element) => {
     let current = element;

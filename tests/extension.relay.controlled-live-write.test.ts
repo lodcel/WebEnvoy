@@ -1249,6 +1249,8 @@ it("scrolls before giving up when visibility controls mount below the initial ed
       this.clicked = true;
     };
   }
+  const outerPublishRoot = new TestElement();
+  outerPublishRoot.className = "publish-page";
   const editorContainer = new TestElement();
   editorContainer.className = "publish-page-content";
   const settingRow = new TestElement();
@@ -1293,7 +1295,9 @@ it("scrolls before giving up when visibility controls mount below the initial ed
   visibilityLabel.parentElement = settingRow;
   visibilityTrigger.parentElement = settingRow;
   settingRow.children = [visibilityLabel, visibilityTrigger];
+  editorContainer.parentElement = outerPublishRoot;
   editorContainer.children = [settingRow];
+  outerPublishRoot.children = [editorContainer];
   Object.defineProperty(globalThis, "HTMLElement", {
     configurable: true,
     value: TestElement
@@ -1327,6 +1331,9 @@ it("scrolls before giving up when visibility controls mount below the initial ed
       },
       querySelectorAll: (selector: string) => {
         scrollCount = editorContainer.scrollTop;
+        if (selector.includes("publish") || selector.includes("content") || selector.includes("container")) {
+          return [editorContainer];
+        }
         if (editorContainer.scrollTop === 0) {
           if (selector.includes("button")) {
             return [submit];
@@ -1443,6 +1450,8 @@ it("scrolls publish editor containers when window scrolling does not mount visib
       this.clicked = true;
     };
   }
+  const outerPublishRoot = new TestElement();
+  outerPublishRoot.className = "publish-page";
   const editorContainer = new TestElement();
   editorContainer.className = "publish-page-content";
   const settingRow = new TestElement();
@@ -1486,7 +1495,9 @@ it("scrolls publish editor containers when window scrolling does not mount visib
   visibilityLabel.parentElement = settingRow;
   visibilityTrigger.parentElement = settingRow;
   settingRow.children = [visibilityLabel, visibilityTrigger];
+  editorContainer.parentElement = outerPublishRoot;
   editorContainer.children = [settingRow];
+  outerPublishRoot.children = [editorContainer];
   Object.defineProperty(globalThis, "HTMLElement", {
     configurable: true,
     value: TestElement
@@ -1521,7 +1532,7 @@ it("scrolls publish editor containers when window scrolling does not mount visib
       querySelectorAll: (selector: string) => {
         const containerScrolled = editorContainer.scrollTop > 0;
         if (selector.includes("publish") || selector.includes("editor") || selector.includes("content") || selector.includes("container")) {
-          return [editorContainer];
+          return [outerPublishRoot, editorContainer];
         }
         if (!containerScrolled) {
           if (selector.includes("button")) {
@@ -1574,6 +1585,7 @@ it("scrolls publish editor containers when window scrolling does not mount visib
     });
 
     expect(editorContainer.scrollTop).toBeGreaterThan(0);
+    expect(outerPublishRoot.scrollTop).toBe(0);
     expect(visibilityTrigger.clicked).toBe(true);
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
