@@ -2694,7 +2694,16 @@ it("stops after accepted upload when private visibility control is missing", asy
       stop_signal: expect.objectContaining({
         stopped_step: "publish",
         blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING",
-        cleanup_required: true
+        cleanup_required: true,
+        diagnostics: expect.objectContaining({
+          schema_version: "fr-0032.visibility_locator_diagnostics.v1",
+          values_recorded: false,
+          candidate_count: expect.any(Number),
+          candidates: expect.any(Array)
+        })
+      }),
+      blocker_diagnostics: expect.objectContaining({
+        recording_policy: "attribute_names_signal_flags_and_lengths_only"
       })
     });
   } finally {
