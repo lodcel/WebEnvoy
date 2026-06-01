@@ -7365,7 +7365,7 @@ const buildXhsControlledLiveWriteFromDiscovery = (input, discovery) => {
 };
 const privateVisibilityPattern = /仅自己可见|仅自己|自己可见|私密|仅本人|private|only\s*me|self[-_ ]?visible/iu;
 const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
-const visibilityTriggerPattern = /可见范围|谁可以看|谁能看|观看权限|权限设置|发布权限|visibility|privacy|permission/iu;
+const visibilityTriggerPattern = /可见范围|可见权限|可见用户|谁可以看|谁能看|观看权限|查看权限|浏览权限|权限设置|发布权限|内容权限|笔记权限|visibility|privacy|permission/iu;
 const visibilityStructuralPattern = /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience/iu;
 const visibilityTriggerActionPattern = /button|combobox|listbox|radio|menuitemradio|option|select|dropdown/iu;
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
@@ -7513,7 +7513,34 @@ const privateVisibilityOptionSelector = [
     '[class*="dropdown" i] *',
     '[class*="select" i] *'
 ].join(",");
-const findPrivateVisibilityOption = () => findVisibleElementMatchingText(privateVisibilityOptionSelector, privateVisibilityPattern, publicVisibilityPattern);
+const openedPlainPrivateVisibilityOptionSelector = [
+    '[role="menu"] li',
+    '[role="menu"] div',
+    '[role="menu"] span',
+    '[role="listbox"] li',
+    '[role="listbox"] div',
+    '[role="listbox"] span',
+    '[class*="popover" i] li',
+    '[class*="popover" i] div',
+    '[class*="popover" i] span',
+    '[class*="dropdown" i]',
+    '[class*="dropdown" i] li',
+    '[class*="dropdown" i] div',
+    '[class*="dropdown" i] span',
+    '[class*="select" i]',
+    '[class*="select" i] li',
+    '[class*="select" i] div',
+    '[class*="select" i] span',
+    '[class*="option" i]',
+    '[class*="item" i]'
+].join(",");
+const findPrivateVisibilityOption = (allowOpenedPlainTextOption = false) => {
+    const structuredOption = findVisibleElementMatchingText(privateVisibilityOptionSelector, privateVisibilityPattern, publicVisibilityPattern);
+    if (structuredOption || !allowOpenedPlainTextOption) {
+        return structuredOption;
+    }
+    return findVisibleElementMatchingText(openedPlainPrivateVisibilityOptionSelector, privateVisibilityPattern, publicVisibilityPattern);
+};
 const visibilityStructuralSignal = (element) => [
     getElementAttribute(element, "data-testid"),
     getElementAttribute(element, "aria-label"),
@@ -7533,7 +7560,9 @@ const visibilityContextSelector = [
     '[class*="setting" i]',
     '[class*="scope" i]',
     '[class*="range" i]',
-    '[class*="permission" i]'
+    '[class*="permission" i]',
+    '[class*="visibility" i]',
+    '[class*="privacy" i]'
 ].join(",");
 const visibilityContextContainer = (element) => {
     let current = element;
@@ -7560,7 +7589,9 @@ const visibilityContextTriggerSelector = [
     '[class*="select" i]',
     '[class*="dropdown" i]',
     '[class*="radio" i]',
-    '[class*="option" i]'
+    '[class*="option" i]',
+    '[class*="value" i]',
+    '[class*="current" i]'
 ].join(",");
 const findVisibilityTriggerFromExplicitContext = () => {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
@@ -7617,7 +7648,7 @@ const selectPrivateVisibilityControl = async () => {
     }
     trigger.click();
     await sleep(500);
-    const openedPrivateOption = findPrivateVisibilityOption();
+    const openedPrivateOption = findPrivateVisibilityOption(true);
     if (!openedPrivateOption || typeof openedPrivateOption.click !== "function") {
         return null;
     }
