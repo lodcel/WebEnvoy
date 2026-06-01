@@ -1483,11 +1483,14 @@ const privateVisibilityPattern =
 const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
 const visibilityTriggerPattern =
   /可见范围|可见权限|可见用户|可见性|谁可以看|谁可以查看|谁能看|谁可见|谁能见|观看权限|查看权限|浏览权限|权限设置|发布权限|内容权限|笔记权限|visibility|privacy|permission/iu;
+const visibilitySettingsDisclosurePattern =
+  /发布设置|高级设置|更多设置|更多选项|展开更多|设置更多|权限设置|内容权限|笔记权限|post\s*settings|publish\s*settings|advanced\s*settings|more\s*(settings|options)/iu;
 const visibilityStructuralPattern =
   /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience|current|value|trigger|selector|reds-select|d-select|el-select|semi-select|ant-select/iu;
 const visibilityTriggerActionPattern = /button|combobox|listbox|radio|menuitemradio|option|select|dropdown/iu;
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
-const nonSubmitPublishPattern = /草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule/iu;
+const nonSubmitPublishPattern =
+  /发布设置|高级设置|更多设置|更多选项|权限设置|内容权限|笔记权限|草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule|post\s*settings|publish\s*settings|advanced\s*settings|more\s*(settings|options)/iu;
 const publishSuccessPattern = /发布成功|发布完成|已发布|提交成功|publish(ed)?\s*(success|complete)|success/iu;
 
 const uploadStageCleanupResult = (
@@ -1741,6 +1744,18 @@ const visibilityContextTriggerSelector = [
   '[class*="current" i]'
 ].join(",");
 
+const visibilitySettingsDisclosureSelector = [
+  "button",
+  "summary",
+  '[role="button"]',
+  '[aria-expanded]',
+  '[class*="setting" i]',
+  '[class*="expand" i]',
+  '[class*="collapse" i]',
+  '[class*="more" i]',
+  '[class*="advanced" i]'
+].join(",");
+
 const hasPublicVisibilityCandidate = (element: HTMLElement, context: HTMLElement): boolean => {
   if (typeof element.querySelectorAll !== "function") {
     return false;
@@ -1812,6 +1827,41 @@ const uniqueVisibilityElements = (elements: Array<HTMLElement | null>): HTMLElem
     seen.add(element);
     return true;
   });
+};
+
+const isVisibilitySettingsDisclosureCandidate = (element: HTMLElement): boolean => {
+  const signal = `${elementTextSignal(element)} ${visibilityStructuralSignal(element)}`;
+  return (
+    isVisibleElement(element) &&
+    !isDisabledElement(element) &&
+    visibilitySettingsDisclosurePattern.test(signal) &&
+    !privateVisibilityPattern.test(signal) &&
+    !publicVisibilityPattern.test(signal)
+  );
+};
+
+const findVisibilitySettingsDisclosureTriggers = (): HTMLElement[] => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return [];
+  }
+  return uniqueVisibilityElements(
+    Array.from(document.querySelectorAll<HTMLElement>(visibilitySettingsDisclosureSelector)).map((element) =>
+      isVisibilitySettingsDisclosureCandidate(element) ? resolveVisibilityClickTarget(element) : null
+    )
+  );
+};
+
+const openVisibilitySettingsDisclosure = async (): Promise<boolean> => {
+  const disclosures = findVisibilitySettingsDisclosureTriggers();
+  for (const disclosure of disclosures) {
+    if (typeof disclosure.click !== "function") {
+      continue;
+    }
+    disclosure.click();
+    await sleep(300);
+    return true;
+  }
+  return false;
 };
 
 const findVisibilityTriggersFromExplicitContext = (): HTMLElement[] => {
@@ -1914,6 +1964,21 @@ const selectPrivateVisibilityControl = async (): Promise<HTMLElement | null> => 
     const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers);
     if (openedOption) {
       return openedOption;
+    }
+  }
+  if (await openVisibilitySettingsDisclosure()) {
+    const privateOptionAfterDisclosure = findPrivateVisibilityOption();
+    if (privateOptionAfterDisclosure) {
+      privateOptionAfterDisclosure.click();
+      await sleep(300);
+      return privateOptionAfterDisclosure;
+    }
+    const triggersAfterDisclosure = findVisibilityTriggers();
+    const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(
+      triggersAfterDisclosure
+    );
+    if (openedOptionAfterDisclosure) {
+      return openedOptionAfterDisclosure;
     }
   }
   return selectPrivateVisibilityControlAfterBoundedScroll();
@@ -2050,6 +2115,15 @@ const selectPrivateVisibilityControlAfterBoundedScroll = async (): Promise<HTMLE
     const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers);
     if (openedOption) {
       return openedOption;
+    }
+    if (await openVisibilitySettingsDisclosure()) {
+      const triggersAfterDisclosure = findVisibilityTriggers();
+      const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(
+        triggersAfterDisclosure
+      );
+      if (openedOptionAfterDisclosure) {
+        return openedOptionAfterDisclosure;
+      }
     }
   }
   return null;
