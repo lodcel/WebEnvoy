@@ -6496,12 +6496,28 @@ const isVisibleElement = (element) => {
         rect.height > 0);
 };
 const textContentOf = (element) => (element.textContent ?? "").trim().replace(/\s+/g, " ");
+const formControlValueSignal = (element) => [
+    getElementAttribute(element, "value"),
+    "value" in element && typeof element.value === "string" ? element.value : null,
+    getElementAttribute(element, "placeholder")
+]
+    .filter((value) => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
 const elementTextSignal = (element) => [
     getElementAttribute(element, "data-testid"),
     getElementAttribute(element, "aria-label"),
     getElementAttribute(element, "title"),
     getElementAttribute(element, "role"),
     getElementAttribute(element, "class"),
+    formControlValueSignal(element),
+    textContentOf(element)
+]
+    .filter((value) => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+const elementDisplayedTextSignal = (element) => [
+    getElementAttribute(element, "aria-label"),
+    getElementAttribute(element, "title"),
+    formControlValueSignal(element),
     textContentOf(element)
 ]
     .filter((value) => typeof value === "string" && value.trim().length > 0)
@@ -7529,6 +7545,8 @@ const visibilityControlSelector = [
     '[class*="visibility" i]',
     '[class*="privacy" i]',
     '[class*="permission" i]',
+    "input",
+    "textarea",
     '[class*="setting" i]',
     '[class*="scope" i]',
     '[class*="range" i]',
@@ -7612,6 +7630,8 @@ const visibilityContextTriggerSelector = [
     '[role="menuitemradio"]',
     '[role="option"]',
     "label",
+    "input",
+    "textarea",
     "div",
     "span",
     '[class*="select" i]',
@@ -7623,6 +7643,8 @@ const visibilityContextTriggerSelector = [
 ].join(",");
 const plainPublicVisibilityValueSelector = [
     "button",
+    "input",
+    "textarea",
     '[role="button"]',
     '[role="combobox"]'
 ].join(",");
@@ -7694,7 +7716,7 @@ const resolveVisibilityClickTarget = (element, boundary = null) => {
     return element;
 };
 const isShortPublicVisibilityValue = (element) => {
-    const text = textContentOf(element).replace(/\s+/gu, "");
+    const text = elementDisplayedTextSignal(element).replace(/\s+/gu, "");
     return (text.length > 0 &&
         text.length <= 12 &&
         publicVisibilityPattern.test(text) &&
@@ -7708,12 +7730,14 @@ const isPublishSettingsLikeContainer = (element) => {
 };
 const hasPlainPublicVisibilityTextContext = (element) => {
     let current = element.parentElement;
+    const elementSignal = elementTextSignal(element);
     for (let depth = 0; current && depth < 5; depth += 1) {
-        const text = textContentOf(current);
-        if (text.length > 160) {
+        const currentText = textContentOf(current);
+        if (currentText.length > 160) {
             current = current.parentElement;
             continue;
         }
+        const text = `${currentText} ${elementSignal}`;
         const signal = `${elementTextSignal(current)} ${visibilityStructuralSignal(current)}`;
         if ((visibilityTriggerPattern.test(signal) || isPublishSettingsLikeContainer(current)) &&
             publicVisibilityPattern.test(text) &&
