@@ -7500,9 +7500,11 @@ const buildStepBlockedResult = (input, artifact, reason, submitEvidence = null, 
                 cleanup_result_id: cleanupResultId,
                 residual_record_id: residualRecordId,
                 required_recovery_action: reason.requiredRecoveryAction,
-                evidence_ref: evidenceRef
+                evidence_ref: evidenceRef,
+                ...(reason.diagnostics ? { diagnostics: reason.diagnostics } : {})
             },
             residual_record: residualRecord,
+            ...(reason.diagnostics ? { blocker_diagnostics: reason.diagnostics } : {}),
             created_at: timestamp,
             updated_at: timestamp
         },
@@ -7785,6 +7787,89 @@ const uniqueVisibilityElements = (elements) => {
         seen.add(element);
         return true;
     });
+};
+const visibilityDiagnosticSelector = [
+    visibilityControlSelector,
+    visibilityContextSelector,
+    plainPublicVisibilityValueSelector,
+    plainPublicVisibilityTextValueSelector,
+    visibilitySettingsDisclosureSelector,
+    '[class*="popper" i]',
+    '[class*="popover" i]',
+    '[class*="portal" i]',
+    '[class*="dropdown" i]',
+    '[class*="option" i]',
+    '[class*="item" i]'
+].join(",");
+const classTokensForElement = (element) => {
+    const className = getElementAttribute(element, "class");
+    if (!className) {
+        return [];
+    }
+    return className.split(/\s+/u).filter((item) => item.trim().length > 0).slice(0, 8);
+};
+const visibilityDiagnosticAncestor = (element) => {
+    const ancestors = [];
+    let current = element.parentElement;
+    for (let depth = 0; current && depth < 3; depth += 1) {
+        ancestors.push({
+            depth: depth + 1,
+            tag_name: current.tagName.toLowerCase(),
+            locator: locatorForElement(current),
+            attribute_names: attributeNamesForElement(current),
+            class_tokens: classTokensForElement(current)
+        });
+        current = current.parentElement;
+    }
+    return ancestors;
+};
+const collectVisibilityLocatorDiagnostics = () => {
+    const timestamp = nowIso();
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return {
+            schema_version: "fr-0032.visibility_locator_diagnostics.v1",
+            values_recorded: false,
+            recording_policy: "attribute_names_signal_flags_and_lengths_only",
+            collected_at: timestamp,
+            candidate_count: 0,
+            candidates: []
+        };
+    }
+    const candidates = uniqueVisibilityElements(Array.from(document.querySelectorAll(visibilityDiagnosticSelector)).filter((element) => {
+        return element instanceof HTMLElement && isVisibleElement(element);
+    })).slice(0, 40);
+    return {
+        schema_version: "fr-0032.visibility_locator_diagnostics.v1",
+        values_recorded: false,
+        recording_policy: "attribute_names_signal_flags_and_lengths_only",
+        collected_at: timestamp,
+        candidate_count: candidates.length,
+        candidates: candidates.map((element, index) => {
+            const fullSignal = elementTextSignal(element);
+            const displayedSignal = elementDisplayedTextSignal(element);
+            const structuralSignal = visibilityStructuralSignal(element);
+            return {
+                index,
+                tag_name: element.tagName.toLowerCase(),
+                locator: locatorForElement(element),
+                attribute_names: attributeNamesForElement(element),
+                class_tokens: classTokensForElement(element),
+                role_present: getElementAttribute(element, "role") !== null,
+                has_value_attribute: getElementAttribute(element, "value") !== null,
+                has_placeholder_attribute: getElementAttribute(element, "placeholder") !== null,
+                displayed_signal_length: displayedSignal.length,
+                full_signal_length: fullSignal.length,
+                public_visibility_signal: publicVisibilityPattern.test(fullSignal),
+                private_visibility_signal: privateVisibilityPattern.test(fullSignal),
+                visibility_trigger_signal: visibilityTriggerPattern.test(fullSignal),
+                visibility_structural_signal: visibilityStructuralPattern.test(structuralSignal),
+                settings_disclosure_signal: visibilitySettingsDisclosurePattern.test(fullSignal),
+                disabled: isDisabledElement(element),
+                click_target: isVisibilityClickTarget(element),
+                ancestor_chain: visibilityDiagnosticAncestor(element)
+            };
+        })
+    };
 };
 const isVisibilitySettingsDisclosureCandidate = (element) => {
     const signal = `${elementTextSignal(element)} ${visibilityStructuralSignal(element)}`;
@@ -8124,6 +8209,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
     }
     const visibilityControl = await selectPrivateVisibilityControl();
     if (!visibilityControl) {
+        const diagnostics = collectVisibilityLocatorDiagnostics();
         return buildStepBlockedResult(input, artifact, {
             blockerCode: "PUBLISH_VISIBILITY_CONTROL_MISSING",
             blockerMessage: "Controlled publish cannot find a private/self-visible visibility control.",
@@ -8132,7 +8218,8 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             stoppedStep: "publish",
             blockerLayer: "publish",
             riskKind: "submit_failure",
-            cleanupRequired: true
+            cleanupRequired: true,
+            diagnostics
         }, null, uploadStageCleanupResult(input, timestamp, "private visibility not selected before submit"));
     }
     const submitControl = findVisibleElementMatchingText([
