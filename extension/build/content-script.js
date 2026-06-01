@@ -7363,7 +7363,7 @@ const buildXhsControlledLiveWriteFromDiscovery = (input, discovery) => {
         requiredRecoveryAction: "provide a controlled media resolver and real upload executor before submit/publish"
     }, artifact);
 };
-const privateVisibilityPattern = /仅自己可见|仅自己|自己可见|私密|仅本人|private|only\s*me|self[-_ ]?visible/iu;
+const privateVisibilityPattern = /仅自己可见|仅自己|自己可见|仅自己看|仅我可见|仅我|私密发布|私密|仅本人|不公开|private|only\s*me|self[-_ ]?visible/iu;
 const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
 const visibilityTriggerPattern = /可见范围|可见权限|可见用户|谁可以看|谁能看|观看权限|查看权限|浏览权限|权限设置|发布权限|内容权限|笔记权限|visibility|privacy|permission/iu;
 const visibilityStructuralPattern = /visibility|privacy|permission|select|dropdown|radio|setting|scope|range|visible|viewer|audience|current|value|trigger|selector|reds-select|d-select|el-select|semi-select|ant-select/iu;
@@ -7615,59 +7615,90 @@ const resolveVisibilityClickTarget = (element, boundary = null) => {
     }
     return element;
 };
-const findVisibilityTriggerFromExplicitContext = () => {
+const uniqueVisibilityElements = (elements) => {
+    const seen = new Set();
+    return elements.filter((element) => {
+        if (!element || seen.has(element)) {
+            return false;
+        }
+        seen.add(element);
+        return true;
+    });
+};
+const findVisibilityTriggersFromExplicitContext = () => {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
-        return null;
+        return [];
     }
-    const context = Array.from(document.querySelectorAll(visibilityContextSelector)).find((element) => {
+    const contexts = Array.from(document.querySelectorAll(visibilityContextSelector)).filter((element) => {
         const signal = elementTextSignal(element);
         return isVisibleElement(element) && visibilityTriggerPattern.test(signal);
     });
-    const container = context ? visibilityContextContainer(context) : null;
-    if (!container || typeof container.querySelectorAll !== "function") {
-        return null;
-    }
-    const candidates = Array.from(container.querySelectorAll(visibilityContextTriggerSelector));
-    return (candidates
-        .map((element) => {
-        const signal = elementTextSignal(element);
-        const matches = element !== context &&
-            isVisibleElement(element) &&
-            !isDisabledElement(element) &&
-            publicVisibilityPattern.test(signal) &&
-            !privateVisibilityPattern.test(signal) &&
-            !nonSubmitPublishPattern.test(signal);
-        return matches ? resolveVisibilityClickTarget(element, container) : null;
-    })
-        .find((element) => element !== null) ?? null);
+    return uniqueVisibilityElements(contexts.flatMap((context) => {
+        const container = visibilityContextContainer(context);
+        if (!container || typeof container.querySelectorAll !== "function") {
+            return [];
+        }
+        const candidates = Array.from(container.querySelectorAll(visibilityContextTriggerSelector));
+        return candidates.map((element) => {
+            const signal = elementTextSignal(element);
+            const matches = element !== context &&
+                isVisibleElement(element) &&
+                !isDisabledElement(element) &&
+                publicVisibilityPattern.test(signal) &&
+                !privateVisibilityPattern.test(signal) &&
+                !nonSubmitPublishPattern.test(signal);
+            return matches ? resolveVisibilityClickTarget(element, container) : null;
+        });
+    }));
 };
-const findVisibilityTrigger = () => {
+const findVisibilityTriggers = () => {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
-        return null;
+        return [];
     }
-    return (Array.from(document.querySelectorAll(visibilityControlSelector)).find((element) => {
+    const explicitContextTriggers = findVisibilityTriggersFromExplicitContext();
+    const directTriggers = Array.from(document.querySelectorAll(visibilityControlSelector))
+        .map((element) => {
         const signal = elementTextSignal(element);
         return (isVisibleElement(element) &&
             !isDisabledElement(element) &&
             visibilityTriggerPattern.test(signal) &&
             visibilityTriggerActionPattern.test(`${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""} ${visibilityStructuralSignal(element)}`) &&
-            !nonSubmitPublishPattern.test(textContentOf(element)));
-    }) ??
-        Array.from(document.querySelectorAll(visibilityControlSelector))
-            .map((element) => {
-            const textSignal = elementTextSignal(element);
-            const structuralSignal = visibilityStructuralSignal(element);
-            const publicDefaultWithVisibilityStructure = publicVisibilityPattern.test(textSignal) && visibilityStructuralPattern.test(structuralSignal);
-            return publicDefaultWithVisibilityStructure &&
-                isVisibleElement(element) &&
-                !isDisabledElement(element) &&
-                !nonSubmitPublishPattern.test(textContentOf(element))
-                ? resolveVisibilityClickTarget(element)
-                : null;
-        })
-            .find((element) => element !== null) ??
-        findVisibilityTriggerFromExplicitContext() ??
-        null);
+            !nonSubmitPublishPattern.test(textContentOf(element)))
+            ? element
+            : null;
+    });
+    const publicDefaultTriggers = Array.from(document.querySelectorAll(visibilityControlSelector)).map((element) => {
+        const textSignal = elementTextSignal(element);
+        const structuralSignal = visibilityStructuralSignal(element);
+        const publicDefaultWithVisibilityStructure = publicVisibilityPattern.test(textSignal) && visibilityStructuralPattern.test(structuralSignal);
+        return publicDefaultWithVisibilityStructure &&
+            isVisibleElement(element) &&
+            !isDisabledElement(element) &&
+            !nonSubmitPublishPattern.test(textContentOf(element))
+            ? resolveVisibilityClickTarget(element)
+            : null;
+    });
+    return uniqueVisibilityElements([
+        ...explicitContextTriggers,
+        ...directTriggers,
+        ...publicDefaultTriggers
+    ]);
+};
+const clickFirstOpenedPrivateVisibilityOption = async (triggers) => {
+    for (const trigger of triggers) {
+        if (typeof trigger.click !== "function") {
+            continue;
+        }
+        trigger.click();
+        await sleep(500);
+        const openedPrivateOption = findPrivateVisibilityOption(true);
+        if (openedPrivateOption && typeof openedPrivateOption.click === "function") {
+            openedPrivateOption.click();
+            await sleep(300);
+            return openedPrivateOption;
+        }
+    }
+    return null;
 };
 const selectPrivateVisibilityControl = async () => {
     const visiblePrivateOption = findPrivateVisibilityOption();
@@ -7676,19 +7707,11 @@ const selectPrivateVisibilityControl = async () => {
         await sleep(300);
         return visiblePrivateOption;
     }
-    const trigger = findVisibilityTrigger();
-    if (!trigger || typeof trigger.click !== "function") {
+    const triggers = findVisibilityTriggers();
+    if (triggers.length === 0) {
         return null;
     }
-    trigger.click();
-    await sleep(500);
-    const openedPrivateOption = findPrivateVisibilityOption(true);
-    if (!openedPrivateOption || typeof openedPrivateOption.click !== "function") {
-        return null;
-    }
-    openedPrivateOption.click();
-    await sleep(300);
-    return openedPrivateOption;
+    return clickFirstOpenedPrivateVisibilityOption(triggers);
 };
 const currentHref = () => typeof window !== "undefined" && window.location?.href
     ? window.location.href
