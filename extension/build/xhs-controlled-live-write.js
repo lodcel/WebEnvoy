@@ -1509,10 +1509,96 @@ const selectPrivateVisibilityControl = async () => {
         return visiblePrivateOption;
     }
     const triggers = findVisibilityTriggers();
-    if (triggers.length === 0) {
+    if (triggers.length > 0) {
+        const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers);
+        if (openedOption) {
+            return openedOption;
+        }
+    }
+    return selectPrivateVisibilityControlAfterBoundedScroll();
+};
+const scrollPublishEditorForLazyVisibilityControls = () => {
+    const scrollTarget = resolvePublishEditorScrollTarget();
+    if (!scrollTarget) {
+        return false;
+    }
+    const viewportHeight = typeof window !== "undefined" &&
+        typeof window.innerHeight === "number" && Number.isFinite(window.innerHeight)
+        ? window.innerHeight
+        : 800;
+    const scrollDistance = Math.max(240, Math.floor(viewportHeight * 0.7));
+    const before = scrollTarget.scrollTop;
+    if (typeof scrollTarget.scrollBy === "function") {
+        scrollTarget.scrollBy({ top: scrollDistance, left: 0, behavior: "instant" });
+        return true;
+    }
+    scrollTarget.scrollTop = before + scrollDistance;
+    return scrollTarget.scrollTop !== before;
+};
+const resolvePublishEditorScrollTarget = () => {
+    if (typeof document === "undefined" || typeof document.querySelector !== "function") {
         return null;
     }
-    return clickFirstOpenedPrivateVisibilityOption(triggers);
+    const href = typeof location !== "undefined" && typeof location.href === "string"
+        ? location.href
+        : typeof window !== "undefined" && typeof window.location?.href === "string"
+            ? window.location.href
+            : "";
+    let pageUrl = null;
+    try {
+        pageUrl = new URL(href);
+    }
+    catch {
+        pageUrl = null;
+    }
+    if (pageUrl?.hostname !== "creator.xiaohongshu.com" || !pageUrl.pathname.startsWith("/publish")) {
+        return null;
+    }
+    const editorRoot = document.querySelector([
+        ".publish-page",
+        ".publish-page-content",
+        ".style-override-container",
+        '[class*="publish-page" i]',
+        '[class*="publish-content" i]'
+    ].join(","));
+    if (!editorRoot || !isVisibleElement(editorRoot)) {
+        return null;
+    }
+    return findNearestScrollablePublishEditorContainer(editorRoot) ?? editorRoot;
+};
+const findNearestScrollablePublishEditorContainer = (element) => {
+    let current = element;
+    for (let depth = 0; current && depth < 5; depth += 1) {
+        const style = typeof getComputedStyle === "function" ? getComputedStyle(current) : null;
+        const overflowY = style?.overflowY ?? "";
+        const canScrollByGeometry = current.scrollHeight > current.clientHeight + 16;
+        const canScrollByStyle = /auto|scroll|overlay/iu.test(overflowY);
+        if (canScrollByGeometry || canScrollByStyle) {
+            return current;
+        }
+        current = current.parentElement;
+    }
+    return null;
+};
+const selectPrivateVisibilityControlAfterBoundedScroll = async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        if (!scrollPublishEditorForLazyVisibilityControls()) {
+            return null;
+        }
+        await sleep(250);
+        const visiblePrivateOption = findPrivateVisibilityOption();
+        if (visiblePrivateOption) {
+            visiblePrivateOption.click();
+            await sleep(300);
+            return visiblePrivateOption;
+        }
+        const triggers = findVisibilityTriggers();
+        const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers);
+        if (openedOption) {
+            return openedOption;
+        }
+    }
+    return null;
 };
 const currentHref = () => typeof window !== "undefined" && window.location?.href
     ? window.location.href
