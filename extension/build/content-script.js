@@ -6523,18 +6523,40 @@ const findVisibleElementMatchingText = (selector, include, exclude) => {
 };
 const imageModeTextPattern = /上传图文|图文|图片|image|photo/iu;
 const imageModeHrefPattern = /(?:[?&]target=image(?:&|$)|target%3Dimage)/iu;
+const nonImageModeTextPattern = /上传视频|视频|video/iu;
+const imageModeSignalForElement = (element) => [
+    getElementAttribute(element, "href"),
+    getElementAttribute(element, "data-testid"),
+    getElementAttribute(element, "data-test"),
+    getElementAttribute(element, "data-target"),
+    getElementAttribute(element, "aria-label"),
+    getElementAttribute(element, "title"),
+    getElementAttribute(element, "role"),
+    getElementAttribute(element, "class"),
+    textContentOf(element)
+]
+    .filter((value) => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
 const imageModeCandidateScore = (element) => {
+    const signal = imageModeSignalForElement(element);
     const href = getElementAttribute(element, "href") ?? "";
+    const text = textContentOf(element);
+    const exactImageModeSignal = imageModeTextPattern.test(signal) && !nonImageModeTextPattern.test(signal);
+    const mixedImageVideoContainer = imageModeTextPattern.test(signal) && nonImageModeTextPattern.test(signal);
+    const textLengthPenalty = Math.min(Math.floor(text.length / 12), 8);
     if (imageModeHrefPattern.test(href)) {
         return 0;
     }
-    if (element.getAttribute("role") === "tab") {
-        return 1;
+    if (element.getAttribute("role") === "tab" && exactImageModeSignal) {
+        return 1 + textLengthPenalty;
     }
-    if (element.tagName.toUpperCase() === "BUTTON") {
-        return 2;
+    if (element.tagName.toUpperCase() === "BUTTON" && exactImageModeSignal) {
+        return 2 + textLengthPenalty;
     }
-    return 3;
+    if (exactImageModeSignal) {
+        return 3 + textLengthPenalty;
+    }
+    return mixedImageVideoContainer ? 20 + textLengthPenalty : 30 + textLengthPenalty;
 };
 const selectImagePublishMode = async () => {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
@@ -6544,15 +6566,22 @@ const selectImagePublishMode = async () => {
         'a[href*="target=image" i]',
         '[href*="target=image" i]',
         '[data-target*="image" i]',
+        '[data-testid*="image" i]',
+        '[data-testid*="photo" i]',
+        '[data-testid*="图文" i]',
+        '[aria-label*="图文" i]',
+        '[aria-label*="图片" i]',
+        '[title*="图文" i]',
+        '[title*="图片" i]',
         "button",
         '[role="tab"]',
+        '[role="menuitem"]',
         '[class*="tab" i]',
         '[class*="publish" i]'
     ].join(",")));
     const imageMode = candidates
         .filter((element) => {
-        const href = getElementAttribute(element, "href") ?? "";
-        const signal = `${href} ${textContentOf(element)}`;
+        const signal = imageModeSignalForElement(element);
         return isVisibleElement(element) && imageModeTextPattern.test(signal) && typeof element.click === "function";
     })
         .sort((left, right) => imageModeCandidateScore(left) - imageModeCandidateScore(right))[0];

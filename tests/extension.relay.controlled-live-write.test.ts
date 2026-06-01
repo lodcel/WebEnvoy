@@ -4506,6 +4506,152 @@ describe("extension background relay / controlled live write", () => {
     }
   }, 8_000);
 
+  it("prefers a concrete image tab over a broad publish container when selecting image mode", async () => {
+    const originalDataTransfer = globalThis.DataTransfer;
+    const originalDocument = globalThis.document;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    class TestDataTransfer {
+      #files: File[] = [];
+      items = {
+        add: (file: File) => {
+          this.#files.push(file);
+        }
+      };
+      get files() {
+        return this.#files as unknown as FileList;
+      }
+    }
+    class TestElement {
+      id = "";
+      tagName = "DIV";
+      className = "";
+      classList = [] as string[];
+      textContent = "";
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return this.className;
+        }
+        return null;
+      };
+      getBoundingClientRect = () => ({ width: 96, height: 32 });
+    }
+    class BroadPublishContainer extends TestElement {
+      className = "publish-container";
+      classList = ["publish-container"];
+      textContent = "上传视频 上传图文";
+      click = () => {
+        broadContainerClicked = true;
+      };
+    }
+    class ConcreteImageTab extends TestElement {
+      className = "tab-item";
+      classList = ["tab-item"];
+      textContent = "上传图文";
+      click = () => {
+        imageTabClicked = true;
+      };
+    }
+    class PreviewElement extends TestElement {
+      tagName = "IMG";
+      className = "preview-image";
+      classList = ["preview-image"];
+      getAttribute = (name: string) => {
+        if (name === "class") {
+          return "preview-image";
+        }
+        if (name === "src") {
+          return "blob:https://creator.xiaohongshu.com/fr0032-image-tab";
+        }
+        return null;
+      };
+    }
+    let broadContainerClicked = false;
+    let imageTabClicked = false;
+    let fileInputDispatched = false;
+    const broadContainer = new BroadPublishContainer();
+    const imageTab = new ConcreteImageTab();
+    const imageInput = {
+      accept: "image/*",
+      disabled: false,
+      files: null as FileList | null,
+      dispatchEvent: () => {
+        fileInputDispatched = true;
+        return true;
+      }
+    };
+    const preview = new PreviewElement();
+    Object.defineProperty(globalThis, "DataTransfer", {
+      configurable: true,
+      value: TestDataTransfer
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: TestElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ display: "block", visibility: "visible", opacity: "1", backgroundImage: "none" })
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: (selector: string) => {
+          if (selector.includes("target=image") || selector.includes("tab") || selector.includes("publish")) {
+            return [broadContainer, imageTab];
+          }
+          if (selector === 'input[type="file"]') {
+            return imageTabClicked ? [imageInput] : [];
+          }
+          return fileInputDispatched ? [preview] : [];
+        }
+      }
+    });
+    try {
+      const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+        live_write_attempt_id: "fr0032-attempt-concrete-image-tab",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        publish_visibility_scope: "private_or_self_visible",
+        cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+        run_id: "run-xhs-issue-904-concrete-image-tab",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        page_url: "https://creator.xiaohongshu.com/publish/publish",
+        latest_head_sha: "head-test"
+      });
+
+      expect(broadContainerClicked).toBe(false);
+      expect(imageTabClicked).toBe(true);
+      expect(fileInputDispatched).toBe(true);
+      expect(result.live_write_evidence).toMatchObject({
+        upload_artifact_identity: expect.objectContaining({
+          visible_in_editor: true,
+          page_preview_locator: "img.preview-image"
+        })
+      });
+    } finally {
+      Object.defineProperty(globalThis, "DataTransfer", {
+        configurable: true,
+        value: originalDataTransfer
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument
+      });
+      Object.defineProperty(globalThis, "HTMLElement", {
+        configurable: true,
+        value: originalHTMLElement
+      });
+      Object.defineProperty(globalThis, "getComputedStyle", {
+        configurable: true,
+        value: originalGetComputedStyle
+      });
+    }
+  }, 8_000);
+
   it("recognizes background-image editor previews after controlled upload", async () => {
     const originalDataTransfer = globalThis.DataTransfer;
     const originalDocument = globalThis.document;
