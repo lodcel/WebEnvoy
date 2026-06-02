@@ -3324,7 +3324,16 @@ it("opens XHS permission-card select with pointer events before selecting privat
     });
 
     expect(opened).toBe(true);
-    expect(permissionSelect.dispatched).toEqual(["pointerdown", "mousedown", "mouseup", "pointerup"]);
+    expect(permissionSelect.dispatched).toEqual([
+      "pointerdown",
+      "mousedown",
+      "mouseup",
+      "pointerup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup"
+    ]);
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(result.live_write_evaluation).toMatchObject({
@@ -3508,7 +3517,228 @@ it("opens nested permission-card select when the outer wrapper is the only top-l
     });
 
     expect(opened).toBe(true);
-    expect(permissionSelect.dispatched).toEqual(["pointerdown", "mousedown", "mouseup", "pointerup"]);
+    expect(permissionSelect.dispatched).toEqual([
+      "pointerdown",
+      "mousedown",
+      "mouseup",
+      "pointerup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup"
+    ]);
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+        })
+      ]
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "PointerEvent", {
+      configurable: true,
+      value: originalPointerEvent
+    });
+  }
+});
+
+it("opens XHS d-select visibility dropdown with keyboard activation when pointer activation does not reveal options", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalPointerEvent = globalThis.PointerEvent;
+
+  let opened = false;
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    parentElement: TestElement | null = null;
+    children: TestElement[] = [];
+    disabled = false;
+    clicked = false;
+    focused = false;
+    dispatched: string[] = [];
+    textContent: string;
+    attributes: Record<string, string>;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter((item) => item.length > 0);
+      this.id = attributes.id ?? "";
+      this.tagName = attributes.tagName ?? "DIV";
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent(event: Event) {
+      this.dispatched.push(event.type);
+      if (this.className === "d-select" && event.type === "keydown") {
+        opened = true;
+      }
+      return true;
+    }
+    focus = () => {
+      this.focused = true;
+    };
+    click = () => {
+      this.clicked = true;
+    };
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+    querySelectorAll = () => {
+      const descendants: TestElement[] = [];
+      const visit = (element: TestElement) => {
+        for (const child of element.children) {
+          descendants.push(child);
+          visit(child);
+        }
+      };
+      visit(this);
+      return descendants;
+    };
+  }
+
+  const editorRoot = new TestElement("发布设置 可见范围 公开", {
+    class: "publish-page-content-settings"
+  });
+  const permissionWrapper = new TestElement("可见范围 公开", {
+    class: "permission-card-wrapper"
+  });
+  const permissionSelect = new TestElement("公开", {
+    class: "d-select-wrapper d-inline-block permission-card-select custom-select-44"
+  });
+  const dSelect = new TestElement("公开", {
+    class: "d-select"
+  });
+  const dSelectContent = new TestElement("公开", {
+    class: "d-select-content"
+  });
+  const dGrid = new TestElement("公开", {
+    class: "d-grid"
+  });
+  const privateOption = new TestElement("仅自己可见", {
+    class: "d-select-dropdown-item d-select-option"
+  });
+  const submit = new TestElement("发布", {
+    tagName: "BUTTON",
+    class: "publish-button"
+  });
+  permissionWrapper.parentElement = editorRoot;
+  permissionSelect.parentElement = permissionWrapper;
+  dSelect.parentElement = permissionSelect;
+  dSelectContent.parentElement = dSelect;
+  dGrid.parentElement = dSelectContent;
+  permissionWrapper.children = [permissionSelect];
+  permissionSelect.children = [dSelect];
+  dSelect.children = [dSelectContent];
+  dSelectContent.children = [dGrid];
+  privateOption.parentElement = editorRoot;
+  submit.parentElement = editorRoot;
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: editorRoot,
+      querySelectorAll: (selector: string) => {
+        if (opened && (selector.includes("option") || selector.includes("dropdown") || selector.includes("select"))) {
+          return [privateOption, submit];
+        }
+        if (selector.includes("button")) {
+          return [submit];
+        }
+        return [permissionWrapper];
+      }
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-d-select-keyboard-open",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-929-d-select-keyboard-open",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr0032-d-select-keyboard-open",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload-d4.xhscdn.com/spectrum/d-select-keyboard-open",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T00:00:00.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    expect(opened).toBe(true);
+    expect(dSelect.focused).toBe(true);
+    expect(dSelect.dispatched).toEqual([
+      "pointerdown",
+      "mousedown",
+      "mouseup",
+      "pointerup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup"
+    ]);
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(result.live_write_evaluation).toMatchObject({
@@ -3661,7 +3891,16 @@ it("stops before submit when permission-card activation never reveals a private 
       }
     });
 
-    expect(permissionSelect.dispatched).toEqual(["pointerdown", "mousedown", "mouseup", "pointerup"]);
+    expect(permissionSelect.dispatched).toEqual([
+      "pointerdown",
+      "mousedown",
+      "mouseup",
+      "pointerup",
+      "keydown",
+      "keyup",
+      "keydown",
+      "keyup"
+    ]);
     expect(permissionSelect.clicked).toBe(true);
     expect(submit.clicked).toBe(false);
     expect(result.live_write_evaluation).toMatchObject({
