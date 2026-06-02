@@ -2927,6 +2927,95 @@ describe("profile-runtime identity preflight", () => {
     expect(browserState.runId).toBe("run-runtime-attach-next-001");
   });
 
+  it("refreshes bootstrap when ready attach rebinds a complete creator publish target", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-attach-ready-target-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "attach_ready_creator_target_profile"
+    });
+    const bridgeCommands: string[] = [];
+    const service = createTestService({
+      bridgeFactory: () => {
+        const bridge = createTargetReadyRuntimeBridge({
+          targetTabId: 32,
+          targetDomain: "creator.xiaohongshu.com",
+          targetPage: "creator_publish_tab"
+        });
+        return {
+          runCommand: async (commandInput) => {
+            bridgeCommands.push(commandInput.command);
+            return bridge.runCommand(commandInput);
+          }
+        };
+      }
+    });
+
+    await service.start({
+      cwd: baseDir,
+      profile: "attach_ready_creator_target_profile",
+      runId: "run-runtime-attach-ready-target-owner-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    const profileDir = join(baseDir, ".webenvoy", "profiles", "attach_ready_creator_target_profile");
+    await writeFile(
+      join(profileDir, BROWSER_STATE_FILENAME),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          launchToken: "attach-ready-target-token-001",
+          profileDir,
+          runId: "run-runtime-attach-ready-target-owner-001",
+          browserPath: "/mock/chrome",
+          controllerPid: 999998,
+          browserPid: 999999,
+          launchedAt: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      service.attach({
+        cwd: baseDir,
+        profile: "attach_ready_creator_target_profile",
+        runId: "run-runtime-attach-ready-target-next-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          },
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab"
+        }
+      })
+    ).resolves.toMatchObject({
+      profileState: "ready",
+      lockHeld: true,
+      runtimeReadiness: "ready",
+      transportState: "ready",
+      bootstrapState: "ready"
+    });
+    expect(bridgeCommands).toContain("runtime.bootstrap");
+
+    const lockRaw = await readFile(join(profileDir, "__webenvoy_lock.json"), "utf8");
+    const lock = JSON.parse(lockRaw) as ProfileLock;
+    expect(lock.ownerRunId).toBe("run-runtime-attach-ready-target-next-001");
+  });
+
   it("allows a fresh run_id to attach a stale-bootstrap runtime when the managed target continuity is proven", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-attach-stale-bootstrap-"));
     tempDirs.push(baseDir);
