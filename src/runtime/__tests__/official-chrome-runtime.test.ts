@@ -453,7 +453,7 @@ describe("prepareOfficialChromeRuntime", () => {
     );
   });
 
-  it("attaches a fresh run_id to an already-ready runtime before bootstrapping its own context", async () => {
+  it("attaches a fresh run_id to an already-ready runtime without re-bootstrapping when refreshed status is ready", async () => {
     const readStatus = vi
       .fn()
       .mockResolvedValueOnce({
@@ -537,16 +537,7 @@ describe("prepareOfficialChromeRuntime", () => {
     });
 
     expect(attachRuntime).toHaveBeenCalledTimes(1);
-    expect(bridge.runCommand).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        command: "runtime.bootstrap",
-        params: expect.objectContaining({
-          run_id: "run-runtime-attach-001",
-          target_tab_id: 52
-        })
-      })
-    );
+    expect(bridge.runCommand).not.toHaveBeenCalled();
   });
 
   it("attaches and re-bootstraps a stale same-target managed runtime when recovery evidence is fresh", async () => {
@@ -590,6 +581,19 @@ describe("prepareOfficialChromeRuntime", () => {
           targetTabContinuity: "runtime_trust_state",
           takeoverEvidenceObservedAt: "2999-01-01T00:00:00.000Z"
         })
+      })
+      .mockResolvedValueOnce({
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension"
+        },
+        profileState: "ready",
+        runtimeReadiness: "blocked",
+        identityBindingState: "bound",
+        bootstrapState: "stale",
+        transportState: "ready",
+        lockHeld: true,
+        executionSurface: "real_browser",
+        headless: false
       })
       .mockResolvedValueOnce({
         identityPreflight: {
@@ -898,6 +902,17 @@ describe("prepareOfficialChromeRuntime", () => {
           mode: "official_chrome_persistent_extension"
         },
         profileState: "ready",
+        runtimeReadiness: "pending",
+        identityBindingState: "bound",
+        bootstrapState: "pending",
+        transportState: "ready",
+        lockHeld: true
+      })
+      .mockResolvedValueOnce({
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension"
+        },
+        profileState: "ready",
         runtimeReadiness: "ready",
         identityBindingState: "bound",
         bootstrapState: "ready",
@@ -987,6 +1002,17 @@ describe("prepareOfficialChromeRuntime", () => {
           mode: "official_chrome_persistent_extension"
         },
         profileState: "ready",
+        runtimeReadiness: "pending",
+        identityBindingState: "bound",
+        bootstrapState: "pending",
+        transportState: "ready",
+        lockHeld: true
+      })
+      .mockResolvedValueOnce({
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension"
+        },
+        profileState: "ready",
         runtimeReadiness: "ready",
         identityBindingState: "bound",
         bootstrapState: "ready",
@@ -1070,6 +1096,17 @@ describe("prepareOfficialChromeRuntime", () => {
           attachableReadyRuntime: true,
           observedRunId: "run-runtime-bootstrap-failed-owner-001"
         })
+      })
+      .mockResolvedValueOnce({
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension"
+        },
+        profileState: "ready",
+        runtimeReadiness: "recoverable",
+        identityBindingState: "bound",
+        bootstrapState: "failed",
+        transportState: "ready",
+        lockHeld: true
       })
       .mockResolvedValueOnce({
         identityPreflight: {

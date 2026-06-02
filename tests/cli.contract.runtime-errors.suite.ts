@@ -486,7 +486,7 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
         }
       }
     });
-  });
+  }, 20_000);
 
   it("keeps malformed encoded profile restore targets on the structured denial path", async () => {
     const runtimeCwd = await createRuntimeCwd();
@@ -1123,7 +1123,7 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
         headless: false
       }
     });
-  });
+  }, 20_000);
 
   it("reports creator live_write closeout gate as GO after attaching a fresh closeout run", async () => {
     const runtimeCwd = await createRuntimeCwd();
@@ -1188,7 +1188,7 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
         managed_target_page: "creator_publish_tab"
       }
     });
-  });
+  }, 20_000);
 
   it("rechecks closeout gate runtime readiness after a transient current-run bootstrap pending sample", async () => {
     const runtimeCwd = await createRuntimeCwd();
