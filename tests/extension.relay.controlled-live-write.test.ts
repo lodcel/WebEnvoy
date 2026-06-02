@@ -3415,6 +3415,342 @@ it("continues from an accepted upload artifact through private submit/publish cl
   }
 });
 
+it("captures publish result identity from a current-page note link when creator URL does not change", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    classList: string[] = [];
+    parentElement = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    clicked = false;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click() {
+      this.clicked = true;
+    }
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+  const visibility = new TestElement("仅自己可见");
+  const submit = new TestElement("发布");
+  submit.tagName = "BUTTON";
+  const publishRecord = new TestElement("发布成功 查看笔记", {
+    href: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981"
+  });
+  publishRecord.tagName = "A";
+  const documentElement = new TestElement("");
+  let publishRecordVisible = false;
+  submit.click = () => {
+    submit.clicked = true;
+    publishRecordVisible = true;
+  };
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "https://creator.xiaohongshu.com/publish/publish" }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: globalThis.location }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement,
+      querySelectorAll: () => [
+        visibility,
+        submit,
+        ...(publishRecordVisible ? [publishRecord] : [])
+      ]
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-current-page-publish-record",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-981-current-page-record",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr0032-current-page-record",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload-d4.xhscdn.com/spectrum/test-record",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T00:00:00.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    expect(visibility.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "GO",
+      full_live_write_success: true,
+      upload_success: true,
+      submit_success: true,
+      publish_success: true,
+      cleanup_success: true,
+      blockers: []
+    });
+    expect(result.live_write_evidence.publish_result_identity).toMatchObject({
+      result_kind: "note_id",
+      note_id: "64b7d8ef000000001f03981",
+      published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+      creator_result_url: null,
+      platform_record_ref: null,
+      verification_state: "verified",
+      success_signal: expect.objectContaining({
+        signal_source: "current_page_state",
+        signal_locator: "a",
+        platform_message: "publish success text observed"
+      })
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
+it("ignores unrelated and pre-existing page note links when publish success has no bound result identity", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    classList: string[] = [];
+    parentElement = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    clicked = false;
+    hidden = false;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click() {
+      this.clicked = true;
+    }
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+  const visibility = new TestElement("仅自己可见");
+  const submit = new TestElement("发布");
+  submit.tagName = "BUTTON";
+  const unrelatedNoteLink = new TestElement("历史笔记", {
+    href: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03abcd"
+  });
+  unrelatedNoteLink.tagName = "A";
+  const oldSuccessRecord = new TestElement("发布成功 历史笔记", {
+    href: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03abcd"
+  });
+  oldSuccessRecord.tagName = "A";
+  const rerenderedOldSuccessRecord = new TestElement("发布成功 历史笔记", {
+    href: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03abcd"
+  });
+  rerenderedOldSuccessRecord.tagName = "SECTION";
+  const successToast = new TestElement("发布成功");
+  const documentElement = new TestElement("");
+  let successToastVisible = false;
+  submit.click = () => {
+    submit.clicked = true;
+    successToastVisible = true;
+    documentElement.textContent = "发布成功";
+  };
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: (element: TestElement) => ({
+      display: element.hidden ? "none" : "block",
+      visibility: element.hidden ? "hidden" : "visible",
+      opacity: element.hidden ? "0" : "1"
+    })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "https://creator.xiaohongshu.com/publish/publish" }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: globalThis.location }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement,
+      querySelectorAll: () => [
+        visibility,
+        submit,
+        unrelatedNoteLink,
+        successToastVisible ? rerenderedOldSuccessRecord : oldSuccessRecord,
+        ...(successToastVisible ? [successToast] : [])
+      ]
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-unrelated-note-link",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-981-unrelated-note-link",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr0032-unrelated-note-link",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload-d4.xhscdn.com/spectrum/test-unrelated-link",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T00:00:00.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    expect(visibility.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+        })
+      ]
+    });
+    expect(result.live_write_evidence.publish_result_identity).toBeNull();
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
 it("opens XHS permission-card select with pointer events before selecting private visibility", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
