@@ -2853,6 +2853,116 @@ it("prioritizes post-upload editor visibility diagnostics over early sidebar con
   }
 });
 
+it("bounds visibility diagnostics on large creator DOMs so live write returns a structured blocker", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "diagnostic-item";
+    classList = ["diagnostic-item"];
+    parentElement = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    constructor(index: number) {
+      this.textContent = `diagnostic candidate ${index}`;
+      this.attributes = { class: `diagnostic-item item-${index}` };
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    getBoundingClientRect = () => ({ width: 100, height: 24 });
+  }
+  const elements = Array.from({ length: 1_000 }, (_, index) => new TestElement(index));
+  let styleCallCount = 0;
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => {
+      styleCallCount += 1;
+      return { display: "block", visibility: "visible", opacity: "1" };
+    }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: elements[0],
+      querySelectorAll: (selector: string) => {
+        if (selector.includes('[class*="item" i]')) {
+          return elements;
+        }
+        return [];
+      }
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-large-visibility-diagnostics",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-963-large-visibility-diagnostics",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/large-diagnostics",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/large-diagnostics",
+        page_preview_locator: "div.preview-image",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T00:00:00.000Z"
+      }
+    });
+
+    const diagnostics = asRecord(asRecord(result.live_write_evidence.stop_signal)?.diagnostics);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING"
+        })
+      ]
+    });
+    expect(diagnostics).toMatchObject({
+      candidate_count: elements.length,
+      scanned_candidate_count: 300,
+      scan_truncated: true,
+      scan_limit: 300,
+      sampled_candidate_count: 40
+    });
+    expect(styleCallCount).toBeLessThan(elements.length);
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+  }
+});
+
 it("continues from an accepted upload artifact through private submit/publish cleanup", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
