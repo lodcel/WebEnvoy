@@ -113,10 +113,28 @@ const omitNestedKey = (value, path) => {
     }
     delete cursor[path[path.length - 1] ?? ""];
 };
+const isCreatorLiveWriteValidationSignalVector = (value) => {
+    const signal = value.signal;
+    if (!isJsonObject(signal)) {
+        return false;
+    }
+    const browserEvidence = signal.browser_returned_evidence;
+    if (!isJsonObject(browserEvidence)) {
+        return false;
+    }
+    return (value.probe_bundle_ref === XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF &&
+        browserEvidence.target_domain === XHS_CREATOR_TARGET_DOMAIN &&
+        browserEvidence.target_page === XHS_CREATOR_PUBLISH_TARGET_PAGE &&
+        browserEvidence.requested_execution_mode === "live_write" &&
+        browserEvidence.probe_bundle_ref === XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF);
+};
 const canonicalizeXhsCloseoutSignalVectorForComparison = (signalVector) => {
     const canonical = cloneJsonObject(signalVector);
     const validationScope = canonical.validation_scope;
     omitNestedKey(canonical, ["signal", "browser_returned_evidence", "target_tab_id"]);
+    if (isCreatorLiveWriteValidationSignalVector(canonical)) {
+        omitNestedKey(canonical, ["signal", "browser_returned_evidence", "page_url"]);
+    }
     if (validationScope === "layer2_interaction") {
         omitNestedKey(canonical, ["signal", "rhythm_profile", "source_run_id"]);
         omitNestedKey(canonical, ["signal", "execution_trace", "action_ref"]);
