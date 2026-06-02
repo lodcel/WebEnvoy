@@ -7801,6 +7801,8 @@ const visibilityDiagnosticSelector = [
     '[class*="option" i]',
     '[class*="item" i]'
 ].join(",");
+const visibilityDiagnosticScanLimit = 300;
+const visibilityDiagnosticSampleLimit = 40;
 const classTokensForElement = (element) => {
     const className = getElementAttribute(element, "class");
     if (!className) {
@@ -7873,23 +7875,36 @@ const collectVisibilityLocatorDiagnostics = () => {
             candidates: []
         };
     }
-    const allCandidates = uniqueVisibilityElements(Array.from(document.querySelectorAll(visibilityDiagnosticSelector)).filter((element) => {
-        return element instanceof HTMLElement && isVisibleElement(element);
-    }));
-    const candidates = allCandidates
-        .map((element, sourceIndex) => ({
+    const matchedElements = document.querySelectorAll(visibilityDiagnosticSelector);
+    const visibleCandidates = [];
+    const seen = new Set();
+    const scanCount = Math.min(matchedElements.length, visibilityDiagnosticScanLimit);
+    for (let index = 0; index < scanCount; index += 1) {
+        const element = matchedElements[index] ?? null;
+        if (element instanceof HTMLElement &&
+            !seen.has(element) &&
+            isVisibleElement(element)) {
+            seen.add(element);
+            visibleCandidates.push({ element, sourceIndex: index });
+        }
+    }
+    const candidates = visibleCandidates
+        .map(({ element, sourceIndex }) => ({
         element,
         sourceIndex,
         score: visibilityDiagnosticCandidateScore(element, sourceIndex)
     }))
         .sort((left, right) => right.score - left.score)
-        .slice(0, 40);
+        .slice(0, visibilityDiagnosticSampleLimit);
     return {
         schema_version: "fr-0032.visibility_locator_diagnostics.v1",
         values_recorded: false,
         recording_policy: "attribute_names_signal_flags_and_lengths_only",
         collected_at: timestamp,
-        candidate_count: allCandidates.length,
+        candidate_count: matchedElements.length,
+        scanned_candidate_count: scanCount,
+        scan_truncated: matchedElements.length > scanCount,
+        scan_limit: visibilityDiagnosticScanLimit,
         sampled_candidate_count: candidates.length,
         candidates: candidates.map(({ element, sourceIndex }, index) => {
             const fullSignal = elementTextSignal(element);
