@@ -8040,6 +8040,49 @@ const activateVisibilityTrigger = (trigger) => {
     }
     trigger.click();
 };
+const nestedVisibilityActivationSelector = [
+    '[role="button"]',
+    '[role="combobox"]',
+    '[class*="select" i]',
+    '[class*="dropdown" i]',
+    '[class*="permission" i]',
+    '[class*="visibility" i]',
+    '[class*="privacy" i]',
+    '[class*="current" i]',
+    '[class*="value" i]',
+    "button",
+    "label",
+    "input"
+].join(",");
+const visibilityActivationTargetScore = (element, sourceIndex) => {
+    const structuralSignal = visibilityStructuralSignal(element);
+    const textSignal = elementTextSignal(element);
+    let score = 0;
+    if (/permission-card-select|d-select-wrapper|reds-select|select|dropdown/iu.test(structuralSignal)) {
+        score += 90;
+    }
+    if (publicVisibilityPattern.test(textSignal) && !privateVisibilityPattern.test(textSignal)) {
+        score += 40;
+    }
+    if (isVisibilityClickTarget(element)) {
+        score += 25;
+    }
+    return score * 1_000 - sourceIndex;
+};
+const resolveNestedVisibilityActivationTargets = (trigger) => {
+    if (typeof trigger.querySelectorAll !== "function") {
+        return [trigger];
+    }
+    const nested = Array.from(trigger.querySelectorAll(nestedVisibilityActivationSelector))
+        .filter((element) => element instanceof HTMLElement && isVisibilityClickTarget(element))
+        .map((element, sourceIndex) => ({
+        element,
+        score: visibilityActivationTargetScore(element, sourceIndex)
+    }))
+        .sort((left, right) => right.score - left.score)
+        .map(({ element }) => element);
+    return uniqueVisibilityElements([...nested, trigger]);
+};
 const waitForOpenedPrivateVisibilityOption = async (timeoutMs) => {
     const deadline = Date.now() + timeoutMs;
     do {
@@ -8055,15 +8098,17 @@ const waitForOpenedPrivateVisibilityOption = async (timeoutMs) => {
 };
 const clickFirstOpenedPrivateVisibilityOption = async (triggers) => {
     for (const trigger of triggers) {
-        if (typeof trigger.click !== "function") {
-            continue;
-        }
-        activateVisibilityTrigger(trigger);
-        const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(2_000);
-        if (openedPrivateOption && typeof openedPrivateOption.click === "function") {
-            openedPrivateOption.click();
-            await sleep(300);
-            return openedPrivateOption;
+        for (const activationTarget of resolveNestedVisibilityActivationTargets(trigger)) {
+            if (typeof activationTarget.click !== "function") {
+                continue;
+            }
+            activateVisibilityTrigger(activationTarget);
+            const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(2_000);
+            if (openedPrivateOption && typeof openedPrivateOption.click === "function") {
+                openedPrivateOption.click();
+                await sleep(300);
+                return openedPrivateOption;
+            }
         }
     }
     return null;
