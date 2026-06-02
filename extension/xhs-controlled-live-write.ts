@@ -2666,6 +2666,58 @@ const findVisibilityTriggersFromExplicitContext = (): HTMLElement[] => {
   );
 };
 
+const likelyPublishVisibilitySelectSelector = [
+  '[class*="d-select" i]',
+  '[class*="reds-select" i]',
+  '[class*="select" i]',
+  '[role="combobox"]',
+  '[tabindex]'
+].join(",");
+
+const nonVisibilitySelectContextPattern =
+  /address|location|poi|place|topic|tag|relation|file-relation|travel|poi-card|address-card/iu;
+
+const hasPublishSettingsAncestor = (element: HTMLElement): boolean => {
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 6; depth += 1) {
+    const signal = `${locatorForElement(current)} ${visibilityStructuralSignal(current)}`;
+    if (nonVisibilitySelectContextPattern.test(signal)) {
+      return false;
+    }
+    if (
+      /publish-page-content-setting|publish-page-content-content-extra|publish-settings|post-settings|setting-content|setting-row/iu.test(
+        signal
+      )
+    ) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+};
+
+const findLikelyPublishVisibilitySelectTriggers = (): HTMLElement[] => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return [];
+  }
+  return uniqueVisibilityElements(
+    Array.from(document.querySelectorAll<HTMLElement>(likelyPublishVisibilitySelectSelector)).map((element) => {
+      if (
+        !isVisibleElement(element) ||
+        isDisabledElement(element) ||
+        !hasPublishSettingsAncestor(element)
+      ) {
+        return null;
+      }
+      const structuralSignal = visibilityStructuralSignal(element);
+      if (!isSelectLikeVisibilityActivationTarget(element) && !/d-select|reds-select|select|dropdown/iu.test(structuralSignal)) {
+        return null;
+      }
+      return resolveVisibilityClickTarget(element);
+    })
+  );
+};
+
 const findVisibilityTriggers = (): HTMLElement[] => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return [];
@@ -2702,6 +2754,7 @@ const findVisibilityTriggers = (): HTMLElement[] => {
     ...explicitContextTriggers,
     ...directTriggers,
     ...publicDefaultTriggers,
+    ...findLikelyPublishVisibilitySelectTriggers(),
     ...findPlainPublicVisibilityValueFallbackTriggers()
   ]);
 };

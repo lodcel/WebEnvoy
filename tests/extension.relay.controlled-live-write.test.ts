@@ -2913,6 +2913,189 @@ it("opens publish settings disclosures before resolving private visibility contr
   }
 });
 
+it("opens creator d-select visibility controls inside publish settings when label text is not detectable", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalWindow = globalThis.window;
+  const originalChromeDescriptor = Object.getOwnPropertyDescriptor(globalThis, "chrome");
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList = [] as string[];
+    textContent = "";
+    clicked = false;
+    parentElement: TestElement | null = null;
+    children: TestElement[] = [];
+    getAttribute = (name: string) => {
+      if (name === "class") {
+        return this.className;
+      }
+      if (name === "tabindex" && this.className.includes("d-select-wrapper")) {
+        return "0";
+      }
+      return null;
+    };
+    getBoundingClientRect = () => ({ width: 128, height: 32 });
+    querySelectorAll = () => {
+      const descendants: TestElement[] = [];
+      const visit = (element: TestElement) => {
+        for (const child of element.children) {
+          descendants.push(child);
+          visit(child);
+        }
+      };
+      visit(this);
+      return descendants;
+    };
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const clickOrder: string[] = [];
+  let privateOptionVisible = false;
+  const publishSettingsContent = new TestElement();
+  publishSettingsContent.className = "publish-page-content-setting-content";
+  const wrapper = new TestElement();
+  wrapper.className = "wrapper";
+  const selectWrapper = new TestElement();
+  selectWrapper.className = "d-select-wrapper d-inline-block custom-select-44";
+  const select = new TestElement();
+  select.className = "d-select --color-text-title --color-bg-fill";
+  const selectGrid = new TestElement();
+  selectGrid.className = "d-grid d-select-main d-select-main-prefix-indicator";
+  const selectContent = new TestElement();
+  selectContent.className = "d-select-content";
+  selectContent.textContent = "粉丝可见";
+  selectWrapper.click = () => {
+    selectWrapper.clicked = true;
+    privateOptionVisible = true;
+    clickOrder.push("visibility-select");
+  };
+  select.parentElement = selectWrapper;
+  selectGrid.parentElement = select;
+  selectContent.parentElement = selectGrid;
+  selectGrid.children = [selectContent];
+  select.children = [selectGrid];
+  selectWrapper.children = [select];
+  selectWrapper.parentElement = wrapper;
+  wrapper.children = [selectWrapper];
+  wrapper.parentElement = publishSettingsContent;
+  publishSettingsContent.children = [wrapper];
+  const privateOption = new TestElement();
+  privateOption.tagName = "LI";
+  privateOption.className = "d-select-option";
+  privateOption.classList = ["d-select-option"];
+  privateOption.textContent = "仅自己可见";
+  privateOption.click = () => {
+    privateOption.clicked = true;
+    clickOrder.push("private-option");
+  };
+  const submit = new TestElement();
+  submit.tagName = "BUTTON";
+  submit.className = "publish-submit";
+  submit.classList = ["publish-submit"];
+  submit.textContent = "发布";
+  submit.click = () => {
+    submit.clicked = true;
+    clickOrder.push("submit");
+  };
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("dropdown") || selector.includes("option") || selector.includes(" li")) {
+          return privateOptionVisible ? [privateOption] : [];
+        }
+        if (selector.includes("d-select") || selector.includes("select") || selector.includes("tabindex")) {
+          return [selectWrapper];
+        }
+        if (selector.includes("publish") || selector.includes("submit") || selector.includes("button")) {
+          return [publishSettingsContent, submit];
+        }
+        return [];
+      }
+    }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: undefined
+  });
+  Reflect.deleteProperty(globalThis, "chrome");
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-d-select-visibility-without-label",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-986-d-select-visibility-without-label",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/d-select-visibility-without-label",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/d-select-visibility",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T20:00:01.725Z"
+      }
+    });
+
+    expect(selectWrapper.clicked).toBe(true);
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(clickOrder).toEqual(["visibility-select", "private-option", "submit"]);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      submit_success: true,
+      publish_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+        })
+      ]
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+    if (originalChromeDescriptor) {
+      Object.defineProperty(globalThis, "chrome", originalChromeDescriptor);
+    }
+  }
+}, 10_000);
+
 it("does not use non-actionable publish text containers as submit controls", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
