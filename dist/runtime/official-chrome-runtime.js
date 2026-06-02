@@ -374,6 +374,7 @@ export const prepareOfficialChromeRuntime = async (input) => {
                 })));
     if (shouldAttemptAttach) {
         syncRuntimeStatus(await attachRuntime());
+        syncRuntimeStatus(await readStatus());
     }
     const attemptExecutionBootstrap = async () => {
         const envelope = buildRuntimeBootstrapEnvelope({

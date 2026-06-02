@@ -1125,6 +1125,71 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
     });
   });
 
+  it("reports creator live_write closeout gate as GO after attaching a fresh closeout run", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const profile = "xhs_creator_live_write_gate_attach_ready";
+    const persistentExtensionIdentity = await startOfficialReadyRuntime(
+      runtimeCwd,
+      profile,
+      "run-contract-creator-live-write-gate-owner-001"
+    );
+    await seedReadyXhsCloseoutValidationViews(runtimeCwd, profile, {
+      effectiveExecutionMode: "live_write",
+      probeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+    });
+
+    const result = runCli(
+      [
+        "runtime.closeout_gate",
+        "--profile",
+        profile,
+        "--run-id",
+        "run-contract-creator-live-write-gate-next-001",
+        "--params",
+        JSON.stringify({
+          requested_execution_mode: "live_write",
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          target_tab_id: 44,
+          requested_at: "2026-04-25T10:45:00.000Z",
+          persistent_extension_identity: persistentExtensionIdentity
+        })
+      ],
+      runtimeCwd,
+      {
+        WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
+        WEBENVOY_NATIVE_TRANSPORT: "native",
+        WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
+        WEBENVOY_NATIVE_HOST_MODE: "runtime-readiness-ready"
+      }
+    );
+
+    expect(result.status, result.stdout).toBe(0);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body.summary.closeout_gate_aggregator).toMatchObject({
+      decision: "GO",
+      blocker: null,
+      gate_state: {
+        requested_execution_mode: "live_write",
+        account_safety_state: "clear",
+        anti_detection_validation_ready: true,
+        runtime_decision: "GO",
+        target_binding_state: "verified",
+        execution_surface: "real_browser",
+        headless: false
+      }
+    });
+    expect(body.summary.closeout_runtime_readiness_preflight).toMatchObject({
+      decision: "GO",
+      target_binding: {
+        state: "verified",
+        managed_target_tab_id: 44,
+        managed_target_domain: "creator.xiaohongshu.com",
+        managed_target_page: "creator_publish_tab"
+      }
+    });
+  });
+
   it("rechecks closeout gate runtime readiness after a transient current-run bootstrap pending sample", async () => {
     const runtimeCwd = await createRuntimeCwd();
     const profile = "xhs_creator_live_write_gate_transient_pending";
