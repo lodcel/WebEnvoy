@@ -1470,8 +1470,10 @@ export class ProfileRuntimeService {
       });
       await store.writeMeta(input.profile, nextMeta);
     }
+    const refreshTargetBootstrapOnAttach =
+      takeoverMode === "ready_attach" && hasCompleteRuntimeTargetBinding(input.params);
     const readiness =
-      takeoverMode === "stale_bootstrap_rebind" &&
+      (takeoverMode === "stale_bootstrap_rebind" || refreshTargetBootstrapOnAttach) &&
       identityPreflight.identityBindingState === "bound"
         ? await this.#deliverRuntimeBootstrap({
             runtimeInput: input,
