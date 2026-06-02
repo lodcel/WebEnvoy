@@ -4490,6 +4490,34 @@ process.stdin.on("data", (chunk) => {
       }
     });
 
+    const auditResult = runCli([
+      "runtime.audit",
+      "--run-id",
+      "run-xhs-creator-live-write-validation-audit-001",
+      "--params",
+      JSON.stringify({
+        profile,
+        requested_execution_mode: "live_write",
+        limit: 1
+      })
+    ], cwd);
+    expect(auditResult.status, auditResult.stdout).toBe(0);
+    const auditBody = parseSingleJsonLine(auditResult.stdout);
+    expect(auditBody).toMatchObject({
+      command: "runtime.audit",
+      status: "success",
+      summary: {
+        anti_detection_validation_view: {
+          profile_ref: `profile/${profile}`,
+          effective_execution_mode: "live_write",
+          probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+          all_required_ready: true,
+          missing_target_fr_refs: [],
+          blocking_target_fr_refs: []
+        }
+      }
+    });
+
     const DatabaseSyncCtor = DatabaseSync as DatabaseSyncCtor;
     const db = new DatabaseSyncCtor(resolveRuntimeStorePath(cwd)) as unknown as {
       prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] };
