@@ -1819,14 +1819,48 @@ const findPlainPublicVisibilityValueFallbackTriggers = () => {
         return resolvePlainPublicVisibilityClickTarget(element);
     }));
 };
+const dispatchVisibilityActivationEvent = (element, eventName) => {
+    if (typeof element.dispatchEvent !== "function") {
+        return;
+    }
+    try {
+        const EventCtor = eventName.startsWith("pointer") && typeof PointerEvent === "function"
+            ? PointerEvent
+            : typeof MouseEvent === "function"
+                ? MouseEvent
+                : Event;
+        element.dispatchEvent(new EventCtor(eventName, { bubbles: true, cancelable: true }));
+    }
+    catch {
+        // Some test/runtime shims expose partial event constructors. The native click below remains the fallback.
+    }
+};
+const activateVisibilityTrigger = (trigger) => {
+    for (const eventName of ["pointerdown", "mousedown", "mouseup", "pointerup"]) {
+        dispatchVisibilityActivationEvent(trigger, eventName);
+    }
+    trigger.click();
+};
+const waitForOpenedPrivateVisibilityOption = async (timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    do {
+        const openedPrivateOption = findPrivateVisibilityOption(true);
+        if (openedPrivateOption) {
+            return openedPrivateOption;
+        }
+        if (Date.now() >= deadline) {
+            return null;
+        }
+        await sleep(150);
+    } while (true);
+};
 const clickFirstOpenedPrivateVisibilityOption = async (triggers) => {
     for (const trigger of triggers) {
         if (typeof trigger.click !== "function") {
             continue;
         }
-        trigger.click();
-        await sleep(500);
-        const openedPrivateOption = findPrivateVisibilityOption(true);
+        activateVisibilityTrigger(trigger);
+        const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(2_000);
         if (openedPrivateOption && typeof openedPrivateOption.click === "function") {
             openedPrivateOption.click();
             await sleep(300);
