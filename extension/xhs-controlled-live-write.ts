@@ -2033,24 +2033,28 @@ const resolvePlainPublicVisibilityClickTarget = (element: HTMLElement): HTMLElem
   if (!hasPlainPublicVisibilityTextContext(element)) {
     return null;
   }
-  if (typeof element.click === "function") {
-    return element;
-  }
   let current: HTMLElement | null = element;
   let nearestSettingsLike: HTMLElement | null = null;
   for (let depth = 0; current && depth < 6; depth += 1) {
     if (current !== element && isPublishSettingsLikeContainer(current)) {
       nearestSettingsLike = current;
     }
-    if (isVisibilityClickTarget(current)) {
+    if (isVisibilityClickTarget(current) && (current === element || isSelectLikeVisibilityActivationTarget(current))) {
       return current;
     }
     current = current.parentElement;
   }
-  if (nearestSettingsLike && textContentOf(nearestSettingsLike).length <= 80) {
+  if (
+    nearestSettingsLike &&
+    textContentOf(nearestSettingsLike).length <= 80 &&
+    isSelectLikeVisibilityActivationTarget(nearestSettingsLike)
+  ) {
     return nearestSettingsLike;
   }
-  return isVisibilityClickTarget(element) ? element : null;
+  if (isVisibilityClickTarget(element)) {
+    return element;
+  }
+  return typeof element.click === "function" ? element : null;
 };
 
 const uniqueVisibilityElements = (elements: Array<HTMLElement | null>): HTMLElement[] => {
@@ -2363,11 +2367,45 @@ const dispatchVisibilityActivationEvent = (element: HTMLElement, eventName: stri
   }
 };
 
+const dispatchVisibilityKeyboardActivationEvent = (
+  element: HTMLElement,
+  eventName: string,
+  key: string
+): void => {
+  if (typeof element.dispatchEvent !== "function") {
+    return;
+  }
+  try {
+    const event =
+      typeof KeyboardEvent === "function"
+        ? new KeyboardEvent(eventName, { bubbles: true, cancelable: true, key })
+        : new Event(eventName, { bubbles: true, cancelable: true });
+    element.dispatchEvent(event);
+  } catch {
+    // Some test/runtime shims expose partial event constructors. Pointer events and click remain the fallback.
+  }
+};
+
+const isSelectLikeVisibilityActivationTarget = (element: HTMLElement): boolean => {
+  const signal = `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""} ${visibilityStructuralSignal(element)}`;
+  return /combobox|listbox|select|dropdown|permission-card|d-select|reds-select|el-select|semi-select|ant-select/iu.test(signal);
+};
+
 const activateVisibilityTrigger = (trigger: HTMLElement): void => {
   for (const eventName of ["pointerdown", "mousedown", "mouseup", "pointerup"]) {
     dispatchVisibilityActivationEvent(trigger, eventName);
   }
   trigger.click();
+  if (!isSelectLikeVisibilityActivationTarget(trigger)) {
+    return;
+  }
+  if (typeof trigger.focus === "function") {
+    trigger.focus();
+  }
+  for (const key of ["Enter", " "]) {
+    dispatchVisibilityKeyboardActivationEvent(trigger, "keydown", key);
+    dispatchVisibilityKeyboardActivationEvent(trigger, "keyup", key);
+  }
 };
 
 const nestedVisibilityActivationSelector = [
@@ -2380,6 +2418,8 @@ const nestedVisibilityActivationSelector = [
   '[class*="privacy" i]',
   '[class*="current" i]',
   '[class*="value" i]',
+  '[class*="grid" i]',
+  '[tabindex]',
   "button",
   "label",
   "input"
@@ -2401,12 +2441,47 @@ const visibilityActivationTargetScore = (element: HTMLElement, sourceIndex: numb
   return score * 1_000 - sourceIndex;
 };
 
+const isNestedSelectLikeVisibilityActivationCandidate = (
+  element: HTMLElement,
+  boundary: HTMLElement
+): boolean => {
+  if (!isVisibleElement(element) || isDisabledElement(element)) {
+    return false;
+  }
+  const structuralSignal = visibilityStructuralSignal(element);
+  if (!visibilityStructuralPattern.test(structuralSignal) && !/\b(?:d-)?grid\b/iu.test(structuralSignal)) {
+    return false;
+  }
+  const textSignal = elementTextSignal(element);
+  if (
+    !publicVisibilityPattern.test(textSignal) ||
+    privateVisibilityPattern.test(textSignal) ||
+    nonSubmitPublishPattern.test(textContentOf(element))
+  ) {
+    return false;
+  }
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    if (isSelectLikeVisibilityActivationTarget(current)) {
+      return true;
+    }
+    if (current === boundary) {
+      break;
+    }
+    current = current.parentElement;
+  }
+  return false;
+};
+
 const resolveNestedVisibilityActivationTargets = (trigger: HTMLElement): HTMLElement[] => {
   if (typeof trigger.querySelectorAll !== "function") {
     return [trigger];
   }
   const nested = Array.from(trigger.querySelectorAll<HTMLElement>(nestedVisibilityActivationSelector))
-    .filter((element) => element instanceof HTMLElement && isVisibilityClickTarget(element))
+    .filter((element) =>
+      element instanceof HTMLElement &&
+      (isVisibilityClickTarget(element) || isNestedSelectLikeVisibilityActivationCandidate(element, trigger))
+    )
     .map((element, sourceIndex) => ({
       element,
       score: visibilityActivationTargetScore(element, sourceIndex)
