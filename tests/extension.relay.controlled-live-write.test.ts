@@ -2722,6 +2722,137 @@ it("stops after accepted upload when private visibility control is missing", asy
   }
 });
 
+it("prioritizes post-upload editor visibility diagnostics over early sidebar containers", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    parentElement: TestElement | null = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    clicked = false;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter((item) => item.length > 0);
+      this.id = attributes.id ?? "";
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const sidebarCandidates = Array.from({ length: 45 }, (_, index) => {
+    return new TestElement(index === 0 ? "首页 笔记 数据" : "菜单", {
+      class: `d-menu-item sidebar-${index}`
+    });
+  });
+  const editorRoot = new TestElement("发布设置 可见范围 公开", {
+    class: "publish-page-content editor-form"
+  });
+  const visibilityRow = new TestElement("可见范围 公开", {
+    class: "publish-visibility-row setting-row"
+  });
+  const visibilityValue = new TestElement("公开", {
+    class: "publish-visibility-current d-select"
+  });
+  visibilityRow.parentElement = editorRoot;
+  visibilityValue.parentElement = visibilityRow;
+  const elements = [...sidebarCandidates, editorRoot, visibilityRow, visibilityValue];
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: editorRoot,
+      querySelectorAll: () => elements
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-prioritized-visibility-diagnostics",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-929-prioritized-visibility-diagnostics",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/prioritized-diagnostics",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/prioritized-diagnostics",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T00:00:00.000Z"
+      }
+    });
+
+    const diagnostics = asRecord(asRecord(result.live_write_evidence.stop_signal)?.diagnostics);
+    const candidates = diagnostics?.candidates as Array<Record<string, unknown>>;
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING"
+        })
+      ]
+    });
+    expect(diagnostics).toMatchObject({
+      candidate_count: elements.length,
+      sampled_candidate_count: 40
+    });
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          locator: "div.publish-visibility-row",
+          source_index: 46,
+          public_visibility_signal: true,
+          visibility_structural_signal: true
+        })
+      ])
+    );
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+  }
+});
+
 it("continues from an accepted upload artifact through private submit/publish cleanup", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;

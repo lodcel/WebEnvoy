@@ -7823,6 +7823,44 @@ const visibilityDiagnosticAncestor = (element) => {
     }
     return ancestors;
 };
+const visibilityDiagnosticCandidateScore = (element, sourceIndex) => {
+    const fullSignal = elementTextSignal(element);
+    const displayedSignal = elementDisplayedTextSignal(element);
+    const structuralSignal = visibilityStructuralSignal(element);
+    const locator = locatorForElement(element);
+    let score = 0;
+    if (privateVisibilityPattern.test(fullSignal)) {
+        score += 120;
+    }
+    if (isVisibilityClickTarget(element)) {
+        score += 90;
+    }
+    if (visibilityTriggerPattern.test(fullSignal)) {
+        score += 70;
+    }
+    if (visibilityStructuralPattern.test(structuralSignal)) {
+        score += 55;
+    }
+    if (publicVisibilityPattern.test(fullSignal) && displayedSignal.length <= 120) {
+        score += 45;
+    }
+    if (visibilitySettingsDisclosurePattern.test(fullSignal) && displayedSignal.length <= 160) {
+        score += 35;
+    }
+    if (/publish|editor|content|form|field|row|setting|scope|range|permission|visibility|privacy|select|dropdown|option|value|current/iu.test(`${locator} ${structuralSignal}`)) {
+        score += 30;
+    }
+    if (displayedSignal.length > 240) {
+        score -= 80;
+    }
+    else if (displayedSignal.length > 120) {
+        score -= 35;
+    }
+    if (/^#(?:app|page|CreatorPlatform)$/u.test(locator)) {
+        score -= 100;
+    }
+    return score * 10_000 - sourceIndex;
+};
 const collectVisibilityLocatorDiagnostics = () => {
     const timestamp = nowIso();
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
@@ -7835,21 +7873,31 @@ const collectVisibilityLocatorDiagnostics = () => {
             candidates: []
         };
     }
-    const candidates = uniqueVisibilityElements(Array.from(document.querySelectorAll(visibilityDiagnosticSelector)).filter((element) => {
+    const allCandidates = uniqueVisibilityElements(Array.from(document.querySelectorAll(visibilityDiagnosticSelector)).filter((element) => {
         return element instanceof HTMLElement && isVisibleElement(element);
-    })).slice(0, 40);
+    }));
+    const candidates = allCandidates
+        .map((element, sourceIndex) => ({
+        element,
+        sourceIndex,
+        score: visibilityDiagnosticCandidateScore(element, sourceIndex)
+    }))
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 40);
     return {
         schema_version: "fr-0032.visibility_locator_diagnostics.v1",
         values_recorded: false,
         recording_policy: "attribute_names_signal_flags_and_lengths_only",
         collected_at: timestamp,
-        candidate_count: candidates.length,
-        candidates: candidates.map((element, index) => {
+        candidate_count: allCandidates.length,
+        sampled_candidate_count: candidates.length,
+        candidates: candidates.map(({ element, sourceIndex }, index) => {
             const fullSignal = elementTextSignal(element);
             const displayedSignal = elementDisplayedTextSignal(element);
             const structuralSignal = visibilityStructuralSignal(element);
             return {
                 index,
+                source_index: sourceIndex,
                 tag_name: element.tagName.toLowerCase(),
                 locator: locatorForElement(element),
                 attribute_names: attributeNamesForElement(element),
