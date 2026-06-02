@@ -1484,6 +1484,96 @@ export const applyXhsControlledUploadPlatformCapture = (
   };
 };
 
+export const applyXhsControlledLiveWriteContinuationTimeout = (
+  result: XhsControlledLiveWriteResult,
+  input: {
+    continuationKey: string;
+    reason: string;
+  }
+): XhsControlledLiveWriteResult => {
+  const timestamp = nowIso();
+  const evidence = result.live_write_evidence;
+  const scope = evidence.scope as JsonRecord | undefined;
+  const liveWriteAttemptId = String(evidence.live_write_attempt_id ?? "unknown");
+  const stopSignal = (evidence.stop_signal as JsonRecord | null) ?? {
+    schema_version: "fr-0032.live_write_stop_signal.v1",
+    live_write_attempt_id: liveWriteAttemptId,
+    run_id: String(scope?.run_id ?? "unknown"),
+    profile_ref: String(scope?.profile_ref ?? "unknown"),
+    target_tab_id: Number(scope?.target_tab_id ?? 0),
+    severity: "blocking",
+    cleanup_result_id: null,
+    residual_record_id: null,
+    evidence_ref: `live_write_evidence/${liveWriteAttemptId}`
+  };
+  const nextStopSignal = {
+    ...stopSignal,
+    stop_signal_id: `stop/fr-0032/${liveWriteAttemptId}/submit-continuation-timeout`,
+    stopped_at: timestamp,
+    stopped_step: "submit",
+    blocker_layer: "runtime-channel",
+    blocker_code: "SUBMIT_CONTINUATION_TIMEOUT",
+    later_write_actions_blocked: true,
+    cleanup_required: true,
+    required_recovery_action:
+      "rerun controlled submit/publish with the accepted_upload_artifact_identity from this evidence"
+  };
+  const nextEvidence = {
+    ...evidence,
+    execution_phase: "submit",
+    stop_classification: {
+      ...((evidence.stop_classification as JsonRecord | undefined) ?? {}),
+      category: "submit_blocked",
+      evaluation_state: "stopped",
+      stop_reason: "submit_continuation_timeout",
+      background_upload_capture_continuation: {
+        attempted: true,
+        continuation_key: input.continuationKey,
+        failure_reason: input.reason,
+        recorded_at: timestamp
+      }
+    },
+    risk_signals: [
+      {
+        risk_signal_id: `risk/fr-0032/${liveWriteAttemptId}/submit-continuation-timeout`,
+        detected_at: timestamp,
+        source: "runtime-channel",
+        kind: "submit_failure",
+        severity: "blocking",
+        details_ref: "submit_continuation_timeout"
+      }
+    ],
+    stop_signal: nextStopSignal,
+    updated_at: timestamp
+  };
+  return {
+    ...result,
+    live_write_evidence: nextEvidence,
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: true,
+      submit_success: false,
+      publish_success: false,
+      cleanup_success: false,
+      later_write_actions_blocked: true,
+      cleanup_required: true,
+      blockers: [
+        {
+          blocker_code: "SUBMIT_CONTINUATION_TIMEOUT",
+          blocker_layer: "runtime-channel",
+          message: "Accepted upload evidence exists, but the controlled submit/publish continuation timed out."
+        }
+      ]
+    },
+    uploaded: true,
+    submitted: false,
+    published: false,
+    cleanup_attempted: false
+  };
+};
+
 export const applyXhsControlledUploadPlatformCaptureStatus = (
   result: XhsControlledLiveWriteResult,
   status: XhsControlledUploadPlatformCaptureStatus | null

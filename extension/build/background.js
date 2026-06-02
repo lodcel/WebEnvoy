@@ -8,7 +8,7 @@ import { WRITE_INTERACTION_TIER, APPROVAL_CHECK_KEYS, EXECUTION_MODES, buildRisk
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsCommandGateReasons, evaluateXhsGate, collectXhsMatrixGateReasons, finalizeXhsGateOutcome, resolveXhsGateApprovalId, resolveXhsGateDecisionId, resolveXhsActionType, resolveXhsExecutionMode, normalizeXhsApprovalRecord } from "../shared/xhs-gate.js";
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
-import { applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledUploadPlatformCapture, isXhsControlledUploadPlatformCaptureUrl, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
+import { applyXhsControlledLiveWriteContinuationTimeout, applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledUploadPlatformCapture, isXhsControlledUploadPlatformCaptureUrl, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -1639,6 +1639,14 @@ const resolveBackgroundUploadCaptureContinuationArtifact = (result) => {
         return null;
     }
     return uploadArtifact;
+};
+const buildXhsControlledLiveWriteContinuationTimeoutPayload = (result, input) => {
+    const controlledLiveWrite = applyXhsControlledLiveWriteContinuationTimeout(result, input);
+    return {
+        controlled_live_write: controlledLiveWrite,
+        live_write_evidence: controlledLiveWrite.live_write_evidence,
+        live_write_evaluation: controlledLiveWrite.live_write_evaluation
+    };
 };
 export class BackgroundRelay extends ExtractedBackgroundRelay {
     constructor(contentScript, options) {
@@ -7464,6 +7472,12 @@ class ChromeBackgroundBridge {
                 },
                 payload: {
                     ...(pending.gatePayload ? { ...pending.gatePayload } : {}),
+                    ...(input.parentControlledLiveWrite
+                        ? buildXhsControlledLiveWriteContinuationTimeoutPayload(input.parentControlledLiveWrite, {
+                            continuationKey,
+                            reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
+                        })
+                        : {}),
                     background_upload_capture_continuation: {
                         attempted: true,
                         reason: XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_REASON,
@@ -7471,6 +7485,17 @@ class ChromeBackgroundBridge {
                         continuation_state: "cleared",
                         max_attempts: 1,
                         failure_reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
+                    },
+                    details: {
+                        ...(asRecord(pending.gatePayload?.details) ?? {}),
+                        stage: "execution",
+                        reason: "SUBMIT_CONTINUATION_TIMEOUT",
+                        forward_failure_stage: "controlled_live_write_continuation_timeout",
+                        target_domain: asRecord(pending.consumerGateResult)?.target_domain ?? null,
+                        target_tab_id: asRecord(pending.consumerGateResult)?.target_tab_id ?? input.targetTabId,
+                        target_page: asRecord(pending.consumerGateResult)?.target_page ?? null,
+                        timeout_ms: pendingTimeoutMs,
+                        native_timeout_ms: timeoutMs
                     }
                 },
                 error: {
@@ -7684,6 +7709,7 @@ class ChromeBackgroundBridge {
                     requestDeadlineMs: pending.requestDeadlineMs ??
                         Date.now() + this.#resolveForwardTimeoutMs(continuationDispatch.pendingRequest),
                     parentPending: pending,
+                    parentControlledLiveWrite: mergedControlledLiveWrite,
                     targetTabId: continuationTabId
                 });
                 return;

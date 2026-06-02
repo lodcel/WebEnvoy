@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { resolveXhsControlledLiveWriteContinuationTimeoutMsForContract } from "../extension/background.js";
 import { createMockPort, createEditorInputProbeResult, createChromeApi, respondHandshake, waitForBridgeTurn, waitForPostedMessage, primeTrustedFingerprintContext, promoteBootstrapReadinessThroughPing, createXhsCommandParams, createRequestBoundXhsCommandParams, createXhsEditorInputCommandParams, createApprovedReadApprovalRecord, createApprovedReadAuditRecordForRequest, createApprovedReadAdmissionContext, createFingerprintRuntimeContext, asRecord, resolveWriteInteractionTier, startChromeBackgroundBridge } from "./extension.service-worker.shared.js";
@@ -176,6 +177,18 @@ const primeStaleRestoreBindingLease = async (
 };
 
 describe("extension service worker / gate and approval", () => {
+  it("keeps continuation timeout evidence out of non-timeout pending payload", () => {
+    const source = readFileSync(new URL("../extension/background.ts", import.meta.url), "utf8");
+    const registerStart = source.indexOf("this.#pendingState.register(input.forwardId");
+    expect(registerStart).toBeGreaterThanOrEqual(0);
+    const registerEnd = source.indexOf("    });", registerStart);
+    expect(registerEnd).toBeGreaterThan(registerStart);
+    const registerBlock = source.slice(registerStart, registerEnd);
+
+    expect(registerBlock).toContain("input.parentPending.gatePayload");
+    expect(registerBlock).not.toContain("buildXhsControlledLiveWriteContinuationTimeoutPayload");
+  });
+
   it("blocks XHS validation source main-world probe before managed tab bootstrap binding", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);

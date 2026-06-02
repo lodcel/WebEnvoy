@@ -57,6 +57,7 @@ import {
   type ExtensionAbilityAction
 } from "./xhs-command-contract.js";
 import {
+  applyXhsControlledLiveWriteContinuationTimeout,
   applyXhsControlledUploadPlatformCapture,
   applyXhsControlledUploadPlatformCaptureStatus,
   decodeXhsControlledUploadNetworkResponseBody,
@@ -2493,6 +2494,24 @@ const resolveBackgroundUploadCaptureContinuationArtifact = (
     return null;
   }
   return uploadArtifact;
+};
+
+const buildXhsControlledLiveWriteContinuationTimeoutPayload = (
+  result: XhsControlledLiveWriteResult,
+  input: {
+    continuationKey: string;
+    reason: string;
+  }
+): Record<string, unknown> => {
+  const controlledLiveWrite = applyXhsControlledLiveWriteContinuationTimeout(
+    result,
+    input
+  ) as Record<string, unknown>;
+  return {
+    controlled_live_write: controlledLiveWrite,
+    live_write_evidence: controlledLiveWrite.live_write_evidence,
+    live_write_evaluation: controlledLiveWrite.live_write_evaluation
+  };
 };
 
 export class BackgroundRelay extends ExtractedBackgroundRelay {
@@ -9180,6 +9199,7 @@ class ChromeBackgroundBridge {
       gatePayload?: Record<string, unknown> | null;
       suppressHostResponse?: boolean;
     };
+    parentControlledLiveWrite?: XhsControlledLiveWriteResult | null;
     targetTabId: number;
   }): Promise<void> {
     const commandParams = asRecord(input.pendingRequest.params.command_params) ?? {};
@@ -9206,6 +9226,15 @@ class ChromeBackgroundBridge {
         },
         payload: {
           ...(pending.gatePayload ? { ...pending.gatePayload } : {}),
+          ...(input.parentControlledLiveWrite
+            ? buildXhsControlledLiveWriteContinuationTimeoutPayload(
+                input.parentControlledLiveWrite,
+                {
+                  continuationKey,
+                  reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
+                }
+              )
+            : {}),
           background_upload_capture_continuation: {
             attempted: true,
             reason: XHS_BACKGROUND_UPLOAD_CAPTURE_CONTINUATION_REASON,
@@ -9213,6 +9242,17 @@ class ChromeBackgroundBridge {
             continuation_state: "cleared",
             max_attempts: 1,
             failure_reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
+          },
+          details: {
+            ...(asRecord(pending.gatePayload?.details) ?? {}),
+            stage: "execution",
+            reason: "SUBMIT_CONTINUATION_TIMEOUT",
+            forward_failure_stage: "controlled_live_write_continuation_timeout",
+            target_domain: asRecord(pending.consumerGateResult)?.target_domain ?? null,
+            target_tab_id: asRecord(pending.consumerGateResult)?.target_tab_id ?? input.targetTabId,
+            target_page: asRecord(pending.consumerGateResult)?.target_page ?? null,
+            timeout_ms: pendingTimeoutMs,
+            native_timeout_ms: timeoutMs
           }
         },
         error: {
@@ -9459,6 +9499,7 @@ class ChromeBackgroundBridge {
             pending.requestDeadlineMs ??
             Date.now() + this.#resolveForwardTimeoutMs(continuationDispatch.pendingRequest),
           parentPending: pending,
+          parentControlledLiveWrite: mergedControlledLiveWrite as XhsControlledLiveWriteResult,
           targetTabId: continuationTabId
         });
         return;

@@ -9,6 +9,7 @@ import {
 import { resolveContentCommandDeadlineMsForContract } from "../extension/content-script-handler.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "../extension/xhs-controlled-upload-platform-capture.js";
 import {
+  applyXhsControlledLiveWriteContinuationTimeout,
   applyXhsControlledUploadPlatformCapture,
   applyXhsControlledUploadPlatformCaptureStatus,
   buildXhsControlledLiveWriteUploadBlockedResult,
@@ -130,6 +131,84 @@ it("promotes upload evidence when Chrome debugger captures an explicit platform 
     stop_signal: expect.objectContaining({
       stopped_step: "submit",
       blocker_code: "SUBMIT_EXECUTOR_UNAVAILABLE"
+    })
+  });
+});
+
+it("preserves accepted upload evidence when submit continuation times out", () => {
+  const result = buildXhsControlledLiveWriteUploadBlockedResult(
+    {
+      live_write_attempt_id: "fr0032-attempt-continuation-timeout",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-963-continuation-timeout",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test"
+    },
+    {
+      blockerCode: "UPLOAD_ACCEPTANCE_UNVERIFIED",
+      blockerMessage:
+        "Controlled live upload observed an editor preview, but platform upload acceptance is not independently verified.",
+      detailsRef: "upload_acceptance_unverified",
+      requiredRecoveryAction:
+        "collect platform-returned upload acceptance evidence before submit/publish"
+    },
+    {
+      upload_artifact_id: "upload-artifact/fr0032-continuation-timeout",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/timeout",
+      page_preview_locator: "img.preview-image",
+      accepted_by_platform: true,
+      visible_in_editor: true,
+      captured_at: "2026-06-02T05:45:00.000Z"
+    }
+  );
+
+  const timedOut = applyXhsControlledLiveWriteContinuationTimeout(result, {
+    continuationKey:
+      "nm-session-001:run-xhs-issue-963-continuation-timeout:32:fr0032-attempt-continuation-timeout:upload-artifact/fr0032-continuation-timeout:xhs.creator_publish.controlled_live_write",
+    reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
+  });
+
+  expect(timedOut.live_write_evaluation).toMatchObject({
+    decision: "NO_GO",
+    upload_success: true,
+    submit_success: false,
+    cleanup_required: true,
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "SUBMIT_CONTINUATION_TIMEOUT",
+        blocker_layer: "runtime-channel"
+      })
+    ]
+  });
+  expect(timedOut.live_write_evidence).toMatchObject({
+    execution_phase: "submit",
+    upload_artifact_identity: expect.objectContaining({
+      upload_artifact_id: "upload-artifact/fr0032-continuation-timeout",
+      accepted_by_platform: true,
+      visible_in_editor: true
+    }),
+    stop_signal: expect.objectContaining({
+      stopped_step: "submit",
+      blocker_code: "SUBMIT_CONTINUATION_TIMEOUT",
+      cleanup_required: true
+    }),
+    stop_classification: expect.objectContaining({
+      stop_reason: "submit_continuation_timeout",
+      background_upload_capture_continuation: expect.objectContaining({
+        attempted: true,
+        failure_reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
+      })
     })
   });
 });
