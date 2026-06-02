@@ -552,6 +552,132 @@ describe("FR-0020 XHS closeout validation baseline", () => {
     }
   });
 
+  it("keeps creator live_write page URL drift blocking outside the allowed article/image target variance", async () => {
+    const { cwd, store } = await createStore();
+    try {
+      const profile = "xhs_creator_publish_url_drift_validation_profile";
+      const baselineSourceRunId = "run-creator-live-write-url-baseline-source";
+      const baselineValidationRunId = "run-creator-live-write-url-baseline-validation";
+      const currentSourceRunId = "run-creator-live-write-url-drift-source";
+      const currentValidationRunId = "run-creator-live-write-url-drift-validation";
+      const commonScope = {
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        requestedExecutionMode: "live_write" as const,
+        probeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      };
+
+      const baselineSamples = await persistXhsCloseoutValidationSourceEvidence({
+        store,
+        profile,
+        effectiveExecutionMode: "live_write",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        sourceRunId: baselineSourceRunId,
+        observedAt: "2026-05-27T02:00:01.000Z",
+        sourceAudit: sourceAuditForRun({
+          runId: baselineSourceRunId,
+          actionRef: "action-creator-live-write-url-baseline-source",
+          targetTabId: 1230453498,
+          sessionId: "nm-session-creator-url-baseline",
+          observedAt: "2026-05-27T02:00:00.000Z",
+          targetDomain: "creator.xiaohongshu.com",
+          targetPage: "creator_publish_tab",
+          requestedExecutionMode: "live_write"
+        }),
+        actionRef: "action-creator-live-write-url-baseline-source",
+        signals: signalsWithValidationSourceProvenance({
+          runId: baselineSourceRunId,
+          actionRef: "action-creator-live-write-url-baseline-source",
+          targetTabId: 1230453498,
+          sessionId: "nm-session-creator-url-baseline",
+          pageUrl: "https://creator.xiaohongshu.com/publish/publish?from=menu&target=article",
+          ...commonScope
+        }),
+        artifactRefs: [`artifact/xhs-creator-live-write-validation-source/${baselineSourceRunId}`]
+      });
+      await persistXhsCloseoutValidationSourceSamples({
+        store,
+        profile,
+        effectiveExecutionMode: "live_write",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        validationRunId: baselineValidationRunId,
+        observedAt: "2026-05-27T02:00:05.000Z",
+        sourceRunId: baselineSourceRunId,
+        sourceSamples: baselineSamples
+      });
+
+      const currentSamples = await persistXhsCloseoutValidationSourceEvidence({
+        store,
+        profile,
+        effectiveExecutionMode: "live_write",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        sourceRunId: currentSourceRunId,
+        observedAt: "2026-06-02T14:03:02.830Z",
+        sourceAudit: sourceAuditForRun({
+          runId: currentSourceRunId,
+          actionRef: "action-creator-live-write-url-drift-source",
+          targetTabId: 1230476585,
+          sessionId: "nm-session-creator-url-drift",
+          observedAt: "2026-06-02T14:03:02.830Z",
+          targetDomain: "creator.xiaohongshu.com",
+          targetPage: "creator_publish_tab",
+          requestedExecutionMode: "live_write"
+        }),
+        actionRef: "action-creator-live-write-url-drift-source",
+        signals: signalsWithValidationSourceProvenance({
+          runId: currentSourceRunId,
+          actionRef: "action-creator-live-write-url-drift-source",
+          targetTabId: 1230476585,
+          sessionId: "nm-session-creator-url-drift",
+          pageUrl: "https://creator.xiaohongshu.com/publish/other?from=menu&target=image",
+          ...commonScope
+        }),
+        artifactRefs: [`artifact/xhs-creator-live-write-validation-source/${currentSourceRunId}`]
+      });
+      const gate = await persistXhsCloseoutValidationSourceSamples({
+        store,
+        profile,
+        effectiveExecutionMode: "live_write",
+        targetDomain: "creator.xiaohongshu.com",
+        targetPage: "creator_publish_tab",
+        validationRunId: currentValidationRunId,
+        observedAt: "2026-06-02T14:03:12.835Z",
+        sourceRunId: currentSourceRunId,
+        sourceSamples: currentSamples
+      });
+
+      expect(gate).toMatchObject({
+        all_required_ready: false,
+        blocking_target_fr_refs: ["FR-0012", "FR-0013", "FR-0014"]
+      });
+      expect(gate.views).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            target_fr_ref: "FR-0012",
+            current_result_state: "broken",
+            current_drift_state: "drift_detected"
+          }),
+          expect.objectContaining({
+            target_fr_ref: "FR-0013",
+            current_result_state: "broken",
+            current_drift_state: "drift_detected"
+          }),
+          expect.objectContaining({
+            target_fr_ref: "FR-0014",
+            current_result_state: "broken",
+            current_drift_state: "drift_detected"
+          })
+        ])
+      );
+    } finally {
+      store.close();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("rejects XHS closeout validation source evidence outside the browser-returned source scope", async () => {
     const { cwd, store } = await createStore();
     try {
