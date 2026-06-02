@@ -1880,7 +1880,8 @@ const runtimeXhsCaptureUserHomeContext = async (context) => {
     }
 };
 const isRuntimeRestoreXhsTargetMutation = (params) => isRuntimeRestoreXhsSearchTargetMutation(params) ||
-    isRuntimeRestoreXhsProfileTargetMutation(params);
+    isRuntimeRestoreXhsProfileTargetMutation(params) ||
+    isRuntimeRestoreXhsCreatorPublishTargetMutation(params);
 const isRuntimeRestoreXhsSearchTarget = (params) => asString(params.target_domain) === "www.xiaohongshu.com" &&
     asString(params.target_page) === "search_result_tab" &&
     asString(params.query) !== null;
@@ -1925,6 +1926,12 @@ const isRuntimeRestoreXhsProfileTarget = (params) => asString(params.target_doma
     asString(params.target_page) === "profile_tab" &&
     resolveXhsProfileTargetUrlForRestore(params) !== null;
 const isRuntimeRestoreXhsProfileTargetMutation = (params) => isRuntimeRestoreXhsProfileTarget(params) &&
+    typeof params.target_tab_id === "number" &&
+    Number.isInteger(params.target_tab_id);
+const XHS_CREATOR_PUBLISH_RESTORE_URL = "https://creator.xiaohongshu.com/publish/publish";
+const isRuntimeRestoreXhsCreatorPublishTarget = (params) => asString(params.target_domain) === "creator.xiaohongshu.com" &&
+    asString(params.target_page) === "creator_publish_tab";
+const isRuntimeRestoreXhsCreatorPublishTargetMutation = (params) => isRuntimeRestoreXhsCreatorPublishTarget(params) &&
     typeof params.target_tab_id === "number" &&
     Number.isInteger(params.target_tab_id);
 const buildXhsRestoreSearchResultUrl = (query) => {
@@ -2052,7 +2059,8 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
         });
     }
     if ((isRuntimeRestoreXhsSearchTarget(context.params) ||
-        isRuntimeRestoreXhsProfileTarget(context.params)) &&
+        isRuntimeRestoreXhsProfileTarget(context.params) ||
+        isRuntimeRestoreXhsCreatorPublishTarget(context.params)) &&
         !(typeof context.params.target_tab_id === "number" &&
             Number.isInteger(context.params.target_tab_id))) {
         throw new CliError("ERR_CLI_INVALID_ARGS", "runtime.restore_xhs_target requires target_tab_id", {
@@ -2110,11 +2118,13 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (context) => {
         asString(context.params.gate_invocation_id) ??
         context.run_id;
     const query = asString(context.params.query);
-    const targetUrl = asString(context.params.target_page) === "profile_tab"
-        ? resolveXhsProfileTargetUrlForRestore(context.params)
-        : query
-            ? buildXhsRestoreSearchResultUrl(query)
-            : null;
+    const targetUrl = asString(context.params.target_page) === "creator_publish_tab"
+        ? XHS_CREATOR_PUBLISH_RESTORE_URL
+        : asString(context.params.target_page) === "profile_tab"
+            ? resolveXhsProfileTargetUrlForRestore(context.params)
+            : query
+                ? buildXhsRestoreSearchResultUrl(query)
+                : null;
     const runtimeContextId = buildRuntimeBootstrapContextId(context.profile, context.run_id);
     const restoreIssueScope = asString(context.params.issue_scope) ?? "issue_209";
     let antiDetectionValidationView = null;

@@ -549,6 +549,89 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
+  it("restores an explicit managed XHS creator tab to the publish target", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    const targetUrl = "https://creator.xiaohongshu.com/publish/publish";
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 44,
+        url: "https://creator.xiaohongshu.com/new/home",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+    await primeManagedXhsBootstrap(firstPort, chromeApi, {
+      runId: "run-restore-xhs-creator-publish-tab-001",
+      targetTabId: 44,
+      targetDomain: "creator.xiaohongshu.com",
+      targetPage: "creator_publish_tab"
+    });
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-restore-xhs-creator-publish-tab-001",
+      method: "bridge.forward",
+      profile: "xhs_001",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-restore-xhs-creator-publish-tab-001",
+        command: "runtime.restore_xhs_target",
+        command_params: {
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          target_tab_id: 44,
+          action_ref: "issue969-restore-creator-publish-tab",
+          restore_safety_gate: createRestoreSafetyGate(
+            "run-restore-xhs-creator-publish-tab-001",
+            {
+              targetDomain: "creator.xiaohongshu.com",
+              targetPage: "creator_publish_tab",
+              targetUrl,
+              actionRef: "issue969-restore-creator-publish-tab"
+            }
+          )
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    expect(chromeApi.tabs.get).toHaveBeenCalledWith(44);
+    expect(chromeApi.tabs.update).toHaveBeenCalledWith(44, {
+      url: targetUrl,
+      active: true
+    });
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
+    const response = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-restore-xhs-creator-publish-tab-001");
+    expect(response).toMatchObject({
+      id: "run-restore-xhs-creator-publish-tab-001",
+      status: "success",
+      payload: {
+        target_tab_id: 44,
+        target_url: targetUrl,
+        restore_evidence: {
+          evidence_class: "target_tab_restoration",
+          profile_ref: "xhs_001",
+          session_id: "nm-session-001",
+          target_tab_id: 44,
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          page_url: targetUrl,
+          restore_action: "navigate_existing_tab",
+          active_fetch_performed: false,
+          closeout_bundle_entered: false
+        }
+      }
+    });
+  });
+
   it("fails closed when profile tab restore points outside the canonical XHS profile URL", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);
