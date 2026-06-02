@@ -183,6 +183,25 @@ const buildAntiDetectionValidationViewForProfile = async (input) => {
     });
     return toXhsCloseoutValidationGateJson(gate);
 };
+const resolveAuditValidationTargetScope = (params, latestAuditRecord) => {
+    if (params.target_domain || params.target_page) {
+        return {
+            targetDomain: params.target_domain,
+            targetPage: params.target_page
+        };
+    }
+    const gateReasons = asStringArray(latestAuditRecord?.gate_reasons);
+    if (gateReasons.includes(XHS_CLOSEOUT_VALIDATION_SOURCE_APPROVED_REASON)) {
+        return {
+            targetDomain: latestAuditRecord?.target_domain,
+            targetPage: latestAuditRecord?.target_page
+        };
+    }
+    return {
+        targetDomain: undefined,
+        targetPage: undefined
+    };
+};
 const parseXhsCloseoutValidationSignals = (signals) => {
     const payload = asObject(signals);
     if (!payload) {
@@ -2566,6 +2585,7 @@ const runtimeAuditQuery = async (context) => {
                 sourceAuditEventId: asString(latestAuditRecord?.event_id),
                 effectiveExecutionMode: asString(latestAuditRecord?.effective_execution_mode)
             });
+            const validationTargetScope = resolveAuditValidationTargetScope(context.params, latestAuditRecord);
             const antiDetectionValidationView = await buildAntiDetectionValidationViewForProfile({
                 store,
                 profile: auditProfile,
@@ -2573,7 +2593,9 @@ const runtimeAuditQuery = async (context) => {
                     enrichedAuditRecords[0]
                         ?.requested_execution_mode ??
                     enrichedAuditRecords[0]
-                        ?.effective_execution_mode
+                        ?.effective_execution_mode,
+                targetDomain: validationTargetScope.targetDomain,
+                targetPage: validationTargetScope.targetPage
             });
             return {
                 query: {
@@ -2608,6 +2630,7 @@ const runtimeAuditQuery = async (context) => {
             sourceAuditEventId: asString(latestAuditRecord?.event_id),
             effectiveExecutionMode: asString(latestAuditRecord?.effective_execution_mode)
         });
+        const validationTargetScope = resolveAuditValidationTargetScope(context.params, latestAuditRecord);
         const antiDetectionValidationView = await buildAntiDetectionValidationViewForProfile({
             store,
             profile: profile ?? auditProfile,
@@ -2615,7 +2638,9 @@ const runtimeAuditQuery = async (context) => {
                 enrichedAuditRecords[0]
                     ?.requested_execution_mode ??
                 enrichedAuditRecords[0]
-                    ?.effective_execution_mode
+                    ?.effective_execution_mode,
+            targetDomain: validationTargetScope.targetDomain,
+            targetPage: validationTargetScope.targetPage
         });
         return {
             query: {
