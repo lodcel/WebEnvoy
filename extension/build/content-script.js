@@ -6351,6 +6351,13 @@ const normalizePlatformRefValue = (value) => {
     }
     return normalized;
 };
+const normalizeTrustedNoteIdValue = (value) => {
+    const normalized = normalizePlatformRefValue(value);
+    if (!normalized || normalized.length < 8 || normalized.length > 64) {
+        return null;
+    }
+    return normalized;
+};
 const findTrustedPlatformStagingRef = (value) => {
     if (typeof value === "string") {
         for (const key of trustedPlatformRefKeys) {
@@ -6432,6 +6439,220 @@ const extractXhsControlledUploadPlatformCapture = (input) => {
         source: "chrome_debugger_network",
         platform_staging_ref: platformStagingRef,
         evidence_basis: "trusted_platform_response_body",
+        url: input.url,
+        method: input.method,
+        status: input.status,
+        captured_at: input.captured_at
+    };
+};
+const trustedPublishResultEndpointPattern = /^\/(?:api|web_api)\/creator\/publish\/result(?:[/?#]|$)/iu;
+const noteIdFromTrustedHrefValue = (href) => {
+    const match = /[?&](?:note_id|noteId|source_note_id)=([A-Za-z0-9_-]{8,64})(?:&|$)/u.exec(href) ??
+        /\/(?:explore|notes?|note|publish\/success)\/([A-Za-z0-9_-]{8,64})(?:[/?#]|$)/u.exec(href);
+    return match?.[1] ?? null;
+};
+const isXhsControlledPublishResultIdentityCaptureUrl = (url, method) => {
+    if (!/^(GET|POST)$/iu.test(method)) {
+        return false;
+    }
+    try {
+        const parsed = new URL(url);
+        return parsed.hostname === "creator.xiaohongshu.com" && trustedPublishResultEndpointPattern.test(parsed.pathname);
+    }
+    catch {
+        return false;
+    }
+};
+const noteIdFromTrustedPublishedUrl = (value) => {
+    if (typeof value !== "string" || value.trim().length === 0) {
+        return null;
+    }
+    const raw = value.trim();
+    const maybeUrl = /^https?:\/\//iu.test(raw)
+        ? raw
+        : `https://www.xiaohongshu.com${raw.startsWith("/") ? raw : `/${raw}`}`;
+    try {
+        const parsed = new URL(maybeUrl);
+        if (parsed.hostname !== "www.xiaohongshu.com") {
+            return null;
+        }
+        const noteId = noteIdFromTrustedHrefValue(parsed.toString());
+        return noteId ? { noteId, url: parsed.toString() } : null;
+    }
+    catch {
+        return null;
+    }
+};
+const findTrustedPublishResultIdentity = (value, seen = new Set()) => {
+    if (typeof value === "string") {
+        const published = noteIdFromTrustedPublishedUrl(value);
+        return published
+            ? {
+                result_kind: "published_url",
+                note_id: published.noteId,
+                published_url: published.url,
+                creator_result_url: null,
+                platform_record_ref: null
+            }
+            : null;
+    }
+    if (Array.isArray(value)) {
+        let match = null;
+        for (const item of value) {
+            const nested = findTrustedPublishResultIdentity(item, seen);
+            if (!nested) {
+                continue;
+            }
+            if (match && JSON.stringify(match) !== JSON.stringify(nested)) {
+                return null;
+            }
+            match = nested;
+        }
+        return match;
+    }
+    const record = asPlainRecord(value);
+    if (!record) {
+        return null;
+    }
+    if (seen.has(record)) {
+        return null;
+    }
+    seen.add(record);
+    for (const key of ["note_id", "noteId", "source_note_id", "sourceNoteId"]) {
+        const noteId = normalizeTrustedNoteIdValue(record[key]);
+        if (noteId) {
+            return {
+                result_kind: "note_id",
+                note_id: noteId,
+                published_url: `https://www.xiaohongshu.com/explore/${noteId}`,
+                creator_result_url: null,
+                platform_record_ref: null
+            };
+        }
+    }
+    for (const key of ["published_url", "publishedUrl", "note_url", "noteUrl", "detail_url", "detailUrl", "url", "href"]) {
+        const published = noteIdFromTrustedPublishedUrl(record[key]);
+        if (published) {
+            return {
+                result_kind: "published_url",
+                note_id: published.noteId,
+                published_url: published.url,
+                creator_result_url: null,
+                platform_record_ref: null
+            };
+        }
+    }
+    for (const key of ["creator_result_url", "creatorResultUrl", "result_url", "resultUrl"]) {
+        const creatorResultUrl = typeof record[key] === "string" ? record[key].trim() : "";
+        if (/^https:\/\/creator\.xiaohongshu\.com\//iu.test(creatorResultUrl)) {
+            return {
+                result_kind: "creator_result_page",
+                note_id: noteIdFromTrustedHrefValue(creatorResultUrl),
+                published_url: null,
+                creator_result_url: creatorResultUrl,
+                platform_record_ref: null
+            };
+        }
+    }
+    for (const item of Object.values(record)) {
+        const nested = findTrustedPublishResultIdentity(item, seen);
+        if (nested) {
+            return nested;
+        }
+    }
+    return null;
+};
+const normalizeTrustedPublishVisibilityScope = (value) => {
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+        return null;
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === "private_or_self_visible" ||
+        normalized === "private" ||
+        normalized === "self" ||
+        normalized === "self_visible" ||
+        normalized === "only_me" ||
+        normalized === "only_self" ||
+        normalized === "one_self" ||
+        normalized === "0" ||
+        normalized === "false" ||
+        normalized.includes("仅自己可见") ||
+        normalized.includes("仅自己") ||
+        normalized.includes("自己可见")) {
+        return "private_or_self_visible";
+    }
+    return null;
+};
+const trustedPublishVisibilityScopeKeys = new Set([
+    "publish_visibility_scope",
+    "publishVisibilityScope",
+    "visibility_scope",
+    "visibilityScope",
+    "permission_scope",
+    "permissionScope",
+    "privacy_scope",
+    "privacyScope",
+    "visibility",
+    "permission",
+    "privacy",
+    "visible_type",
+    "visibleType",
+    "permission_type",
+    "permissionType"
+]);
+const findTrustedPublishVisibilityScope = (value, seen = new Set()) => {
+    if (Array.isArray(value)) {
+        let match = null;
+        for (const item of value) {
+            const nested = findTrustedPublishVisibilityScope(item, seen);
+            if (!nested) {
+                continue;
+            }
+            if (match && match !== nested) {
+                return null;
+            }
+            match = nested;
+        }
+        return match;
+    }
+    const record = asPlainRecord(value);
+    if (!record || seen.has(record)) {
+        return null;
+    }
+    seen.add(record);
+    for (const [key, nestedValue] of Object.entries(record)) {
+        if (!trustedPublishVisibilityScopeKeys.has(key)) {
+            continue;
+        }
+        const scope = normalizeTrustedPublishVisibilityScope(nestedValue);
+        if (scope) {
+            return scope;
+        }
+    }
+    for (const item of Object.values(record)) {
+        const nested = findTrustedPublishVisibilityScope(item, seen);
+        if (nested) {
+            return nested;
+        }
+    }
+    return null;
+};
+const extractXhsControlledPublishResultIdentityCapture = (input) => {
+    if (input.status < 200 ||
+        input.status >= 300 ||
+        !isXhsControlledPublishResultIdentityCaptureUrl(input.url, input.method)) {
+        return null;
+    }
+    const identity = findTrustedPublishResultIdentity(input.body);
+    if (!identity) {
+        return null;
+    }
+    const publishVisibilityScope = findTrustedPublishVisibilityScope(input.body);
+    return {
+        source: "chrome_debugger_network",
+        evidence_basis: "trusted_platform_response_body",
+        ...identity,
+        publish_visibility_scope: publishVisibilityScope,
         url: input.url,
         method: input.method,
         status: input.status,
@@ -7371,6 +7592,41 @@ const applyXhsControlledUploadPlatformCapture = (result, capture) => {
         cleanup_attempted: false
     };
 };
+const applyXhsControlledPublishResultIdentityCapture = (result, capture) => {
+    if (!capture) {
+        return result;
+    }
+    const evidence = result.live_write_evidence;
+    if (evidence.publish_result_identity) {
+        return result;
+    }
+    const evaluation = result.live_write_evaluation;
+    const blockers = Array.isArray(evaluation.blockers) ? evaluation.blockers : [];
+    const publishIdentityMissing = blockers.some((blocker) => {
+        const record = asPlainRecord(blocker);
+        return (record?.blocker_code === "PUBLISH_RESULT_IDENTITY_MISSING" &&
+            record?.blocker_layer === "published_identity");
+    });
+    const uploadArtifact = asPlainRecord(evidence.upload_artifact_identity);
+    const submitEvidence = asPlainRecord(evidence.submit_evidence);
+    if (result.uploaded !== true ||
+        result.submitted !== true ||
+        publishIdentityMissing !== true ||
+        !uploadArtifact ||
+        !submitEvidence ||
+        uploadArtifact.accepted_by_platform !== true) {
+        return result;
+    }
+    const timestamp = nowIso();
+    return {
+        ...result,
+        live_write_evidence: {
+            ...evidence,
+            publish_result_identity_capture: capture,
+            updated_at: timestamp
+        }
+    };
+};
 const applyXhsControlledLiveWriteContinuationTimeout = (result, input) => {
     const timestamp = nowIso();
     const evidence = result.live_write_evidence;
@@ -8125,6 +8381,45 @@ const findVisibilityTriggersFromExplicitContext = () => {
         });
     }));
 };
+const likelyPublishVisibilitySelectSelector = [
+    '[class*="d-select" i]',
+    '[class*="reds-select" i]',
+    '[class*="select" i]',
+    '[role="combobox"]',
+    '[tabindex]'
+].join(",");
+const nonVisibilitySelectContextPattern = /address|location|poi|place|topic|tag|relation|file-relation|travel|poi-card|address-card/iu;
+const hasPublishSettingsAncestor = (element) => {
+    let current = element;
+    for (let depth = 0; current && depth < 6; depth += 1) {
+        const signal = `${locatorForElement(current)} ${visibilityStructuralSignal(current)}`;
+        if (nonVisibilitySelectContextPattern.test(signal)) {
+            return false;
+        }
+        if (/publish-page-content-setting|publish-page-content-content-extra|publish-settings|post-settings|setting-content|setting-row/iu.test(signal)) {
+            return true;
+        }
+        current = current.parentElement;
+    }
+    return false;
+};
+const findLikelyPublishVisibilitySelectTriggers = () => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return [];
+    }
+    return uniqueVisibilityElements(Array.from(document.querySelectorAll(likelyPublishVisibilitySelectSelector)).map((element) => {
+        if (!isVisibleElement(element) ||
+            isDisabledElement(element) ||
+            !hasPublishSettingsAncestor(element)) {
+            return null;
+        }
+        const structuralSignal = visibilityStructuralSignal(element);
+        if (!isSelectLikeVisibilityActivationTarget(element) && !/d-select|reds-select|select|dropdown/iu.test(structuralSignal)) {
+            return null;
+        }
+        return resolveVisibilityClickTarget(element);
+    }));
+};
 const findVisibilityTriggers = () => {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
         return [];
@@ -8156,6 +8451,7 @@ const findVisibilityTriggers = () => {
         ...explicitContextTriggers,
         ...directTriggers,
         ...publicDefaultTriggers,
+        ...findLikelyPublishVisibilitySelectTriggers(),
         ...findPlainPublicVisibilityValueFallbackTriggers()
     ]);
 };
