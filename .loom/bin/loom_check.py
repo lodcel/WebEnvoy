@@ -698,10 +698,14 @@ def write_fake_codex(
     if mode == "success":
         body = """#!/usr/bin/env python3
 import json
+import os
 import pathlib
 import sys
 
 args = sys.argv[1:]
+args_file = os.environ.get("FAKE_CODEX_ARGS_FILE")
+if args_file:
+    pathlib.Path(args_file).write_text(json.dumps(args, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
 output_path = pathlib.Path(args[args.index("-o") + 1])
 payload = {
     "decision": "allow",
@@ -6379,6 +6383,67 @@ def check_daily_execution_cli(root: Path) -> list[Failure]:
                     failures.append(Failure("daily-execution-cli", "`review run` profile override must record previous and selected profile"))
                 if override.get("reason") != "fixture requires explicit high-reasoning review profile evidence":
                     failures.append(Failure("daily-execution-cli", "`review run` profile override must preserve the override reason"))
+
+        guardian_override_target = Path(tmp) / "guardian-run-profile-override"
+        if prepare_review_target(guardian_override_target, "guardian-run profile override"):
+            prompt_path = guardian_override_target / ".loom/runtime/tmp/guardian-prompt.txt"
+            raw_result_path = guardian_override_target / ".loom/runtime/tmp/guardian-review-result.json"
+            args_file = guardian_override_target / ".loom/runtime/tmp/fake-codex-args.json"
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            prompt_path.write_text("Guardian compatibility review prompt fixture.\n", encoding="utf-8")
+            head_result = run_command(root, ["git", "rev-parse", "HEAD"], cwd=guardian_override_target)
+            reviewed_head = head_result.stdout.strip() if head_result.returncode == 0 else "unknown-head"
+            write_fake_codex(fake_bin / "codex", mode="success")
+            payload, error = load_command_json(
+                root,
+                [
+                    "python3",
+                    "tools/loom_flow.py",
+                    "review",
+                    "guardian-run",
+                    "--target",
+                    str(guardian_override_target),
+                    "--guardian-prompt-file",
+                    str(prompt_path),
+                    "--guardian-output-file",
+                    str(raw_result_path),
+                    "--guardian-expected-head",
+                    reviewed_head,
+                    "--guardian-tmp-dir",
+                    str(guardian_override_target / ".loom/runtime/tmp/guardian-scratch"),
+                    "--engine-model",
+                    "gpt-5.5",
+                    "--engine-reasoning",
+                    "high",
+                    "--engine-override-reason",
+                    "fixture verifies guardian-run passes explicit model override to codex exec",
+                ],
+                env=prepend_path_env(fake_bin, {"CI": "", "CODEX_CI": "", "FAKE_CODEX_ARGS_FILE": str(args_file)}),
+            )
+            if error:
+                failures.append(Failure("daily-execution-cli", f"`guardian-run` profile override failed: {error}"))
+            else:
+                if payload.get("result") != "pass":
+                    failures.append(Failure("daily-execution-cli", "`guardian-run` profile override must pass with the fake codex reviewer"))
+                engine = payload.get("engine") if isinstance(payload, dict) and isinstance(payload.get("engine"), dict) else {}
+                profile = engine.get("profile") if isinstance(engine, dict) and isinstance(engine.get("profile"), dict) else {}
+                if profile.get("model") != "gpt-5.5" or profile.get("reasoning_effort") != "high":
+                    failures.append(Failure("daily-execution-cli", "`guardian-run` profile override must expose the selected engine profile"))
+                override = profile.get("override") if isinstance(profile.get("override"), dict) else {}
+                if override.get("reason") != "fixture verifies guardian-run passes explicit model override to codex exec":
+                    failures.append(Failure("daily-execution-cli", "`guardian-run` profile override must preserve the override reason"))
+                if not args_file.exists():
+                    failures.append(Failure("daily-execution-cli", "`guardian-run` profile override must invoke codex through the fake engine"))
+                else:
+                    codex_args = json.loads(args_file.read_text(encoding="utf-8"))
+                    if "-m" not in codex_args:
+                        failures.append(Failure("daily-execution-cli", "`guardian-run` profile override must pass a codex model argument"))
+                    else:
+                        model_index = codex_args.index("-m")
+                        if model_index + 1 >= len(codex_args) or codex_args[model_index + 1] != "gpt-5.5":
+                            failures.append(Failure("daily-execution-cli", "`guardian-run` profile override must pass the requested model to codex exec"))
+                    if 'model_reasoning_effort="high"' not in codex_args:
+                        failures.append(Failure("daily-execution-cli", "`guardian-run` profile override must pass the requested reasoning effort to codex exec"))
 
         missing_reason_target = Path(tmp) / "profile-override-missing-reason"
         prepare_review_target(missing_reason_target, "review run profile override missing reason")

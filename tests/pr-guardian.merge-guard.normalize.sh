@@ -1086,6 +1086,60 @@ test_codex_thread_id_alone_does_not_force_codex_app_adapter() {
   if [[ -n "${previous_codex_ci}" ]]; then export CODEX_CI="${previous_codex_ci}"; else unset CODEX_CI || true; fi
 }
 
+test_engine_model_override_requires_reason_and_preserves_default_binding() {
+  setup_case_dir "engine-model-override-review-binding"
+
+  local previous_endpoint="${LOOM_CODEX_APP_REVIEW_ENDPOINT-}"
+  local previous_thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID-}"
+  local previous_cwd="${LOOM_CODEX_APP_REVIEW_CWD-}"
+  local previous_raw_file="${LOOM_CODEX_APP_REVIEW_RAW_FILE-}"
+  local previous_ci="${CI-}"
+  local previous_codex_ci="${CODEX_CI-}"
+  local previous_engine_model="${PR_GUARDIAN_ENGINE_MODEL-}"
+  local previous_engine_reason="${PR_GUARDIAN_ENGINE_OVERRIDE_REASON-}"
+
+  unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true
+  unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true
+  unset LOOM_CODEX_APP_REVIEW_CWD || true
+  unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true
+  unset CI || true
+  unset CODEX_CI || true
+  unset PR_GUARDIAN_ENGINE_MODEL || true
+  unset PR_GUARDIAN_ENGINE_OVERRIDE_REASON || true
+
+  populate_codex_app_review_binding_args impl_review
+  assert_equal "${#REVIEW_ADAPTER_ARGS[@]}" "0"
+
+  export PR_GUARDIAN_ENGINE_MODEL="gpt-5.5"
+  unset PR_GUARDIAN_ENGINE_OVERRIDE_REASON || true
+  assert_fail populate_codex_app_review_binding_args impl_review
+
+  export PR_GUARDIAN_ENGINE_OVERRIDE_REASON="default gpt-5.2 unsupported by current Codex account"
+  populate_codex_app_review_binding_args impl_review
+  assert_equal "${#REVIEW_ADAPTER_ARGS[@]}" "4"
+  assert_equal "${REVIEW_ADAPTER_ARGS[0]}" "--engine-model"
+  assert_equal "${REVIEW_ADAPTER_ARGS[1]}" "gpt-5.5"
+  assert_equal "${REVIEW_ADAPTER_ARGS[2]}" "--engine-override-reason"
+  assert_equal "${REVIEW_ADAPTER_ARGS[3]}" "default gpt-5.2 unsupported by current Codex account"
+
+  export CODEX_CI=1
+  populate_codex_app_review_binding_args impl_review
+  assert_equal "${#REVIEW_ADAPTER_ARGS[@]}" "4"
+  assert_equal "${REVIEW_ADAPTER_ARGS[0]}" "--engine-model"
+  assert_equal "${REVIEW_ADAPTER_ARGS[1]}" "gpt-5.5"
+  assert_equal "${REVIEW_ADAPTER_ARGS[2]}" "--engine-override-reason"
+  assert_equal "${REVIEW_ADAPTER_ARGS[3]}" "default gpt-5.2 unsupported by current Codex account"
+
+  if [[ -n "${previous_endpoint}" ]]; then export LOOM_CODEX_APP_REVIEW_ENDPOINT="${previous_endpoint}"; else unset LOOM_CODEX_APP_REVIEW_ENDPOINT || true; fi
+  if [[ -n "${previous_thread_id}" ]]; then export LOOM_CODEX_APP_REVIEW_THREAD_ID="${previous_thread_id}"; else unset LOOM_CODEX_APP_REVIEW_THREAD_ID || true; fi
+  if [[ -n "${previous_cwd}" ]]; then export LOOM_CODEX_APP_REVIEW_CWD="${previous_cwd}"; else unset LOOM_CODEX_APP_REVIEW_CWD || true; fi
+  if [[ -n "${previous_raw_file}" ]]; then export LOOM_CODEX_APP_REVIEW_RAW_FILE="${previous_raw_file}"; else unset LOOM_CODEX_APP_REVIEW_RAW_FILE || true; fi
+  if [[ -n "${previous_ci}" ]]; then export CI="${previous_ci}"; else unset CI || true; fi
+  if [[ -n "${previous_codex_ci}" ]]; then export CODEX_CI="${previous_codex_ci}"; else unset CODEX_CI || true; fi
+  if [[ -n "${previous_engine_model}" ]]; then export PR_GUARDIAN_ENGINE_MODEL="${previous_engine_model}"; else unset PR_GUARDIAN_ENGINE_MODEL || true; fi
+  if [[ -n "${previous_engine_reason}" ]]; then export PR_GUARDIAN_ENGINE_OVERRIDE_REASON="${previous_engine_reason}"; else unset PR_GUARDIAN_ENGINE_OVERRIDE_REASON || true; fi
+}
+
 test_spec_review_requires_raw_file_before_forcing_codex_app_adapter() {
   setup_case_dir "spec-review-codex-app-binding-without-raw"
 

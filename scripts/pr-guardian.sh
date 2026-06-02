@@ -27,6 +27,9 @@ usage() {
 
 环境变量:
   PR_GUARDIAN_LEGACY_SCHEMA_AUTHORITY=1  rollback-only: 临时回退为 WebEnvoy 兼容 schema verdict authority
+  PR_GUARDIAN_ENGINE_MODEL=<model>        可选：显式覆盖 Loom guardian review engine model
+  PR_GUARDIAN_ENGINE_OVERRIDE_REASON=<reason>
+                                            设置 PR_GUARDIAN_ENGINE_MODEL 时必填，用于记录 override evidence
 EOF
 }
 
@@ -108,8 +111,17 @@ populate_codex_app_review_binding_args() {
   local thread_id="${LOOM_CODEX_APP_REVIEW_THREAD_ID:-}"
   local thread_cwd="${LOOM_CODEX_APP_REVIEW_CWD:-}"
   local raw_file="${LOOM_CODEX_APP_REVIEW_RAW_FILE:-}"
+  local engine_model="${PR_GUARDIAN_ENGINE_MODEL:-}"
+  local engine_override_reason="${PR_GUARDIAN_ENGINE_OVERRIDE_REASON:-}"
 
   REVIEW_ADAPTER_ARGS=()
+
+  if [[ -n "${engine_model}" ]]; then
+    [[ -n "${engine_override_reason}" ]] \
+      || die "设置 PR_GUARDIAN_ENGINE_MODEL 时必须同时设置 PR_GUARDIAN_ENGINE_OVERRIDE_REASON。"
+    REVIEW_ADAPTER_ARGS+=(--engine-model "${engine_model}")
+    REVIEW_ADAPTER_ARGS+=(--engine-override-reason "${engine_override_reason}")
+  fi
 
   if guardian_env_truthy CI || guardian_env_truthy CODEX_CI; then
     return 0

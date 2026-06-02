@@ -13716,6 +13716,7 @@ def write_guardian_engine_metadata(
     metadata_path: Path,
     *,
     adapter_selection: dict[str, Any],
+    engine_profile: dict[str, Any] | None = None,
     reviewed_head: str,
     expected_head: str | None,
     target_root: Path,
@@ -13738,6 +13739,7 @@ def write_guardian_engine_metadata(
             "result": result,
             "failure_reason": failure_reason,
             "summary": summary,
+            "engine_profile": engine_profile,
             "repo_interface_review_requirements": requirements,
             "missing_inputs": missing_inputs,
             "thread_target_binding": adapter_selection.get("binding_summary"),
@@ -13805,6 +13807,10 @@ def run_guardian_spec_review(args: argparse.Namespace) -> int:
         },
         "spec_review",
         adapter=selected_adapter,
+        requested_profile=args.engine_profile,
+        requested_model=args.engine_model,
+        requested_reasoning=args.engine_reasoning,
+        override_reason=args.engine_override_reason,
     )
     missing_inputs.extend(engine_profile_errors)
 
@@ -13938,6 +13944,7 @@ def run_guardian_spec_review(args: argparse.Namespace) -> int:
         env["TMP"] = str(scratch_dir.resolve())
         env["TEMP"] = str(scratch_dir.resolve())
         try:
+            assert engine_profile is not None
             completed = subprocess.run(
                 [
                     DEFAULT_REVIEW_ENGINE,
@@ -13945,9 +13952,9 @@ def run_guardian_spec_review(args: argparse.Namespace) -> int:
                     "-C",
                     str(target_root),
                     "-m",
-                    REVIEW_ENGINE_PROFILES["spec-review"]["model"],
+                    str(engine_profile["model"]),
                     "-c",
-                    f"model_reasoning_effort={json.dumps(REVIEW_ENGINE_PROFILES['spec-review']['reasoning_effort'])}",
+                    f"model_reasoning_effort={json.dumps(engine_profile['reasoning_effort'])}",
                     "-s",
                     "read-only",
                     "--add-dir",
@@ -14075,6 +14082,23 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
 
     adapter_selection = select_review_adapter(args, target_root, reviewed_head=current_head)
     selected_adapter = str(adapter_selection["adapter"])
+    engine_profile, engine_profile_errors = resolve_review_engine_profile(
+        {
+            "goal": "WebEnvoy guardian compatibility implementation review",
+            "scope": "WebEnvoy guardian review prompt built from repository-owned review baselines",
+            "execution_path": "guardian-run",
+            "current_stop": "",
+            "next_step": "",
+            "blockers": "",
+            "latest_validation_summary": "High-risk runtime/host review gate; GitHub checks remain a separate merge gate.",
+        },
+        "code_review",
+        adapter=selected_adapter,
+        requested_profile=args.engine_profile,
+        requested_model=args.engine_model,
+        requested_reasoning=args.engine_reasoning,
+        override_reason=args.engine_override_reason,
+    )
     requirements, requirement_errors = guardian_repo_review_requirements(target_root)
     missing_inputs: list[str] = []
     if prompt_file is None:
@@ -14086,12 +14110,14 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
     if expected_head and current_head != expected_head:
         missing_inputs.append(f"target HEAD mismatch: expected {expected_head}, got {current_head}")
     missing_inputs.extend(requirement_errors)
+    missing_inputs.extend(engine_profile_errors)
 
     runtime_root.mkdir(parents=True, exist_ok=True)
     if missing_inputs:
         write_guardian_engine_metadata(
             metadata_path,
             adapter_selection=adapter_selection,
+            engine_profile=engine_profile if isinstance(engine_profile, dict) else None,
             reviewed_head=current_head,
             expected_head=expected_head,
             target_root=target_root,
@@ -14112,6 +14138,7 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
                 "engine": {
                     "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
                     "adapter": selected_adapter,
+                    "profile": engine_profile if isinstance(engine_profile, dict) else None,
                     "result": "block",
                     "failure_reason": "runtime_conflict",
                     "reviewed_head": current_head,
@@ -14204,6 +14231,7 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
         env["TEMP"] = str(scratch_dir.resolve())
         schema_path = guardian_review_engine_schema_path(target_root)
         try:
+            assert engine_profile is not None
             completed = subprocess.run(
                 [
                     DEFAULT_REVIEW_ENGINE,
@@ -14211,9 +14239,9 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
                     "-C",
                     str(target_root),
                     "-m",
-                    REVIEW_ENGINE_PROFILES["high-risk"]["model"],
+                    str(engine_profile["model"]),
                     "-c",
-                    f"model_reasoning_effort={json.dumps(REVIEW_ENGINE_PROFILES['high-risk']['reasoning_effort'])}",
+                    f"model_reasoning_effort={json.dumps(engine_profile['reasoning_effort'])}",
                     "-s",
                     "read-only",
                     "--add-dir",
@@ -14279,6 +14307,7 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
         write_guardian_engine_metadata(
             metadata_path,
             adapter_selection=adapter_selection,
+            engine_profile=engine_profile if isinstance(engine_profile, dict) else None,
             reviewed_head=current_head,
             expected_head=expected_head,
             target_root=target_root,
@@ -14299,6 +14328,7 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
                 "engine": {
                     "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
                     "adapter": selected_adapter,
+                    "profile": engine_profile if isinstance(engine_profile, dict) else None,
                     "result": "block",
                     "failure_reason": failure_reason,
                     "reviewed_head": current_head,
@@ -14318,6 +14348,7 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
     write_guardian_engine_metadata(
         metadata_path,
         adapter_selection=adapter_selection,
+        engine_profile=engine_profile if isinstance(engine_profile, dict) else None,
         reviewed_head=current_head,
         expected_head=expected_head,
         target_root=target_root,
@@ -14338,6 +14369,7 @@ def run_guardian_compat_review(args: argparse.Namespace) -> int:
             "engine": {
                 "engine": CODEX_APP_REVIEW_ENGINE if selected_adapter == CODEX_APP_REVIEW_ADAPTER else DEFAULT_REVIEW_ENGINE,
                 "adapter": selected_adapter,
+                "profile": engine_profile if isinstance(engine_profile, dict) else None,
                 "result": "pass",
                 "failure_reason": None,
                 "reviewed_head": current_head,
