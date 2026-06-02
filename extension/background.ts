@@ -453,6 +453,7 @@ interface XhsTargetGateResult {
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
 const XHS_READ_API_DOMAIN = "edith.xiaohongshu.com";
+const XHS_CREATOR_PUBLISH_RESTORE_URL = `https://${XHS_WRITE_DOMAIN}/publish/publish`;
 const XHS_DOMAIN_ALLOWLIST = new Set([XHS_READ_DOMAIN, XHS_WRITE_DOMAIN]);
 const XHS_MAIN_WORLD_REQUEST_DOMAIN_ALLOWLIST = new Set([
   XHS_READ_DOMAIN,
@@ -1134,12 +1135,38 @@ const xhsRestoreProfileUrlsMatch = (observedUrl: string | null, targetUrl: strin
   return observed !== null && target !== null && observed === target;
 };
 
+const normalizeXhsRestoreCreatorPublishUrl = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  const url = parseUrl(value);
+  if (!url || url.protocol !== "https:" || url.hostname !== XHS_WRITE_DOMAIN) {
+    return null;
+  }
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  if (pathname !== "/publish/publish") {
+    return null;
+  }
+  return new URL("/publish/publish", `https://${XHS_WRITE_DOMAIN}`).toString();
+};
+
+const xhsRestoreCreatorPublishUrlsMatch = (
+  observedUrl: string | null,
+  targetUrl: string
+): boolean => {
+  const observed = normalizeXhsRestoreCreatorPublishUrl(observedUrl);
+  const target = normalizeXhsRestoreCreatorPublishUrl(targetUrl);
+  return observed !== null && target !== null && observed === target;
+};
+
 const xhsRestoreTargetUrlsMatch = (
   targetPage: string | null,
   observedUrl: string | null,
   targetUrl: string
 ): boolean =>
-  targetPage === "profile_tab"
+  targetPage === "creator_publish_tab"
+    ? xhsRestoreCreatorPublishUrlsMatch(observedUrl, targetUrl)
+    : targetPage === "profile_tab"
     ? xhsRestoreProfileUrlsMatch(observedUrl, targetUrl)
     : xhsRestoreSearchUrlsMatch(observedUrl, targetUrl);
 
@@ -3907,15 +3934,22 @@ class ChromeBackgroundBridge {
     const profileTarget = targetPage === "profile_tab"
       ? resolveXhsProfileTarget({ userId, targetUrl: requestedTargetUrl })
       : null;
+    const creatorPublishTarget =
+      targetDomain === XHS_WRITE_DOMAIN && targetPage === "creator_publish_tab";
     if (
-      targetDomain !== XHS_READ_DOMAIN ||
-      (targetPage !== "search_result_tab" && targetPage !== "profile_tab") ||
-      (targetPage === "search_result_tab" && !query) ||
-      (targetPage === "profile_tab" && !profileTarget)
+      !(
+        (targetDomain === XHS_READ_DOMAIN &&
+          targetPage === "search_result_tab" &&
+          !!query) ||
+        (targetDomain === XHS_READ_DOMAIN &&
+          targetPage === "profile_tab" &&
+          !!profileTarget) ||
+        creatorPublishTarget
+      )
     ) {
       fail(
         "TARGET_RESTORE_INPUT_INVALID",
-        "runtime.restore_xhs_target requires an XHS search_result query or profile_tab user target"
+        "runtime.restore_xhs_target requires an XHS search_result query, profile_tab user target, or creator_publish_tab target"
       );
       return;
     }
@@ -3925,7 +3959,9 @@ class ChromeBackgroundBridge {
       return;
     }
     const targetUrl =
-      targetPage === "profile_tab" && profileTarget
+      creatorPublishTarget
+        ? XHS_CREATOR_PUBLISH_RESTORE_URL
+      : targetPage === "profile_tab" && profileTarget
         ? profileTarget.targetUrl
         : buildXhsSearchResultUrl(query as string);
     const restoreSafetyGate = asRecord(commandParams.restore_safety_gate);

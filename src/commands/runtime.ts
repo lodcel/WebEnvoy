@@ -2343,7 +2343,8 @@ const runtimeXhsCaptureUserHomeContext = async (context: RuntimeContext) => {
 
 const isRuntimeRestoreXhsTargetMutation = (params: Record<string, unknown>): boolean =>
   isRuntimeRestoreXhsSearchTargetMutation(params) ||
-  isRuntimeRestoreXhsProfileTargetMutation(params);
+  isRuntimeRestoreXhsProfileTargetMutation(params) ||
+  isRuntimeRestoreXhsCreatorPublishTargetMutation(params);
 
 const isRuntimeRestoreXhsSearchTarget = (params: Record<string, unknown>): boolean =>
   asString(params.target_domain) === "www.xiaohongshu.com" &&
@@ -2400,6 +2401,19 @@ const isRuntimeRestoreXhsProfileTarget = (params: Record<string, unknown>): bool
 
 const isRuntimeRestoreXhsProfileTargetMutation = (params: Record<string, unknown>): boolean =>
   isRuntimeRestoreXhsProfileTarget(params) &&
+  typeof params.target_tab_id === "number" &&
+  Number.isInteger(params.target_tab_id);
+
+const XHS_CREATOR_PUBLISH_RESTORE_URL = "https://creator.xiaohongshu.com/publish/publish";
+
+const isRuntimeRestoreXhsCreatorPublishTarget = (params: Record<string, unknown>): boolean =>
+  asString(params.target_domain) === "creator.xiaohongshu.com" &&
+  asString(params.target_page) === "creator_publish_tab";
+
+const isRuntimeRestoreXhsCreatorPublishTargetMutation = (
+  params: Record<string, unknown>
+): boolean =>
+  isRuntimeRestoreXhsCreatorPublishTarget(params) &&
   typeof params.target_tab_id === "number" &&
   Number.isInteger(params.target_tab_id);
 
@@ -2568,7 +2582,8 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
 
   if (
     (isRuntimeRestoreXhsSearchTarget(context.params) ||
-      isRuntimeRestoreXhsProfileTarget(context.params)) &&
+      isRuntimeRestoreXhsProfileTarget(context.params) ||
+      isRuntimeRestoreXhsCreatorPublishTarget(context.params)) &&
     !(
       typeof context.params.target_tab_id === "number" &&
       Number.isInteger(context.params.target_tab_id)
@@ -2634,7 +2649,9 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
     context.run_id;
   const query = asString(context.params.query);
   const targetUrl =
-    asString(context.params.target_page) === "profile_tab"
+    asString(context.params.target_page) === "creator_publish_tab"
+      ? XHS_CREATOR_PUBLISH_RESTORE_URL
+      : asString(context.params.target_page) === "profile_tab"
       ? resolveXhsProfileTargetUrlForRestore(context.params)
       : query
         ? buildXhsRestoreSearchResultUrl(query)

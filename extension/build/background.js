@@ -99,6 +99,7 @@ const hashMainWorldBridgeProbeSecret = (value) => {
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
 const XHS_READ_API_DOMAIN = "edith.xiaohongshu.com";
+const XHS_CREATOR_PUBLISH_RESTORE_URL = `https://${XHS_WRITE_DOMAIN}/publish/publish`;
 const XHS_DOMAIN_ALLOWLIST = new Set([XHS_READ_DOMAIN, XHS_WRITE_DOMAIN]);
 const XHS_MAIN_WORLD_REQUEST_DOMAIN_ALLOWLIST = new Set([
     XHS_READ_DOMAIN,
@@ -645,9 +646,30 @@ const xhsRestoreProfileUrlsMatch = (observedUrl, targetUrl) => {
     const target = normalizeXhsRestoreProfileUrl(targetUrl);
     return observed !== null && target !== null && observed === target;
 };
-const xhsRestoreTargetUrlsMatch = (targetPage, observedUrl, targetUrl) => targetPage === "profile_tab"
-    ? xhsRestoreProfileUrlsMatch(observedUrl, targetUrl)
-    : xhsRestoreSearchUrlsMatch(observedUrl, targetUrl);
+const normalizeXhsRestoreCreatorPublishUrl = (value) => {
+    if (!value) {
+        return null;
+    }
+    const url = parseUrl(value);
+    if (!url || url.protocol !== "https:" || url.hostname !== XHS_WRITE_DOMAIN) {
+        return null;
+    }
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    if (pathname !== "/publish/publish") {
+        return null;
+    }
+    return new URL("/publish/publish", `https://${XHS_WRITE_DOMAIN}`).toString();
+};
+const xhsRestoreCreatorPublishUrlsMatch = (observedUrl, targetUrl) => {
+    const observed = normalizeXhsRestoreCreatorPublishUrl(observedUrl);
+    const target = normalizeXhsRestoreCreatorPublishUrl(targetUrl);
+    return observed !== null && target !== null && observed === target;
+};
+const xhsRestoreTargetUrlsMatch = (targetPage, observedUrl, targetUrl) => targetPage === "creator_publish_tab"
+    ? xhsRestoreCreatorPublishUrlsMatch(observedUrl, targetUrl)
+    : targetPage === "profile_tab"
+        ? xhsRestoreProfileUrlsMatch(observedUrl, targetUrl)
+        : xhsRestoreSearchUrlsMatch(observedUrl, targetUrl);
 const buildObservedRuntimeInstanceId = (input) => `${input.sessionId}:${input.runId}:${input.runtimeContextId}`;
 const isRestoreTargetTabNotFoundError = (error) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -2783,20 +2805,26 @@ class ChromeBackgroundBridge {
         const profileTarget = targetPage === "profile_tab"
             ? resolveXhsProfileTarget({ userId, targetUrl: requestedTargetUrl })
             : null;
-        if (targetDomain !== XHS_READ_DOMAIN ||
-            (targetPage !== "search_result_tab" && targetPage !== "profile_tab") ||
-            (targetPage === "search_result_tab" && !query) ||
-            (targetPage === "profile_tab" && !profileTarget)) {
-            fail("TARGET_RESTORE_INPUT_INVALID", "runtime.restore_xhs_target requires an XHS search_result query or profile_tab user target");
+        const creatorPublishTarget = targetDomain === XHS_WRITE_DOMAIN && targetPage === "creator_publish_tab";
+        if (!((targetDomain === XHS_READ_DOMAIN &&
+            targetPage === "search_result_tab" &&
+            !!query) ||
+            (targetDomain === XHS_READ_DOMAIN &&
+                targetPage === "profile_tab" &&
+                !!profileTarget) ||
+            creatorPublishTarget)) {
+            fail("TARGET_RESTORE_INPUT_INVALID", "runtime.restore_xhs_target requires an XHS search_result query, profile_tab user target, or creator_publish_tab target");
             return;
         }
         if (targetTabId === null) {
             fail("TARGET_RESTORE_TARGET_TAB_REQUIRED", "runtime.restore_xhs_target requires target_tab_id");
             return;
         }
-        const targetUrl = targetPage === "profile_tab" && profileTarget
-            ? profileTarget.targetUrl
-            : buildXhsSearchResultUrl(query);
+        const targetUrl = creatorPublishTarget
+            ? XHS_CREATOR_PUBLISH_RESTORE_URL
+            : targetPage === "profile_tab" && profileTarget
+                ? profileTarget.targetUrl
+                : buildXhsSearchResultUrl(query);
         const restoreSafetyGate = asRecord(commandParams.restore_safety_gate);
         if (!isRestoreSafetyGateAllowed(restoreSafetyGate, profile, runId, sessionId, targetDomain, targetPage, targetTabId, targetUrl, actionRef)) {
             fail("TARGET_RESTORE_SAFETY_GATE_BLOCKED", "runtime.restore_xhs_target requires a current restore safety gate");
