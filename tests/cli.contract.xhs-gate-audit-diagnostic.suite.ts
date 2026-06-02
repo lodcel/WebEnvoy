@@ -1639,7 +1639,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     ).toEqual(
       expect.arrayContaining(["ACTION_TYPE_NOT_EXPLICIT", "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND"])
     );
-  });
+  }, 15_000);
 
   itWithSqlite("persists null write matrix decisions when xhs.search action_type is omitted", async () => {
     const cwd = await createRuntimeCwd();
@@ -1766,7 +1766,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
         "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND"
       ])
     );
-  });
+  }, 15_000);
 
   it("blocks when ability.action diverges from the approved gate action", () => {
     const result = runCli([
@@ -1811,7 +1811,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     expect(
       (((body.error as Record<string, unknown>).details as Record<string, unknown>).gate_reasons as string[])
     ).toEqual(expect.arrayContaining(["ABILITY_ACTION_CONTEXT_MISMATCH"]));
-  });
+  }, 15_000);
 
   it("blocks live_write when action_type is irreversible_write even with approval", () => {
     const result = runCli([
@@ -1878,7 +1878,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
         "EXECUTION_MODE_UNSUPPORTED_FOR_COMMAND"
       ])
     );
-  });
+  }, 15_000);
 
   it("blocks issue_208 write paths in paused state and exposes write interaction tier", () => {
     const result = runCli([

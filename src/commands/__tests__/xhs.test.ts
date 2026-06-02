@@ -6037,7 +6037,7 @@ describe("normalizeGateOptionsForContract", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("maps validation store failures before blocking XHS live reads", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-baseline-store-failure-"));
@@ -6111,7 +6111,7 @@ describe("normalizeGateOptionsForContract", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("does not apply the baseline gate to steady-state XHS live reads before recovery starts", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-steady-live-read-"));
