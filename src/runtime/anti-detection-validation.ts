@@ -207,11 +207,73 @@ const omitNestedKey = (value: JsonObject, path: readonly string[]): void => {
   delete cursor[path[path.length - 1] ?? ""];
 };
 
+const setNestedKey = (value: JsonObject, path: readonly string[], nextValue: unknown): void => {
+  let cursor: Record<string, unknown> = value;
+  for (const key of path.slice(0, -1)) {
+    const next = cursor[key];
+    if (!isJsonObject(next)) {
+      return;
+    }
+    cursor = next;
+  }
+  cursor[path[path.length - 1] ?? ""] = nextValue;
+};
+
+const isCreatorLiveWriteValidationSignalVector = (value: JsonObject): boolean => {
+  const signal = value.signal;
+  if (!isJsonObject(signal)) {
+    return false;
+  }
+  const browserEvidence = signal.browser_returned_evidence;
+  if (!isJsonObject(browserEvidence)) {
+    return false;
+  }
+  return (
+    value.probe_bundle_ref === XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF &&
+    browserEvidence.target_domain === XHS_CREATOR_TARGET_DOMAIN &&
+    browserEvidence.target_page === XHS_CREATOR_PUBLISH_TARGET_PAGE &&
+    browserEvidence.requested_execution_mode === "live_write" &&
+    browserEvidence.probe_bundle_ref === XHS_CREATOR_LIVE_WRITE_ADMISSION_PROBE_BUNDLE_REF
+  );
+};
+
+const canonicalCreatorLiveWritePageUrl = (pageUrl: unknown): string | null => {
+  if (typeof pageUrl !== "string") {
+    return null;
+  }
+  try {
+    const parsed = new URL(pageUrl);
+    const target = parsed.searchParams.get("target");
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !== XHS_CREATOR_TARGET_DOMAIN ||
+      parsed.pathname !== "/publish/publish" ||
+      (target !== "article" && target !== "image")
+    ) {
+      return null;
+    }
+    parsed.searchParams.set("target", "creator_live_write_publish");
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+
 const canonicalizeXhsCloseoutSignalVectorForComparison = (signalVector: JsonObject): JsonObject => {
   const canonical = cloneJsonObject(signalVector);
   const validationScope = canonical.validation_scope;
 
   omitNestedKey(canonical, ["signal", "browser_returned_evidence", "target_tab_id"]);
+  if (isCreatorLiveWriteValidationSignalVector(canonical)) {
+    const signal = canonical.signal;
+    const browserEvidence = isJsonObject(signal) ? signal.browser_returned_evidence : null;
+    const canonicalPageUrl = isJsonObject(browserEvidence)
+      ? canonicalCreatorLiveWritePageUrl(browserEvidence.page_url)
+      : null;
+    if (canonicalPageUrl) {
+      setNestedKey(canonical, ["signal", "browser_returned_evidence", "page_url"], canonicalPageUrl);
+    }
+  }
 
   if (validationScope === "layer2_interaction") {
     omitNestedKey(canonical, ["signal", "rhythm_profile", "source_run_id"]);
