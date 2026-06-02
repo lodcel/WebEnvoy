@@ -2784,12 +2784,135 @@ const noteIdFromHref = (href: string): string | null => {
   return match?.[1] ?? null;
 };
 
+const publishResultNoteIdAttributeNames = [
+  "data-note-id",
+  "data-noteid",
+  "data-note-oid",
+  "data-source-note-id"
+] as const;
+
+type PagePublishIdentityCandidate = {
+  noteId: string | null;
+  platformRecordRef: string | null;
+  locator: string;
+};
+
+type PagePublishIdentityCandidateSnapshot = PagePublishIdentityCandidate & {
+  key: string;
+};
+
+const normalizePublishResultIdentityValue = (value: string | null): string | null => {
+  const normalized = value?.trim() ?? "";
+  if (
+    normalized.length < 6 ||
+    normalized.length > 128 ||
+    normalized.startsWith("blob:") ||
+    normalized.startsWith("data:") ||
+    /^https?:\/\//iu.test(normalized) ||
+    !/^[A-Za-z0-9_-]+$/u.test(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
+};
+
+const publishResultIdentityCandidateSelector = [
+  'a[href*="/explore/"]',
+  'a[href*="/note/"]',
+  'a[href*="note_id="]',
+  ...publishResultNoteIdAttributeNames.map((name) => `[${name}]`)
+].join(",");
+
+const publishSuccessContainerSelector = [
+  "[role='dialog']",
+  "[role='alert']",
+  "[role='status']",
+  "[class*='success' i]",
+  "[class*='result' i]",
+  "[class*='publish' i]",
+  "[class*='note' i]",
+  "section",
+  "article",
+  "div"
+].join(",");
+
+const readPublishIdentityCandidateFromElement = (
+  element: Element
+): PagePublishIdentityCandidate | null => {
+  if (!(element instanceof HTMLElement) || !isVisibleElement(element)) {
+    return null;
+  }
+  const href = getElementAttribute(element, "href");
+  const hrefNoteId = href ? noteIdFromHref(href) : null;
+  if (hrefNoteId) {
+    return {
+      noteId: hrefNoteId,
+      platformRecordRef: null,
+      locator: locatorForElement(element)
+    };
+  }
+  for (const name of publishResultNoteIdAttributeNames) {
+    const noteId = normalizePublishResultIdentityValue(getElementAttribute(element, name));
+    if (noteId) {
+      return {
+        noteId,
+        platformRecordRef: null,
+        locator: `${locatorForElement(element)}[${name}]`
+      };
+    }
+  }
+  return null;
+};
+
+const publishIdentityCandidateElementsIn = (container: Element): Element[] => {
+  const elements = [container];
+  if (typeof container.querySelectorAll === "function") {
+    elements.push(...Array.from(container.querySelectorAll<Element>(publishResultIdentityCandidateSelector)));
+  }
+  return elements;
+};
+
+const pagePublishIdentityCandidateKey = (candidate: PagePublishIdentityCandidate): string =>
+  candidate.noteId ? `note:${candidate.noteId}` : `record:${candidate.platformRecordRef ?? ""}`;
+
+const collectPagePublishIdentityCandidates = (): PagePublishIdentityCandidateSnapshot[] => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return [];
+  }
+  const successContainers = Array.from(document.querySelectorAll<Element>(publishSuccessContainerSelector))
+    .filter((element) => element instanceof HTMLElement && isVisibleElement(element))
+    .filter((element) => publishSuccessPattern.test(elementDisplayedTextSignal(element)))
+    .filter((element) => textContentOf(element).length <= 240);
+  const candidates: PagePublishIdentityCandidateSnapshot[] = [];
+  for (const container of successContainers) {
+    for (const element of publishIdentityCandidateElementsIn(container)) {
+      const candidate = readPublishIdentityCandidateFromElement(element);
+      if (candidate) {
+        candidates.push({
+          ...candidate,
+          key: pagePublishIdentityCandidateKey(candidate)
+        });
+      }
+    }
+  }
+  return candidates;
+};
+
+const findPagePublishIdentityCandidate = (
+  previousCandidateKeys: Set<string>
+): PagePublishIdentityCandidate | null => {
+  return collectPagePublishIdentityCandidates().find(
+    (candidate) => !previousCandidateKeys.has(candidate.key)
+  ) ?? null;
+};
+
 const buildPublishIdentity = (
   input: XhsControlledLiveWriteInput,
   artifact: ControlledUploadArtifactIdentity,
   submitEvidence: SubmitEvidence,
   initialHref: string,
-  successLocator: string
+  successLocator: string,
+  previousPageIdentityKeys: Set<string>
 ): PublishResultIdentity | null => {
   const href = currentHref();
   if (!href) {
@@ -2802,10 +2925,19 @@ const buildPublishIdentity = (
     publishSuccessPattern.test(textContentOf(document.documentElement));
   const creatorResultUrl =
     href !== initialHref && /^https:\/\/creator\.xiaohongshu\.com\//iu.test(href) ? href : null;
-  if (!noteId && !creatorResultUrl) {
+  const pageIdentity = findPagePublishIdentityCandidate(previousPageIdentityKeys);
+  const pageSuccessText = successText || pageIdentity !== null;
+  const resultNoteId = noteId ?? pageIdentity?.noteId ?? null;
+  const platformRecordRef = pageIdentity?.platformRecordRef ?? null;
+  if (!resultNoteId && !creatorResultUrl && !platformRecordRef) {
     return null;
   }
   const timestamp = nowIso();
+  const resultKind = resultNoteId
+    ? "note_id"
+    : creatorResultUrl
+      ? "creator_result_page"
+      : "platform_publish_record";
   return {
     schema_version: "fr-0032.publish_result_identity.v1",
     publish_result_id: `publish-result/fr-0032/${input.live_write_attempt_id}`,
@@ -2817,16 +2949,16 @@ const buildPublishIdentity = (
     target_page: "creator_publish_tab",
     source_upload_artifact_id: artifact.upload_artifact_id,
     submit_action_ref: submitEvidence.submit_action_ref,
-    result_kind: noteId ? "note_id" : "creator_result_page",
-    note_id: noteId,
-    published_url: noteId ? `https://www.xiaohongshu.com/explore/${noteId}` : null,
+    result_kind: resultKind,
+    note_id: resultNoteId,
+    published_url: resultNoteId ? `https://www.xiaohongshu.com/explore/${resultNoteId}` : null,
     creator_result_url: creatorResultUrl,
-    platform_record_ref: null,
+    platform_record_ref: platformRecordRef,
     publish_visibility_scope: input.publish_visibility_scope,
     success_signal: {
       signal_source: creatorResultUrl ? "creator_result_page" : "current_page_state",
-      signal_locator: creatorResultUrl ?? successLocator,
-      platform_message: successText ? "publish success text observed" : null,
+      signal_locator: creatorResultUrl ?? pageIdentity?.locator ?? successLocator,
+      platform_message: pageSuccessText ? "publish success text observed" : null,
       observed_at: timestamp
     },
     captured_at: timestamp,
@@ -2880,6 +3012,9 @@ const performControlledSubmitPublishCleanup = async (
     }, null, uploadStageCleanupResult(input, nowIso(), "submit control missing before publish"));
   }
   const initialHref = currentHref() ?? input.page_url;
+  const previousPageIdentityKeys = new Set(
+    collectPagePublishIdentityCandidates().map((candidate) => candidate.key)
+  );
   const submittedAt = nowIso();
   submitControl.click();
   const submitEvidence: SubmitEvidence = {
@@ -2898,7 +3033,8 @@ const performControlledSubmitPublishCleanup = async (
       artifact,
       submitEvidence,
       initialHref,
-      locatorForElement(visibilityControl)
+      locatorForElement(visibilityControl),
+      previousPageIdentityKeys
     );
     if (publishIdentity || Date.now() >= deadline) {
       break;
