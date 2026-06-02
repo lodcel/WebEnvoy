@@ -2682,6 +2682,223 @@ it("does not use non-actionable publish text containers as submit controls", asy
   }
 });
 
+it("uses a visible custom publish button as the submit control", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    textContent = "";
+    clicked = false;
+    getAttribute = (name: string) => (name === "class" ? this.className : null);
+    getBoundingClientRect = () => ({ width: 96, height: 32 });
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const privateOption = new TestElement();
+  privateOption.className = "visibility-option";
+  privateOption.classList = ["visibility-option"];
+  privateOption.textContent = "仅自己可见";
+  const submit = new TestElement();
+  submit.className = "d-button publish-btn";
+  submit.classList = ["d-button", "publish-btn"];
+  submit.textContent = "发布";
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("visibility") || selector.includes("option")) {
+          return [privateOption];
+        }
+        if (selector.includes('class*="publish"') || selector.includes('class*="button"')) {
+          return [submit];
+        }
+        return [];
+      }
+    }
+  });
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-custom-submit-button",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-979-custom-submit-button",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/custom-submit-button",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/custom-submit-button",
+        page_preview_locator: "img.preview-image",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T15:20:00.000Z"
+      }
+    });
+
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      submit_success: true,
+      publish_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity"
+        })
+      ]
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+  }
+});
+
+it("does not treat role button alone as a safe custom submit control", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    textContent = "";
+    role: string | null = null;
+    clicked = false;
+    getAttribute = (name: string) => {
+      if (name === "class") {
+        return this.className;
+      }
+      if (name === "role") {
+        return this.role;
+      }
+      return null;
+    };
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+    click = () => {
+      this.clicked = true;
+    };
+  }
+  const privateOption = new TestElement();
+  privateOption.className = "visibility-option";
+  privateOption.classList = ["visibility-option"];
+  privateOption.textContent = "仅自己可见";
+  const roleOnlyPublishContainer = new TestElement();
+  roleOnlyPublishContainer.role = "button";
+  roleOnlyPublishContainer.className = "toolbar-action";
+  roleOnlyPublishContainer.classList = ["toolbar-action"];
+  roleOnlyPublishContainer.textContent = "发布";
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("visibility") || selector.includes("option")) {
+          return [privateOption];
+        }
+        if (selector.includes('role="button"')) {
+          return [roleOnlyPublishContainer];
+        }
+        return [];
+      }
+    }
+  });
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-role-button-alone-not-clicked",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-979-role-button-alone-not-clicked",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/role-button-alone",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/role-button-alone",
+        page_preview_locator: "img.preview-image",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-02T15:40:00.000Z"
+      }
+    });
+
+    expect(privateOption.clicked).toBe(true);
+    expect(roleOnlyPublishContainer.clicked).toBe(false);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      submit_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "SUBMIT_CONTROL_MISSING",
+          blocker_layer: "submit"
+        })
+      ]
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+  }
+});
+
 it("stops after accepted upload when private visibility control is missing", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;

@@ -7499,6 +7499,61 @@ const visibilityTriggerActionPattern = /button|combobox|listbox|radio|menuitemra
 const submitPublishPattern = /发布|提交|确认发布|publish|submit/iu;
 const nonSubmitPublishPattern = /发布设置|高级设置|更多设置|更多选项|权限设置|内容权限|笔记权限|草稿|存为|预览|取消|返回|定时|save|draft|preview|cancel|back|schedule|post\s*settings|publish\s*settings|advanced\s*settings|more\s*(settings|options)/iu;
 const publishSuccessPattern = /发布成功|发布完成|已发布|提交成功|publish(ed)?\s*(success|complete)|success/iu;
+const nativeSubmitControlSelector = [
+    "button",
+    '[role="button"]',
+    'input[type="button"]',
+    'input[type="submit"]'
+].join(",");
+const customSubmitControlSelector = [
+    '[class*="submit" i]',
+    '[class*="publish" i]',
+    '[class*="button" i]',
+    '[class*="btn" i]',
+    '[data-testid*="submit" i]',
+    '[data-testid*="publish" i]',
+    '[data-test*="submit" i]',
+    '[data-test*="publish" i]'
+].join(",");
+const submitControlActionSignalPattern = /(^|[\s_-])(submit|publish|post|confirm|btn|button)([\s_-]|$)|d-button|reds-button|semi-button|ant-btn|el-button/iu;
+const submitControlContainerSignalPattern = /publish-(page|panel|content|container|form|wrapper|editor)|(^|[\s_-])(page|panel|content|container|form|wrapper|editor|settings)([\s_-]|$)/iu;
+const isNativeSubmitControl = (element) => {
+    const tagName = element.tagName.toLowerCase();
+    const type = getElementAttribute(element, "type") ?? "";
+    return tagName === "button" || (tagName === "input" && /button|submit/iu.test(type));
+};
+const isSafeSubmitPublishControl = (element) => {
+    const signal = elementTextSignal(element);
+    if (!isVisibleElement(element) ||
+        isDisabledElement(element) ||
+        !submitPublishPattern.test(signal) ||
+        nonSubmitPublishPattern.test(signal)) {
+        return false;
+    }
+    if (isNativeSubmitControl(element)) {
+        return true;
+    }
+    const actionSignal = [
+        getElementAttribute(element, "data-testid"),
+        getElementAttribute(element, "data-test"),
+        getElementAttribute(element, "class")
+    ]
+        .filter((value) => typeof value === "string" && value.trim().length > 0)
+        .join(" ");
+    const displayedText = elementDisplayedTextSignal(element).replace(/\s+/gu, "");
+    return (displayedText.length > 0 &&
+        displayedText.length <= 24 &&
+        submitControlActionSignalPattern.test(actionSignal) &&
+        !submitControlContainerSignalPattern.test(actionSignal));
+};
+const findSubmitPublishControl = () => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return null;
+    }
+    return (Array.from(document.querySelectorAll(nativeSubmitControlSelector)).find(isSafeSubmitPublishControl) ??
+        Array.from(document.querySelectorAll(customSubmitControlSelector)).find(isSafeSubmitPublishControl) ??
+        null);
+};
 const uploadStageCleanupResult = (input, timestamp, reason) => ({
     schema_version: "fr-0032.cleanup_rollback_proof.v1",
     cleanup_result_id: `cleanup/fr-0032/${input.live_write_attempt_id}/upload-stage`,
@@ -8505,12 +8560,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             diagnostics
         }, null, uploadStageCleanupResult(input, timestamp, "private visibility not selected before submit"));
     }
-    const submitControl = findVisibleElementMatchingText([
-        "button",
-        '[role="button"]',
-        'input[type="button"]',
-        'input[type="submit"]'
-    ].join(","), submitPublishPattern, nonSubmitPublishPattern);
+    const submitControl = findSubmitPublishControl();
     if (!submitControl || typeof submitControl.click !== "function") {
         return buildStepBlockedResult(input, artifact, {
             blockerCode: "SUBMIT_CONTROL_MISSING",
