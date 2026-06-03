@@ -2573,9 +2573,9 @@ const findVisibilityTriggers = () => {
     });
     return uniqueVisibilityElements([
         ...explicitContextTriggers,
-        ...directTriggers,
         ...publicDefaultTriggers,
         ...findLikelyPublishVisibilitySelectTriggers(),
+        ...directTriggers,
         ...findPlainPublicVisibilityValueFallbackTriggers()
     ]);
 };

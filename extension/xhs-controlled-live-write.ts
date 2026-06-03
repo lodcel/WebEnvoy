@@ -3147,9 +3147,9 @@ const findVisibilityTriggers = (): HTMLElement[] => {
   });
   return uniqueVisibilityElements([
     ...explicitContextTriggers,
-    ...directTriggers,
     ...publicDefaultTriggers,
     ...findLikelyPublishVisibilitySelectTriggers(),
+    ...directTriggers,
     ...findPlainPublicVisibilityValueFallbackTriggers()
   ]);
 };
