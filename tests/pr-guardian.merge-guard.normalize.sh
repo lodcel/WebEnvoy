@@ -2121,6 +2121,7 @@ test_ensure_loom_installed_skills_root_prefers_review_worktree_over_stale_env() 
 
   assert_pass ensure_loom_installed_skills_root
   assert_equal "${review_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
+  restore_test_repo_root
 }
 
 test_ensure_loom_installed_skills_root_uses_user_plugin_for_metadata_only_repo() {
@@ -2139,6 +2140,7 @@ test_ensure_loom_installed_skills_root_uses_user_plugin_for_metadata_only_repo()
 
   assert_pass ensure_loom_installed_skills_root
   assert_equal "${user_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
+  restore_test_repo_root
 }
 
 test_fetch_issue_summary_fails_closed_when_issue_lookup_fails() {
