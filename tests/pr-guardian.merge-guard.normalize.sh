@@ -982,8 +982,20 @@ EOF
 }
 
 seed_repo_bootstrap_manifest_fixture() {
+  local runtime_sha
+
+  runtime_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_flow.py" | awk '{print $1}')"
   mkdir -p "${REPO_ROOT}/.loom/bootstrap"
-  printf '%s\n' '{"schema_version":"loom-bootstrap-manifest/v1","fixture":"merge-if-safe"}' > "${REPO_ROOT}/.loom/bootstrap/manifest.json"
+  jq -n --arg runtime_sha "${runtime_sha}" '{
+    schema_version: "loom-bootstrap-manifest/v1",
+    fixture: "merge-if-safe",
+    artifacts: [
+      {
+        path: ".loom/bin/loom_flow.py",
+        sha256: $runtime_sha
+      }
+    ]
+  }' > "${REPO_ROOT}/.loom/bootstrap/manifest.json"
 }
 
 cleanup_repo_bootstrap_manifest_fixture() {
