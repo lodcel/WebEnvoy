@@ -5009,6 +5009,215 @@ it("continues accepted upload resume from upload stage before selecting private 
   }
 });
 
+it("bounds accepted upload resume visibility probing after upload-stage continuation", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-06-03T20:57:16.000Z"));
+
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    parentElement: TestElement | null = null;
+    disabled = false;
+    textContent: string;
+    clicked = false;
+    attributeMap: Record<string, string>;
+    attributes: { length: number; item: (index: number) => { name: string; value: string } | null };
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributeMap = attributes;
+      const attributeEntries = Object.entries(attributes);
+      this.attributes = {
+        length: attributeEntries.length,
+        item: (index: number) => {
+          const entry = attributeEntries[index];
+          return entry ? { name: entry[0], value: entry[1] } : null;
+        }
+      };
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter((item) => item.length > 0);
+      this.tagName = attributes.tagName ?? "DIV";
+    }
+    getAttribute(name: string) {
+      return this.attributeMap[name] ?? null;
+    }
+    getAttributeNames() {
+      return Object.keys(this.attributeMap);
+    }
+    querySelectorAll() {
+      return [];
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click = () => {
+      this.clicked = true;
+    };
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+
+  let continued = false;
+  const uploadWrapper = new TestElement("上传图片 下一步", {
+    class: "upload-wrapper publish-page-content-media"
+  });
+  const nextButton = new TestElement("下一步", {
+    tagName: "BUTTON",
+    class: "d-button d-button-default custom-button"
+  });
+  nextButton.parentElement = uploadWrapper;
+  nextButton.click = () => {
+    nextButton.clicked = true;
+    continued = true;
+  };
+  const visibilityTriggers = Array.from({ length: 12 }, (_, index) => new TestElement("公开", {
+    tagName: "DIV",
+    class: `publish-page-content-setting visibility-select trigger-${index}`
+  }));
+  const submit = new TestElement("发布", {
+    tagName: "BUTTON",
+    class: "publish-submit"
+  });
+  const documentElement = new TestElement("发布页", {
+    tagName: "HTML"
+  });
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "https://creator.xiaohongshu.com/publish/publish?target=image" }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: globalThis.location }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement,
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("next") || selector.includes("continue")) {
+          return continued ? [] : [nextButton];
+        }
+        if (selector.includes("button")) {
+          return continued ? [submit] : [nextButton];
+        }
+        if (
+          selector.includes("visibility") ||
+          selector.includes("privacy") ||
+          selector.includes("permission") ||
+          selector.includes("select") ||
+          selector.includes("dropdown") ||
+          selector.includes("scope") ||
+          selector.includes("range")
+        ) {
+          return visibilityTriggers;
+        }
+        return continued ? visibilityTriggers : [uploadWrapper, nextButton, ...visibilityTriggers];
+      }
+    }
+  });
+
+  try {
+    const resultPromise = performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-accepted-upload-resume-bounded-visibility",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1029-bounded-resume-visibility",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/issue-1029-bounded-resume",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/issue-1029-bounded-resume",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-03T20:57:16.000Z",
+        preview_diagnostics: null
+      }
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    const result = await resultPromise;
+    expect(nextButton.clicked).toBe(true);
+    expect(visibilityTriggers.filter((trigger) => trigger.clicked)).toHaveLength(4);
+    expect(submit.clicked).toBe(false);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      upload_success: true,
+      submit_success: false,
+      publish_success: false,
+      cleanup_required: true,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING",
+          blocker_layer: "publish"
+        })
+      ]
+    });
+    expect(result.live_write_evidence).toMatchObject({
+      execution_phase: "publish",
+      upload_artifact_identity: expect.objectContaining({
+        upload_artifact_id: "upload-artifact/fr-0032/issue-1029-bounded-resume",
+        accepted_by_platform: true,
+        visible_in_editor: true
+      }),
+      submit_evidence: null,
+      cleanup_result: expect.objectContaining({
+        cleanup_action: "abandon_unpublished_upload"
+      }),
+      stop_signal: expect.objectContaining({
+        stopped_step: "publish",
+        blocker_code: "PUBLISH_VISIBILITY_CONTROL_MISSING"
+      })
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+    vi.useRealTimers();
+  }
+});
+
 it("defers publish identity cleanup to background capture during automatic continuation", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;

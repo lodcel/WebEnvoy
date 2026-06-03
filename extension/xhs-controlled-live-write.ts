@@ -3313,16 +3313,31 @@ const resolveNestedVisibilityActivationTargets = (trigger: HTMLElement): HTMLEle
   return uniqueVisibilityElements([...nested, trigger]);
 };
 
+type VisibilityControlSelectionOptions = {
+  deadlineMs?: number;
+  maxTriggerActivations?: number;
+  openedOptionTimeoutMs?: number;
+  boundedScrollAttempts?: number;
+};
+
+const remainingSelectionTime = (deadline: number | null): number =>
+  deadline === null ? Number.POSITIVE_INFINITY : Math.max(0, deadline - Date.now());
+
 const waitForOpenedPrivateVisibilityOption = async (
-  timeoutMs: number
+  timeoutMs: number,
+  deadline: number | null = null
 ): Promise<HTMLElement | null> => {
-  const deadline = Date.now() + timeoutMs;
+  const effectiveTimeoutMs = Math.min(timeoutMs, remainingSelectionTime(deadline));
+  if (effectiveTimeoutMs <= 0) {
+    return null;
+  }
+  const effectiveDeadline = Date.now() + effectiveTimeoutMs;
   do {
     const openedPrivateOption = findPrivateVisibilityOption(true);
     if (openedPrivateOption) {
       return openedPrivateOption;
     }
-    if (Date.now() >= deadline) {
+    if (Date.now() >= effectiveDeadline) {
       return null;
     }
     await sleep(150);
@@ -3330,15 +3345,28 @@ const waitForOpenedPrivateVisibilityOption = async (
 };
 
 const clickFirstOpenedPrivateVisibilityOption = async (
-  triggers: HTMLElement[]
+  triggers: HTMLElement[],
+  options: VisibilityControlSelectionOptions = {},
+  deadline: number | null = null
 ): Promise<HTMLElement | null> => {
-  for (const trigger of triggers) {
+  const openedOptionTimeoutMs = options.openedOptionTimeoutMs ?? 2_000;
+  const boundedTriggers =
+    typeof options.maxTriggerActivations === "number"
+      ? triggers.slice(0, Math.max(0, options.maxTriggerActivations))
+      : triggers;
+  for (const trigger of boundedTriggers) {
+    if (remainingSelectionTime(deadline) <= 0) {
+      return null;
+    }
     for (const activationTarget of resolveNestedVisibilityActivationTargets(trigger)) {
+      if (remainingSelectionTime(deadline) <= 0) {
+        return null;
+      }
       if (typeof activationTarget.click !== "function") {
         continue;
       }
       activateVisibilityTrigger(activationTarget);
-      const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(2_000);
+      const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(openedOptionTimeoutMs, deadline);
       if (openedPrivateOption && typeof openedPrivateOption.click === "function") {
         openedPrivateOption.click();
         await sleep(300);
@@ -3349,7 +3377,11 @@ const clickFirstOpenedPrivateVisibilityOption = async (
   return null;
 };
 
-const selectPrivateVisibilityControl = async (): Promise<HTMLElement | null> => {
+const selectPrivateVisibilityControl = async (
+  options: VisibilityControlSelectionOptions = {}
+): Promise<HTMLElement | null> => {
+  const deadline =
+    typeof options.deadlineMs === "number" ? Date.now() + Math.max(0, options.deadlineMs) : null;
   const visiblePrivateOption = findPrivateVisibilityOption();
   if (visiblePrivateOption) {
     visiblePrivateOption.click();
@@ -3358,10 +3390,13 @@ const selectPrivateVisibilityControl = async (): Promise<HTMLElement | null> => 
   }
   const triggers = findVisibilityTriggers();
   if (triggers.length > 0) {
-    const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers);
+    const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
     if (openedOption) {
       return openedOption;
     }
+  }
+  if (remainingSelectionTime(deadline) <= 0) {
+    return null;
   }
   if (await openVisibilitySettingsDisclosure()) {
     const privateOptionAfterDisclosure = findPrivateVisibilityOption();
@@ -3372,13 +3407,18 @@ const selectPrivateVisibilityControl = async (): Promise<HTMLElement | null> => 
     }
     const triggersAfterDisclosure = findVisibilityTriggers();
     const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(
-      triggersAfterDisclosure
+      triggersAfterDisclosure,
+      options,
+      deadline
     );
     if (openedOptionAfterDisclosure) {
       return openedOptionAfterDisclosure;
     }
   }
-  return selectPrivateVisibilityControlAfterBoundedScroll();
+  if (remainingSelectionTime(deadline) <= 0) {
+    return null;
+  }
+  return selectPrivateVisibilityControlAfterBoundedScroll(options, deadline);
 };
 
 const scrollPublishEditorForLazyVisibilityControls = (): boolean => {
@@ -3496,8 +3536,15 @@ const findNearestScrollablePublishEditorContainer = (element: HTMLElement): HTML
   return null;
 };
 
-const selectPrivateVisibilityControlAfterBoundedScroll = async (): Promise<HTMLElement | null> => {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+const selectPrivateVisibilityControlAfterBoundedScroll = async (
+  options: VisibilityControlSelectionOptions = {},
+  deadline: number | null = null
+): Promise<HTMLElement | null> => {
+  const maxAttempts = options.boundedScrollAttempts ?? 4;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (remainingSelectionTime(deadline) <= 0) {
+      return null;
+    }
     if (!scrollPublishEditorForLazyVisibilityControls()) {
       return null;
     }
@@ -3509,14 +3556,19 @@ const selectPrivateVisibilityControlAfterBoundedScroll = async (): Promise<HTMLE
       return visiblePrivateOption;
     }
     const triggers = findVisibilityTriggers();
-    const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers);
+    const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
     if (openedOption) {
       return openedOption;
+    }
+    if (remainingSelectionTime(deadline) <= 0) {
+      return null;
     }
     if (await openVisibilitySettingsDisclosure()) {
       const triggersAfterDisclosure = findVisibilityTriggers();
       const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(
-        triggersAfterDisclosure
+        triggersAfterDisclosure,
+        options,
+        deadline
       );
       if (openedOptionAfterDisclosure) {
         return openedOptionAfterDisclosure;
@@ -3727,6 +3779,16 @@ const performControlledSubmitPublishCleanup = async (
   artifact: ControlledUploadArtifactIdentity
 ): Promise<XhsControlledLiveWriteResult> => {
   const timestamp = nowIso();
+  const acceptedUploadResume = input.accepted_upload_artifact_identity?.accepted_by_platform === true;
+  const continuationVisibilitySelectionOptions: VisibilityControlSelectionOptions =
+    input.background_upload_capture_continuation === true || acceptedUploadResume
+      ? {
+          deadlineMs: 12_000,
+          maxTriggerActivations: 4,
+          openedOptionTimeoutMs: 1_200,
+          boundedScrollAttempts: 2
+        }
+      : {};
   if (input.publish_visibility_scope !== "private_or_self_visible") {
     return buildStepBlockedResult(input, artifact, {
       blockerCode: "PUBLISH_VISIBILITY_NOT_SELECTED",
@@ -3739,9 +3801,9 @@ const performControlledSubmitPublishCleanup = async (
       cleanupRequired: true
     }, null, uploadStageCleanupResult(input, timestamp, "non-private visibility refused before submit"));
   }
-  let visibilityControl = await selectPrivateVisibilityControl();
+  let visibilityControl = await selectPrivateVisibilityControl(continuationVisibilitySelectionOptions);
   if (!visibilityControl && await continueFromAcceptedUploadStageIfNeeded()) {
-    visibilityControl = await selectPrivateVisibilityControl();
+    visibilityControl = await selectPrivateVisibilityControl(continuationVisibilitySelectionOptions);
   }
   if (!visibilityControl) {
     const diagnostics = collectVisibilityLocatorDiagnostics();
@@ -3784,7 +3846,6 @@ const performControlledSubmitPublishCleanup = async (
     platform_message: null
   };
   const isExtensionBrowserSurface = typeof window !== "undefined" && "chrome" in globalThis;
-  const acceptedUploadResume = input.accepted_upload_artifact_identity?.accepted_by_platform === true;
   if (input.background_upload_capture_continuation === true || (acceptedUploadResume && isExtensionBrowserSurface)) {
     const backgroundCapturePending = input.background_upload_capture_continuation === true;
     const residual = {
