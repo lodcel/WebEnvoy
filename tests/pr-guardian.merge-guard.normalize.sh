@@ -1341,16 +1341,21 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   BASE_SHA="base-sha-123"
   PR_NUMBER="9"
   export BASE_REF PR_TITLE PR_URL PR_BODY PR_AUTHOR REVIEW_PROFILE MERGE_BASE_SHA BASE_SHA PR_NUMBER
+  local previous_home="${HOME-}"
+  local expected_user_skills_root
 
   WORKTREE_DIR="${TMP_DIR}/worktree"
   mkdir -p "${WORKTREE_DIR}/docs/dev/review"
   mkdir -p "${WORKTREE_DIR}/docs/dev/architecture"
   mkdir -p "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo"
   mkdir -p "${WORKTREE_DIR}/docs/dev"
-  mkdir -p "${WORKTREE_DIR}/plugins/loom/skills/loom-spec-review/scripts"
+  mkdir -p "${WORKTREE_DIR}/.loom/bin"
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
-  export WORKTREE_DIR
-  seed_loom_skills_root_fixture
+  HOME="${TMP_DIR}/home"
+  mkdir -p "${HOME}/plugins/loom/skills/shared"
+  printf '%s\n' '{"schema_version":"test-fixture","skills":[]}' > "${HOME}/plugins/loom/skills/registry.json"
+  expected_user_skills_root="$(cd "${HOME}/plugins/loom/skills" && pwd -P)"
+  export WORKTREE_DIR HOME
 
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
   CONTEXT_DOCS_FILE="${TMP_DIR}/context-docs.txt"
@@ -1373,7 +1378,7 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
   cp "${REPO_ROOT}/spec_review.md" "${WORKTREE_DIR}/spec_review.md"
   cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
-  cat > "${WORKTREE_DIR}/plugins/loom/skills/loom-spec-review/scripts/loom-spec-review.py" <<'PY'
+  cat > "${WORKTREE_DIR}/.loom/bin/loom_flow.py" <<'PY'
 #!/usr/bin/env python3
 import argparse
 import json
@@ -1429,7 +1434,7 @@ record = {
     "item_id": f"github-pr-{args.guardian_pr_number}",
     "kind": "spec_review",
     "decision": decision,
-    "reviewer": "mock-loom-spec-review",
+    "reviewer": "mock-metadata-only-loom-flow",
     "reviewed_head": args.guardian_expected_head,
     "reviewed_validation_summary": "Mock Loom spec review fixture for guardian spec profile.",
     "fallback_to": None,
@@ -1445,8 +1450,8 @@ record = {
         "reviewed_scope": scope_lines,
     },
     "review_provenance": {
-        "reviewer": "mock-loom-spec-review",
-        "engine_adapter": "mock-python-launcher",
+        "reviewer": "mock-metadata-only-loom-flow",
+        "engine_adapter": "mock-metadata-only-loom-flow",
         "fail_closed_reason": None,
     },
 }
@@ -1455,7 +1460,7 @@ record_path.parent.mkdir(parents=True, exist_ok=True)
 record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps({"spec_review": {"record": record}}, ensure_ascii=False))
 PY
-  chmod +x "${WORKTREE_DIR}/plugins/loom/skills/loom-spec-review/scripts/loom-spec-review.py"
+  chmod +x "${WORKTREE_DIR}/.loom/bin/loom_flow.py"
   cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
   cp "${SPEC_REVIEW_SUMMARY_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-spec-review-summary.md"
   printf '%s\n' "# Spec" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/spec.md"
@@ -1488,6 +1493,21 @@ EOF
   assert_equal "$(jq -r '.review_subject.pr_number' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "9"
   assert_equal "$(jq -r '.review_subject.base_sha' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "base-sha-123"
   assert_equal "$(jq -r '.review_subject.spec_locator' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "spec_review.md"
+  assert_equal "$(jq -r '.review_provenance.engine_adapter' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "mock-metadata-only-loom-flow"
+  if [[ ! -f "${expected_user_skills_root}/registry.json" || ! -d "${expected_user_skills_root}/shared" ]]; then
+    echo "expected user-level Loom skills fixture at ${expected_user_skills_root}" >&2
+    exit 1
+  fi
+  if [[ -e "${WORKTREE_DIR}/plugins/loom/skills" ]]; then
+    echo "did not expect repo-embedded Loom skills fixture under worktree" >&2
+    exit 1
+  fi
+  unset LOOM_INSTALLED_SKILLS_ROOT || true
+  if [[ -n "${previous_home}" ]]; then
+    export HOME="${previous_home}"
+  else
+    unset HOME || true
+  fi
 }
 
 test_run_codex_review_uses_context_budget_prompt_and_native_review_engine() {
