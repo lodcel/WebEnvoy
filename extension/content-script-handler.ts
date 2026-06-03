@@ -2600,6 +2600,9 @@ export class ContentScriptHandler {
           ...(typeof options.__runtime_latest_head_sha === "string"
             ? { __runtime_latest_head_sha: options.__runtime_latest_head_sha }
             : {}),
+          ...(typeof options.__runtime_profile_ref === "string"
+            ? { __runtime_profile_ref: options.__runtime_profile_ref }
+            : {}),
           ...(asRecord(options.explicit_request_context_artifact)
             ? {
                 explicit_request_context_artifact:
@@ -2743,6 +2746,7 @@ export class ContentScriptHandler {
                 source_media_digest: string;
                 source_media_kind: "image" | "video" | "mixed";
                 accepted_upload_artifact_identity?: Record<string, unknown> | null;
+                background_upload_capture_continuation?: true;
               }
             : null;
         result = await maybeWithContentCommandDeadline(
@@ -2771,6 +2775,9 @@ export class ContentScriptHandler {
                             accepted_upload_artifact_identity:
                               controlledLiveWriteInput.accepted_upload_artifact_identity
                           }
+                        : {}),
+                      ...(controlledLiveWriteInput.background_upload_capture_continuation === true
+                        ? { background_upload_capture_continuation: true }
                         : {})
                     }
                   : {}),

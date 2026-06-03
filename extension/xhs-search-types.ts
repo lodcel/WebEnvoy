@@ -20,6 +20,7 @@ export interface XhsSearchParams {
   source_media_digest?: string;
   source_media_kind?: "image" | "video" | "mixed" | string;
   accepted_upload_artifact_identity?: JsonRecord | null;
+  background_upload_capture_continuation?: boolean;
   limit?: number;
   page?: number;
   search_id?: string;

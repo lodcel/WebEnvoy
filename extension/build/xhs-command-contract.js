@@ -200,6 +200,9 @@ export const validateXhsCommandInputForExtension = (input) => {
             source_media_ref: sourceMediaRef,
             source_media_digest: sourceMediaDigest,
             source_media_kind: sourceMediaKind,
+            ...(input.payload.__background_upload_capture_continuation === true
+                ? { background_upload_capture_continuation: true }
+                : {}),
             ...(acceptedUploadArtifactIdentity
                 ? {
                     accepted_upload_artifact_identity: JSON.parse(JSON.stringify(acceptedUploadArtifactIdentity))

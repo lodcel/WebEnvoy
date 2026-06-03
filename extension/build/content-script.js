@@ -9048,6 +9048,46 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
         submit_result_state: "accepted",
         platform_message: null
     };
+    if (input.background_upload_capture_continuation === true) {
+        const residual = {
+            residual_record_id: `residual/fr-0032/${input.live_write_attempt_id}/background-identity-pending`,
+            live_write_attempt_id: input.live_write_attempt_id,
+            publish_result_id: null,
+            visibility_scope: input.publish_visibility_scope,
+            external_visibility_may_remain: false,
+            residual_locator: null,
+            reason: "identity_missing_after_publish",
+            required_followup: "merge background publish identity capture before final closeout",
+            recorded_at: nowIso()
+        };
+        const cleanup = {
+            schema_version: "fr-0032.cleanup_rollback_proof.v1",
+            cleanup_result_id: `cleanup/fr-0032/${input.live_write_attempt_id}/identity-pending`,
+            live_write_attempt_id: input.live_write_attempt_id,
+            run_id: input.run_id,
+            profile_ref: input.profile_ref ?? "unknown",
+            target_tab_id: input.target_tab_id ?? 0,
+            publish_result_identity: null,
+            cleanup_policy_ref: input.cleanup_policy_ref,
+            cleanup_action: "no_safe_cleanup_action",
+            cleanup_outcome: "cleanup_blocked",
+            proof_locator: locatorForElement(visibilityControl),
+            platform_message: "submit accepted; background publish identity capture remains authoritative",
+            attempted_at: submittedAt,
+            completed_at: null,
+            residual_record: residual
+        };
+        return buildStepBlockedResult(input, artifact, {
+            blockerCode: "PUBLISH_RESULT_IDENTITY_MISSING",
+            blockerMessage: "Controlled publish submit was accepted; background identity capture is pending.",
+            detailsRef: "background_publish_identity_capture_pending",
+            requiredRecoveryAction: "merge background publish identity capture before final closeout",
+            stoppedStep: "publish_identity",
+            blockerLayer: "published_identity",
+            riskKind: "publish_identity_missing",
+            cleanupRequired: true
+        }, submitEvidence, cleanup, residual);
+    }
     const isExtensionBrowserSurface = typeof window !== "undefined" && "chrome" in globalThis;
     const deadline = Date.now() + (isExtensionBrowserSurface ? 15_000 : 50);
     let publishIdentity = null;
@@ -10281,7 +10321,8 @@ const executeXhsSearch = async (input, env) => {
                 input.params.accepted_upload_artifact_identity !== null &&
                 !Array.isArray(input.params.accepted_upload_artifact_identity)
                 ? input.params.accepted_upload_artifact_identity
-                : null
+                : null,
+            background_upload_capture_continuation: input.params.background_upload_capture_continuation === true
         };
         const controlledLiveWriteResult = env.performControlledLiveWrite
             ? await env.performControlledLiveWrite(controlledLiveWriteInput)
@@ -14708,6 +14749,9 @@ const validateXhsCommandInputForExtension = (input) => {
             source_media_ref: sourceMediaRef,
             source_media_digest: sourceMediaDigest,
             source_media_kind: sourceMediaKind,
+            ...(input.payload.__background_upload_capture_continuation === true
+                ? { background_upload_capture_continuation: true }
+                : {}),
             ...(acceptedUploadArtifactIdentity
                 ? {
                     accepted_upload_artifact_identity: JSON.parse(JSON.stringify(acceptedUploadArtifactIdentity))
@@ -17557,6 +17601,9 @@ class ContentScriptHandler {
                     ...(typeof options.__runtime_latest_head_sha === "string"
                         ? { __runtime_latest_head_sha: options.__runtime_latest_head_sha }
                         : {}),
+                    ...(typeof options.__runtime_profile_ref === "string"
+                        ? { __runtime_profile_ref: options.__runtime_profile_ref }
+                        : {}),
                     ...(asRecord(options.explicit_request_context_artifact)
                         ? {
                             explicit_request_context_artifact: asRecord(options.explicit_request_context_artifact) ?? {}
@@ -17696,6 +17743,9 @@ class ContentScriptHandler {
                                     ? {
                                         accepted_upload_artifact_identity: controlledLiveWriteInput.accepted_upload_artifact_identity
                                     }
+                                    : {}),
+                                ...(controlledLiveWriteInput.background_upload_capture_continuation === true
+                                    ? { background_upload_capture_continuation: true }
                                     : {})
                             }
                             : {}),
