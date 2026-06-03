@@ -181,6 +181,7 @@ const createMockOpenExecutable = async (
     childOwnsProfileLock?: boolean;
     childOwnsProfileProcess?: boolean;
     delayProfileLockMs?: number;
+    childExitAfterMs?: number;
   }
 ): Promise<{ scriptPath: string; logPath: string }> => {
   const dir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-"));
@@ -202,6 +203,7 @@ const browserArgs = argsIndex >= 0 ? argv.slice(argsIndex + 1) : [];
 const appIndex = argv.indexOf("-a");
 const appPath = appIndex >= 0 ? argv[appIndex + 1] : "";
 const delayProfileLockMs = ${JSON.stringify(options?.delayProfileLockMs ?? 0)};
+const childExitAfterMs = ${JSON.stringify(options?.childExitAfterMs ?? 0)};
 let profileDir = "";
 for (const arg of browserArgs) {
   if (arg.startsWith("--user-data-dir=")) {
@@ -225,12 +227,24 @@ if (profileDir && ${JSON.stringify(options?.childOwnsProfileLock === true)}) {
   const child = spawn(process.execPath, ["-e", ${JSON.stringify(`
 const { existsSync, mkdirSync, symlinkSync, writeFileSync } = require("node:fs");
 const profileDir = process.env.WEBENVOY_MOCK_PROFILE_DIR;
+const delayProfileLockMs = ${JSON.stringify(options?.delayProfileLockMs ?? 0)};
+const childExitAfterMs = ${JSON.stringify(options?.childExitAfterMs ?? 0)};
+const initializeProfile = () => {
 mkdirSync(profileDir + "/Default", { recursive: true });
 writeFileSync(profileDir + "/Local State", "{}");
 writeFileSync(profileDir + "/Default/Preferences", "{}");
 const singletonLock = profileDir + "/SingletonLock";
 if (${JSON.stringify(options?.childOwnsProfileLock === true)} && !existsSync(singletonLock)) {
   symlinkSync("mockhost-" + process.pid, singletonLock);
+}
+if (childExitAfterMs > 0) {
+  setTimeout(() => process.exit(0), childExitAfterMs);
+}
+};
+if (delayProfileLockMs > 0) {
+  setTimeout(initializeProfile, delayProfileLockMs);
+} else {
+  initializeProfile();
 }
 setInterval(() => {}, 1000);
 `)}, "--", "--user-data-dir=" + profileDir], {
@@ -258,6 +272,9 @@ if (profileDir) {
   } else {
     initializeProfile();
   }
+}
+if (childExitAfterMs > 0) {
+  setTimeout(() => process.exit(0), childExitAfterMs);
 }
 setInterval(() => {}, 1000);
 `,
@@ -994,6 +1011,49 @@ while true; do sleep 1; done
         // ignore cleanup failure
       }
     }
+  });
+
+  it("fails closed when the LaunchServices profile owner exits before readiness confirmation", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath } = await createMockOpenExecutable({
+      childOwnsProfileLock: true,
+      delayProfileLockMs: 620,
+      childExitAfterMs: 60
+    });
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-browser-launcher-open-owner-exits-"));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+    process.env.WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS = "40";
+    process.env.WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS = "25";
+
+    await expect(
+      launchBrowser({
+        command: "runtime.start",
+        profileDir,
+        proxyUrl: null,
+        runId: "run-launcher-test-official-open-owner-exits-001",
+        params: {
+          headless: false,
+          startUrl: "https://creator.xiaohongshu.com/publish/publish"
+        },
+        launchMode: "official_chrome_persistent_extension"
+      })
+    ).rejects.toMatchObject({
+      name: "BrowserLaunchError",
+      code: "BROWSER_LAUNCH_FAILED"
+    } satisfies Partial<BrowserLaunchError>);
+
+    await expect(readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await expect(readFile(join(profileDir, BROWSER_CONTROL_FILENAME), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
   });
 
   it("waits longer for delayed LaunchServices profile readiness than direct launch readiness", async () => {

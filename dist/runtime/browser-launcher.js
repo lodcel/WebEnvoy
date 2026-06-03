@@ -224,6 +224,13 @@ const findProfileUserDataDirProcessPid = async (input) => {
     }
     return candidates.length === 1 ? candidates[0] ?? null : null;
 };
+const resolveProfileBrowserProcessPid = async (input) => {
+    const ownerPid = await readProfileSingletonLockOwnerPid(input.profileDir);
+    if (ownerPid !== null && isProcessAlive(ownerPid)) {
+        return ownerPid;
+    }
+    return findProfileUserDataDirProcessPid(input);
+};
 const cleanupStaleProfileSingletonLock = async (profileDir) => {
     await Promise.all(CHROME_SINGLETON_FILENAMES.map((filename) => deleteFileQuietly(join(profileDir, filename))));
 };
@@ -632,15 +639,18 @@ const waitForBrowserReady = async (profileDir, pid, launchedAtMs, stateFilePath,
             if (controllerPid === null || !isProcessAlive(controllerPid)) {
                 throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪前退出");
             }
-            const profileLockReady = await pathEntryExists(join(profileDir, "SingletonLock"));
-            const profileProcessReady = profileLockReady ||
-                (executablePath !== null &&
-                    (await findProfileUserDataDirProcessPid({ profileDir, executablePath })) !== null);
-            if (((markerReady && profileProcessReady) || (startupFlagReady && profileProcessReady)) &&
+            const profileProcessPid = executablePath !== null
+                ? await resolveProfileBrowserProcessPid({ profileDir, executablePath })
+                : null;
+            if (((markerReady && profileProcessPid !== null) ||
+                (startupFlagReady && profileProcessPid !== null)) &&
                 Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
                 await sleep(READY_CONFIRM_DELAY_MS);
                 if (controllerPid === null || !isProcessAlive(controllerPid)) {
                     throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
+                }
+                if (!isProcessAlive(profileProcessPid)) {
+                    continue;
                 }
                 return;
             }
@@ -648,16 +658,11 @@ const waitForBrowserReady = async (profileDir, pid, launchedAtMs, stateFilePath,
         else {
             assertProcessAlive(pid);
         }
-        if (markerReady && Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
+        if (processOwnership !== "external_persistent_app" &&
+            markerReady &&
+            Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS) {
             await sleep(READY_CONFIRM_DELAY_MS);
-            if (processOwnership === "external_persistent_app") {
-                if (controllerPid === null || !isProcessAlive(controllerPid)) {
-                    throw new BrowserLaunchError("BROWSER_LAUNCH_FAILED", "浏览器控制进程在 LaunchServices 就绪确认前退出");
-                }
-            }
-            else {
-                assertProcessAlive(pid);
-            }
+            assertProcessAlive(pid);
             return;
         }
         await sleep(readyWaitIntervalMs);
