@@ -2042,6 +2042,17 @@ const submitControlActionSignalPattern =
   /(^|[\s_-])(submit|publish|post|confirm|btn|button)([\s_-]|$)|d-button|reds-button|semi-button|ant-btn|el-button/iu;
 const submitControlContainerSignalPattern =
   /publish-(page|panel|content|container|form|wrapper|editor)|(^|[\s_-])(page|panel|content|container|form|wrapper|editor|settings)([\s_-]|$)/iu;
+const uploadStageContinuationPattern = /下一步|下一|继续|完成|next|continue/iu;
+const uploadStageContainerPattern =
+  /upload|media|material|publish-page-content-media|upload-wrapper|upload-container/iu;
+const uploadStageContinuationSelector = [
+  "button",
+  '[role="button"]',
+  '[class*="button" i]',
+  '[class*="btn" i]',
+  '[class*="next" i]',
+  '[class*="continue" i]'
+].join(",");
 
 const isNativeSubmitControl = (element: HTMLElement): boolean => {
   const tagName = element.tagName.toLowerCase();
@@ -2087,6 +2098,53 @@ const findSubmitPublishControl = (): HTMLElement | null => {
     Array.from(document.querySelectorAll<HTMLElement>(customSubmitControlSelector)).find(isSafeSubmitPublishControl) ??
     null
   );
+};
+
+const hasUploadStageAncestor = (element: HTMLElement): boolean => {
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const signal = `${locatorForElement(current)} ${visibilityStructuralSignal(current)} ${textContentOf(current)}`;
+    if (uploadStageContainerPattern.test(signal)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+};
+
+const isSafeUploadStageContinuationControl = (element: HTMLElement): boolean => {
+  const displayedText = elementDisplayedTextSignal(element).replace(/\s+/gu, "");
+  const signal = `${displayedText} ${visibilityStructuralSignal(element)}`;
+  return (
+    isVisibleElement(element) &&
+    !isDisabledElement(element) &&
+    displayedText.length > 0 &&
+    displayedText.length <= 16 &&
+    uploadStageContinuationPattern.test(signal) &&
+    !submitPublishPattern.test(signal) &&
+    !nonSubmitPublishPattern.test(signal) &&
+    hasUploadStageAncestor(element) &&
+    typeof element.click === "function"
+  );
+};
+
+const findUploadStageContinuationControl = (): HTMLElement | null => {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return null;
+  }
+  return Array.from(document.querySelectorAll<HTMLElement>(uploadStageContinuationSelector)).find(
+    isSafeUploadStageContinuationControl
+  ) ?? null;
+};
+
+const continueFromAcceptedUploadStageIfNeeded = async (): Promise<boolean> => {
+  const continuationControl = findUploadStageContinuationControl();
+  if (!continuationControl) {
+    return false;
+  }
+  continuationControl.click();
+  await sleep(800);
+  return true;
 };
 
 const uploadStageCleanupResult = (
@@ -3429,7 +3487,10 @@ const performControlledSubmitPublishCleanup = async (
       cleanupRequired: true
     }, null, uploadStageCleanupResult(input, timestamp, "non-private visibility refused before submit"));
   }
-  const visibilityControl = await selectPrivateVisibilityControl();
+  let visibilityControl = await selectPrivateVisibilityControl();
+  if (!visibilityControl && await continueFromAcceptedUploadStageIfNeeded()) {
+    visibilityControl = await selectPrivateVisibilityControl();
+  }
   if (!visibilityControl) {
     const diagnostics = collectVisibilityLocatorDiagnostics();
     return buildStepBlockedResult(input, artifact, {
