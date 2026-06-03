@@ -587,10 +587,14 @@ describe("xhs-input", () => {
         source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         source_media_kind: "image",
         accepted_upload_artifact_identity: {
-          upload_artifact_id: "upload-artifact/fr0032-accepted",
+          upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/aaaaaaaaaaaa",
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image",
           accepted_by_platform: true,
           visible_in_editor: true,
-          platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/abc"
+          platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/abc",
+          captured_at: "2026-06-03T00:00:00.000Z"
         }
       },
       options: {
@@ -620,11 +624,54 @@ describe("xhs-input", () => {
       target_page: "creator_publish_tab",
       live_write_attempt_id: "fr0032-attempt-submit-001",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-accepted",
+        upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/aaaaaaaaaaaa",
         accepted_by_platform: true,
         visible_in_editor: true
       }
     });
+  });
+
+  it("rejects accepted upload artifact identity when it does not match controlled source media", () => {
+    try {
+      parseXhsCommandInputForContract({
+        command: "xhs.creator_publish.controlled_live_write",
+        abilityId: "xhs.creator.publish.v1",
+        abilityAction: "write",
+        payload: {
+          live_write_attempt_id: "fr0032-attempt-submit-001",
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image",
+          accepted_upload_artifact_identity: {
+            upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/bbbbbbbbbbbb",
+            source_media_ref: "media-ref/fr-0032/fixture-image-b",
+            source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_media_kind: "image",
+            accepted_by_platform: true,
+            visible_in_editor: true,
+            platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/abc",
+            captured_at: "2026-06-03T00:00:00.000Z"
+          }
+        },
+        options: {
+          issue_scope: "issue_835",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          controlled_live_write: true
+        }
+      });
+      throw new Error("expected mismatched artifact source ref to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: expect.objectContaining({
+          reason: "ACCEPTED_UPLOAD_ARTIFACT_SOURCE_REF_MISMATCH"
+        })
+      });
+    }
   });
 
   it("rejects xhs.creator_publish.controlled_live_write when source media ref leaks a local path", () => {

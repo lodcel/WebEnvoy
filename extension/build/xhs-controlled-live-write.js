@@ -461,6 +461,66 @@ export const extractXhsControlledPublishResultIdentityCapture = (input) => {
     };
 };
 const sourceMediaKind = (value) => value === "video" || value === "mixed" ? value : "image";
+const acceptedUploadArtifactResumeBlockedInput = (detailsRef) => ({
+    blockerCode: "ACCEPTED_UPLOAD_ARTIFACT_RESUME_INVALID",
+    blockerMessage: "Controlled submit/publish resume requires a current accepted upload artifact identity bound to this request.",
+    detailsRef,
+    requiredRecoveryAction: "provide a current accepted_upload_artifact_identity matching source media, profile, target and latest-head lineage before submit/publish resume"
+});
+const validateAcceptedUploadArtifactResume = (input, artifact) => {
+    const artifactRecord = asPlainRecord(artifact) ?? {};
+    if (!/^upload-artifact\/fr-0032\//u.test(artifact.upload_artifact_id)) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_id_invalid");
+    }
+    if (artifact.source_media_ref !== input.source_media_ref) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_source_ref_mismatch");
+    }
+    if (artifact.source_media_digest !== input.source_media_digest) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_digest_mismatch");
+    }
+    if (artifact.source_media_kind !== sourceMediaKind(input.source_media_kind)) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_kind_mismatch");
+    }
+    if (artifact.accepted_by_platform !== true || artifact.visible_in_editor !== true) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_not_ready");
+    }
+    if (typeof artifact.captured_at !== "string" || artifact.captured_at.trim().length === 0) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_captured_at_invalid");
+    }
+    if (!Object.prototype.hasOwnProperty.call(artifactRecord, "platform_staging_ref")) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_platform_ref_missing");
+    }
+    if (artifact.platform_staging_ref !== null &&
+        (typeof artifact.platform_staging_ref !== "string" ||
+            artifact.platform_staging_ref.trim().length === 0)) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_platform_ref_invalid");
+    }
+    const artifactProfileRef = artifactRecord.profile_ref;
+    if (typeof artifactProfileRef === "string" &&
+        input.profile_ref !== null &&
+        artifactProfileRef !== input.profile_ref) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_profile_mismatch");
+    }
+    const artifactTargetTabId = artifactRecord.target_tab_id;
+    if (typeof artifactTargetTabId === "number" &&
+        Number.isInteger(artifactTargetTabId) &&
+        input.target_tab_id !== null &&
+        artifactTargetTabId !== input.target_tab_id) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_target_tab_mismatch");
+    }
+    const artifactTargetPage = artifactRecord.target_page;
+    if (typeof artifactTargetPage === "string" && artifactTargetPage !== "creator_publish_tab") {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_target_page_mismatch");
+    }
+    const artifactLatestHeadSha = artifactRecord.latest_head_sha;
+    if (typeof artifactLatestHeadSha === "string" &&
+        typeof input.latest_head_sha === "string" &&
+        input.latest_head_sha.length > 0 &&
+        artifactLatestHeadSha !== input.latest_head_sha) {
+        return acceptedUploadArtifactResumeBlockedInput("accepted_upload_artifact_head_mismatch");
+    }
+    return null;
+};
 const sha256DigestForBytes = async (bytes) => {
     const subtle = globalThis.crypto?.subtle;
     if (!subtle) {
@@ -2906,6 +2966,10 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
 };
 export const performXhsControlledLiveWriteWithApprovedSourceMedia = async (input) => {
     if (input.accepted_upload_artifact_identity?.accepted_by_platform === true) {
+        const resumeBlocker = validateAcceptedUploadArtifactResume(input, input.accepted_upload_artifact_identity);
+        if (resumeBlocker) {
+            return buildXhsControlledLiveWriteUploadBlockedResult(input, resumeBlocker, input.accepted_upload_artifact_identity);
+        }
         return await performControlledSubmitPublishCleanup(input, input.accepted_upload_artifact_identity);
     }
     const resolvedFile = await resolveApprovedFixtureMediaFile(input);
