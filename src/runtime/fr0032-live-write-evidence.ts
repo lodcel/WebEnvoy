@@ -244,7 +244,15 @@ export interface Fr0032LiveWriteEvaluation {
   full_live_write_success: boolean;
   later_write_actions_blocked: boolean;
   cleanup_required: boolean;
+  cleanup_result_id: string | null;
+  residual_record_id: string | null;
   residual_record_required: boolean;
+  risk_signal_present: boolean;
+  blocking_risk_signal_count: number;
+  stop_signal_id: string | null;
+  stop_signal_present: boolean;
+  stop_signal_required: boolean;
+  stop_signal_satisfied: boolean;
   blockers: Array<{
     blocker_code: Fr0032LiveWriteBlockerCode;
     message: string;
@@ -400,7 +408,15 @@ export const evaluateFr0032LiveWriteEvidence = (
     pushBlocker(blockers, "CLEANUP_RESULT_MISSING", "cleanup or rollback proof is required");
   }
 
-  const residualRecord = input.residual_record ?? cleanupResult?.residual_record ?? null;
+  const inputResidualRecord = input.residual_record ?? null;
+  const cleanupResidualRecord = cleanupResult?.residual_record ?? null;
+  const residualRecord = inputResidualRecord ?? cleanupResidualRecord;
+  const cleanupResultId = cleanupResult?.cleanup_result_id ?? null;
+  const residualRecordId = residualRecord?.residual_record_id ?? null;
+  const residualRecordMismatch =
+    inputResidualRecord !== null &&
+    cleanupResidualRecord !== null &&
+    inputResidualRecord.residual_record_id !== cleanupResidualRecord.residual_record_id;
   const cleanupSatisfied =
     cleanupResult !== null && cleanupOutcomeClosesAttempt(cleanupResult, residualRecord);
   const cleanupSuccess = cleanupResult !== null && cleanupOutcomeSuccessful(cleanupResult);
@@ -410,6 +426,7 @@ export const evaluateFr0032LiveWriteEvidence = (
     residualRecord === null;
   const successWithResidual =
     cleanupResult !== null && !cleanupOutcomeSuccessful(cleanupResult) && residualRecord !== null;
+  const noSafeCleanupAction = cleanupResult?.cleanup_action === "no_safe_cleanup_action";
 
   if (residualRecordRequired) {
     pushBlocker(
@@ -418,17 +435,37 @@ export const evaluateFr0032LiveWriteEvidence = (
       "cleanup failure, blocked cleanup or unsupported rollback requires residual record"
     );
   }
+  if (residualRecordMismatch) {
+    pushBlocker(
+      blockers,
+      "RESIDUAL_RECORD_REQUIRED",
+      "cleanup proof residual record and top-level residual record must identify the same residual"
+    );
+  }
 
+  const riskSignalPresent = riskSignals.length > 0;
   const hasBlockingRisk = riskSignals.some((riskSignal) => riskSignal.severity === "blocking");
+  const blockingRiskSignalCount = riskSignals.filter((riskSignal) => riskSignal.severity === "blocking").length;
+  const submitBlockedByRisk = submitEvidence?.submit_result_state === "blocked_by_risk";
+  const stopSignalRequired = hasBlockingRisk || submitBlockedByRisk || noSafeCleanupAction;
+  const stopSignalId = input.stop_signal?.stop_signal_id ?? null;
+  const blockingStopSignalPresent = input.stop_signal?.severity === "blocking";
+  const stopSignalCleanupMismatch =
+    input.stop_signal !== null &&
+    input.stop_signal !== undefined &&
+    (input.stop_signal.cleanup_result_id !== cleanupResultId ||
+      input.stop_signal.residual_record_id !== residualRecordId);
+  const stopSignalSatisfied =
+    !stopSignalCleanupMismatch && (!stopSignalRequired || blockingStopSignalPresent);
   if (hasBlockingRisk) {
     pushBlocker(blockers, "RISK_SIGNAL_BLOCKING", "blocking risk signal stops live write");
-    if (!input.stop_signal || input.stop_signal.severity !== "blocking") {
-      pushBlocker(
-        blockers,
-        "STOP_SIGNAL_REQUIRED",
-        "blocking risk signal requires a blocking live write stop signal"
-      );
-    }
+  }
+  if (!stopSignalSatisfied) {
+    pushBlocker(
+      blockers,
+      "STOP_SIGNAL_REQUIRED",
+      "blocking risk, risk-blocked submit or unsafe cleanup requires a matching blocking live write stop signal"
+    );
   }
 
   const uploadSuccess =
@@ -442,7 +479,10 @@ export const evaluateFr0032LiveWriteEvidence = (
     publishIdentity.publish_visibility_scope !== "unknown" &&
     hasStablePublishIdentity(publishIdentity);
   const laterWriteActionsBlocked =
-    hasBlockingRisk || submitEvidence?.submit_result_state === "blocked_by_risk";
+    hasBlockingRisk ||
+    submitBlockedByRisk ||
+    noSafeCleanupAction ||
+    (input.stop_signal?.severity === "blocking" && input.stop_signal.later_write_actions_blocked);
   const cleanupRequired = uploadSuccess || submitSuccess || publishIdentity !== null || hasBlockingRisk;
   const submitGateOpen = blockers.length === 0 && uploadSuccess && !laterWriteActionsBlocked;
   const publishGateOpen = submitGateOpen && submitSuccess && !laterWriteActionsBlocked;
@@ -481,7 +521,15 @@ export const evaluateFr0032LiveWriteEvidence = (
     full_live_write_success: fullLiveWriteSuccess,
     later_write_actions_blocked: laterWriteActionsBlocked,
     cleanup_required: cleanupRequired,
+    cleanup_result_id: cleanupResultId,
+    residual_record_id: residualRecordId,
     residual_record_required: residualRecordRequired,
+    risk_signal_present: riskSignalPresent,
+    blocking_risk_signal_count: blockingRiskSignalCount,
+    stop_signal_id: stopSignalId,
+    stop_signal_present: input.stop_signal !== null && input.stop_signal !== undefined,
+    stop_signal_required: stopSignalRequired,
+    stop_signal_satisfied: stopSignalSatisfied,
     blockers
   };
 };
