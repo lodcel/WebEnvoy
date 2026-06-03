@@ -1990,6 +1990,22 @@ test_main_merge_if_safe_falls_back_to_fresh_review_when_status_query_fails() {
   assert_file_not_contains "${call_log}" "hydrate_reused_review_result"
 }
 
+test_ensure_loom_installed_skills_root_prefers_review_worktree_over_stale_env() {
+  setup_case_dir "loom-installed-skills-root-prefers-review-worktree"
+
+  REPO_ROOT="${TMP_DIR}/source-repo"
+  WORKTREE_DIR="${TMP_DIR}/review-worktree"
+  local stale_root="${TMP_DIR}/stale-worktree/plugins/loom/skills"
+  local review_root="${WORKTREE_DIR}/plugins/loom/skills"
+  mkdir -p "${stale_root}/shared" "${review_root}/shared"
+  export REPO_ROOT WORKTREE_DIR
+  LOOM_INSTALLED_SKILLS_ROOT="${stale_root}"
+  export LOOM_INSTALLED_SKILLS_ROOT
+
+  assert_pass ensure_loom_installed_skills_root
+  assert_equal "${review_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
+}
+
 test_fetch_issue_summary_fails_closed_when_issue_lookup_fails() {
   setup_case_dir "run-review-without-issue-summary"
 

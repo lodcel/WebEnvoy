@@ -3729,12 +3729,44 @@ ensure_loom_installed_skills_root() {
   local target_root="${WORKTREE_DIR:-${REPO_ROOT}}"
   local plugin_skills_root="${target_root}/plugins/loom/skills"
   local repo_plugin_skills_root="${REPO_ROOT}/plugins/loom/skills"
+  local canonical_target_root=""
+  local canonical_repo_root=""
+  local canonical_env_root=""
 
-  if [[ ( -z "${LOOM_INSTALLED_SKILLS_ROOT:-}" || ! -d "${LOOM_INSTALLED_SKILLS_ROOT}" ) && -d "${plugin_skills_root}" ]]; then
-    export LOOM_INSTALLED_SKILLS_ROOT="${plugin_skills_root}"
-  elif [[ ( -z "${LOOM_INSTALLED_SKILLS_ROOT:-}" || ! -d "${LOOM_INSTALLED_SKILLS_ROOT}" ) && -d "${repo_plugin_skills_root}" ]]; then
-    export LOOM_INSTALLED_SKILLS_ROOT="${repo_plugin_skills_root}"
+  canonical_target_root="$(cd "${target_root}" 2>/dev/null && pwd -P || true)"
+  canonical_repo_root="$(cd "${REPO_ROOT}" 2>/dev/null && pwd -P || true)"
+
+  if [[ -d "${plugin_skills_root}" ]]; then
+    export LOOM_INSTALLED_SKILLS_ROOT="$(cd "${plugin_skills_root}" && pwd -P)"
+    return 0
   fi
+
+  if [[ -z "${WORKTREE_DIR:-}" && -d "${repo_plugin_skills_root}" ]]; then
+    export LOOM_INSTALLED_SKILLS_ROOT="$(cd "${repo_plugin_skills_root}" && pwd -P)"
+    return 0
+  fi
+
+  if [[ -n "${LOOM_INSTALLED_SKILLS_ROOT:-}" && -d "${LOOM_INSTALLED_SKILLS_ROOT}" ]]; then
+    canonical_env_root="$(cd "${LOOM_INSTALLED_SKILLS_ROOT}" 2>/dev/null && pwd -P || true)"
+    if [[ -n "${canonical_env_root}" && -n "${canonical_target_root}" ]]; then
+      case "${canonical_env_root}" in
+        "${canonical_target_root}"|"${canonical_target_root}"/*)
+          export LOOM_INSTALLED_SKILLS_ROOT="${canonical_env_root}"
+          return 0
+          ;;
+      esac
+    fi
+    if [[ -z "${WORKTREE_DIR:-}" && -n "${canonical_env_root}" && -n "${canonical_repo_root}" ]]; then
+      case "${canonical_env_root}" in
+        "${canonical_repo_root}"|"${canonical_repo_root}"/*)
+          export LOOM_INSTALLED_SKILLS_ROOT="${canonical_env_root}"
+          return 0
+          ;;
+      esac
+    fi
+  fi
+
+  unset LOOM_INSTALLED_SKILLS_ROOT
 }
 
 write_loom_merge_ready_input() {
