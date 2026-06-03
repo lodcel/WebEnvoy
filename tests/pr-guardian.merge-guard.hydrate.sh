@@ -175,8 +175,7 @@ EOF
   printf '[[{"user":{"login":"%s"},"commit_id":"%s","state":"%s"}]]\n' "${reviewer}" "${review_commit}" "${review_state}" > "${MOCK_GH_REVIEWS_JSON}"
   export MOCK_GH_REVIEWS_JSON
 
-  mkdir -p "${REPO_ROOT}/.loom/bootstrap"
-  printf '%s\n' '{"schema_version":"loom-bootstrap-manifest/v1","fixture":"merge-if-safe"}' > "${REPO_ROOT}/.loom/bootstrap/manifest.json"
+  seed_repo_bootstrap_manifest_fixture
 
   if [[ "${require_paginate}" == "1" ]]; then
     MOCK_GH_REVIEWS_REQUIRE_PAGINATE=1

@@ -10,6 +10,8 @@ TEST_REPO_ROOT="${REPO_ROOT}"
 TEST_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pr-guardian-merge-guard.test.XXXXXX")"
 cleanup_test_tmp() {
   rm -rf "${TEST_TMP_DIR}"
+  rm -f "${TEST_REPO_ROOT}/.loom/bootstrap/manifest.json"
+  rmdir "${TEST_REPO_ROOT}/.loom/bootstrap" 2>/dev/null || true
 }
 trap cleanup_test_tmp EXIT
 

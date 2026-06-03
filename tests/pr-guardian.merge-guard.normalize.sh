@@ -981,6 +981,16 @@ seed_loom_skills_root_fixture() {
 EOF
 }
 
+seed_repo_bootstrap_manifest_fixture() {
+  mkdir -p "${REPO_ROOT}/.loom/bootstrap"
+  printf '%s\n' '{"schema_version":"loom-bootstrap-manifest/v1","fixture":"merge-if-safe"}' > "${REPO_ROOT}/.loom/bootstrap/manifest.json"
+}
+
+cleanup_repo_bootstrap_manifest_fixture() {
+  rm -f "${REPO_ROOT}/.loom/bootstrap/manifest.json"
+  rmdir "${REPO_ROOT}/.loom/bootstrap" 2>/dev/null || true
+}
+
 test_run_codex_review_prefers_codex_app_proof_raw_file() {
   setup_case_dir "run-codex-app-proof-review"
 
@@ -1960,6 +1970,7 @@ EOF
 
 test_main_merge_if_safe_reuses_existing_guardian_review() {
   setup_case_dir "main-merge-if-safe-reuse"
+  seed_repo_bootstrap_manifest_fixture
 
   local call_log="${TMP_DIR}/main.calls.log"
   export call_log
@@ -2010,6 +2021,7 @@ EOF
   assert_file_contains "${call_log}" "merge_if_safe:274:0"
   assert_file_not_contains "${call_log}" "run_codex_review:274"
   assert_file_not_contains "${call_log}" "post_review:274"
+  cleanup_repo_bootstrap_manifest_fixture
 }
 
 test_main_review_with_post_review_falls_back_to_fresh_review_when_status_query_fails() {
@@ -2054,6 +2066,7 @@ test_main_review_with_post_review_falls_back_to_fresh_review_when_status_query_f
 
 test_main_merge_if_safe_falls_back_to_fresh_review_when_status_query_fails() {
   setup_case_dir "main-merge-if-safe-fallback-after-status-query-failure"
+  seed_repo_bootstrap_manifest_fixture
 
   local call_log="${TMP_DIR}/main.calls.log"
   export call_log
@@ -2090,6 +2103,7 @@ test_main_merge_if_safe_falls_back_to_fresh_review_when_status_query_fails() {
   assert_file_contains "${call_log}" "run_codex_review:274"
   assert_file_contains "${call_log}" "merge_if_safe:274:0"
   assert_file_not_contains "${call_log}" "hydrate_reused_review_result"
+  cleanup_repo_bootstrap_manifest_fixture
 }
 
 test_ensure_loom_installed_skills_root_prefers_review_worktree_over_stale_env() {
