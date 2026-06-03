@@ -18298,7 +18298,7 @@ const bootstrapContentScript = (runtime) => {
         }
         relayContentResultToBackground(runtime, message);
     });
-    const messageListener = (message) => {
+    const messageListener = (message, _sender, sendResponse) => {
         if (state.generation !== generation || state.handler !== handler) {
             return;
         }
@@ -18310,9 +18310,41 @@ const bootstrapContentScript = (runtime) => {
         if (normalized.fingerprintContext) {
             persistExtensionFingerprintContext(normalized.fingerprintContext, normalized.runId);
         }
+        let detachResponseRelay = null;
+        if (sendResponse) {
+            detachResponseRelay = handler.onResult((result) => {
+                if (result.id !== normalized.id) {
+                    return;
+                }
+                detachResponseRelay?.();
+                detachResponseRelay = null;
+                try {
+                    sendResponse(JSON.parse(JSON.stringify(result)));
+                }
+                catch {
+                    sendResponse({
+                        kind: "result",
+                        id: normalized.id,
+                        ok: false,
+                        error: {
+                            code: "ERR_TRANSPORT_FORWARD_FAILED",
+                            message: "content script result response serialization failed"
+                        },
+                        payload: {
+                            details: {
+                                stage: "relay",
+                                reason: "CONTENT_RESULT_RESPONSE_SERIALIZATION_FAILED"
+                            }
+                        }
+                    });
+                }
+            });
+        }
         const accepted = handler.onBackgroundMessage(normalized);
         if (!accepted) {
-            runtime.sendMessage?.({
+            detachResponseRelay?.();
+            detachResponseRelay = null;
+            const unreachableResponse = {
                 kind: "result",
                 id: request.id,
                 ok: false,
@@ -18320,8 +18352,14 @@ const bootstrapContentScript = (runtime) => {
                     code: "ERR_TRANSPORT_FORWARD_FAILED",
                     message: "content script unreachable"
                 }
+            };
+            runtime.sendMessage?.({
+                ...unreachableResponse
             });
+            sendResponse?.(unreachableResponse);
+            return sendResponse ? true : undefined;
         }
+        return sendResponse ? true : undefined;
     };
     runtime.onMessage.addListener(messageListener);
     state.messageListener = messageListener;

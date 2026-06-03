@@ -3466,6 +3466,83 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
+  it("consumes inline content-script responses from tabs.sendMessage before pending timeout", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      { id: 32, url: "https://www.xiaohongshu.com/search_result?keyword=露营", active: true }
+    ]);
+    chromeApi.tabs.sendMessage.mockImplementation(async (_tabId, message) => {
+      const forward = message as { id?: string; command?: string };
+      if (forward.id !== "run-xhs-inline-content-result-001") {
+        return undefined;
+      }
+      return {
+        kind: "result",
+        id: "run-xhs-inline-content-result-001",
+        ok: true,
+        payload: {
+          summary: {
+            capability_result: {
+              ability_id: "xhs.search.v1",
+              layer: "L3",
+              action: "read",
+              outcome: "success",
+              data_ref: {
+                query: "露营"
+              }
+            }
+          },
+          diagnostics: {
+            command: forward.command
+          }
+        }
+      };
+    });
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-xhs-inline-content-result-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-inline-content-result-001",
+        command: "xhs.search",
+        command_params: createXhsCommandParams(),
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+    await waitForBridgeTurn();
+
+    const forwardedSuccess = firstPort.postMessage.mock.calls
+      .map((call) => call[0] as { id?: string; status?: string; payload?: Record<string, unknown> })
+      .find((message) => message.id === "run-xhs-inline-content-result-001");
+    expect(forwardedSuccess).toMatchObject({
+      id: "run-xhs-inline-content-result-001",
+      status: "success",
+      payload: {
+        target_tab_id: 32,
+        summary: {
+          capability_result: {
+            outcome: "success"
+          },
+          consumer_gate_result: {
+            target_domain: "www.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "search_result_tab",
+            requested_execution_mode: "dry_run",
+            effective_execution_mode: "dry_run",
+            issue_scope: "issue_209"
+          }
+        }
+      }
+    });
+  });
+
   it("backfills allowed execution_audit from background canonical diagnostics on execution failures", async () => {
     const firstPort = createMockPort();
     const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);
