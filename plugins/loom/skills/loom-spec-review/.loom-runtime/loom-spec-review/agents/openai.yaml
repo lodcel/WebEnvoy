@@ -1,4 +1,0 @@
-version: 1
-agent:
-  id: loom-spec-review
-  default_prompt: "运行 Loom 的 spec-review flow，并输出可被 implementation review 与 merge-ready 消费的 spec gate 摘要。"

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Loom Build"
-  short_description: "执行 bounded implementation/build 轮并校验委派集成证据"
-  default_prompt: "读取 Loom Work Item、spec、plan、recovery、validation baseline 和 ownership constraints；执行或整合 build 轮，并确保 subagent 输出写回既有 Loom carriers 后再进入 review。"

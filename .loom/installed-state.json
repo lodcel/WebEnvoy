@@ -2,9 +2,22 @@
   "schema_version": "loom-installed-state/v2",
   "installation_id": "loom-WebEnvoy",
   "target": ".",
-  "installed_at": "2026-06-03T01:30:38Z",
-  "installing_command": "loom install",
+  "installed_at": "2026-06-03T03:50:00Z",
+  "installing_command": "metadata-only migration for WebEnvoy #998",
   "upgrade_eligibility": "current",
+  "adoption_model": "metadata-only-repository-adoption",
+  "authority_boundary": {
+    "repo_truth": [
+      ".loom/installed-state.json",
+      ".loom/companion/",
+      ".loom/work-items/",
+      ".loom/progress/",
+      ".loom/reviews/"
+    ],
+    "provider_truth": "Loom skills and Codex plugin execution are provided by the user-level Codex Loom plugin.",
+    "workstation_registration_is_repo_truth": false,
+    "upstream_gap_ref": "Loom #1217 metadata-only repository adoption"
+  },
   "layers": [
     {
       "id": "runtime",
@@ -32,58 +45,62 @@
           "suite carrier validate"
         ]
       },
-      "consumes": []
+      "consumes": [
+        "user-level-codex-loom-plugin"
+      ]
     },
     {
-      "id": "plugin-embedded-skills",
-      "layer_type": "plugin-embedded-skills",
-      "installed_path": "plugins/loom/skills",
+      "id": "metadata-only-adoption",
+      "layer_type": "metadata-only-repository-adoption",
+      "installed_path": ".loom/installed-state.json",
       "version_context": {
-        "skills_registry_version": "1.7.0",
-        "skill_package_version": "1.0.0"
+        "metadata_contract_version": "1.0.0",
+        "upstream_tracking_issue": "Loom #1217"
       },
       "runtime_state": "ready",
       "upgrade_eligibility": "current",
       "provides": [
-        "scenario skills embedded in the Codex plugin payload"
+        "repository adoption metadata",
+        "repo-owned governance carrier boundary"
       ],
       "consumes": [
         "runtime"
       ]
     },
     {
-      "id": "host-adapter",
-      "layer_type": "host-adapter-plugin",
-      "installed_path": "plugins/loom",
+      "id": "user-level-codex-loom-plugin",
+      "layer_type": "external-user-level-provider",
+      "installed_path": "user-scope:codex:loom@local-user-plugins",
       "version_context": {
         "plugin_surface_version": "0.4.0",
-        "host_adapter_version": "1.0.0"
+        "host_adapter_version": "1.0.0",
+        "skills_registry_version": "1.7.0",
+        "skill_package_version": "1.0.0"
       },
       "runtime_state": "ready",
       "upgrade_eligibility": "current",
       "provides": [
-        "codex plugin discovery surface"
+        "Codex Loom scenario skills",
+        "Loom host/provider execution surface"
       ],
-      "consumes": [
-        "plugin-embedded-skills"
-      ]
+      "consumes": []
     }
   ],
   "installation_graph": {
     "layers": [
       "runtime",
-      "plugin-embedded-skills",
-      "host-adapter"
+      "metadata-only-adoption",
+      "user-level-codex-loom-plugin"
     ],
     "edges": [
       {
-        "from": "plugin-embedded-skills",
-        "to": "runtime",
+        "from": "runtime",
+        "to": "user-level-codex-loom-plugin",
         "relationship": "consumes"
       },
       {
-        "from": "host-adapter",
-        "to": "plugin-embedded-skills",
+        "from": "metadata-only-adoption",
+        "to": "runtime",
         "relationship": "consumes"
       }
     ]

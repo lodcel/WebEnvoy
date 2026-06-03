@@ -6,19 +6,20 @@ This directory contains repository-scoped agent assets that must travel with Web
 
 Commit these surfaces when they define the repo contract:
 
-- `plugins/loom/.codex-plugin/plugin.json`
-- `plugins/loom/skills/**`
 - `.loom/installed-state.json`
 - `.loom/companion/**`
 - `.loom/bin/**` while the installed-state runtime layer points at it
-
-Commit these only after a later phase explicitly makes Loom the authored truth owner:
-
 - `.loom/work-items/**`
-- `.loom/specs/**`
-- `.loom/reviews/**`
 - `.loom/progress/**`
+- `.loom/reviews/**`
+
+Do not commit these Loom provider or generated surfaces:
+
+- `.loom/specs/**`
 - `.loom/status/current.md`
+- `plugins/loom/**`
+- `.agents/skills/**`
+- `skills/**`
 
 Do not commit these local or generated surfaces:
 
@@ -36,4 +37,8 @@ Do not commit these local or generated surfaces:
 
 ## Current Phase
 
-WebEnvoy uses the Loom downstream Codex plugin layout. GitHub Issues/Projects, WebEnvoy guardian, WebEnvoy review rules, CI, live evidence gates, and controlled merge remain the authoritative host surfaces.
+WebEnvoy uses metadata-only Loom repository adoption. The repository records
+adoption metadata and repo-owned Loom governance carriers, while Loom skills and
+Codex plugin execution come from the user-level Codex Loom plugin. GitHub
+Issues/Projects, WebEnvoy guardian, WebEnvoy review rules, CI, live evidence
+gates, and controlled merge remain the authoritative host surfaces.

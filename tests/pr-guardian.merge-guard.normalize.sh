@@ -1315,9 +1315,8 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   mkdir -p "${WORKTREE_DIR}/docs/dev/architecture"
   mkdir -p "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo"
   mkdir -p "${WORKTREE_DIR}/docs/dev"
-  mkdir -p "${WORKTREE_DIR}/.loom/bin"
+  mkdir -p "${WORKTREE_DIR}/plugins/loom/skills/loom-spec-review/scripts"
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
-  mkdir -p "${WORKTREE_DIR}/plugins/loom/skills"
   export WORKTREE_DIR
 
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
@@ -1341,9 +1340,89 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
   cp "${REPO_ROOT}/spec_review.md" "${WORKTREE_DIR}/spec_review.md"
   cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
-  cp "${REPO_ROOT}/.loom/bin/"*.py "${WORKTREE_DIR}/.loom/bin/"
-  cp -R "${REPO_ROOT}/plugins/loom/skills/loom-spec-review" "${WORKTREE_DIR}/plugins/loom/skills/"
-  cp -R "${REPO_ROOT}/plugins/loom/skills/shared" "${WORKTREE_DIR}/plugins/loom/skills/"
+  cat > "${WORKTREE_DIR}/plugins/loom/skills/loom-spec-review/scripts/loom-spec-review.py" <<'PY'
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("domain")
+parser.add_argument("operation")
+parser.add_argument("--target", required=True)
+parser.add_argument("--review-file", required=True)
+parser.add_argument("--guardian-prompt-file", required=True)
+parser.add_argument("--guardian-output-file", required=True)
+parser.add_argument("--guardian-expected-head", required=True)
+parser.add_argument("--guardian-tmp-dir", required=True)
+parser.add_argument("--guardian-pr-number", required=True)
+parser.add_argument("--guardian-base-sha", required=True)
+parser.add_argument("--guardian-reviewed-scope-file", required=True)
+args, _ = parser.parse_known_args()
+
+target = Path(args.target)
+prompt = Path(args.guardian_prompt_file).read_text(encoding="utf-8")
+scope_lines = [
+    line.strip()
+    for line in Path(args.guardian_reviewed_scope_file).read_text(encoding="utf-8").splitlines()
+    if line.strip()
+]
+interface_file = target / ".loom/companion/repo-interface.json"
+spec_locator = "spec_review.md"
+if interface_file.exists():
+    spec_locator = (
+        json.loads(interface_file.read_text(encoding="utf-8"))
+        .get("review_instruction_locators", {})
+        .get("spec_review", {})
+        .get("locator", spec_locator)
+    )
+capture = os.environ.get("MOCK_CODEX_PROMPT_CAPTURE")
+if capture:
+    engine_prompt = "\n".join([
+        "你是 Loom spec review engine。",
+        f"Spec review instruction locator: `{spec_locator}`",
+        "以下是 locator 指向的 WebEnvoy spec review 规则全文：",
+        prompt,
+    ])
+    Path(capture).write_text(engine_prompt, encoding="utf-8")
+
+raw_result = Path(os.environ["MOCK_CODEX_REVIEW_RESULT_JSON"]).read_text(encoding="utf-8")
+Path(args.guardian_output_file).write_text(raw_result, encoding="utf-8")
+review_result = json.loads(raw_result)
+decision = "allow" if review_result.get("decision") == "allow" else "block"
+record = {
+    "schema_version": "loom-review/v1",
+    "item_id": f"github-pr-{args.guardian_pr_number}",
+    "kind": "spec_review",
+    "decision": decision,
+    "reviewer": "mock-loom-spec-review",
+    "reviewed_head": args.guardian_expected_head,
+    "reviewed_validation_summary": "Mock Loom spec review fixture for guardian spec profile.",
+    "fallback_to": None,
+    "summary": review_result.get("summary", ""),
+    "findings": review_result.get("findings", []),
+    "blocking_issues": [],
+    "follow_ups": [],
+    "review_subject": {
+        "pr_number": args.guardian_pr_number,
+        "head_sha": args.guardian_expected_head,
+        "base_sha": args.guardian_base_sha,
+        "spec_locator": spec_locator,
+        "reviewed_scope": scope_lines,
+    },
+    "review_provenance": {
+        "reviewer": "mock-loom-spec-review",
+        "engine_adapter": "mock-python-launcher",
+        "fail_closed_reason": None,
+    },
+}
+record_path = target / args.review_file
+record_path.parent.mkdir(parents=True, exist_ok=True)
+record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print(json.dumps({"spec_review": {"record": record}}, ensure_ascii=False))
+PY
+  chmod +x "${WORKTREE_DIR}/plugins/loom/skills/loom-spec-review/scripts/loom-spec-review.py"
   cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
   cp "${SPEC_REVIEW_SUMMARY_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-spec-review-summary.md"
   printf '%s\n' "# Spec" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/spec.md"
@@ -1998,12 +2077,31 @@ test_ensure_loom_installed_skills_root_prefers_review_worktree_over_stale_env() 
   local stale_root="${TMP_DIR}/stale-worktree/plugins/loom/skills"
   local review_root="${WORKTREE_DIR}/plugins/loom/skills"
   mkdir -p "${stale_root}/shared" "${review_root}/shared"
+  touch "${stale_root}/registry.json" "${review_root}/registry.json"
   export REPO_ROOT WORKTREE_DIR
   LOOM_INSTALLED_SKILLS_ROOT="${stale_root}"
   export LOOM_INSTALLED_SKILLS_ROOT
 
   assert_pass ensure_loom_installed_skills_root
   assert_equal "${review_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
+}
+
+test_ensure_loom_installed_skills_root_uses_user_plugin_for_metadata_only_repo() {
+  setup_case_dir "loom-installed-skills-root-user-plugin-metadata-only"
+
+  REPO_ROOT="${TMP_DIR}/source-repo"
+  WORKTREE_DIR="${TMP_DIR}/review-worktree"
+  HOME="${TMP_DIR}/home"
+  local stale_root="${TMP_DIR}/stale-worktree/plugins/loom/skills"
+  local user_root="${HOME}/plugins/loom/skills"
+  mkdir -p "${stale_root}/shared" "${user_root}/shared"
+  touch "${stale_root}/registry.json" "${user_root}/registry.json"
+  export REPO_ROOT WORKTREE_DIR HOME
+  LOOM_INSTALLED_SKILLS_ROOT="${stale_root}"
+  export LOOM_INSTALLED_SKILLS_ROOT
+
+  assert_pass ensure_loom_installed_skills_root
+  assert_equal "${user_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
 }
 
 test_fetch_issue_summary_fails_closed_when_issue_lookup_fails() {
