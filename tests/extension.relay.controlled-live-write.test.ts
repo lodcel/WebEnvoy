@@ -4181,6 +4181,180 @@ it("keeps accepted upload continuation partial when submit succeeds without publ
   }
 });
 
+it("continues accepted upload resume from upload stage before selecting private visibility", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    parentElement: TestElement | null = null;
+    disabled = false;
+    textContent: string;
+    clicked = false;
+    attributes: Record<string, string>;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter((item) => item.length > 0);
+      this.tagName = attributes.tagName ?? "DIV";
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    click = () => {
+      this.clicked = true;
+    };
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+
+  let continued = false;
+  const locationState = {
+    href: "https://creator.xiaohongshu.com/publish/publish?target=image"
+  };
+  const uploadWrapper = new TestElement("上传图片 下一步", {
+    class: "upload-wrapper publish-page-content-media"
+  });
+  const nextButton = new TestElement("下一步", {
+    tagName: "BUTTON",
+    class: "d-button d-button-default custom-button"
+  });
+  nextButton.parentElement = uploadWrapper;
+  nextButton.click = () => {
+    nextButton.clicked = true;
+    continued = true;
+  };
+  const visibility = new TestElement("仅自己可见", {
+    class: "visibility-private"
+  });
+  const submit = new TestElement("发布", {
+    tagName: "BUTTON",
+    class: "publish-submit"
+  });
+  submit.click = () => {
+    submit.clicked = true;
+    locationState.href = "https://creator.xiaohongshu.com/publish/success?note_id=fr0032resume1020";
+  };
+  const documentElement = new TestElement("发布成功", {
+    tagName: "HTML"
+  });
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: locationState
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: locationState }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement,
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("visibility") || selector.includes("privacy") || selector.includes("permission")) {
+          return continued ? [visibility] : [];
+        }
+        if (selector.includes("button")) {
+          return continued ? [submit] : [nextButton];
+        }
+        if (selector.includes("publish") || selector.includes("submit")) {
+          return continued ? [submit] : [];
+        }
+        return continued ? [visibility, submit] : [uploadWrapper, nextButton];
+      }
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-accepted-upload-resume-upload-stage",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1020-upload-stage-continuation",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/issue-1020-upload-stage",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/issue-1020-upload-stage",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-03T00:00:00.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    expect(nextButton.clicked).toBe(true);
+    expect(visibility.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "GO",
+      full_live_write_success: true,
+      upload_success: true,
+      submit_success: true,
+      publish_success: true,
+      cleanup_success: true
+    });
+    expect(result.live_write_evidence).toMatchObject({
+      publish_result_identity: expect.objectContaining({
+        note_id: "fr0032resume1020",
+        publish_visibility_scope: "private_or_self_visible",
+        verification_state: "verified"
+      }),
+      cleanup_result: expect.objectContaining({
+        cleanup_action: "hide_published_result",
+        cleanup_outcome: "hidden"
+      })
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
 it("defers publish identity cleanup to background capture during automatic continuation", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
