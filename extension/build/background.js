@@ -8,7 +8,7 @@ import { WRITE_INTERACTION_TIER, APPROVAL_CHECK_KEYS, EXECUTION_MODES, buildRisk
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsCommandGateReasons, evaluateXhsGate, collectXhsMatrixGateReasons, finalizeXhsGateOutcome, resolveXhsGateApprovalId, resolveXhsGateDecisionId, resolveXhsActionType, resolveXhsExecutionMode, normalizeXhsApprovalRecord } from "../shared/xhs-gate.js";
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
-import { applyXhsControlledLiveWriteContinuationTimeout, applyXhsControlledPublishResultIdentityCapture, applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledPublishResultIdentityCapture, extractXhsControlledUploadPlatformCapture, isXhsControlledUploadPlatformCaptureUrl, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
+import { applyXhsControlledLiveWriteContinuationTimeout, applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledPublishResultIdentityCapture, extractXhsControlledUploadPlatformCapture, finalizeXhsControlledPublishResultIdentityCapture, isXhsControlledUploadPlatformCaptureUrl, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -7931,7 +7931,7 @@ class ChromeBackgroundBridge {
         }
         const controlledLiveWriteAfterUploadMerge = asRecord(payload.controlled_live_write) ?? asRecord(summary?.controlled_live_write);
         if (controlledLiveWriteAfterUploadMerge && controlledPublishResultIdentityCapture) {
-            const mergedControlledLiveWrite = applyXhsControlledPublishResultIdentityCapture(controlledLiveWriteAfterUploadMerge, controlledPublishResultIdentityCapture);
+            const mergedControlledLiveWrite = finalizeXhsControlledPublishResultIdentityCapture(controlledLiveWriteAfterUploadMerge, controlledPublishResultIdentityCapture);
             payload.controlled_live_write = mergedControlledLiveWrite;
             payload.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
             payload.live_write_evaluation = mergedControlledLiveWrite.live_write_evaluation;
