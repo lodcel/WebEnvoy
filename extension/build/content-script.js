@@ -6483,41 +6483,7 @@ const noteIdFromTrustedPublishedUrl = (value) => {
         return null;
     }
 };
-const findTrustedPublishResultIdentity = (value, seen = new Set()) => {
-    if (typeof value === "string") {
-        const published = noteIdFromTrustedPublishedUrl(value);
-        return published
-            ? {
-                result_kind: "published_url",
-                note_id: published.noteId,
-                published_url: published.url,
-                creator_result_url: null,
-                platform_record_ref: null
-            }
-            : null;
-    }
-    if (Array.isArray(value)) {
-        let match = null;
-        for (const item of value) {
-            const nested = findTrustedPublishResultIdentity(item, seen);
-            if (!nested) {
-                continue;
-            }
-            if (match && JSON.stringify(match) !== JSON.stringify(nested)) {
-                return null;
-            }
-            match = nested;
-        }
-        return match;
-    }
-    const record = asPlainRecord(value);
-    if (!record) {
-        return null;
-    }
-    if (seen.has(record)) {
-        return null;
-    }
-    seen.add(record);
+const findDirectTrustedPublishResultIdentity = (record) => {
     for (const key of ["note_id", "noteId", "source_note_id", "sourceNoteId"]) {
         const noteId = normalizeTrustedNoteIdValue(record[key]);
         if (noteId) {
@@ -6542,28 +6508,78 @@ const findTrustedPublishResultIdentity = (value, seen = new Set()) => {
             };
         }
     }
-    for (const key of ["creator_result_url", "creatorResultUrl", "result_url", "resultUrl"]) {
-        const creatorResultUrl = typeof record[key] === "string" ? record[key].trim() : "";
-        if (/^https:\/\/creator\.xiaohongshu\.com\//iu.test(creatorResultUrl)) {
-            return {
-                result_kind: "creator_result_page",
-                note_id: noteIdFromTrustedHrefValue(creatorResultUrl),
-                published_url: null,
-                creator_result_url: creatorResultUrl,
-                platform_record_ref: null
-            };
-        }
-    }
-    for (const item of Object.values(record)) {
-        const nested = findTrustedPublishResultIdentity(item, seen);
-        if (nested) {
-            return nested;
-        }
-    }
     return null;
 };
+const samePublishResultIdentityCaptureFields = (left, right) => {
+    const identityKey = (value) => {
+        if (value.note_id) {
+            return `note:${value.note_id}`;
+        }
+        const published = noteIdFromTrustedPublishedUrl(value.published_url);
+        if (published) {
+            return `note:${published.noteId}`;
+        }
+        if (value.creator_result_url) {
+            const noteId = noteIdFromTrustedHrefValue(value.creator_result_url);
+            return noteId ? `note:${noteId}` : `creator_result_url:${value.creator_result_url}`;
+        }
+        if (value.platform_record_ref) {
+            return `platform_record_ref:${value.platform_record_ref}`;
+        }
+        return "missing";
+    };
+    return identityKey(left) === identityKey(right);
+};
+const collectTrustedPublishResultIdentities = (value, output, seen = new Set()) => {
+    if (typeof value === "string") {
+        const published = noteIdFromTrustedPublishedUrl(value);
+        if (published) {
+            output.push({
+                result_kind: "published_url",
+                note_id: published.noteId,
+                published_url: published.url,
+                creator_result_url: null,
+                platform_record_ref: null
+            });
+        }
+        return;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            collectTrustedPublishResultIdentities(item, output, seen);
+        }
+        return;
+    }
+    const record = asPlainRecord(value);
+    if (!record || seen.has(record)) {
+        return;
+    }
+    seen.add(record);
+    const directIdentity = findDirectTrustedPublishResultIdentity(record);
+    if (directIdentity) {
+        output.push(directIdentity);
+    }
+    for (const item of Object.values(record)) {
+        collectTrustedPublishResultIdentities(item, output, seen);
+    }
+};
+const resolveUniqueTrustedPublishResultIdentity = (value) => {
+    const identities = [];
+    collectTrustedPublishResultIdentities(value, identities);
+    let match = null;
+    for (const identity of identities) {
+        if (!match) {
+            match = identity;
+            continue;
+        }
+        if (!samePublishResultIdentityCaptureFields(match, identity)) {
+            return null;
+        }
+    }
+    return match;
+};
 const normalizeTrustedPublishVisibilityScope = (value) => {
-    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+    if (typeof value !== "string") {
         return null;
     }
     const normalized = String(value).trim().toLowerCase();
@@ -6574,8 +6590,6 @@ const normalizeTrustedPublishVisibilityScope = (value) => {
         normalized === "only_me" ||
         normalized === "only_self" ||
         normalized === "one_self" ||
-        normalized === "0" ||
-        normalized === "false" ||
         normalized.includes("仅自己可见") ||
         normalized.includes("仅自己") ||
         normalized.includes("自己可见")) {
@@ -6600,6 +6614,18 @@ const trustedPublishVisibilityScopeKeys = new Set([
     "permission_type",
     "permissionType"
 ]);
+const findDirectTrustedPublishVisibilityScope = (record) => {
+    for (const [key, nestedValue] of Object.entries(record)) {
+        if (!trustedPublishVisibilityScopeKeys.has(key)) {
+            continue;
+        }
+        const scope = normalizeTrustedPublishVisibilityScope(nestedValue);
+        if (scope) {
+            return scope;
+        }
+    }
+    return null;
+};
 const findTrustedPublishVisibilityScope = (value, seen = new Set()) => {
     if (Array.isArray(value)) {
         let match = null;
@@ -6637,22 +6663,69 @@ const findTrustedPublishVisibilityScope = (value, seen = new Set()) => {
     }
     return null;
 };
+const findTrustedBoundPublishResultIdentity = (value, locator = "$", seen = new Set()) => {
+    if (Array.isArray(value)) {
+        let match = null;
+        for (let index = 0; index < value.length; index += 1) {
+            const nested = findTrustedBoundPublishResultIdentity(value[index], `${locator}[${index}]`, seen);
+            if (!nested) {
+                continue;
+            }
+            if (match && JSON.stringify(match) !== JSON.stringify(nested)) {
+                return null;
+            }
+            match = nested;
+        }
+        return match;
+    }
+    const record = asPlainRecord(value);
+    if (!record || seen.has(record)) {
+        return null;
+    }
+    seen.add(record);
+    const directIdentity = findDirectTrustedPublishResultIdentity(record);
+    const directVisibilityScope = findDirectTrustedPublishVisibilityScope(record);
+    if (directIdentity && directVisibilityScope === "private_or_self_visible") {
+        return {
+            ...directIdentity,
+            publish_visibility_scope: directVisibilityScope,
+            publish_visibility_proof_locator: locator
+        };
+    }
+    let match = null;
+    for (const [key, item] of Object.entries(record)) {
+        const nested = findTrustedBoundPublishResultIdentity(item, `${locator}.${key}`, seen);
+        if (!nested) {
+            continue;
+        }
+        if (match && JSON.stringify(match) !== JSON.stringify(nested)) {
+            return null;
+        }
+        match = nested;
+    }
+    return match;
+};
 const extractXhsControlledPublishResultIdentityCapture = (input) => {
     if (input.status < 200 ||
         input.status >= 300 ||
         !isXhsControlledPublishResultIdentityCaptureUrl(input.url, input.method)) {
         return null;
     }
-    const identity = findTrustedPublishResultIdentity(input.body);
+    const identity = resolveUniqueTrustedPublishResultIdentity(input.body);
     if (!identity) {
         return null;
     }
-    const publishVisibilityScope = findTrustedPublishVisibilityScope(input.body);
+    const boundIdentity = findTrustedBoundPublishResultIdentity(input.body);
+    if (boundIdentity && !samePublishResultIdentityCaptureFields(identity, boundIdentity)) {
+        return null;
+    }
+    const publishVisibilityScope = boundIdentity?.publish_visibility_scope ?? null;
     return {
         source: "chrome_debugger_network",
         evidence_basis: "trusted_platform_response_body",
         ...identity,
         publish_visibility_scope: publishVisibilityScope,
+        publish_visibility_proof_locator: boundIdentity?.publish_visibility_proof_locator ?? null,
         url: input.url,
         method: input.method,
         status: input.status,
@@ -7685,6 +7758,142 @@ const applyXhsControlledPublishResultIdentityCapture = (result, capture) => {
             publish_result_identity_capture: capture,
             updated_at: timestamp
         }
+    };
+};
+const finalizeXhsControlledPublishResultIdentityCapture = (result, capture) => {
+    const captured = applyXhsControlledPublishResultIdentityCapture(result, capture);
+    if (!capture || captured.live_write_evidence.publish_result_identity) {
+        return captured;
+    }
+    if (capture.publish_visibility_scope !== "private_or_self_visible" ||
+        typeof capture.publish_visibility_proof_locator !== "string" ||
+        capture.publish_visibility_proof_locator.trim().length === 0) {
+        return captured;
+    }
+    const evidence = captured.live_write_evidence;
+    const evaluation = captured.live_write_evaluation;
+    const blockers = Array.isArray(evaluation.blockers) ? evaluation.blockers : [];
+    const hasOnlyPublishIdentityMissingBlockers = blockers.length > 0 &&
+        blockers.every((blocker) => {
+            const record = asPlainRecord(blocker);
+            return (record?.blocker_code === "PUBLISH_RESULT_IDENTITY_MISSING" &&
+                record?.blocker_layer === "published_identity");
+        });
+    const riskSignals = Array.isArray(evidence.risk_signals) ? evidence.risk_signals : [];
+    const hasOnlyPublishIdentityMissingRiskSignals = riskSignals.every((riskSignal) => {
+        const record = asPlainRecord(riskSignal);
+        return (record?.kind === "publish_identity_missing" ||
+            record?.blocker_code === "PUBLISH_RESULT_IDENTITY_MISSING");
+    });
+    const uploadArtifact = asPlainRecord(evidence.upload_artifact_identity);
+    const submitEvidence = asPlainRecord(evidence.submit_evidence);
+    if (captured.uploaded !== true ||
+        captured.submitted !== true ||
+        hasOnlyPublishIdentityMissingBlockers !== true ||
+        hasOnlyPublishIdentityMissingRiskSignals !== true ||
+        !uploadArtifact ||
+        !submitEvidence ||
+        uploadArtifact.accepted_by_platform !== true) {
+        return captured;
+    }
+    const scope = asPlainRecord(evidence.scope);
+    const nonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value : null;
+    const liveWriteAttemptId = nonEmptyString(evidence.live_write_attempt_id);
+    const runId = nonEmptyString(scope?.run_id);
+    const profileRef = nonEmptyString(scope?.profile_ref);
+    const targetTabId = scope?.target_tab_id;
+    const uploadArtifactId = nonEmptyString(uploadArtifact.upload_artifact_id);
+    const submitActionRef = nonEmptyString(submitEvidence.submit_action_ref);
+    const submittedAt = nonEmptyString(submitEvidence.submitted_at);
+    const submitCapturedAtMs = submittedAt ? Date.parse(submittedAt) : Number.NaN;
+    const publishCapturedAtMs = Date.parse(capture.captured_at);
+    if (!liveWriteAttemptId ||
+        !runId ||
+        !profileRef ||
+        typeof targetTabId !== "number" ||
+        !Number.isInteger(targetTabId) ||
+        targetTabId < 0 ||
+        !uploadArtifactId ||
+        !submitActionRef ||
+        !Number.isFinite(submitCapturedAtMs) ||
+        !Number.isFinite(publishCapturedAtMs) ||
+        publishCapturedAtMs < submitCapturedAtMs) {
+        return captured;
+    }
+    const previousCleanup = asPlainRecord(evidence.cleanup_result);
+    const cleanupPolicyRef = String(previousCleanup?.cleanup_policy_ref ?? "fr0032-cleanup-policy/delete-or-residual");
+    const closedAt = nowIso();
+    const publishIdentity = {
+        schema_version: "fr-0032.publish_result_identity.v1",
+        publish_result_id: `publish-result/fr-0032/${liveWriteAttemptId}`,
+        live_write_attempt_id: liveWriteAttemptId,
+        run_id: runId,
+        profile_ref: profileRef,
+        target_tab_id: targetTabId,
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        source_upload_artifact_id: uploadArtifactId,
+        submit_action_ref: submitActionRef,
+        result_kind: capture.result_kind,
+        note_id: capture.note_id,
+        published_url: capture.published_url,
+        creator_result_url: capture.creator_result_url,
+        platform_record_ref: capture.platform_record_ref,
+        publish_visibility_scope: "private_or_self_visible",
+        success_signal: {
+            signal_source: "platform_response",
+            signal_locator: capture.url,
+            platform_message: "trusted platform publish result identity captured",
+            observed_at: capture.captured_at
+        },
+        captured_at: capture.captured_at,
+        verification_state: "verified"
+    };
+    const cleanup = {
+        schema_version: "fr-0032.cleanup_rollback_proof.v1",
+        cleanup_result_id: `cleanup/fr-0032/${liveWriteAttemptId}/private-visibility-background-capture`,
+        live_write_attempt_id: liveWriteAttemptId,
+        run_id: runId,
+        profile_ref: profileRef,
+        target_tab_id: targetTabId,
+        publish_result_identity: publishIdentity,
+        cleanup_policy_ref: cleanupPolicyRef,
+        cleanup_action: "hide_published_result",
+        cleanup_outcome: "hidden",
+        proof_locator: capture.url,
+        platform_message: "publish_visibility_scope=private_or_self_visible captured in trusted platform response",
+        attempted_at: closedAt,
+        completed_at: closedAt,
+        residual_record: null
+    };
+    return {
+        ...captured,
+        live_write_evidence: {
+            ...evidence,
+            execution_phase: "closed",
+            stop_classification: null,
+            publish_result_identity_capture: capture,
+            publish_result_identity: publishIdentity,
+            cleanup_result: cleanup,
+            risk_signals: [],
+            stop_signal: null,
+            residual_record: null,
+            updated_at: closedAt
+        },
+        live_write_evaluation: {
+            schema_version: "fr-0032.live_write_evaluation.v1",
+            decision: "GO",
+            full_live_write_success: true,
+            upload_success: true,
+            submit_success: true,
+            publish_success: true,
+            cleanup_success: true,
+            later_write_actions_blocked: false,
+            cleanup_required: false,
+            blockers: []
+        },
+        published: true,
+        cleanup_attempted: true
     };
 };
 const applyXhsControlledLiveWriteContinuationTimeout = (result, input) => {

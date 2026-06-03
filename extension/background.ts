@@ -58,12 +58,12 @@ import {
 } from "./xhs-command-contract.js";
 import {
   applyXhsControlledLiveWriteContinuationTimeout,
-  applyXhsControlledPublishResultIdentityCapture,
   applyXhsControlledUploadPlatformCapture,
   applyXhsControlledUploadPlatformCaptureStatus,
   decodeXhsControlledUploadNetworkResponseBody,
   extractXhsControlledPublishResultIdentityCapture,
   extractXhsControlledUploadPlatformCapture,
+  finalizeXhsControlledPublishResultIdentityCapture,
   isXhsControlledUploadPlatformCaptureUrl,
   summarizeXhsControlledUploadObservedRequest,
   type XhsControlledPublishResultIdentityCapture,
@@ -9783,7 +9783,7 @@ class ChromeBackgroundBridge {
     const controlledLiveWriteAfterUploadMerge =
       asRecord(payload.controlled_live_write) ?? asRecord(summary?.controlled_live_write);
     if (controlledLiveWriteAfterUploadMerge && controlledPublishResultIdentityCapture) {
-      const mergedControlledLiveWrite = applyXhsControlledPublishResultIdentityCapture(
+      const mergedControlledLiveWrite = finalizeXhsControlledPublishResultIdentityCapture(
         controlledLiveWriteAfterUploadMerge as XhsControlledLiveWriteResult,
         controlledPublishResultIdentityCapture as XhsControlledPublishResultIdentityCapture
       ) as Record<string, unknown>;

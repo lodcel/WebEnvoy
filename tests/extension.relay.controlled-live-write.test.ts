@@ -18,6 +18,7 @@ import {
   decodeXhsControlledUploadNetworkResponseBody,
   extractXhsControlledPublishResultIdentityCapture,
   extractXhsControlledUploadPlatformCapture,
+  finalizeXhsControlledPublishResultIdentityCapture,
   isXhsControlledUploadPlatformCaptureUrl,
   performXhsControlledLiveWriteWithApprovedSourceMedia,
   summarizeXhsControlledUploadObservedRequest
@@ -159,7 +160,123 @@ it("extracts a trusted post-submit publish result identity from a platform respo
     note_id: "64b7d8ef000000001f03981",
     published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
     publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
     url: "https://creator.xiaohongshu.com/api/creator/publish/result"
+  });
+});
+
+it("does not bind adjacent visibility fields to an unrelated publish identity candidate", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:00.000Z",
+    body: {
+      code: 0,
+      data: {
+        result: {
+          note_id: "64b7d8ef000000001f03981"
+        },
+        visibility_scope: "private_or_self_visible"
+      }
+    }
+  });
+
+  expect(capture).toMatchObject({
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    publish_visibility_scope: null,
+    publish_visibility_proof_locator: null
+  });
+});
+
+it("does not treat boolean or numeric visibility values as private publish proof", () => {
+  for (const visibilityValue of [false, 0]) {
+    const capture = extractXhsControlledPublishResultIdentityCapture({
+      url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+      method: "POST",
+      status: 200,
+      captured_at: "2026-06-03T00:00:00.000Z",
+      body: {
+        code: 0,
+        data: {
+          note_id: "64b7d8ef000000001f03981",
+          visibility_scope: visibilityValue
+        }
+      }
+    });
+
+    expect(capture).toMatchObject({
+      note_id: "64b7d8ef000000001f03981",
+      publish_visibility_scope: null,
+      publish_visibility_proof_locator: null
+    });
+  }
+});
+
+it("does not accept a generic creator publish page URL as publish result identity", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:00.000Z",
+    body: {
+      code: 0,
+      data: {
+        creator_result_url: "https://creator.xiaohongshu.com/publish/publish",
+        visibility_scope: "private_or_self_visible"
+      }
+    }
+  });
+
+  expect(capture).toBeNull();
+});
+
+it("does not accept mixed publish result identity candidates even when one candidate has bound visibility proof", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:00.000Z",
+    body: {
+      code: 0,
+      data: {
+        previous: {
+          note_id: "64b7d8ef000000001f03980"
+        },
+        result: {
+          note_id: "64b7d8ef000000001f03981",
+          visibility_scope: "private_or_self_visible"
+        }
+      }
+    }
+  });
+
+  expect(capture).toBeNull();
+});
+
+it("accepts equivalent note id and published url candidates for the same publish result", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:00.000Z",
+    body: {
+      code: 0,
+      data: {
+        note_id: "64b7d8ef000000001f03981",
+        published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+        visibility_scope: "private_or_self_visible"
+      }
+    }
+  });
+
+  expect(capture).toMatchObject({
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data"
   });
 });
 
@@ -333,6 +450,7 @@ it("records publish identity capture without advancing closeout state when debug
     creator_result_url: null,
     platform_record_ref: null,
     publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
     url: "https://creator.xiaohongshu.com/api/creator/publish/result",
     method: "POST",
     status: 200,
@@ -379,6 +497,162 @@ it("records publish identity capture without advancing closeout state when debug
     })
   });
   expect(result.published).toBe(false);
+});
+
+it("promotes trusted publish result identity capture into formal closeout when pending identity blocker prerequisites are satisfied", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1009-platform-identity",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      scope: {
+        platform: "xhs",
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        browser_channel: "Google Chrome stable",
+        execution_surface: "real_browser",
+        requested_execution_mode: "live_write",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        run_id: "run-xhs-issue-1009-platform-identity",
+        artifact_identity: "upload-artifact/fr-0032/platform-identity"
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/platform-identity",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/test-record",
+        page_preview_locator: "img.img",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-03T00:00:00.000Z",
+        preview_diagnostics: null
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/live-write-attempt/fr-0032/run-xhs-issue-1009-platform-identity",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-03T00:00:01.000Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        residual_record: {}
+      },
+      risk_signals: [
+        {
+          kind: "publish_identity_missing"
+        }
+      ],
+      stop_signal: {
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      },
+      residual_record: {
+        reason: "identity_missing_after_publish"
+      },
+      created_at: "2026-06-03T00:00:02.000Z",
+      updated_at: "2026-06-03T00:00:02.000Z"
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      cleanup_success: false,
+      later_write_actions_blocked: true,
+      cleanup_required: true,
+      blockers: [
+        {
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity",
+          message: "Controlled publish did not produce a verifiable publish result identity."
+        }
+      ]
+    }
+  } as const;
+
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    creator_result_url: null,
+    platform_record_ref: null,
+    publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:03.000Z"
+  });
+
+  expect(result).toMatchObject({
+    uploaded: true,
+    submitted: true,
+    published: true,
+    cleanup_attempted: true,
+    live_write_evaluation: {
+      decision: "GO",
+      full_live_write_success: true,
+      upload_success: true,
+      submit_success: true,
+      publish_success: true,
+      cleanup_success: true,
+      later_write_actions_blocked: false,
+      cleanup_required: false,
+      blockers: []
+    }
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    execution_phase: "closed",
+    publish_result_identity_capture: expect.objectContaining({
+      note_id: "64b7d8ef000000001f03981",
+      publish_visibility_proof_locator: "$.data"
+    }),
+    publish_result_identity: expect.objectContaining({
+      schema_version: "fr-0032.publish_result_identity.v1",
+      publish_result_id:
+        "publish-result/fr-0032/live-write-attempt/fr-0032/run-xhs-issue-1009-platform-identity",
+      source_upload_artifact_id: "upload-artifact/fr-0032/platform-identity",
+      submit_action_ref:
+        "submit/fr-0032/live-write-attempt/fr-0032/run-xhs-issue-1009-platform-identity",
+      result_kind: "note_id",
+      note_id: "64b7d8ef000000001f03981",
+      published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+      publish_visibility_scope: "private_or_self_visible",
+      success_signal: expect.objectContaining({
+        signal_source: "platform_response",
+        signal_locator: "https://creator.xiaohongshu.com/api/creator/publish/result",
+        platform_message: "trusted platform publish result identity captured"
+      }),
+      verification_state: "verified"
+    }),
+    cleanup_result: expect.objectContaining({
+      cleanup_action: "hide_published_result",
+      cleanup_outcome: "hidden",
+      residual_record: null
+    }),
+    risk_signals: [],
+    stop_signal: null,
+    residual_record: null,
+    stop_classification: null
+  });
 });
 
 it("does not promote publish identity evidence without platform visibility proof", () => {
@@ -466,6 +740,386 @@ it("does not promote publish identity evidence without platform visibility proof
     cleanup_action: "no_safe_cleanup_action",
     cleanup_outcome: "cleanup_blocked"
   });
+});
+
+it("does not finalize publish identity capture when the active blocker is not publish identity missing", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1009-non-target-blocker",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      scope: {
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        run_id: "run-xhs-issue-1009-non-target-blocker"
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/non-target-blocker",
+        accepted_by_platform: true
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/non-target-blocker",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-03T00:00:01.000Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        residual_record: {}
+      },
+      risk_signals: [{ kind: "submit_failure" }],
+      stop_signal: {
+        blocker_code: "SUBMIT_CONTINUATION_TIMEOUT",
+        blocker_layer: "runtime-channel"
+      },
+      residual_record: {
+        reason: "submit_timeout"
+      }
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      blockers: [
+        {
+          blocker_code: "SUBMIT_CONTINUATION_TIMEOUT",
+          blocker_layer: "runtime-channel"
+        }
+      ]
+    }
+  } as const;
+
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    creator_result_url: null,
+    platform_record_ref: null,
+    publish_visibility_scope: "private_or_self_visible",
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:03.000Z"
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "NO_GO",
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "SUBMIT_CONTINUATION_TIMEOUT"
+      })
+    ]
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    publish_result_identity: null,
+    cleanup_result: expect.objectContaining({
+      cleanup_action: "no_safe_cleanup_action",
+      cleanup_outcome: "cleanup_blocked"
+    }),
+    stop_signal: expect.objectContaining({
+      blocker_code: "SUBMIT_CONTINUATION_TIMEOUT"
+    })
+  });
+  expect(result.live_write_evidence.publish_result_identity_capture).toBeUndefined();
+  expect(result.published).toBe(false);
+});
+
+it("does not finalize publish identity capture when formal identity binding fields are missing", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1009-missing-binding",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      scope: {
+        target_tab_id: 32
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/missing-binding",
+        accepted_by_platform: true
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/missing-binding",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-03T00:00:01.000Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        residual_record: {}
+      },
+      risk_signals: [{ kind: "publish_identity_missing" }],
+      stop_signal: {
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      },
+      residual_record: {
+        reason: "identity_missing_after_publish"
+      }
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      blockers: [
+        {
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity"
+        }
+      ]
+    }
+  } as const;
+
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    creator_result_url: null,
+    platform_record_ref: null,
+    publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:03.000Z"
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "NO_GO",
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+      })
+    ]
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    publish_result_identity: null,
+    publish_result_identity_capture: expect.objectContaining({
+      note_id: "64b7d8ef000000001f03981",
+      publish_visibility_proof_locator: "$.data"
+    })
+  });
+  expect(result.published).toBe(false);
+});
+
+it("does not finalize publish identity capture captured before the current submit evidence", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1009-pre-submit-capture",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      scope: {
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        run_id: "run-xhs-issue-1009-pre-submit-capture"
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/pre-submit-capture",
+        accepted_by_platform: true
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/pre-submit-capture",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-03T00:00:02.000Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        residual_record: {}
+      },
+      risk_signals: [{ kind: "publish_identity_missing" }],
+      stop_signal: {
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      },
+      residual_record: {
+        reason: "identity_missing_after_publish"
+      }
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      blockers: [
+        {
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity"
+        }
+      ]
+    }
+  } as const;
+
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    creator_result_url: null,
+    platform_record_ref: null,
+    publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:01.000Z"
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "NO_GO",
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+      })
+    ]
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    publish_result_identity: null,
+    publish_result_identity_capture: expect.objectContaining({
+      note_id: "64b7d8ef000000001f03981"
+    })
+  });
+  expect(result.published).toBe(false);
+});
+
+it("does not finalize publish identity capture when other blockers or risk signals remain", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1009-mixed-blockers",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      scope: {
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        run_id: "run-xhs-issue-1009-mixed-blockers"
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/mixed-blockers",
+        accepted_by_platform: true
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/mixed-blockers",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-03T00:00:01.000Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        residual_record: {}
+      },
+      risk_signals: [
+        { kind: "publish_identity_missing" },
+        { kind: "cleanup_failure", severity: "blocking" }
+      ],
+      stop_signal: {
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      },
+      residual_record: {
+        reason: "identity_missing_after_publish"
+      }
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      blockers: [
+        {
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity"
+        },
+        {
+          blocker_code: "CLEANUP_PROOF_MISSING",
+          blocker_layer: "cleanup"
+        }
+      ]
+    }
+  } as const;
+
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    creator_result_url: null,
+    platform_record_ref: null,
+    publish_visibility_scope: "private_or_self_visible",
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:03.000Z"
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "NO_GO",
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+      }),
+      expect.objectContaining({
+        blocker_code: "CLEANUP_PROOF_MISSING"
+      })
+    ]
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    publish_result_identity: null,
+    publish_result_identity_capture: expect.objectContaining({
+      note_id: "64b7d8ef000000001f03981"
+    }),
+    risk_signals: [
+      expect.objectContaining({ kind: "publish_identity_missing" }),
+      expect.objectContaining({ kind: "cleanup_failure" })
+    ],
+    cleanup_result: expect.objectContaining({
+      cleanup_action: "no_safe_cleanup_action",
+      cleanup_outcome: "cleanup_blocked"
+    })
+  });
+  expect(result.published).toBe(false);
 });
 
 it("preserves accepted upload evidence when submit continuation times out", () => {
