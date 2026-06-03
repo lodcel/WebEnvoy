@@ -21,6 +21,10 @@ def installed_skills_root(caller_file: str) -> Path | None:
         return path.parents[2]
     if path.parent.name == "scripts" and path.parents[2].name == "skills":
         return path.parents[2]
+    if path.parent.name == "bin" and path.parent.parent.name == ".loom":
+        plugin_skills = path.parents[2] / "plugins/loom/skills"
+        if (plugin_skills / "shared").exists():
+            return plugin_skills.resolve()
     return None
 
 

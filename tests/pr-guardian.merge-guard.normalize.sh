@@ -1317,6 +1317,7 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   mkdir -p "${WORKTREE_DIR}/docs/dev"
   mkdir -p "${WORKTREE_DIR}/.loom/bin"
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
+  mkdir -p "${WORKTREE_DIR}/plugins/loom/skills"
   export WORKTREE_DIR
 
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
@@ -1341,6 +1342,8 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   cp "${REPO_ROOT}/spec_review.md" "${WORKTREE_DIR}/spec_review.md"
   cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
   cp "${REPO_ROOT}/.loom/bin/"*.py "${WORKTREE_DIR}/.loom/bin/"
+  cp -R "${REPO_ROOT}/plugins/loom/skills/loom-spec-review" "${WORKTREE_DIR}/plugins/loom/skills/"
+  cp -R "${REPO_ROOT}/plugins/loom/skills/shared" "${WORKTREE_DIR}/plugins/loom/skills/"
   cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
   cp "${SPEC_REVIEW_SUMMARY_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-spec-review-summary.md"
   printf '%s\n' "# Spec" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/spec.md"

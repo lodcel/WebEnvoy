@@ -10294,7 +10294,12 @@ def carrier_refresh_payload(target_root: Path, output_relative: str, expected_it
     context, context_errors = load_context(target_root, output_relative, expected_item)
     missing_inputs: list[str] = [f"fact-chain: {message}" for message in context_errors]
 
-    manifest_path, manifest_path_errors = resolve_repo_relative_path(target_root, ".loom/bootstrap/manifest.json", label="bootstrap manifest")
+    installed_state_path = target_root / ".loom/installed-state.json"
+    if installed_state_path.exists():
+        manifest_path = None
+        manifest_path_errors = []
+    else:
+        manifest_path, manifest_path_errors = resolve_repo_relative_path(target_root, ".loom/bootstrap/manifest.json", label="bootstrap manifest")
     init_path, init_path_errors = resolve_repo_relative_path(target_root, output_relative, label="init-result locator")
     missing_inputs.extend(manifest_path_errors)
     missing_inputs.extend(init_path_errors)
