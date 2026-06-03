@@ -14663,8 +14663,12 @@ const submitOrNextPattern = /下一步|继续|完成|next|continue|submit/iu;
 const publishOrConfirmPattern = /发布|确认发布|publish|post|confirm/iu;
 const errorOrToastPattern = /toast|notice|alert|error|warning|错误|失败|提示|校验|验证/iu;
 const cleanupOrAbandonPattern = /删除|移除|撤回|取消|放弃|清空|delete|remove|rollback|cancel|abandon|discard/iu;
+const broadCreatorRootPattern = /(?:^|\s)(?:publish-vue-container|creator-publish-root|page-root|app-root)(?:\s|$)/iu;
 const creatorPublishControlsSelector = [
     "button",
+    "a",
+    "div",
+    "span",
     "label",
     "input",
     "textarea",
@@ -14705,10 +14709,18 @@ const attr = (element, name) => {
 };
 const elementTextSignal = (element) => [
     "textContent" in element && typeof element.textContent === "string" ? element.textContent : "",
+    attr(element, "id"),
+    attr(element, "name"),
     attr(element, "aria-label"),
     attr(element, "title"),
     attr(element, "placeholder"),
-    attr(element, "value")
+    attr(element, "value"),
+    attr(element, "data-testid"),
+    attr(element, "data-test"),
+    attr(element, "data-role"),
+    attr(element, "data-action"),
+    attr(element, "data-track"),
+    attr(element, "data-log-click")
 ]
     .filter((value) => typeof value === "string" && value.trim().length > 0)
     .join(" ");
@@ -14767,6 +14779,17 @@ const signalFlags = (signal) => ({
     error_or_toast: errorOrToastPattern.test(signal),
     cleanup_or_abandon: cleanupOrAbandonPattern.test(signal)
 });
+const isBroadCreatorRootCandidate = (element, candidate) => {
+    if (element.tagName.toLowerCase() !== "div") {
+        return false;
+    }
+    const id = attr(element, "id");
+    const className = attr(element, "class") ?? "";
+    if (id === "web" || broadCreatorRootPattern.test(className)) {
+        return candidate.text_signal_length > 80;
+    }
+    return false;
+};
 const candidateMatchesRole = (role, flags) => {
     if (role === "private_visibility") {
         return flags.private_visibility;
@@ -14793,8 +14816,11 @@ const classifyControlStatus = (role, candidates) => {
     }
     return actionable.length === 1 ? "ready" : "ambiguous";
 };
-const blockerForControl = (item) => {
+const blockerForControl = (item, options = {}) => {
     if (item.status === "ready") {
+        return null;
+    }
+    if (options.deferMissingControls === true && item.status === "missing") {
         return null;
     }
     const role = item.role;
@@ -14822,7 +14848,21 @@ const blockerForControl = (item) => {
         required_recovery_action: "refresh XHS creator publish control locator coverage before controlled upload/submit/publish"
     };
 };
-const buildCreatorPublishControlsRecon = (fileSelectionBoundary, pageUrl = "") => {
+const deferredMissingForControl = (item, options = {}) => {
+    if (options.deferMissingControls !== true ||
+        item.status !== "missing" ||
+        item.required_for_live_write !== true) {
+        return null;
+    }
+    return {
+        role: item.role,
+        status: "missing",
+        defer_reason: "pre_upload_upload_entry_present_no_write_boundary",
+        message: `${item.role} recon status is missing before controlled upload; this gap is deferred out of blocker_candidates until post-upload controls can mount.`,
+        required_recovery_action: "rerun creator publish controls recon after controlled upload reaches the editor continuation stage"
+    };
+};
+const buildCreatorPublishControlsRecon = (fileSelectionBoundary, pageUrl = "", options = {}) => {
     const collectedAt = new Date().toISOString();
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
         const controls = creatorPublishControlRoles.map((role) => ({
@@ -14841,7 +14881,12 @@ const buildCreatorPublishControlsRecon = (fileSelectionBoundary, pageUrl = "") =
             collected_at: collectedAt,
             recording_policy: "locator_attributes_flags_and_lengths_only",
             controls,
-            blocker_candidates: controls.map(blockerForControl).filter((item) => item !== null),
+            blocker_candidates: controls
+                .map((control) => blockerForControl(control, options))
+                .filter((item) => item !== null),
+            deferred_missing_control_candidates: controls
+                .map((control) => deferredMissingForControl(control, options))
+                .filter((item) => item !== null),
             file_selection_boundary: fileSelectionBoundary
         };
     }
@@ -14854,7 +14899,7 @@ const buildCreatorPublishControlsRecon = (fileSelectionBoundary, pageUrl = "") =
             if (!candidateMatchesRole(role, flags)) {
                 return null;
             }
-            return {
+            const candidate = {
                 role,
                 locator: locatorFor(element),
                 tag_name: element.tagName.toLowerCase(),
@@ -14865,6 +14910,7 @@ const buildCreatorPublishControlsRecon = (fileSelectionBoundary, pageUrl = "") =
                 text_signal_length: signal.length,
                 signal_flags: flags
             };
+            return isBroadCreatorRootCandidate(element, candidate) ? null : candidate;
         })
             .filter((item) => item !== null)
             .slice(0, 12);
@@ -14887,7 +14933,12 @@ const buildCreatorPublishControlsRecon = (fileSelectionBoundary, pageUrl = "") =
         collected_at: collectedAt,
         recording_policy: "locator_attributes_flags_and_lengths_only",
         controls,
-        blocker_candidates: controls.map(blockerForControl).filter((item) => item !== null),
+        blocker_candidates: controls
+            .map((control) => blockerForControl(control, options))
+            .filter((item) => item !== null),
+        deferred_missing_control_candidates: controls
+            .map((control) => deferredMissingForControl(control, options))
+            .filter((item) => item !== null),
         file_selection_boundary: fileSelectionBoundary
     };
 };
@@ -15088,7 +15139,13 @@ const buildXhsMediaUploadDiscoveryResult = (input = {}) => {
         page_preview_locator: pageFailure.evidence_status === "candidate" ? pageFailure.entry_type : null,
         file_selection_boundary: fileSelectionBoundary
     });
-    const controlsRecon = buildCreatorPublishControlsRecon(fileSelectionBoundary, input.page_url ?? "");
+    const controlsRecon = buildCreatorPublishControlsRecon(fileSelectionBoundary, input.page_url ?? "", {
+        deferMissingControls: pageFailure.evidence_status === "candidate" &&
+            fileSelectionBoundary.file_bytes_read === false &&
+            fileSelectionBoundary.real_upload_attempted === false &&
+            fileSelectionBoundary.submit_attempted === false &&
+            fileSelectionBoundary.publish_attempted === false
+    });
     return {
         discovery_action: "media_upload_path",
         target_page: "creator_publish_tab",

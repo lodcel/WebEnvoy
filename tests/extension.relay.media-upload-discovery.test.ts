@@ -513,9 +513,9 @@ describe("xhs media upload discovery / creator publish controls recon", () => {
     );
   });
 
-  it("reports precise blocker candidates when required creator publish controls are missing", () => {
+  it("reports precise blocker candidates when required creator publish controls are missing and no upload entry is available", () => {
     const result = withFakeDocument(
-      [new FakeElement("INPUT", "", { type: "file", accept: ".jpg,.png" })],
+      [],
       () =>
         buildXhsMediaUploadDiscoveryResult({
           run_id: "run-1008-controls-missing",
@@ -545,6 +545,92 @@ describe("xhs media upload discovery / creator publish controls recon", () => {
         expect.objectContaining({
           blocker_code: "CLEANUP_OR_ABANDON_CONTROL_MISSING",
           role: "cleanup_or_abandon"
+        })
+      ])
+    );
+  });
+
+  it("defers missing continuation-control blockers on the pre-upload creator page", () => {
+    const result = withFakeDocument(
+      [
+        new FakeElement("INPUT", "", { type: "file", accept: ".mp4,.mov" }),
+        new FakeElement("DIV", "发布", { class: "publish-video" }),
+        new FakeElement(
+          "DIV",
+          "上传视频 发布 笔记标题 笔记描述 添加话题 选择合集 更多创作服务平台内容占位文本用于模拟页面根节点聚合信号 发布设置 创作助手 活动入口 作品管理 数据中心 帮助中心",
+          {
+            id: "web",
+            class: "publish-vue-container",
+            systemid: "creator",
+            plugins: "publish"
+          }
+        )
+      ],
+      () =>
+        buildXhsMediaUploadDiscoveryResult({
+          run_id: "run-1032-pre-upload-controls-deferred",
+          page_url: "https://creator.xiaohongshu.com/publish/publish"
+        })
+    );
+
+    expect(result.file_selection_boundary).toMatchObject({
+      file_bytes_read: false,
+      real_upload_attempted: false,
+      submit_attempted: false,
+      publish_attempted: false
+    });
+    expect(result.creator_publish_controls_recon.controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "private_visibility",
+          status: "missing",
+          selected_locator: null
+        }),
+        expect.objectContaining({
+          role: "submit_or_next",
+          status: "missing",
+          selected_locator: null
+        }),
+        expect.objectContaining({
+          role: "publish_or_confirm",
+          status: "ready",
+          candidate_count: 1,
+          selected_locator: "div.publish-video"
+        }),
+        expect.objectContaining({
+          role: "error_or_toast",
+          status: "missing",
+          selected_locator: null
+        }),
+        expect.objectContaining({
+          role: "cleanup_or_abandon",
+          status: "missing",
+          selected_locator: null
+        })
+      ])
+    );
+    expect(result.creator_publish_controls_recon.blocker_candidates).toEqual([]);
+    expect(result.creator_publish_controls_recon.deferred_missing_control_candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "private_visibility",
+          status: "missing",
+          defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
+        }),
+        expect.objectContaining({
+          role: "submit_or_next",
+          status: "missing",
+          defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
+        }),
+        expect.objectContaining({
+          role: "error_or_toast",
+          status: "missing",
+          defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
+        }),
+        expect.objectContaining({
+          role: "cleanup_or_abandon",
+          status: "missing",
+          defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
         })
       ])
     );
