@@ -1,0 +1,48 @@
+{
+  "id": "loom-story",
+  "role": "scenario/story",
+  "contract_version": "1.1.0",
+  "display_name": "Loom Story",
+  "description": "Expose the story intake contract used to turn product context into a User Story, separate Story Readiness result, and business semantic confirmation point before spec and plan consumption.",
+  "root_entry": false,
+  "entrypoint": {
+    "skill_markdown": "SKILL.md",
+    "adapter_metadata": "agents/openai.yaml",
+    "orchestration_cli": "scripts/loom-story.py"
+  },
+  "input_contract": {
+    "reference": "references/input-signals.md",
+    "required_fields": [
+      "target_repository",
+      "product_context_or_locators",
+      "story_shaping_intent",
+      "business_confirmation_intent_or_bypass_rationale",
+      "known_actor_or_actor_candidates",
+      "desired_capability_or_problem",
+      "expected_outcome_or_value_signal"
+    ]
+  },
+  "output_contract": {
+    "reference": "references/output-contract.md",
+    "required_sections": [
+      "contract_summary",
+      "story_contract",
+      "readiness_contract",
+      "business_confirmation_contract",
+      "delivery_consumption_contract",
+      "missing_inputs",
+      "fallback_to",
+      "runtime_state",
+      "contract"
+    ]
+  },
+  "routing": {
+    "reference": "../route-matrix.md",
+    "explicit_name": "loom-story"
+  },
+  "installation": {
+    "registry": "../registry.json",
+    "upgrade_contract": "../upgrade-contract.json",
+    "layout_manifest": "../install-layout.json"
+  }
+}

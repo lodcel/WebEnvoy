@@ -2962,11 +2962,11 @@ run_loom_spec_review() {
   spec_payload_file="${TMP_DIR}/loom-spec-review.json"
   spec_raw_file="${TMP_DIR}/loom-spec-review.raw.json"
   spec_scope_file="${TMP_DIR}/loom-spec-review-scope.txt"
-  launcher_file="${REPO_ROOT}/.agents/skills/loom-spec-review/scripts/loom-spec-review.py"
+  launcher_file="$(loom_spec_review_launcher)" || die "缺少 repo-local Loom spec review runtime。"
   SPEC_LOOM_REVIEW_RECORD_FILE="${WORKTREE_DIR}/.loom/runtime/review/guardian-spec/${HEAD_SHA}/spec-review-record.json"
   export SPEC_LOOM_REVIEW_RECORD_FILE
 
-  [[ -f "${launcher_file}" ]] || die "缺少 repo-local Loom spec review launcher: ${launcher_file}"
+  ensure_loom_installed_skills_root
   if [[ -s "${CHANGED_FILES_FILE}" ]]; then
     grep -E '^(docs/dev/specs/|docs/dev/architecture/|docs/dev/review/guardian-spec-review-summary\.md$|vision\.md$|AGENTS\.md$|docs/dev/AGENTS\.md$|code_review\.md$|spec_review\.md$)' "${CHANGED_FILES_FILE}" > "${spec_scope_file}" || true
   fi
@@ -3017,6 +3017,7 @@ run_codex_review() {
   loom_flow_file="${REPO_ROOT}/.loom/bin/loom_flow.py"
 
   [[ -f "${loom_flow_file}" ]] || die "缺少 repo-local Loom runtime: ${loom_flow_file}"
+  ensure_loom_installed_skills_root
 
   if guardian_spec_review_required; then
     run_loom_spec_review "${pr_number}"
@@ -3703,6 +3704,71 @@ loom_merge_ready_runtime_script() {
   return 1
 }
 
+loom_spec_review_launcher() {
+  local target_root="${WORKTREE_DIR:-${REPO_ROOT}}"
+  local runtime_launcher="${target_root}/.loom/bin/loom_flow.py"
+  local plugin_launcher="${target_root}/plugins/loom/skills/loom-spec-review/scripts/loom-spec-review.py"
+  local legacy_launcher="${target_root}/.agents/skills/loom-spec-review/scripts/loom-spec-review.py"
+
+  if [[ -f "${runtime_launcher}" ]]; then
+    printf '%s\n' "${runtime_launcher}"
+    return 0
+  fi
+  if [[ -f "${plugin_launcher}" ]]; then
+    printf '%s\n' "${plugin_launcher}"
+    return 0
+  fi
+  if [[ -f "${legacy_launcher}" ]]; then
+    printf '%s\n' "${legacy_launcher}"
+    return 0
+  fi
+  return 1
+}
+
+ensure_loom_installed_skills_root() {
+  local target_root="${WORKTREE_DIR:-${REPO_ROOT}}"
+  local plugin_skills_root="${target_root}/plugins/loom/skills"
+  local repo_plugin_skills_root="${REPO_ROOT}/plugins/loom/skills"
+  local canonical_target_root=""
+  local canonical_repo_root=""
+  local canonical_env_root=""
+
+  canonical_target_root="$(cd "${target_root}" 2>/dev/null && pwd -P || true)"
+  canonical_repo_root="$(cd "${REPO_ROOT}" 2>/dev/null && pwd -P || true)"
+
+  if [[ -d "${plugin_skills_root}" ]]; then
+    export LOOM_INSTALLED_SKILLS_ROOT="$(cd "${plugin_skills_root}" && pwd -P)"
+    return 0
+  fi
+
+  if [[ -z "${WORKTREE_DIR:-}" && -d "${repo_plugin_skills_root}" ]]; then
+    export LOOM_INSTALLED_SKILLS_ROOT="$(cd "${repo_plugin_skills_root}" && pwd -P)"
+    return 0
+  fi
+
+  if [[ -n "${LOOM_INSTALLED_SKILLS_ROOT:-}" && -d "${LOOM_INSTALLED_SKILLS_ROOT}" ]]; then
+    canonical_env_root="$(cd "${LOOM_INSTALLED_SKILLS_ROOT}" 2>/dev/null && pwd -P || true)"
+    if [[ -n "${canonical_env_root}" && -n "${canonical_target_root}" ]]; then
+      case "${canonical_env_root}" in
+        "${canonical_target_root}"|"${canonical_target_root}"/*)
+          export LOOM_INSTALLED_SKILLS_ROOT="${canonical_env_root}"
+          return 0
+          ;;
+      esac
+    fi
+    if [[ -z "${WORKTREE_DIR:-}" && -n "${canonical_env_root}" && -n "${canonical_repo_root}" ]]; then
+      case "${canonical_env_root}" in
+        "${canonical_repo_root}"|"${canonical_repo_root}"/*)
+          export LOOM_INSTALLED_SKILLS_ROOT="${canonical_env_root}"
+          return 0
+          ;;
+      esac
+    fi
+  fi
+
+  unset LOOM_INSTALLED_SKILLS_ROOT
+}
+
 write_loom_merge_ready_input() {
   local pr_number="$1"
   local current_meta_file="$2"
@@ -3754,6 +3820,7 @@ run_loom_merge_ready() {
   local runtime_script
 
   runtime_script="$(loom_merge_ready_runtime_script)" || die "缺少 repo-local Loom merge-ready runtime。"
+  ensure_loom_installed_skills_root
 
   python3 "${runtime_script}" review guardian-merge-ready \
     --target "${target_root}" \

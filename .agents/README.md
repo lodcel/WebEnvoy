@@ -6,13 +6,11 @@ This directory contains repository-scoped agent assets that must travel with Web
 
 Commit these surfaces when they define the repo contract:
 
-- `.agents/skills/loom-*`
-- `.agents/skills/manifest.json`
-- `.agents/skills/README.md`
+- `plugins/loom/.codex-plugin/plugin.json`
+- `plugins/loom/skills/**`
+- `.loom/installed-state.json`
 - `.loom/companion/**`
-- `.loom/bootstrap/manifest.json`
-- portable `.loom/bootstrap/init-result.json`
-- `.loom/bin/**` while WebEnvoy uses a vendored Loom runtime
+- `.loom/bin/**` while the installed-state runtime layer points at it
 
 Commit these only after a later phase explicitly makes Loom the authored truth owner:
 
@@ -38,4 +36,4 @@ Do not commit these local or generated surfaces:
 
 ## Current Phase
 
-WebEnvoy is still in Loom attach-only mode. GitHub Issues/Projects, WebEnvoy guardian, WebEnvoy review rules, CI, live evidence gates, and controlled merge remain the authoritative host surfaces.
+WebEnvoy uses the Loom downstream Codex plugin layout. GitHub Issues/Projects, WebEnvoy guardian, WebEnvoy review rules, CI, live evidence gates, and controlled merge remain the authoritative host surfaces.

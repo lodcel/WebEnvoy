@@ -77,12 +77,12 @@ def _check(status: str, summary: str, *, evidence: object | None = None) -> dict
 
 
 def detect_carrier(caller_file: str) -> str | None:
-    if bootstrap_runtime_root(caller_file) is not None:
-        return "bootstrapped-target-runtime"
     if source_repo_root() is not None:
         return "repo-local-wrapper"
     if installed_skills_root(caller_file) is not None:
         return "installed-skills-root"
+    if bootstrap_runtime_root(caller_file) is not None:
+        return "bootstrapped-target-runtime"
     return None
 
 

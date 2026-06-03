@@ -1317,6 +1317,7 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   mkdir -p "${WORKTREE_DIR}/docs/dev"
   mkdir -p "${WORKTREE_DIR}/.loom/bin"
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
+  mkdir -p "${WORKTREE_DIR}/plugins/loom/skills"
   export WORKTREE_DIR
 
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
@@ -1341,6 +1342,8 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   cp "${REPO_ROOT}/spec_review.md" "${WORKTREE_DIR}/spec_review.md"
   cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
   cp "${REPO_ROOT}/.loom/bin/"*.py "${WORKTREE_DIR}/.loom/bin/"
+  cp -R "${REPO_ROOT}/plugins/loom/skills/loom-spec-review" "${WORKTREE_DIR}/plugins/loom/skills/"
+  cp -R "${REPO_ROOT}/plugins/loom/skills/shared" "${WORKTREE_DIR}/plugins/loom/skills/"
   cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
   cp "${SPEC_REVIEW_SUMMARY_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-spec-review-summary.md"
   printf '%s\n' "# Spec" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/spec.md"
@@ -1985,6 +1988,22 @@ test_main_merge_if_safe_falls_back_to_fresh_review_when_status_query_fails() {
   assert_file_contains "${call_log}" "run_codex_review:274"
   assert_file_contains "${call_log}" "merge_if_safe:274:0"
   assert_file_not_contains "${call_log}" "hydrate_reused_review_result"
+}
+
+test_ensure_loom_installed_skills_root_prefers_review_worktree_over_stale_env() {
+  setup_case_dir "loom-installed-skills-root-prefers-review-worktree"
+
+  REPO_ROOT="${TMP_DIR}/source-repo"
+  WORKTREE_DIR="${TMP_DIR}/review-worktree"
+  local stale_root="${TMP_DIR}/stale-worktree/plugins/loom/skills"
+  local review_root="${WORKTREE_DIR}/plugins/loom/skills"
+  mkdir -p "${stale_root}/shared" "${review_root}/shared"
+  export REPO_ROOT WORKTREE_DIR
+  LOOM_INSTALLED_SKILLS_ROOT="${stale_root}"
+  export LOOM_INSTALLED_SKILLS_ROOT
+
+  assert_pass ensure_loom_installed_skills_root
+  assert_equal "${review_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
 }
 
 test_fetch_issue_summary_fails_closed_when_issue_lookup_fails() {
