@@ -950,6 +950,7 @@ EOF
 prepare_loom_guardian_review_worktree() {
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
   cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
+  seed_loom_skills_root_fixture
   git -C "${WORKTREE_DIR}" init -q
   git -C "${WORKTREE_DIR}" config user.email "guardian-test@example.test"
   git -C "${WORKTREE_DIR}" config user.name "Guardian Test"
@@ -957,6 +958,27 @@ prepare_loom_guardian_review_worktree() {
   git -C "${WORKTREE_DIR}" commit -qm "initial"
   HEAD_SHA="$(git -C "${WORKTREE_DIR}" rev-parse HEAD)"
   export HEAD_SHA
+}
+
+seed_loom_skills_root_fixture() {
+  local skills_root="${WORKTREE_DIR}/plugins/loom/skills"
+  local schema_file="${skills_root}/shared/assets/review/loom-review-result-schema.json"
+
+  mkdir -p "$(dirname "${schema_file}")"
+  printf '%s\n' '{"schema_version":"test-fixture","skills":[]}' > "${skills_root}/registry.json"
+  cat > "${schema_file}" <<'EOF'
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["decision", "summary", "findings"],
+  "properties": {
+    "decision": { "enum": ["allow", "block", "fallback"] },
+    "summary": { "type": "string" },
+    "findings": { "type": "array" }
+  },
+  "additionalProperties": true
+}
+EOF
 }
 
 test_run_codex_review_prefers_codex_app_proof_raw_file() {
@@ -1318,6 +1340,7 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   mkdir -p "${WORKTREE_DIR}/plugins/loom/skills/loom-spec-review/scripts"
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
   export WORKTREE_DIR
+  seed_loom_skills_root_fixture
 
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
   CONTEXT_DOCS_FILE="${TMP_DIR}/context-docs.txt"
