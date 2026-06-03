@@ -220,7 +220,7 @@ HOOK_ADAPTER_RESULTS = {"supported", "not_applicable", "advisory", "unsafe"}
 REVIEW_ENGINE_PROFILES: dict[str, dict[str, Any]] = {
     "default": {
         "profile_id": "default",
-        "model": "gpt-5.2",
+        "model": "gpt-5.5",
         "reasoning_effort": "medium",
         "timeout_seconds": DEFAULT_REVIEW_ENGINE_TIMEOUT_SECONDS,
         "context_policy": "minimal-review-baseline",
@@ -228,7 +228,7 @@ REVIEW_ENGINE_PROFILES: dict[str, dict[str, Any]] = {
     },
     "high-risk": {
         "profile_id": "high-risk",
-        "model": "gpt-5.2",
+        "model": "gpt-5.5",
         "reasoning_effort": "high",
         "timeout_seconds": DEFAULT_REVIEW_ENGINE_TIMEOUT_SECONDS,
         "context_policy": "expanded-risk-baseline",
@@ -236,7 +236,7 @@ REVIEW_ENGINE_PROFILES: dict[str, dict[str, Any]] = {
     },
     "spec-review": {
         "profile_id": "spec-review",
-        "model": "gpt-5.2",
+        "model": "gpt-5.5",
         "reasoning_effort": "high",
         "timeout_seconds": DEFAULT_REVIEW_ENGINE_TIMEOUT_SECONDS,
         "context_policy": "formal-spec-suite-baseline",
@@ -244,7 +244,7 @@ REVIEW_ENGINE_PROFILES: dict[str, dict[str, Any]] = {
     },
     "repeated-blocker": {
         "profile_id": "repeated-blocker",
-        "model": "gpt-5.2",
+        "model": "gpt-5.5",
         "reasoning_effort": "high",
         "timeout_seconds": DEFAULT_REVIEW_ENGINE_TIMEOUT_SECONDS,
         "context_policy": "recent-findings-and-dispositions",
