@@ -2490,6 +2490,13 @@ const resolvePlainPublicVisibilityClickTarget = (element: HTMLElement): HTMLElem
     if (current !== element && isPublishSettingsLikeContainer(current)) {
       nearestSettingsLike = current;
     }
+    if (
+      current !== element &&
+      visibilityTriggerActionPattern.test(`${current.tagName.toLowerCase()} ${getElementAttribute(current, "role") ?? ""}`) &&
+      isVisibilityClickTarget(current)
+    ) {
+      return current;
+    }
     if (isVisibilityClickTarget(current) && (current === element || isSelectLikeVisibilityActivationTarget(current))) {
       return current;
     }
