@@ -549,6 +549,23 @@ it("preserves accepted upload evidence when submit continuation times out", () =
       })
     })
   });
+  expect(timedOut).toMatchObject({
+    uploaded: true,
+    submitted: false,
+    published: false,
+    cleanup_attempted: false
+  });
+  expect(timedOut.live_write_evaluation).toMatchObject({
+    publish_success: false,
+    cleanup_success: false,
+    later_write_actions_blocked: true
+  });
+  expect(timedOut.live_write_evidence.stop_signal).toMatchObject({
+    later_write_actions_blocked: true,
+    cleanup_required: true,
+    required_recovery_action:
+      "rerun controlled submit/publish with the accepted_upload_artifact_identity from this evidence"
+  });
 });
 
 it("requires editor-visible upload evidence before promoting object transport staging refs", () => {
@@ -3964,6 +3981,177 @@ it("continues from an accepted upload artifact through private submit/publish cl
       }),
       risk_signals: [],
       stop_signal: null
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
+it("keeps accepted upload continuation partial when submit succeeds without publish identity", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "BUTTON";
+    classList: string[] = [];
+    parentElement = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    clicked = false;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click() {
+      this.clicked = true;
+    }
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+  const visibility = new TestElement("仅自己可见");
+  const submit = new TestElement("发布");
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "https://creator.xiaohongshu.com/publish/publish" }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: globalThis.location }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: new TestElement("发布中"),
+      querySelectorAll: () => [visibility, submit]
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-accepted-upload-submit-partial",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1007-submit-partial",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/accepted-submit-partial",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload-d4.xhscdn.com/spectrum/test-partial",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-03T00:00:00.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    expect(visibility.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result).toMatchObject({
+      uploaded: true,
+      submitted: true,
+      published: false,
+      cleanup_attempted: true
+    });
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      cleanup_success: false,
+      later_write_actions_blocked: true,
+      cleanup_required: true,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity"
+        })
+      ]
+    });
+    expect(result.live_write_evidence).toMatchObject({
+      execution_phase: "publish_identity",
+      upload_artifact_identity: expect.objectContaining({
+        upload_artifact_id: "upload-artifact/fr-0032/accepted-submit-partial",
+        accepted_by_platform: true,
+        visible_in_editor: true
+      }),
+      submit_evidence: expect.objectContaining({
+        submit_result_state: "accepted"
+      }),
+      publish_result_identity: null,
+      cleanup_result: expect.objectContaining({
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked"
+      }),
+      stop_signal: expect.objectContaining({
+        stopped_step: "publish_identity",
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        required_recovery_action:
+          "capture note_id, published URL, creator result URL, or platform record before closeout"
+      })
     });
   } finally {
     Object.defineProperty(globalThis, "document", {

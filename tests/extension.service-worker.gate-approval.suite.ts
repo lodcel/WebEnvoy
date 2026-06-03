@@ -189,6 +189,36 @@ describe("extension service worker / gate and approval", () => {
     expect(registerBlock).not.toContain("buildXhsControlledLiveWriteContinuationTimeoutPayload");
   });
 
+  it("keeps late continuation results from re-promoting cleared timeout state", () => {
+    const source = readFileSync(new URL("../extension/background.ts", import.meta.url), "utf8");
+    const continuationDispatchStart = source.indexOf(
+      "async #dispatchXhsControlledLiveWriteContinuation"
+    );
+    expect(continuationDispatchStart).toBeGreaterThanOrEqual(0);
+    const timeoutStart = source.indexOf("const timeout = setTimeout(() => {", continuationDispatchStart);
+    const timeoutEnd = source.indexOf("    const forward: BackgroundToContentMessage", timeoutStart);
+    expect(timeoutStart).toBeGreaterThan(continuationDispatchStart);
+    expect(timeoutEnd).toBeGreaterThan(timeoutStart);
+    const timeoutBlock = source.slice(timeoutStart, timeoutEnd);
+
+    expect(timeoutBlock).toContain("this.#pendingState.take(input.forwardId)");
+    expect(timeoutBlock).toContain("this.#controlledLiveWriteContinuationStates.delete(continuationKey)");
+    expect(timeoutBlock).toContain("this.#controlledLiveWriteContinuationKeysByForwardId.delete(input.forwardId)");
+    expect(timeoutBlock).toContain("SUBMIT_CONTINUATION_TIMEOUT");
+
+    const resultStart = source.indexOf("async #onContentScriptResult");
+    const missingPendingStart = source.indexOf("if (!pending) {", resultStart);
+    const missingPendingEnd = source.indexOf("    const request = pending.request;", missingPendingStart);
+    expect(resultStart).toBeGreaterThanOrEqual(0);
+    expect(missingPendingStart).toBeGreaterThan(resultStart);
+    expect(missingPendingEnd).toBeGreaterThan(missingPendingStart);
+    const missingPendingBlock = source.slice(missingPendingStart, missingPendingEnd);
+
+    expect(missingPendingBlock).toContain("this.#rememberStartupTrustedFingerprintContext(payload, sender)");
+    expect(missingPendingBlock).toContain("return");
+    expect(missingPendingBlock).not.toContain("this.#emit");
+  });
+
   it("blocks XHS validation source main-world probe before managed tab bootstrap binding", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);
