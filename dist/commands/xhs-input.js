@@ -2,6 +2,34 @@ import { randomUUID } from "node:crypto";
 import { CliError } from "../core/errors.js";
 import { prepareIssue209LiveReadSource } from "../../shared/issue209-live-read/source.js";
 import { validateIssue209ApprovalSourceAgainstCurrentLinkage, validateIssue209AuditSourceAgainstCurrentLinkage } from "../../shared/issue209-live-read/source-validation.js";
+const validateAcceptedUploadArtifactIdentityForContract = (artifact, input, abilityId) => {
+    const uploadArtifactId = asString(artifact.upload_artifact_id);
+    if (!uploadArtifactId || !/^upload-artifact\/fr-0032\//u.test(uploadArtifactId)) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_ID_INVALID", abilityId);
+    }
+    if (asString(artifact.source_media_ref) !== input.sourceMediaRef) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_SOURCE_REF_MISMATCH", abilityId);
+    }
+    if (asString(artifact.source_media_digest) !== input.sourceMediaDigest) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_DIGEST_MISMATCH", abilityId);
+    }
+    if (asString(artifact.source_media_kind) !== input.sourceMediaKind) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_KIND_MISMATCH", abilityId);
+    }
+    if (artifact.accepted_by_platform !== true || artifact.visible_in_editor !== true) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_NOT_READY", abilityId);
+    }
+    if (!asString(artifact.captured_at)) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_CAPTURED_AT_INVALID", abilityId);
+    }
+    if (!hasOwn(artifact, "platform_staging_ref")) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_PLATFORM_REF_MISSING", abilityId);
+    }
+    if (artifact.platform_staging_ref !== null && !asString(artifact.platform_staging_ref)) {
+        throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_PLATFORM_REF_INVALID", abilityId);
+    }
+    return cloneJsonObject(artifact);
+};
 const ABILITY_LAYERS = new Set(["L3", "L2", "L1"]);
 const ABILITY_ACTIONS = new Set(["read", "write", "download"]);
 const GATE_ACTION_TYPES = new Set(["read", "write", "irreversible_write"]);
@@ -606,14 +634,21 @@ export const parseControlledLiveWriteInputForContract = (input = {}, abilityId =
         !acceptedUploadArtifactIdentity) {
         throw invalidAbilityInput("ACCEPTED_UPLOAD_ARTIFACT_IDENTITY_INVALID", abilityId);
     }
+    const validatedAcceptedUploadArtifactIdentity = acceptedUploadArtifactIdentity
+        ? validateAcceptedUploadArtifactIdentityForContract(acceptedUploadArtifactIdentity, {
+            sourceMediaRef,
+            sourceMediaDigest,
+            sourceMediaKind
+        }, abilityId)
+        : undefined;
     return {
         target_page: "creator_publish_tab",
         live_write_attempt_id: liveWriteAttemptId,
         source_media_ref: sourceMediaRef,
         source_media_digest: sourceMediaDigest,
         source_media_kind: sourceMediaKind,
-        ...(acceptedUploadArtifactIdentity
-            ? { accepted_upload_artifact_identity: cloneJsonObject(acceptedUploadArtifactIdentity) }
+        ...(validatedAcceptedUploadArtifactIdentity
+            ? { accepted_upload_artifact_identity: validatedAcceptedUploadArtifactIdentity }
             : {})
     };
 };

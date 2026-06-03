@@ -86,7 +86,7 @@ it("promotes upload evidence when Chrome debugger captures an explicit platform 
         "collect platform-returned upload acceptance evidence before submit/publish"
     },
     {
-      upload_artifact_id: "upload-artifact/fr0032-test",
+      upload_artifact_id: "upload-artifact/fr-0032/test",
       source_media_ref: "media-ref/fr-0032/fixture-image-a",
       source_media_digest:
         "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -261,10 +261,10 @@ it("records publish identity capture without advancing closeout state when debug
         target_tab_id: 32,
         probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
         run_id: "run-xhs-issue-983-platform-identity",
-        artifact_identity: "upload-artifact/fr0032-platform-identity"
+        artifact_identity: "upload-artifact/fr-0032/platform-identity"
       },
       upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-platform-identity",
+        upload_artifact_id: "upload-artifact/fr-0032/platform-identity",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -401,7 +401,7 @@ it("does not promote publish identity evidence without platform visibility proof
         run_id: "run-xhs-issue-983-platform-identity-no-visibility"
       },
       upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-platform-identity-no-visibility",
+        upload_artifact_id: "upload-artifact/fr-0032/platform-identity-no-visibility",
         accepted_by_platform: true
       },
       submit_evidence: {
@@ -493,7 +493,7 @@ it("preserves accepted upload evidence when submit continuation times out", () =
         "collect platform-returned upload acceptance evidence before submit/publish"
     },
     {
-      upload_artifact_id: "upload-artifact/fr0032-continuation-timeout",
+      upload_artifact_id: "upload-artifact/fr-0032/continuation-timeout",
       source_media_ref: "media-ref/fr-0032/fixture-image-a",
       source_media_digest:
         "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -508,7 +508,7 @@ it("preserves accepted upload evidence when submit continuation times out", () =
 
   const timedOut = applyXhsControlledLiveWriteContinuationTimeout(result, {
     continuationKey:
-      "nm-session-001:run-xhs-issue-963-continuation-timeout:32:fr0032-attempt-continuation-timeout:upload-artifact/fr0032-continuation-timeout:xhs.creator_publish.controlled_live_write",
+      "nm-session-001:run-xhs-issue-963-continuation-timeout:32:fr0032-attempt-continuation-timeout:upload-artifact/fr-0032/continuation-timeout:xhs.creator_publish.controlled_live_write",
     reason: "CONTENT_SCRIPT_FORWARD_TIMEOUT"
   });
 
@@ -527,14 +527,19 @@ it("preserves accepted upload evidence when submit continuation times out", () =
   expect(timedOut.live_write_evidence).toMatchObject({
     execution_phase: "submit",
     upload_artifact_identity: expect.objectContaining({
-      upload_artifact_id: "upload-artifact/fr0032-continuation-timeout",
+      upload_artifact_id: "upload-artifact/fr-0032/continuation-timeout",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
       accepted_by_platform: true,
       visible_in_editor: true
     }),
     stop_signal: expect.objectContaining({
       stopped_step: "submit",
       blocker_code: "SUBMIT_CONTINUATION_TIMEOUT",
-      cleanup_required: true
+      cleanup_required: true,
+      required_recovery_action:
+        "rerun controlled submit/publish with the accepted_upload_artifact_identity from this evidence"
     }),
     stop_classification: expect.objectContaining({
       stop_reason: "submit_continuation_timeout",
@@ -571,7 +576,7 @@ it("requires editor-visible upload evidence before promoting object transport st
         "collect platform-returned upload acceptance evidence before submit/publish"
     },
     {
-      upload_artifact_id: "upload-artifact/fr0032-object-no-preview",
+      upload_artifact_id: "upload-artifact/fr-0032/object-no-preview",
       source_media_ref: "media-ref/fr-0032/fixture-image-a",
       source_media_digest:
         "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -817,6 +822,63 @@ it("continues from accepted upload artifact through private submit publish clean
       value: originalWindow
     });
   }
+});
+
+it("blocks accepted upload resume when artifact source media does not match current request", async () => {
+  const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+    live_write_attempt_id: "fr0032-attempt-resume-mismatched-upload",
+    source_media_ref: "media-ref/fr-0032/fixture-image-a",
+    source_media_digest:
+      "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+    source_media_kind: "image",
+    publish_visibility_scope: "private_or_self_visible",
+    cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+    run_id: "run-xhs-issue-1006-resume-mismatched-upload",
+    profile_ref: "profile-a",
+    target_tab_id: 32,
+    page_url: "https://creator.xiaohongshu.com/publish/publish",
+    latest_head_sha: "head-test",
+    accepted_upload_artifact_identity: {
+      upload_artifact_id: "upload-artifact/fr-0032/run-xhs-issue-1006-resume/3ed47d9dd37e",
+      source_media_ref: "media-ref/fr-0032/fixture-image-b",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      platform_staging_ref:
+        "object_upload:ros-upload-d4.xhscdn.com/spectrum/ResumeFixtureRefOnlyNoRealUrl",
+      page_preview_locator: "div.publish-page-content-media",
+      accepted_by_platform: true,
+      visible_in_editor: true,
+      captured_at: "2026-06-03T00:00:00.000Z",
+      preview_diagnostics: null
+    }
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "NO_GO",
+    upload_success: false,
+    submit_success: false,
+    publish_success: false,
+    later_write_actions_blocked: true,
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "ACCEPTED_UPLOAD_ARTIFACT_RESUME_INVALID",
+        blocker_layer: "upload"
+      })
+    ]
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    execution_phase: "upload",
+    stop_classification: expect.objectContaining({
+      stop_reason: "accepted_upload_artifact_source_ref_mismatch"
+    }),
+    upload_artifact_identity: expect.objectContaining({
+      accepted_by_platform: true,
+      visible_in_editor: true
+    }),
+    submit_evidence: null,
+    publish_result_identity: null
+  });
 });
 
 it("opens visibility selector before choosing the private publish option", async () => {
@@ -3862,7 +3924,7 @@ it("continues from an accepted upload artifact through private submit/publish cl
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-accepted",
+        upload_artifact_id: "upload-artifact/fr-0032/accepted",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -4029,7 +4091,7 @@ it("captures publish result identity from a current-page note link when creator 
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-current-page-record",
+        upload_artifact_id: "upload-artifact/fr-0032/current-page-record",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -4210,7 +4272,7 @@ it("ignores unrelated and pre-existing page note links when publish success has 
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-unrelated-note-link",
+        upload_artifact_id: "upload-artifact/fr-0032/unrelated-note-link",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -4378,7 +4440,7 @@ it("opens XHS permission-card select with pointer events before selecting privat
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-permission-card-select-pointer",
+        upload_artifact_id: "upload-artifact/fr-0032/permission-card-select-pointer",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -4571,7 +4633,7 @@ it("opens nested permission-card select when the outer wrapper is the only top-l
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-nested-permission-card-select",
+        upload_artifact_id: "upload-artifact/fr-0032/nested-permission-card-select",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -4782,7 +4844,7 @@ it("opens XHS d-select visibility dropdown with keyboard activation when pointer
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-d-select-keyboard-open",
+        upload_artifact_id: "upload-artifact/fr-0032/d-select-keyboard-open",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -4946,7 +5008,7 @@ it("stops before submit when permission-card activation never reveals a private 
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-permission-card-select-no-private-option",
+        upload_artifact_id: "upload-artifact/fr-0032/permission-card-select-no-private-option",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -5052,7 +5114,7 @@ it("stops before submit when accepted upload exists but private visibility is un
       page_url: "https://creator.xiaohongshu.com/publish/publish",
       latest_head_sha: "head-test",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr0032-accepted",
+        upload_artifact_id: "upload-artifact/fr-0032/accepted",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
         source_media_digest:
           "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
@@ -5538,7 +5600,7 @@ const createRelay = () => {
             target_tab_id: input.target_tab_id ?? 32,
             probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
             run_id: input.run_id,
-            artifact_identity: "upload-artifact/fr0032-test"
+            artifact_identity: "upload-artifact/fr-0032/test"
           },
           entry_gate: {
             spec_review_state: "passed",
