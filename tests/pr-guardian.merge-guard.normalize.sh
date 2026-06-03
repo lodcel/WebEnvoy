@@ -982,18 +982,45 @@ EOF
 }
 
 seed_repo_bootstrap_manifest_fixture() {
-  local runtime_sha
+  local fact_chain_support_sha
+  local governance_surface_sha
+  local loom_check_sha
+  local loom_flow_sha
+  local loom_init_sha
+  local loom_status_sha
+  local runtime_paths_sha
+  local runtime_state_sha
 
-  runtime_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_flow.py" | awk '{print $1}')"
+  fact_chain_support_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/fact_chain_support.py" | awk '{print $1}')"
+  governance_surface_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/governance_surface.py" | awk '{print $1}')"
+  loom_check_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_check.py" | awk '{print $1}')"
+  loom_flow_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_flow.py" | awk '{print $1}')"
+  loom_init_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_init.py" | awk '{print $1}')"
+  loom_status_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_status.py" | awk '{print $1}')"
+  runtime_paths_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/runtime_paths.py" | awk '{print $1}')"
+  runtime_state_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/runtime_state.py" | awk '{print $1}')"
   mkdir -p "${REPO_ROOT}/.loom/bootstrap"
-  jq -n --arg runtime_sha "${runtime_sha}" '{
+  jq -n \
+    --arg fact_chain_support_sha "${fact_chain_support_sha}" \
+    --arg governance_surface_sha "${governance_surface_sha}" \
+    --arg loom_check_sha "${loom_check_sha}" \
+    --arg loom_flow_sha "${loom_flow_sha}" \
+    --arg loom_init_sha "${loom_init_sha}" \
+    --arg loom_status_sha "${loom_status_sha}" \
+    --arg runtime_paths_sha "${runtime_paths_sha}" \
+    --arg runtime_state_sha "${runtime_state_sha}" \
+    '{
     schema_version: "loom-bootstrap-manifest/v1",
     fixture: "merge-if-safe",
     artifacts: [
-      {
-        path: ".loom/bin/loom_flow.py",
-        sha256: $runtime_sha
-      }
+      {path: ".loom/bin/loom_init.py", source: "skills/shared/scripts/loom_init.py", sha256: $loom_init_sha},
+      {path: ".loom/bin/fact_chain_support.py", source: "skills/shared/scripts/fact_chain_support.py", sha256: $fact_chain_support_sha},
+      {path: ".loom/bin/governance_surface.py", source: "skills/shared/scripts/governance_surface.py", sha256: $governance_surface_sha},
+      {path: ".loom/bin/loom_flow.py", source: "skills/shared/scripts/loom_flow.py", sha256: $loom_flow_sha},
+      {path: ".loom/bin/loom_status.py", source: "skills/shared/scripts/loom_status.py", sha256: $loom_status_sha},
+      {path: ".loom/bin/runtime_paths.py", source: "skills/shared/scripts/runtime_paths.py", sha256: $runtime_paths_sha},
+      {path: ".loom/bin/runtime_state.py", source: "skills/shared/scripts/runtime_state.py", sha256: $runtime_state_sha},
+      {path: ".loom/bin/loom_check.py", source: "skills/shared/scripts/loom_check.py", sha256: $loom_check_sha}
     ]
   }' > "${REPO_ROOT}/.loom/bootstrap/manifest.json"
 }
