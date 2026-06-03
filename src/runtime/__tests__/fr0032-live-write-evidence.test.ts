@@ -184,6 +184,38 @@ describe("FR-0032 live write evidence evaluator", () => {
     });
   });
 
+  it("classifies cleanup as not needed after an unpublished upload stop", () => {
+    const input = baseInput();
+    input.submit_evidence = null;
+    input.publish_result_identity = null;
+    input.cleanup_result = {
+      ...baseCleanup(null),
+      cleanup_action: "abandon_unpublished_upload",
+      cleanup_outcome: "not_needed",
+      proof_locator: "creator_publish_editor_unpublished_upload_only",
+      platform_message: "upload abandoned before submit",
+      residual_record: null
+    };
+
+    expect(evaluateFr0032LiveWriteEvidence(input)).toMatchObject({
+      decision: "NO_GO",
+      derived_attempt_state: "failed",
+      upload_success: true,
+      submit_success: false,
+      publish_success: false,
+      cleanup_satisfied: true,
+      cleanup_success: true,
+      cleanup_required: true,
+      cleanup_result_id: "cleanup/fr-0032/run-846/cleanup-001",
+      residual_record_id: null,
+      residual_record_required: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "SUBMIT_EVIDENCE_MISSING" }),
+        expect.objectContaining({ blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING" })
+      ])
+    });
+  });
+
   it("accepts cleanup failure disclosure without treating residual content as full success", () => {
     const input = baseInput();
     input.cleanup_result = {
@@ -199,9 +231,107 @@ describe("FR-0032 live write evidence evaluator", () => {
       cleanup_satisfied: true,
       cleanup_success: false,
       success_with_residual: true,
+      cleanup_result_id: "cleanup/fr-0032/run-846/cleanup-001",
+      residual_record_id: "residual/fr-0032/run-846/residual-001",
       residual_record_required: false,
       full_live_write_success: false,
       blockers: []
+    });
+  });
+
+  it("accepts rollback unsupported disclosure with explicit residual record", () => {
+    const input = baseInput();
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      cleanup_outcome: "rollback_not_supported",
+      completed_at: null,
+      residual_record: {
+        ...baseResidualRecord(),
+        reason: "rollback_not_supported"
+      }
+    };
+
+    expect(evaluateFr0032LiveWriteEvidence(input)).toMatchObject({
+      decision: "PASS",
+      cleanup_satisfied: true,
+      cleanup_success: false,
+      success_with_residual: true,
+      full_live_write_success: false,
+      residual_record_required: false,
+      blockers: []
+    });
+  });
+
+  it("accepts cleanup blocked disclosure with explicit residual record", () => {
+    const input = baseInput();
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      cleanup_outcome: "cleanup_blocked",
+      completed_at: null,
+      residual_record: {
+        ...baseResidualRecord(),
+        reason: "cleanup_blocked"
+      }
+    };
+
+    expect(evaluateFr0032LiveWriteEvidence(input)).toMatchObject({
+      decision: "PASS",
+      cleanup_satisfied: true,
+      cleanup_success: false,
+      success_with_residual: true,
+      full_live_write_success: false,
+      residual_record_required: false,
+      blockers: []
+    });
+  });
+
+  it("fails closed when top-level and cleanup residual records disagree", () => {
+    const input = baseInput();
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      cleanup_outcome: "cleanup_failed",
+      completed_at: null,
+      residual_record: baseResidualRecord()
+    };
+    input.residual_record = {
+      ...baseResidualRecord(),
+      residual_record_id: "residual/fr-0032/run-846/other-residual"
+    };
+
+    expect(evaluateFr0032LiveWriteEvidence(input)).toMatchObject({
+      decision: "NO_GO",
+      cleanup_satisfied: true,
+      cleanup_success: false,
+      residual_record_id: "residual/fr-0032/run-846/other-residual",
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "RESIDUAL_RECORD_REQUIRED" })
+      ])
+    });
+  });
+
+  it("requires a stop signal and residual record when cleanup has no safe action", () => {
+    const input = baseInput();
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      cleanup_action: "no_safe_cleanup_action",
+      cleanup_outcome: "cleanup_blocked",
+      completed_at: null,
+      residual_record: null
+    };
+
+    expect(evaluateFr0032LiveWriteEvidence(input)).toMatchObject({
+      decision: "NO_GO",
+      derived_attempt_state: "failed",
+      cleanup_satisfied: false,
+      cleanup_success: false,
+      later_write_actions_blocked: true,
+      stop_signal_required: true,
+      stop_signal_satisfied: false,
+      residual_record_required: true,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "RESIDUAL_RECORD_REQUIRED" }),
+        expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })
+      ])
     });
   });
 
@@ -215,6 +345,11 @@ describe("FR-0032 live write evidence evaluator", () => {
       later_write_actions_blocked: true,
       cleanup_gate_open: true,
       full_live_write_success: false,
+      risk_signal_present: true,
+      blocking_risk_signal_count: 1,
+      stop_signal_present: false,
+      stop_signal_required: true,
+      stop_signal_satisfied: false,
       blockers: expect.arrayContaining([
         expect.objectContaining({ blocker_code: "RISK_SIGNAL_BLOCKING" }),
         expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })
@@ -232,6 +367,12 @@ describe("FR-0032 live write evidence evaluator", () => {
       derived_attempt_state: "stopped",
       later_write_actions_blocked: true,
       full_live_write_success: false,
+      risk_signal_present: true,
+      blocking_risk_signal_count: 1,
+      stop_signal_id: "stop/fr-0032/run-846/captcha",
+      stop_signal_present: true,
+      stop_signal_required: true,
+      stop_signal_satisfied: true,
       blockers: expect.arrayContaining([
         expect.objectContaining({ blocker_code: "RISK_SIGNAL_BLOCKING" })
       ])
@@ -239,6 +380,51 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(evaluateFr0032LiveWriteEvidence(input).blockers).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })])
     );
+  });
+
+  it("fails closed when stop signal cleanup proof references are inconsistent", () => {
+    const input = baseInput();
+    input.risk_signals = [blockingRiskSignal()];
+    input.stop_signal = {
+      ...blockingStopSignal(),
+      cleanup_result_id: "cleanup/fr-0032/run-846/stale-cleanup",
+      residual_record_id: "residual/fr-0032/run-846/stale-residual"
+    };
+
+    expect(evaluateFr0032LiveWriteEvidence(input)).toMatchObject({
+      decision: "NO_GO",
+      stop_signal_required: true,
+      stop_signal_satisfied: false,
+      cleanup_result_id: "cleanup/fr-0032/run-846/cleanup-001",
+      residual_record_id: null,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })
+      ])
+    });
+  });
+
+  it("fails closed when an explicit publish stop signal has stale cleanup proof references", () => {
+    const input = baseInput();
+    input.stop_signal = {
+      ...blockingStopSignal(),
+      stopped_step: "publish",
+      blocker_layer: "publish",
+      blocker_code: "PUBLISH_BLOCKED",
+      cleanup_result_id: "cleanup/fr-0032/run-846/stale-cleanup",
+      residual_record_id: "residual/fr-0032/run-846/stale-residual"
+    };
+
+    expect(evaluateFr0032LiveWriteEvidence(input)).toMatchObject({
+      decision: "NO_GO",
+      later_write_actions_blocked: true,
+      stop_signal_required: false,
+      stop_signal_satisfied: false,
+      cleanup_result_id: "cleanup/fr-0032/run-846/cleanup-001",
+      residual_record_id: null,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })
+      ])
+    });
   });
 
   it("closes publish gate when submit is blocked by risk even without a separate risk signal", () => {
@@ -258,9 +444,12 @@ describe("FR-0032 live write evidence evaluator", () => {
       submit_gate_open: false,
       publish_gate_open: false,
       full_live_write_success: false,
+      stop_signal_required: true,
+      stop_signal_satisfied: false,
       blockers: expect.arrayContaining([
         expect.objectContaining({ blocker_code: "SUBMIT_NOT_ACCEPTED" }),
-        expect.objectContaining({ blocker_code: "SUBMIT_BLOCKED_BY_RISK" })
+        expect.objectContaining({ blocker_code: "SUBMIT_BLOCKED_BY_RISK" }),
+        expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })
       ])
     });
   });
@@ -281,7 +470,15 @@ describe("FR-0032 live write evidence evaluator", () => {
       full_live_write_success: true,
       later_write_actions_blocked: false,
       cleanup_required: true,
+      cleanup_result_id: "cleanup/fr-0032/run-846/cleanup-001",
+      residual_record_id: null,
       residual_record_required: false,
+      risk_signal_present: false,
+      blocking_risk_signal_count: 0,
+      stop_signal_id: null,
+      stop_signal_present: false,
+      stop_signal_required: false,
+      stop_signal_satisfied: true,
       blockers: []
     });
   });
