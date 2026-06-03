@@ -4181,6 +4181,179 @@ it("keeps accepted upload continuation partial when submit succeeds without publ
   }
 });
 
+it("defers publish identity cleanup to background capture during automatic continuation", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "BUTTON";
+    classList: string[] = [];
+    parentElement = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    clicked = false;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click() {
+      this.clicked = true;
+    }
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+  const visibility = new TestElement("仅自己可见");
+  const submit = new TestElement("发布");
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "https://creator.xiaohongshu.com/publish/publish" }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: globalThis.location }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: new TestElement("发布中"),
+      querySelectorAll: () => [visibility, submit]
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-background-continuation-submit",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-989-background-continuation",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      background_upload_capture_continuation: true,
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/background-continuation",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref:
+          "object_upload:ros-upload.xiaohongshu.com/spectrum/background-continuation",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-03T00:00:00.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    expect(visibility.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result).toMatchObject({
+      uploaded: true,
+      submitted: true,
+      published: false,
+      cleanup_attempted: true
+    });
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      submit_success: true,
+      publish_success: false,
+      cleanup_required: true,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity"
+        })
+      ]
+    });
+    expect(result.live_write_evidence).toMatchObject({
+      execution_phase: "publish_identity",
+      cleanup_result: expect.objectContaining({
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        residual_record: expect.objectContaining({
+          residual_record_id:
+            "residual/fr-0032/fr0032-attempt-background-continuation-submit/background-identity-pending",
+          reason: "identity_missing_after_publish",
+          required_followup: "merge background publish identity capture before final closeout"
+        }),
+        platform_message:
+          "submit accepted; background publish identity capture remains authoritative"
+      }),
+      stop_signal: expect.objectContaining({
+        stopped_step: "publish_identity",
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        residual_record_id:
+          "residual/fr-0032/fr0032-attempt-background-continuation-submit/background-identity-pending",
+        required_recovery_action: "merge background publish identity capture before final closeout"
+      }),
+      residual_record: expect.objectContaining({
+        reason: "identity_missing_after_publish",
+        external_visibility_may_remain: false
+      })
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
 it("captures publish result identity from a current-page note link when creator URL does not change", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
@@ -6068,6 +6241,179 @@ const createRelay = () => {
 };
 
 describe("extension background relay / controlled live write", () => {
+  it("preserves background upload continuation policy fields for the controlled executor", async () => {
+    const observedInputs: unknown[] = [];
+    const contentScript = new ContentScriptHandler({
+      xhsEnv: {
+        now: () => 1_000,
+        randomId: () => "relay-controlled-live-write-continuation-id",
+        getLocationHref: () => "https://creator.xiaohongshu.com/publish/publish",
+        getDocumentTitle: () => "Creator Publish",
+        getReadyState: () => "complete",
+        getCookie: () => "a1=valid;",
+        callSignature: async () => {
+          throw new Error("controlled live write continuation should not request signatures");
+        },
+        fetchJson: async () => {
+          throw new Error("controlled live write continuation should not hit live fetch");
+        },
+        performControlledLiveWrite: async (input) => {
+          observedInputs.push(input);
+          return {
+            live_write_action: "controlled_upload_submit_publish",
+            target_page: "creator_publish_tab",
+            live_write_evidence: {
+              schema_version: "fr-0032.live_write_evidence.v1",
+              live_write_attempt_id: input.live_write_attempt_id,
+              canonical_issue_ref: "#835",
+              execution_phase: "publish_identity",
+              scope: {
+                platform: "xhs",
+                target_domain: "creator.xiaohongshu.com",
+                target_page: "creator_publish_tab",
+                browser_channel: "Google Chrome stable",
+                execution_surface: "real_browser",
+                requested_execution_mode: "live_write",
+                profile_ref: input.profile_ref ?? "profile-a",
+                target_tab_id: input.target_tab_id ?? 32,
+                probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+                run_id: input.run_id,
+                artifact_identity: "upload-artifact/fr-0032/continuation"
+              },
+              upload_artifact_identity: input.accepted_upload_artifact_identity,
+              submit_evidence: {
+                submit_action_ref: `submit/fr-0032/${input.live_write_attempt_id}`,
+                submit_locator: "button.publish-submit",
+                submitted_at: "2026-06-03T13:23:25.000Z",
+                submit_result_state: "accepted",
+                platform_message: null
+              },
+              publish_result_identity: null,
+              cleanup_result: null,
+              risk_signals: [],
+              stop_signal: {
+                schema_version: "fr-0032.live_write_stop_signal.v1",
+                stop_signal_id: `stop/fr-0032/${input.live_write_attempt_id}/identity-pending`,
+                live_write_attempt_id: input.live_write_attempt_id,
+                run_id: input.run_id,
+                profile_ref: input.profile_ref ?? "profile-a",
+                target_tab_id: input.target_tab_id ?? 32,
+                stopped_at: "2026-06-03T13:23:25.000Z",
+                stopped_step: "publish_identity",
+                blocker_layer: "published_identity",
+                blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+                severity: "blocking",
+                later_write_actions_blocked: true,
+                cleanup_required: true,
+                cleanup_result_id: null,
+                residual_record_id: null,
+                required_recovery_action: "merge background publish identity capture before final closeout",
+                evidence_ref: `live_write_evidence/${input.live_write_attempt_id}`
+              },
+              residual_record: null,
+              created_at: "2026-06-03T13:23:25.000Z",
+              updated_at: "2026-06-03T13:23:25.000Z"
+            },
+            live_write_evaluation: {
+              schema_version: "fr-0032.live_write_evaluation.v1",
+              decision: "NO_GO",
+              full_live_write_success: false,
+              upload_success: true,
+              submit_success: true,
+              publish_success: false,
+              cleanup_success: false,
+              later_write_actions_blocked: true,
+              cleanup_required: true,
+              blockers: [
+                {
+                  blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+                  blocker_layer: "published_identity",
+                  message: "background identity capture pending"
+                }
+              ]
+            },
+            uploaded: true,
+            submitted: true,
+            published: false,
+            cleanup_attempted: false,
+            out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"]
+          };
+        }
+      }
+    });
+    const responsePromise = new Promise<Record<string, unknown>>((resolve) => {
+      const off = contentScript.onResult((message) => {
+        off();
+        resolve(message as unknown as Record<string, unknown>);
+      });
+    });
+    contentScript.onBackgroundMessage({
+      kind: "forward",
+      id: "forward-xhs-issue-989-controlled-live-write-continuation-001",
+      runId: "run-xhs-issue-989-controlled-live-write-continuation-001",
+      tabId: 32,
+      profile: "profile-a",
+      cwd: "/workspace/WebEnvoy",
+      timeoutMs: 30_000,
+      command: "xhs.creator_publish.controlled_live_write",
+      params: {},
+      commandParams: {
+        ability: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {
+          live_write_attempt_id: "fr0032-attempt-continuation-policy",
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest:
+            "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+          source_media_kind: "image",
+          __background_upload_capture_continuation: true,
+          accepted_upload_artifact_identity: {
+            upload_artifact_id: "upload-artifact/fr-0032/continuation-policy",
+            source_media_ref: "media-ref/fr-0032/fixture-image-a",
+            source_media_digest:
+              "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+            source_media_kind: "image",
+            platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/continuation-policy",
+            page_preview_locator: "div.publish-page-content-media",
+            accepted_by_platform: true,
+            visible_in_editor: true,
+            captured_at: "2026-06-03T13:23:25.000Z"
+          }
+        },
+        options: {
+          ...controlledLiveOptions,
+          __runtime_latest_head_sha: "321560851c9a71a2ba39c1107e102b187111e48e",
+          __runtime_profile_ref: "xhs_001"
+        }
+      }
+    });
+
+    const response = await responsePromise;
+    expect(response).toMatchObject({
+      kind: "result",
+      ok: true
+    });
+    expect(observedInputs).toHaveLength(1);
+    expect(observedInputs[0]).toMatchObject({
+      live_write_attempt_id: "fr0032-attempt-continuation-policy",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      background_upload_capture_continuation: true,
+      run_id: "run-xhs-issue-989-controlled-live-write-continuation-001",
+      profile_ref: "xhs_001",
+      target_tab_id: 32,
+      latest_head_sha: "321560851c9a71a2ba39c1107e102b187111e48e",
+      accepted_upload_artifact_identity: expect.objectContaining({
+        upload_artifact_id: "upload-artifact/fr-0032/continuation-policy",
+        accepted_by_platform: true,
+        visible_in_editor: true
+      })
+    });
+  });
+
   it("forwards the FR-0032 executor command and returns structured stop evidence", async () => {
     const relay = createRelay();
     const responsePromise = waitForResponse(relay);

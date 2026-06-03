@@ -2148,6 +2148,9 @@ export class ContentScriptHandler {
                     ...(typeof options.__runtime_latest_head_sha === "string"
                         ? { __runtime_latest_head_sha: options.__runtime_latest_head_sha }
                         : {}),
+                    ...(typeof options.__runtime_profile_ref === "string"
+                        ? { __runtime_profile_ref: options.__runtime_profile_ref }
+                        : {}),
                     ...(asRecord(options.explicit_request_context_artifact)
                         ? {
                             explicit_request_context_artifact: asRecord(options.explicit_request_context_artifact) ?? {}
@@ -2287,6 +2290,9 @@ export class ContentScriptHandler {
                                     ? {
                                         accepted_upload_artifact_identity: controlledLiveWriteInput.accepted_upload_artifact_identity
                                     }
+                                    : {}),
+                                ...(controlledLiveWriteInput.background_upload_capture_continuation === true
+                                    ? { background_upload_capture_continuation: true }
                                     : {})
                             }
                             : {}),

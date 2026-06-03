@@ -22,6 +22,7 @@ export type ExtensionXhsControlledLiveWriteInput = {
   source_media_digest: string;
   source_media_kind: "image" | "video" | "mixed";
   accepted_upload_artifact_identity?: JsonRecord;
+  background_upload_capture_continuation?: true;
 };
 
 export class ExtensionContractError extends Error {
@@ -287,6 +288,9 @@ export const validateXhsCommandInputForExtension = (input: {
       source_media_ref: sourceMediaRef,
       source_media_digest: sourceMediaDigest,
       source_media_kind: sourceMediaKind as "image" | "video" | "mixed",
+      ...(input.payload.__background_upload_capture_continuation === true
+        ? { background_upload_capture_continuation: true as const }
+        : {}),
       ...(acceptedUploadArtifactIdentity
         ? {
             accepted_upload_artifact_identity: JSON.parse(

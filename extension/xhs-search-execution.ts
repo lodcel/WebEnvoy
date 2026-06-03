@@ -1334,7 +1334,9 @@ export const executeXhsSearch = async (
         input.params.accepted_upload_artifact_identity !== null &&
         !Array.isArray(input.params.accepted_upload_artifact_identity)
           ? input.params.accepted_upload_artifact_identity as Parameters<NonNullable<XhsSearchEnvironment["performControlledLiveWrite"]>>[0]["accepted_upload_artifact_identity"]
-          : null
+          : null,
+      background_upload_capture_continuation:
+        input.params.background_upload_capture_continuation === true
     };
     const controlledLiveWriteResult = env.performControlledLiveWrite
       ? await env.performControlledLiveWrite(controlledLiveWriteInput)
