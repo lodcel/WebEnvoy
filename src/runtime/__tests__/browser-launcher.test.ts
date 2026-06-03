@@ -144,8 +144,10 @@ for (const arg of process.argv.slice(2)) {
 }
 if (profileDir) {
   mkdirSync(profileDir + "/Default", { recursive: true });
-  writeFileSync(profileDir + "/Local State", "{}");
-  writeFileSync(profileDir + "/Default/Preferences", "{}");
+  if (process.env.WEBENVOY_BROWSER_SKIP_PROFILE_MARKERS !== "1") {
+    writeFileSync(profileDir + "/Local State", "{}");
+    writeFileSync(profileDir + "/Default/Preferences", "{}");
+  }
 }
 if (logPath) {
   appendFileSync(logPath, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
@@ -210,7 +212,11 @@ if (profileDir && appPath && ${JSON.stringify(options?.childOwnsProfileProcess =
   const child = spawn(appPath, browserArgs, {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env, WEBENVOY_MOCK_PROFILE_DIR: profileDir }
+    env: {
+      ...process.env,
+      WEBENVOY_BROWSER_SKIP_PROFILE_MARKERS: ${JSON.stringify(options?.skipProfileMarkers === true ? "1" : "0")},
+      WEBENVOY_MOCK_PROFILE_DIR: profileDir
+    }
   });
   child.unref();
   process.exit(0);
@@ -1073,6 +1079,58 @@ while true; do sleep 1; done
         profileDir,
         controllerPid: launched.controllerPid,
         runId: "run-launcher-test-official-open-no-lock-001"
+      });
+    } finally {
+      try {
+        process.kill(launched.browserPid, "SIGTERM");
+        await waitForExit(launched.browserPid);
+      } catch {
+        // ignore cleanup failure
+      }
+    }
+  });
+
+  it("accepts LaunchServices readiness from current state and a unique profile process without fresh markers", async () => {
+    const { scriptPath: browserPath } = await createMockBrowserExecutable(
+      "Google Chrome 148.0.7778.98"
+    );
+    const { scriptPath: openPath } = await createMockOpenExecutable({
+      childOwnsProfileProcess: true,
+      skipProfileMarkers: true
+    });
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy browser launcher state process ready "));
+    tempDirs.push(profileDir);
+    process.env.WEBENVOY_BROWSER_PATH = browserPath;
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Google Chrome 148.0.7778.98";
+    process.env.WEBENVOY_BROWSER_FORCE_LAUNCHSERVICES = "1";
+    process.env.WEBENVOY_OPEN_PATH = openPath;
+    process.env.WEBENVOY_BROWSER_READY_WAIT_MAX_ATTEMPTS = "1";
+    process.env.WEBENVOY_BROWSER_EXTERNAL_READY_WAIT_MAX_ATTEMPTS = "40";
+    process.env.WEBENVOY_BROWSER_READY_WAIT_INTERVAL_MS = "25";
+
+    const launched = await launchBrowser({
+      command: "runtime.start",
+      profileDir,
+      proxyUrl: null,
+      runId: "run-launcher-test-official-open-state-process-ready-001",
+      params: {
+        headless: false,
+        startUrl: "https://creator.xiaohongshu.com/publish/publish"
+      },
+      launchMode: "official_chrome_persistent_extension"
+    });
+
+    expect(launched.executionSurface).toBe("real_browser");
+    expect(launched.launchSurface).toBe("macos_launchservices");
+    expect(launched.processOwnership).toBe("external_persistent_app");
+    expect(launched.browserPid).not.toBe(launched.controllerPid);
+    expect(() => process.kill(launched.browserPid, 0)).not.toThrow();
+
+    try {
+      await shutdownBrowserSession({
+        profileDir,
+        controllerPid: launched.controllerPid,
+        runId: "run-launcher-test-official-open-state-process-ready-001"
       });
     } finally {
       try {
