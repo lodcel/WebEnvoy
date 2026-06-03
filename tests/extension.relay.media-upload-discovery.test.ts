@@ -420,6 +420,14 @@ class FakeElement {
   getClientRects(): Array<Record<string, number>> {
     return this.visible ? [{ height: 20, width: 80 }] : [];
   }
+
+  closest(selector: string): FakeElement | null {
+    const closestClass = this.attrs["data-closest-class"];
+    if (!closestClass) {
+      return null;
+    }
+    return selector.includes(`.${closestClass}`) ? this : null;
+  }
 }
 
 const withFakeDocument = <T>(elements: FakeElement[], callback: () => T): T => {
@@ -593,9 +601,8 @@ describe("xhs media upload discovery / creator publish controls recon", () => {
         }),
         expect.objectContaining({
           role: "publish_or_confirm",
-          status: "ready",
-          candidate_count: 1,
-          selected_locator: "div.publish-video"
+          status: "missing",
+          selected_locator: null
         }),
         expect.objectContaining({
           role: "error_or_toast",
@@ -623,12 +630,81 @@ describe("xhs media upload discovery / creator publish controls recon", () => {
           defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
         }),
         expect.objectContaining({
+          role: "publish_or_confirm",
+          status: "missing",
+          defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
+        }),
+        expect.objectContaining({
           role: "error_or_toast",
           status: "missing",
           defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
         }),
         expect.objectContaining({
           role: "cleanup_or_abandon",
+          status: "missing",
+          defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
+        })
+      ])
+    );
+  });
+
+  it("does not treat pre-upload publish-mode navigation containers as publish confirmation controls", () => {
+    const result = withFakeDocument(
+      [
+        new FakeElement("INPUT", "", { type: "file", accept: ".mp4,.mov" }),
+        new FakeElement("DIV", "上传视频 发布 笔记标题 笔记描述 添加话题 发布设置 创作助手 活动入口 作品管理 数据中心 帮助中心", {
+          id: "app"
+        }),
+        new FakeElement("DIV", "上传视频 发布 笔记标题 笔记描述 添加话题 发布设置 创作助手 活动入口 作品管理 数据中心 帮助中心", {
+          id: "CreatorPlatform"
+        }),
+        new FakeElement("DIV", "发布视频 图文发布", {
+          class: "menu-container menu-panel"
+        }),
+        new FakeElement("DIV", "发布视频 图文发布", {
+          class: "list"
+        }),
+        new FakeElement("DIV", "发布视频", {
+          class: "publish-video"
+        }),
+        new FakeElement("DIV", "发布", {
+          class: "btn-wrapper",
+          "data-closest-class": "publish-video"
+        }),
+        new FakeElement("DIV", "发布", {
+          class: "btn-inner",
+          "data-closest-class": "publish-video"
+        }),
+        new FakeElement("SPAN", "发布", {
+          class: "btn-text",
+          "data-closest-class": "publish-video"
+        }),
+        new FakeElement("DIV", "上传视频 发布 笔记标题 笔记描述 添加话题 发布设置 创作助手 活动入口 作品管理 数据中心 帮助中心", {
+          id: "creator-publish-dom"
+        })
+      ],
+      () =>
+        buildXhsMediaUploadDiscoveryResult({
+          run_id: "run-1034-pre-upload-publish-nav-filtered",
+          page_url: "https://creator.xiaohongshu.com/publish/publish"
+        })
+    );
+
+    expect(result.creator_publish_controls_recon.controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "publish_or_confirm",
+          status: "missing",
+          candidate_count: 0,
+          selected_locator: null
+        })
+      ])
+    );
+    expect(result.creator_publish_controls_recon.blocker_candidates).toEqual([]);
+    expect(result.creator_publish_controls_recon.deferred_missing_control_candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "publish_or_confirm",
           status: "missing",
           defer_reason: "pre_upload_upload_entry_present_no_write_boundary"
         })

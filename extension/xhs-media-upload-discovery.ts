@@ -223,6 +223,17 @@ const publishOrConfirmPattern = /发布|确认发布|publish|post|confirm/iu;
 const errorOrToastPattern = /toast|notice|alert|error|warning|错误|失败|提示|校验|验证/iu;
 const cleanupOrAbandonPattern = /删除|移除|撤回|取消|放弃|清空|delete|remove|rollback|cancel|abandon|discard/iu;
 const broadCreatorRootPattern = /(?:^|\s)(?:publish-vue-container|creator-publish-root|page-root|app-root)(?:\s|$)/iu;
+const broadCreatorRootIds = new Set([
+  "app",
+  "CreatorPlatform",
+  "page",
+  "content-area",
+  "creator-publish-dom"
+]);
+const broadCreatorContainerPattern =
+  /(?:^|\s)(?:main-page-container|menu-container|menu-panel|list)(?:\s|$)/iu;
+const publishModeNavigationPattern =
+  /发布\s*(?:视频|图文|笔记)|(?:^|[\s_-])publish[\s_-]?(?:video|image|note)(?:$|[\s_-])/iu;
 const creatorPublishControlsSelector = [
   "button",
   "a",
@@ -365,10 +376,48 @@ const isBroadCreatorRootCandidate = (
   }
   const id = attr(element, "id");
   const className = attr(element, "class") ?? "";
-  if (id === "web" || broadCreatorRootPattern.test(className)) {
+  if (
+    id === "web" ||
+    (id !== null && broadCreatorRootIds.has(id)) ||
+    broadCreatorRootPattern.test(className) ||
+    broadCreatorContainerPattern.test(className)
+  ) {
     return candidate.text_signal_length > 80;
   }
   return false;
+};
+
+const hasPublishModeNavigationAncestor = (element: Element): boolean =>
+  typeof element.closest === "function" &&
+  element.closest(
+    ".publish-video,.publish-image,.publish-note,.menu-container,.menu-panel,[data-role='publish-mode-nav']"
+  ) !== null;
+
+const isPublishModeNavigationCandidate = (
+  role: CreatorPublishControlRole,
+  element: Element,
+  signal: string
+): boolean => {
+  if (role !== "publish_or_confirm") {
+    return false;
+  }
+  const className = attr(element, "class") ?? "";
+  const roleAttr = attr(element, "role");
+  const tagName = element.tagName.toLowerCase();
+  const semanticActionTarget =
+    tagName === "button" ||
+    tagName === "a" ||
+    tagName === "input" ||
+    roleAttr === "button" ||
+    roleAttr === "menuitem" ||
+    /\b(?:button|submit|confirm)\b/iu.test(className);
+  if (semanticActionTarget) {
+    return false;
+  }
+  return (
+    publishModeNavigationPattern.test(`${signal} ${className}`) ||
+    hasPublishModeNavigationAncestor(element)
+  );
 };
 
 const candidateMatchesRole = (
@@ -509,6 +558,9 @@ const buildCreatorPublishControlsRecon = (
         const signal = elementTextSignal(element);
         const flags = signalFlags(`${signal} ${attr(element, "class") ?? ""} ${attr(element, "role") ?? ""}`);
         if (!candidateMatchesRole(role, flags)) {
+          return null;
+        }
+        if (isPublishModeNavigationCandidate(role, element, signal)) {
           return null;
         }
         const candidate = {
