@@ -1,4 +1,0 @@
-interface:
-  display_name: "Loom Adopt"
-  short_description: "初始化或 retrofit 仓库到 Loom"
-  default_prompt: "判断当前仓库的初始化场景，并复用 loom_init bootstrap/verify/fact-chain 给出首批 Loom 接入结果。"

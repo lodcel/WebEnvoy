@@ -1,4 +1,0 @@
-interface:
-  display_name: "Loom Resume"
-  short_description: "恢复当前事项的执行上下文"
-  default_prompt: "读取 Loom 的事实链、状态检查和 workspace 定位结果，输出一个可以直接继续执行的恢复摘要。"

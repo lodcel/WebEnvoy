@@ -10,6 +10,7 @@ setup_review_status_fixture() {
 
   setup_case_dir "${case_name}"
   restore_test_repo_root
+  seed_repo_bootstrap_manifest_fixture
 
   HEAD_SHA="head-sha-123"
   BASE_REF="main"
@@ -71,6 +72,8 @@ setup_spec_review_status_fixture() {
   local finding_severity="${5:-}"
 
   setup_case_dir "${case_name}"
+  restore_test_repo_root
+  seed_repo_bootstrap_manifest_fixture
 
   HEAD_SHA="head-sha-123"
   BASE_REF="main"
@@ -175,6 +178,7 @@ setup_mixed_review_status_fixture() {
 
   setup_case_dir "${case_name}"
   restore_test_repo_root
+  seed_repo_bootstrap_manifest_fixture
 
   HEAD_SHA="head-sha-123"
   BASE_REF="main"

@@ -3725,6 +3725,43 @@ loom_spec_review_launcher() {
   return 1
 }
 
+canonical_dir() {
+  local path="$1"
+  if [[ -d "${path}" ]]; then
+    cd "${path}" 2>/dev/null && pwd -P
+  fi
+}
+
+loom_user_plugin_skills_candidates() {
+  local loom_bin=""
+  local loom_root=""
+
+  printf '%s\n' "${HOME}/plugins/loom/skills"
+
+  loom_bin="$(command -v loom 2>/dev/null || true)"
+  if [[ -n "${loom_bin}" ]]; then
+    loom_root="$(cd "$(dirname "${loom_bin}")/.." 2>/dev/null && pwd -P || true)"
+    if [[ -n "${loom_root}" ]]; then
+      printf '%s\n' "${loom_root}/lib/node_modules/@mc-and-his-agents/loom/plugins/loom/skills"
+    fi
+  fi
+
+  printf '%s\n' "/opt/homebrew/lib/node_modules/@mc-and-his-agents/loom/plugins/loom/skills"
+  printf '%s\n' "/usr/local/lib/node_modules/@mc-and-his-agents/loom/plugins/loom/skills"
+}
+
+use_loom_installed_skills_root() {
+  local candidate="$1"
+  local canonical_candidate=""
+
+  canonical_candidate="$(canonical_dir "${candidate}" || true)"
+  if [[ -n "${canonical_candidate}" && -f "${canonical_candidate}/registry.json" && -d "${canonical_candidate}/shared" ]]; then
+    export LOOM_INSTALLED_SKILLS_ROOT="${canonical_candidate}"
+    return 0
+  fi
+  return 1
+}
+
 ensure_loom_installed_skills_root() {
   local target_root="${WORKTREE_DIR:-${REPO_ROOT}}"
   local plugin_skills_root="${target_root}/plugins/loom/skills"
@@ -3736,13 +3773,11 @@ ensure_loom_installed_skills_root() {
   canonical_target_root="$(cd "${target_root}" 2>/dev/null && pwd -P || true)"
   canonical_repo_root="$(cd "${REPO_ROOT}" 2>/dev/null && pwd -P || true)"
 
-  if [[ -d "${plugin_skills_root}" ]]; then
-    export LOOM_INSTALLED_SKILLS_ROOT="$(cd "${plugin_skills_root}" && pwd -P)"
+  if use_loom_installed_skills_root "${plugin_skills_root}"; then
     return 0
   fi
 
-  if [[ -z "${WORKTREE_DIR:-}" && -d "${repo_plugin_skills_root}" ]]; then
-    export LOOM_INSTALLED_SKILLS_ROOT="$(cd "${repo_plugin_skills_root}" && pwd -P)"
+  if [[ -z "${WORKTREE_DIR:-}" ]] && use_loom_installed_skills_root "${repo_plugin_skills_root}"; then
     return 0
   fi
 
@@ -3759,12 +3794,19 @@ ensure_loom_installed_skills_root() {
     if [[ -z "${WORKTREE_DIR:-}" && -n "${canonical_env_root}" && -n "${canonical_repo_root}" ]]; then
       case "${canonical_env_root}" in
         "${canonical_repo_root}"|"${canonical_repo_root}"/*)
-          export LOOM_INSTALLED_SKILLS_ROOT="${canonical_env_root}"
-          return 0
+          if use_loom_installed_skills_root "${canonical_env_root}"; then
+            return 0
+          fi
           ;;
       esac
     fi
   fi
+
+  while IFS= read -r candidate; do
+    if use_loom_installed_skills_root "${candidate}"; then
+      return 0
+    fi
+  done < <(loom_user_plugin_skills_candidates)
 
   unset LOOM_INSTALLED_SKILLS_ROOT
 }

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Loom Init"
-  short_description: "作为 Loom root entry，负责初始化或路由到正确场景 skill"
-  default_prompt: "如果任务是初始化或 retrofit，就输出 Loom 接入方案；如果任务是日常执行场景，就根据任务信号把执行者路由到正确场景 skill。"

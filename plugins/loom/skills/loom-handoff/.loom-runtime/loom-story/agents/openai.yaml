@@ -1,4 +1,0 @@
-interface:
-  display_name: "Loom Story"
-  short_description: "Story-to-delivery intake entry"
-  default_prompt: "Read product context locators or discussion summary, produce a User Story, separate Story Readiness, and a Story Business Confirmation point so the user can confirm business semantics or request story revision before spec.md and plan.md consume the story."

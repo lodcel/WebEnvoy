@@ -950,6 +950,7 @@ EOF
 prepare_loom_guardian_review_worktree() {
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
   cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
+  seed_loom_skills_root_fixture
   git -C "${WORKTREE_DIR}" init -q
   git -C "${WORKTREE_DIR}" config user.email "guardian-test@example.test"
   git -C "${WORKTREE_DIR}" config user.name "Guardian Test"
@@ -957,6 +958,76 @@ prepare_loom_guardian_review_worktree() {
   git -C "${WORKTREE_DIR}" commit -qm "initial"
   HEAD_SHA="$(git -C "${WORKTREE_DIR}" rev-parse HEAD)"
   export HEAD_SHA
+}
+
+seed_loom_skills_root_fixture() {
+  local skills_root="${WORKTREE_DIR}/plugins/loom/skills"
+  local schema_file="${skills_root}/shared/assets/review/loom-review-result-schema.json"
+
+  mkdir -p "$(dirname "${schema_file}")"
+  printf '%s\n' '{"schema_version":"test-fixture","skills":[]}' > "${skills_root}/registry.json"
+  cat > "${schema_file}" <<'EOF'
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["decision", "summary", "findings"],
+  "properties": {
+    "decision": { "enum": ["allow", "block", "fallback"] },
+    "summary": { "type": "string" },
+    "findings": { "type": "array" }
+  },
+  "additionalProperties": true
+}
+EOF
+}
+
+seed_repo_bootstrap_manifest_fixture() {
+  local fact_chain_support_sha
+  local governance_surface_sha
+  local loom_check_sha
+  local loom_flow_sha
+  local loom_init_sha
+  local loom_status_sha
+  local runtime_paths_sha
+  local runtime_state_sha
+
+  fact_chain_support_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/fact_chain_support.py" | awk '{print $1}')"
+  governance_surface_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/governance_surface.py" | awk '{print $1}')"
+  loom_check_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_check.py" | awk '{print $1}')"
+  loom_flow_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_flow.py" | awk '{print $1}')"
+  loom_init_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_init.py" | awk '{print $1}')"
+  loom_status_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/loom_status.py" | awk '{print $1}')"
+  runtime_paths_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/runtime_paths.py" | awk '{print $1}')"
+  runtime_state_sha="$(shasum -a 256 "${REPO_ROOT}/.loom/bin/runtime_state.py" | awk '{print $1}')"
+  mkdir -p "${REPO_ROOT}/.loom/bootstrap"
+  jq -n \
+    --arg fact_chain_support_sha "${fact_chain_support_sha}" \
+    --arg governance_surface_sha "${governance_surface_sha}" \
+    --arg loom_check_sha "${loom_check_sha}" \
+    --arg loom_flow_sha "${loom_flow_sha}" \
+    --arg loom_init_sha "${loom_init_sha}" \
+    --arg loom_status_sha "${loom_status_sha}" \
+    --arg runtime_paths_sha "${runtime_paths_sha}" \
+    --arg runtime_state_sha "${runtime_state_sha}" \
+    '{
+    schema_version: "loom-bootstrap-manifest/v1",
+    fixture: "merge-if-safe",
+    artifacts: [
+      {path: ".loom/bin/loom_init.py", source: "skills/shared/scripts/loom_init.py", sha256: $loom_init_sha},
+      {path: ".loom/bin/fact_chain_support.py", source: "skills/shared/scripts/fact_chain_support.py", sha256: $fact_chain_support_sha},
+      {path: ".loom/bin/governance_surface.py", source: "skills/shared/scripts/governance_surface.py", sha256: $governance_surface_sha},
+      {path: ".loom/bin/loom_flow.py", source: "skills/shared/scripts/loom_flow.py", sha256: $loom_flow_sha},
+      {path: ".loom/bin/loom_status.py", source: "skills/shared/scripts/loom_status.py", sha256: $loom_status_sha},
+      {path: ".loom/bin/runtime_paths.py", source: "skills/shared/scripts/runtime_paths.py", sha256: $runtime_paths_sha},
+      {path: ".loom/bin/runtime_state.py", source: "skills/shared/scripts/runtime_state.py", sha256: $runtime_state_sha},
+      {path: ".loom/bin/loom_check.py", source: "skills/shared/scripts/loom_check.py", sha256: $loom_check_sha}
+    ]
+  }' > "${REPO_ROOT}/.loom/bootstrap/manifest.json"
+}
+
+cleanup_repo_bootstrap_manifest_fixture() {
+  rm -f "${REPO_ROOT}/.loom/bootstrap/manifest.json"
+  rmdir "${REPO_ROOT}/.loom/bootstrap" 2>/dev/null || true
 }
 
 test_run_codex_review_prefers_codex_app_proof_raw_file() {
@@ -1309,6 +1380,8 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   BASE_SHA="base-sha-123"
   PR_NUMBER="9"
   export BASE_REF PR_TITLE PR_URL PR_BODY PR_AUTHOR REVIEW_PROFILE MERGE_BASE_SHA BASE_SHA PR_NUMBER
+  local previous_home="${HOME-}"
+  local expected_user_skills_root
 
   WORKTREE_DIR="${TMP_DIR}/worktree"
   mkdir -p "${WORKTREE_DIR}/docs/dev/review"
@@ -1317,8 +1390,11 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   mkdir -p "${WORKTREE_DIR}/docs/dev"
   mkdir -p "${WORKTREE_DIR}/.loom/bin"
   mkdir -p "${WORKTREE_DIR}/.loom/companion"
-  mkdir -p "${WORKTREE_DIR}/plugins/loom/skills"
-  export WORKTREE_DIR
+  HOME="${TMP_DIR}/home"
+  mkdir -p "${HOME}/plugins/loom/skills/shared"
+  printf '%s\n' '{"schema_version":"test-fixture","skills":[]}' > "${HOME}/plugins/loom/skills/registry.json"
+  expected_user_skills_root="$(cd "${HOME}/plugins/loom/skills" && pwd -P)"
+  export WORKTREE_DIR HOME
 
   CHANGED_FILES_FILE="${TMP_DIR}/changed-files.txt"
   CONTEXT_DOCS_FILE="${TMP_DIR}/context-docs.txt"
@@ -1341,9 +1417,89 @@ test_run_codex_review_uses_loom_spec_review_record_for_spec_profile() {
   cp "${REPO_ROOT}/code_review.md" "${WORKTREE_DIR}/code_review.md"
   cp "${REPO_ROOT}/spec_review.md" "${WORKTREE_DIR}/spec_review.md"
   cp "${REPO_ROOT}/.loom/companion/repo-interface.json" "${WORKTREE_DIR}/.loom/companion/repo-interface.json"
-  cp "${REPO_ROOT}/.loom/bin/"*.py "${WORKTREE_DIR}/.loom/bin/"
-  cp -R "${REPO_ROOT}/plugins/loom/skills/loom-spec-review" "${WORKTREE_DIR}/plugins/loom/skills/"
-  cp -R "${REPO_ROOT}/plugins/loom/skills/shared" "${WORKTREE_DIR}/plugins/loom/skills/"
+  cat > "${WORKTREE_DIR}/.loom/bin/loom_flow.py" <<'PY'
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("domain")
+parser.add_argument("operation")
+parser.add_argument("--target", required=True)
+parser.add_argument("--review-file", required=True)
+parser.add_argument("--guardian-prompt-file", required=True)
+parser.add_argument("--guardian-output-file", required=True)
+parser.add_argument("--guardian-expected-head", required=True)
+parser.add_argument("--guardian-tmp-dir", required=True)
+parser.add_argument("--guardian-pr-number", required=True)
+parser.add_argument("--guardian-base-sha", required=True)
+parser.add_argument("--guardian-reviewed-scope-file", required=True)
+args, _ = parser.parse_known_args()
+
+target = Path(args.target)
+prompt = Path(args.guardian_prompt_file).read_text(encoding="utf-8")
+scope_lines = [
+    line.strip()
+    for line in Path(args.guardian_reviewed_scope_file).read_text(encoding="utf-8").splitlines()
+    if line.strip()
+]
+interface_file = target / ".loom/companion/repo-interface.json"
+spec_locator = "spec_review.md"
+if interface_file.exists():
+    spec_locator = (
+        json.loads(interface_file.read_text(encoding="utf-8"))
+        .get("review_instruction_locators", {})
+        .get("spec_review", {})
+        .get("locator", spec_locator)
+    )
+capture = os.environ.get("MOCK_CODEX_PROMPT_CAPTURE")
+if capture:
+    engine_prompt = "\n".join([
+        "你是 Loom spec review engine。",
+        f"Spec review instruction locator: `{spec_locator}`",
+        "以下是 locator 指向的 WebEnvoy spec review 规则全文：",
+        prompt,
+    ])
+    Path(capture).write_text(engine_prompt, encoding="utf-8")
+
+raw_result = Path(os.environ["MOCK_CODEX_REVIEW_RESULT_JSON"]).read_text(encoding="utf-8")
+Path(args.guardian_output_file).write_text(raw_result, encoding="utf-8")
+review_result = json.loads(raw_result)
+decision = "allow" if review_result.get("decision") == "allow" else "block"
+record = {
+    "schema_version": "loom-review/v1",
+    "item_id": f"github-pr-{args.guardian_pr_number}",
+    "kind": "spec_review",
+    "decision": decision,
+    "reviewer": "mock-metadata-only-loom-flow",
+    "reviewed_head": args.guardian_expected_head,
+    "reviewed_validation_summary": "Mock Loom spec review fixture for guardian spec profile.",
+    "fallback_to": None,
+    "summary": review_result.get("summary", ""),
+    "findings": review_result.get("findings", []),
+    "blocking_issues": [],
+    "follow_ups": [],
+    "review_subject": {
+        "pr_number": args.guardian_pr_number,
+        "head_sha": args.guardian_expected_head,
+        "base_sha": args.guardian_base_sha,
+        "spec_locator": spec_locator,
+        "reviewed_scope": scope_lines,
+    },
+    "review_provenance": {
+        "reviewer": "mock-metadata-only-loom-flow",
+        "engine_adapter": "mock-metadata-only-loom-flow",
+        "fail_closed_reason": None,
+    },
+}
+record_path = target / args.review_file
+record_path.parent.mkdir(parents=True, exist_ok=True)
+record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print(json.dumps({"spec_review": {"record": record}}, ensure_ascii=False))
+PY
+  chmod +x "${WORKTREE_DIR}/.loom/bin/loom_flow.py"
   cp "${REVIEW_ADDENDUM_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-review-addendum.md"
   cp "${SPEC_REVIEW_SUMMARY_FILE}" "${WORKTREE_DIR}/docs/dev/review/guardian-spec-review-summary.md"
   printf '%s\n' "# Spec" > "${WORKTREE_DIR}/docs/dev/specs/FR-0001-demo/spec.md"
@@ -1376,6 +1532,21 @@ EOF
   assert_equal "$(jq -r '.review_subject.pr_number' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "9"
   assert_equal "$(jq -r '.review_subject.base_sha' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "base-sha-123"
   assert_equal "$(jq -r '.review_subject.spec_locator' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "spec_review.md"
+  assert_equal "$(jq -r '.review_provenance.engine_adapter' "${SPEC_LOOM_REVIEW_RECORD_FILE}")" "mock-metadata-only-loom-flow"
+  if [[ ! -f "${expected_user_skills_root}/registry.json" || ! -d "${expected_user_skills_root}/shared" ]]; then
+    echo "expected user-level Loom skills fixture at ${expected_user_skills_root}" >&2
+    exit 1
+  fi
+  if [[ -e "${WORKTREE_DIR}/plugins/loom/skills" ]]; then
+    echo "did not expect repo-embedded Loom skills fixture under worktree" >&2
+    exit 1
+  fi
+  unset LOOM_INSTALLED_SKILLS_ROOT || true
+  if [[ -n "${previous_home}" ]]; then
+    export HOME="${previous_home}"
+  else
+    unset HOME || true
+  fi
 }
 
 test_run_codex_review_uses_context_budget_prompt_and_native_review_engine() {
@@ -1858,6 +2029,7 @@ EOF
 
 test_main_merge_if_safe_reuses_existing_guardian_review() {
   setup_case_dir "main-merge-if-safe-reuse"
+  seed_repo_bootstrap_manifest_fixture
 
   local call_log="${TMP_DIR}/main.calls.log"
   export call_log
@@ -1908,6 +2080,7 @@ EOF
   assert_file_contains "${call_log}" "merge_if_safe:274:0"
   assert_file_not_contains "${call_log}" "run_codex_review:274"
   assert_file_not_contains "${call_log}" "post_review:274"
+  cleanup_repo_bootstrap_manifest_fixture
 }
 
 test_main_review_with_post_review_falls_back_to_fresh_review_when_status_query_fails() {
@@ -1952,6 +2125,7 @@ test_main_review_with_post_review_falls_back_to_fresh_review_when_status_query_f
 
 test_main_merge_if_safe_falls_back_to_fresh_review_when_status_query_fails() {
   setup_case_dir "main-merge-if-safe-fallback-after-status-query-failure"
+  seed_repo_bootstrap_manifest_fixture
 
   local call_log="${TMP_DIR}/main.calls.log"
   export call_log
@@ -1988,6 +2162,7 @@ test_main_merge_if_safe_falls_back_to_fresh_review_when_status_query_fails() {
   assert_file_contains "${call_log}" "run_codex_review:274"
   assert_file_contains "${call_log}" "merge_if_safe:274:0"
   assert_file_not_contains "${call_log}" "hydrate_reused_review_result"
+  cleanup_repo_bootstrap_manifest_fixture
 }
 
 test_ensure_loom_installed_skills_root_prefers_review_worktree_over_stale_env() {
@@ -1998,12 +2173,33 @@ test_ensure_loom_installed_skills_root_prefers_review_worktree_over_stale_env() 
   local stale_root="${TMP_DIR}/stale-worktree/plugins/loom/skills"
   local review_root="${WORKTREE_DIR}/plugins/loom/skills"
   mkdir -p "${stale_root}/shared" "${review_root}/shared"
+  touch "${stale_root}/registry.json" "${review_root}/registry.json"
   export REPO_ROOT WORKTREE_DIR
   LOOM_INSTALLED_SKILLS_ROOT="${stale_root}"
   export LOOM_INSTALLED_SKILLS_ROOT
 
   assert_pass ensure_loom_installed_skills_root
   assert_equal "${review_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
+  restore_test_repo_root
+}
+
+test_ensure_loom_installed_skills_root_uses_user_plugin_for_metadata_only_repo() {
+  setup_case_dir "loom-installed-skills-root-user-plugin-metadata-only"
+
+  REPO_ROOT="${TMP_DIR}/source-repo"
+  WORKTREE_DIR="${TMP_DIR}/review-worktree"
+  HOME="${TMP_DIR}/home"
+  local stale_root="${TMP_DIR}/stale-worktree/plugins/loom/skills"
+  local user_root="${HOME}/plugins/loom/skills"
+  mkdir -p "${stale_root}/shared" "${user_root}/shared"
+  touch "${stale_root}/registry.json" "${user_root}/registry.json"
+  export REPO_ROOT WORKTREE_DIR HOME
+  LOOM_INSTALLED_SKILLS_ROOT="${stale_root}"
+  export LOOM_INSTALLED_SKILLS_ROOT
+
+  assert_pass ensure_loom_installed_skills_root
+  assert_equal "${user_root}" "${LOOM_INSTALLED_SKILLS_ROOT}"
+  restore_test_repo_root
 }
 
 test_fetch_issue_summary_fails_closed_when_issue_lookup_fails() {
