@@ -365,6 +365,9 @@ const commandStartsWithExecutablePath = (command: string, executablePath: string
   command.startsWith(`${executablePath} `) ||
   command.includes(` ${executablePath} `);
 
+const commandIsMacosOpenWrapper = (command: string): boolean =>
+  /(?:^|\s)-a\s+/.test(command) && /(?:^|\s)--args(?:\s|$)/.test(command);
+
 const findProfileUserDataDirProcessPid = async (input: {
   profileDir: string;
   executablePath: string;
@@ -402,6 +405,7 @@ const findProfileUserDataDirProcessPid = async (input: {
       Number.isInteger(pid) &&
       pid > 0 &&
       pid !== currentPid &&
+      !commandIsMacosOpenWrapper(command) &&
       commandStartsWithExecutablePath(command, input.executablePath) &&
       commandReferencesUserDataDir(command, input.profileDir) &&
       isProcessAlive(pid)
@@ -913,7 +917,7 @@ const waitForBrowserReady = async (
         (executablePath !== null &&
           (await findProfileUserDataDirProcessPid({ profileDir, executablePath })) !== null);
       if (
-        ((markerReady && profileProcessReady) || (startupFlagReady && profileLockReady)) &&
+        ((markerReady && profileProcessReady) || (startupFlagReady && profileProcessReady)) &&
         Date.now() - launchedAtMs >= READY_MIN_UPTIME_MS
       ) {
         await sleep(READY_CONFIRM_DELAY_MS);
