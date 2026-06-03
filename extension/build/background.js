@@ -97,6 +97,10 @@ const hashMainWorldBridgeProbeSecret = (value) => {
     }
     return `mwprobe_${(hash >>> 0).toString(36)}`;
 };
+const isContentScriptResultMessage = (value) => {
+    const record = asRecord(value);
+    return record?.kind === "result" && typeof record.id === "string";
+};
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
 const XHS_READ_API_DOMAIN = "edith.xiaohongshu.com";
@@ -8234,8 +8238,18 @@ class ChromeBackgroundBridge {
         return asNonEmptyString(bootstrap.mainWorldSecret);
     }
     async #sendMessageWithContentScriptRecovery(tabId, forward, request) {
+        const consumeInlineResult = async (response) => {
+            if (!isContentScriptResultMessage(response)) {
+                return;
+            }
+            await this.#onContentScriptResult(response, {
+                tab: {
+                    id: tabId
+                }
+            });
+        };
         try {
-            await this.chromeApi.tabs.sendMessage(tabId, forward);
+            await consumeInlineResult(await this.chromeApi.tabs.sendMessage(tabId, forward));
             return;
         }
         catch (initialError) {
@@ -8250,7 +8264,7 @@ class ChromeBackgroundBridge {
                 const recoveryMessage = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
                 throw new Error(`content script recovery failed: ${recoveryMessage}; initial dispatch error: ${initialMessage}`);
             }
-            await this.chromeApi.tabs.sendMessage(tabId, forward);
+            await consumeInlineResult(await this.chromeApi.tabs.sendMessage(tabId, forward));
         }
     }
     #emit(message) {

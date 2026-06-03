@@ -37,7 +37,13 @@ type ContentScriptStorageArea = {
 type ContentScriptRuntime = {
   [CONTENT_SCRIPT_BOOTSTRAP_STATE_KEY]?: ContentScriptBootstrapState;
   onMessage?: {
-    addListener(listener: (message: unknown) => void): void;
+    addListener(
+      listener: (
+        message: unknown,
+        sender?: unknown,
+        sendResponse?: (response: unknown) => void
+      ) => boolean | void
+    ): void;
     removeListener?(listener: (message: unknown) => void): void;
   };
   sendMessage?: (message: ContentToBackgroundMessage) => Promise<unknown> | void;
@@ -72,7 +78,13 @@ type ContentScriptBootstrapState = {
   generation: number;
   handler: ContentScriptHandler | null;
   detachResultRelay: (() => void) | null;
-  messageListener: ((message: unknown) => void) | null;
+  messageListener:
+    | ((
+        message: unknown,
+        sender?: unknown,
+        sendResponse?: (response: unknown) => void
+      ) => boolean | void)
+    | null;
 };
 
 const normalizeForwardMessage = (
@@ -578,7 +590,11 @@ export const bootstrapContentScript = (runtime: ContentScriptRuntime): boolean =
     relayContentResultToBackground(runtime, message);
   });
 
-  const messageListener = (message: unknown) => {
+  const messageListener = (
+    message: unknown,
+    _sender?: unknown,
+    sendResponse?: (response: unknown) => void
+  ): boolean | void => {
     if (state.generation !== generation || state.handler !== handler) {
       return;
     }
@@ -592,9 +608,40 @@ export const bootstrapContentScript = (runtime: ContentScriptRuntime): boolean =
     if (normalized.fingerprintContext) {
       persistExtensionFingerprintContext(normalized.fingerprintContext, normalized.runId);
     }
+    let detachResponseRelay: (() => void) | null = null;
+    if (sendResponse) {
+      detachResponseRelay = handler.onResult((result) => {
+        if (result.id !== normalized.id) {
+          return;
+        }
+        detachResponseRelay?.();
+        detachResponseRelay = null;
+        try {
+          sendResponse(JSON.parse(JSON.stringify(result)) as ContentToBackgroundMessage);
+        } catch {
+          sendResponse({
+            kind: "result",
+            id: normalized.id,
+            ok: false,
+            error: {
+              code: "ERR_TRANSPORT_FORWARD_FAILED",
+              message: "content script result response serialization failed"
+            },
+            payload: {
+              details: {
+                stage: "relay",
+                reason: "CONTENT_RESULT_RESPONSE_SERIALIZATION_FAILED"
+              }
+            }
+          });
+        }
+      });
+    }
     const accepted = handler.onBackgroundMessage(normalized);
     if (!accepted) {
-      runtime.sendMessage?.({
+      detachResponseRelay?.();
+      detachResponseRelay = null;
+      const unreachableResponse: ContentToBackgroundMessage = {
         kind: "result",
         id: request.id,
         ok: false,
@@ -602,8 +649,14 @@ export const bootstrapContentScript = (runtime: ContentScriptRuntime): boolean =
           code: "ERR_TRANSPORT_FORWARD_FAILED",
           message: "content script unreachable"
         }
+      };
+      runtime.sendMessage?.({
+        ...unreachableResponse
       });
+      sendResponse?.(unreachableResponse);
+      return sendResponse ? true : undefined;
     }
+    return sendResponse ? true : undefined;
   };
   runtime.onMessage.addListener(messageListener);
   state.messageListener = messageListener;

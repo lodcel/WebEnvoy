@@ -212,6 +212,13 @@ type RuntimeMessageSender = {
   url?: string;
 };
 
+const isContentScriptResultMessage = (
+  value: unknown
+): value is Partial<ContentToBackgroundMessage> & { kind: "result"; id: string } => {
+  const record = asRecord(value);
+  return record?.kind === "result" && typeof record.id === "string";
+};
+
 type ExtensionTab = {
   id?: number;
   url?: string;
@@ -10160,8 +10167,18 @@ class ChromeBackgroundBridge {
     forward: BackgroundToContentMessage,
     request: BridgeRequest
   ): Promise<void> {
+    const consumeInlineResult = async (response: unknown): Promise<void> => {
+      if (!isContentScriptResultMessage(response)) {
+        return;
+      }
+      await this.#onContentScriptResult(response, {
+        tab: {
+          id: tabId
+        }
+      });
+    };
     try {
-      await this.chromeApi.tabs.sendMessage(tabId, forward);
+      await consumeInlineResult(await this.chromeApi.tabs.sendMessage(tabId, forward));
       return;
     } catch (initialError) {
       try {
@@ -10178,7 +10195,7 @@ class ChromeBackgroundBridge {
           `content script recovery failed: ${recoveryMessage}; initial dispatch error: ${initialMessage}`
         );
       }
-      await this.chromeApi.tabs.sendMessage(tabId, forward);
+      await consumeInlineResult(await this.chromeApi.tabs.sendMessage(tabId, forward));
     }
   }
 
