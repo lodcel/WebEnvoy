@@ -7,8 +7,254 @@ const DEFAULT_FAILURE_SIGNALS = [
     "risk_blocked",
     "upload_injection_blocked"
 ];
+const creatorPublishControlRoles = [
+    "private_visibility",
+    "submit_or_next",
+    "publish_or_confirm",
+    "error_or_toast",
+    "cleanup_or_abandon"
+];
+const requiredCreatorPublishControlRoles = new Set([
+    "private_visibility",
+    "submit_or_next",
+    "publish_or_confirm",
+    "error_or_toast",
+    "cleanup_or_abandon"
+]);
+const privateVisibilityPattern = /私密|仅自己|仅我|自己可见|private|only\s*me|self/iu;
+const publicVisibilityPattern = /公开|所有人|public|everyone/iu;
+const submitOrNextPattern = /下一步|继续|完成|next|continue|submit/iu;
+const publishOrConfirmPattern = /发布|确认发布|publish|post|confirm/iu;
+const errorOrToastPattern = /toast|notice|alert|error|warning|错误|失败|提示|校验|验证/iu;
+const cleanupOrAbandonPattern = /删除|移除|撤回|取消|放弃|清空|delete|remove|rollback|cancel|abandon|discard/iu;
+const creatorPublishControlsSelector = [
+    "button",
+    "label",
+    "input",
+    "textarea",
+    "select",
+    "summary",
+    "[role='button']",
+    "[role='combobox']",
+    "[role='listbox']",
+    "[role='option']",
+    "[role='menuitem']",
+    "[role='menuitemradio']",
+    "[role='radio']",
+    "[role='alert']",
+    "[role='status']",
+    "[class*='select' i]",
+    "[class*='dropdown' i]",
+    "[class*='visibility' i]",
+    "[class*='privacy' i]",
+    "[class*='permission' i]",
+    "[class*='submit' i]",
+    "[class*='publish' i]",
+    "[class*='button' i]",
+    "[class*='toast' i]",
+    "[class*='notice' i]",
+    "[class*='error' i]",
+    "[class*='delete' i]",
+    "[class*='remove' i]",
+    "[class*='cancel' i]"
+].join(",");
 const toArray = (value) => Array.from(value);
 const sanitizeArtifactPart = (value) => value.replace(/[^A-Za-z0-9._:-]+/gu, "_").slice(0, 96);
+const attr = (element, name) => {
+    if (typeof element.getAttribute !== "function") {
+        return null;
+    }
+    const value = element.getAttribute(name);
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+const elementTextSignal = (element) => [
+    "textContent" in element && typeof element.textContent === "string" ? element.textContent : "",
+    attr(element, "aria-label"),
+    attr(element, "title"),
+    attr(element, "placeholder"),
+    attr(element, "value")
+]
+    .filter((value) => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+const attributeNames = (element) => typeof element.getAttributeNames === "function" ? element.getAttributeNames().slice(0, 16) : [];
+const classTokens = (element) => {
+    const className = attr(element, "class");
+    return className ? className.split(/\s+/u).filter(Boolean).slice(0, 8) : [];
+};
+const locatorFor = (element) => {
+    const tagName = element.tagName.toLowerCase();
+    const id = attr(element, "id");
+    if (id) {
+        return `${tagName}#${id}`;
+    }
+    const testId = attr(element, "data-testid") ?? attr(element, "data-test");
+    if (testId) {
+        return `${tagName}[data-testid="${testId.slice(0, 80)}"]`;
+    }
+    const role = attr(element, "role");
+    const className = classTokens(element).slice(0, 3).join(".");
+    if (className) {
+        return `${tagName}.${className}`;
+    }
+    return role ? `${tagName}[role="${role}"]` : tagName;
+};
+const isElementVisible = (element) => {
+    const html = element;
+    if (attr(element, "hidden") !== null || attr(element, "aria-hidden") === "true") {
+        return false;
+    }
+    const computedStyle = typeof globalThis.getComputedStyle === "function" ? globalThis.getComputedStyle(html) : null;
+    if (computedStyle &&
+        (computedStyle.display === "none" ||
+            computedStyle.visibility === "hidden" ||
+            computedStyle.visibility === "collapse" ||
+            computedStyle.opacity === "0")) {
+        return false;
+    }
+    if (typeof html.getClientRects === "function" && html.getClientRects().length === 0) {
+        return false;
+    }
+    if (typeof html.offsetParent !== "undefined" && html.offsetParent === null) {
+        const style = attr(element, "style") ?? "";
+        return !/display\s*:\s*none|visibility\s*:\s*hidden/iu.test(style);
+    }
+    return true;
+};
+const isElementDisabled = (element) => attr(element, "disabled") !== null ||
+    attr(element, "aria-disabled") === "true" ||
+    attr(element, "data-disabled") === "true";
+const signalFlags = (signal) => ({
+    private_visibility: privateVisibilityPattern.test(signal),
+    public_visibility: publicVisibilityPattern.test(signal),
+    submit_or_next: submitOrNextPattern.test(signal),
+    publish_or_confirm: publishOrConfirmPattern.test(signal),
+    error_or_toast: errorOrToastPattern.test(signal),
+    cleanup_or_abandon: cleanupOrAbandonPattern.test(signal)
+});
+const candidateMatchesRole = (role, flags) => {
+    if (role === "private_visibility") {
+        return flags.private_visibility;
+    }
+    return flags[role];
+};
+const isActionablePrivateVisibilityCandidate = (candidate) => candidate.visible &&
+    !candidate.disabled &&
+    candidate.signal_flags.private_visibility &&
+    !candidate.signal_flags.public_visibility;
+const actionableCandidatesForRole = (role, candidates) => role === "private_visibility"
+    ? candidates.filter(isActionablePrivateVisibilityCandidate)
+    : candidates.filter((candidate) => candidate.visible && !candidate.disabled);
+const classifyControlStatus = (role, candidates) => {
+    if (candidates.length === 0) {
+        return "missing";
+    }
+    const actionable = actionableCandidatesForRole(role, candidates);
+    if (actionable.length === 0) {
+        if (role === "private_visibility" && candidates.some((candidate) => candidate.visible && !candidate.disabled)) {
+            return "ambiguous";
+        }
+        return candidates.some((candidate) => !candidate.visible) ? "hidden" : "disabled";
+    }
+    return actionable.length === 1 ? "ready" : "ambiguous";
+};
+const blockerForControl = (item) => {
+    if (item.status === "ready") {
+        return null;
+    }
+    const role = item.role;
+    const prefix = role === "private_visibility"
+        ? "PRIVATE_VISIBILITY_CONTROL"
+        : role === "submit_or_next"
+            ? "SUBMIT_OR_NEXT_CONTROL"
+            : role === "publish_or_confirm"
+                ? "PUBLISH_OR_CONFIRM_CONTROL"
+                : role === "error_or_toast"
+                    ? "ERROR_OR_TOAST_CONTROL"
+                    : "CLEANUP_OR_ABANDON_CONTROL";
+    const suffix = item.status === "ambiguous"
+        ? "AMBIGUOUS"
+        : item.status === "disabled"
+            ? "DISABLED"
+            : item.status === "hidden"
+                ? "HIDDEN"
+                : "MISSING";
+    return {
+        blocker_code: `${prefix}_${suffix}`,
+        blocker_layer: "creator_publish_controls_recon",
+        role,
+        message: `${role} recon status is ${item.status}; controlled live write must not proceed blindly.`,
+        required_recovery_action: "refresh XHS creator publish control locator coverage before controlled upload/submit/publish"
+    };
+};
+const buildCreatorPublishControlsRecon = (fileSelectionBoundary, pageUrl = "") => {
+    const collectedAt = new Date().toISOString();
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        const controls = creatorPublishControlRoles.map((role) => ({
+            role,
+            required_for_live_write: requiredCreatorPublishControlRoles.has(role),
+            status: "missing",
+            candidate_count: 0,
+            selected_locator: null,
+            candidates: []
+        }));
+        return {
+            schema_version: "fr-0032.creator_publish_controls_recon.v1",
+            no_write: true,
+            target_page: "creator_publish_tab",
+            page_url: pageUrl,
+            collected_at: collectedAt,
+            recording_policy: "locator_attributes_flags_and_lengths_only",
+            controls,
+            blocker_candidates: controls.map(blockerForControl).filter((item) => item !== null),
+            file_selection_boundary: fileSelectionBoundary
+        };
+    }
+    const elements = toArray(document.querySelectorAll(creatorPublishControlsSelector));
+    const controls = creatorPublishControlRoles.map((role) => {
+        const candidates = elements
+            .map((element) => {
+            const signal = elementTextSignal(element);
+            const flags = signalFlags(`${signal} ${attr(element, "class") ?? ""} ${attr(element, "role") ?? ""}`);
+            if (!candidateMatchesRole(role, flags)) {
+                return null;
+            }
+            return {
+                role,
+                locator: locatorFor(element),
+                tag_name: element.tagName.toLowerCase(),
+                attribute_names: attributeNames(element),
+                class_tokens: classTokens(element),
+                visible: isElementVisible(element),
+                disabled: isElementDisabled(element),
+                text_signal_length: signal.length,
+                signal_flags: flags
+            };
+        })
+            .filter((item) => item !== null)
+            .slice(0, 12);
+        const status = classifyControlStatus(role, candidates);
+        const selected = actionableCandidatesForRole(role, candidates)[0] ?? null;
+        return {
+            role,
+            required_for_live_write: requiredCreatorPublishControlRoles.has(role),
+            status,
+            candidate_count: candidates.length,
+            selected_locator: status === "ready" ? selected?.locator ?? null : null,
+            candidates
+        };
+    });
+    return {
+        schema_version: "fr-0032.creator_publish_controls_recon.v1",
+        no_write: true,
+        target_page: "creator_publish_tab",
+        page_url: pageUrl,
+        collected_at: collectedAt,
+        recording_policy: "locator_attributes_flags_and_lengths_only",
+        controls,
+        blocker_candidates: controls.map(blockerForControl).filter((item) => item !== null),
+        file_selection_boundary: fileSelectionBoundary
+    };
+};
 const describeFileInput = (input) => {
     const attributes = [
         input.accept ? `accept=${input.accept}` : null,
@@ -206,10 +452,12 @@ export const buildXhsMediaUploadDiscoveryResult = (input = {}) => {
         page_preview_locator: pageFailure.evidence_status === "candidate" ? pageFailure.entry_type : null,
         file_selection_boundary: fileSelectionBoundary
     });
+    const controlsRecon = buildCreatorPublishControlsRecon(fileSelectionBoundary, input.page_url ?? "");
     return {
         discovery_action: "media_upload_path",
         target_page: "creator_publish_tab",
         upload_path_catalog: [pageFailure, ...pageEvidence.slice(1), fallbackApi],
+        creator_publish_controls_recon: controlsRecon,
         file_selection_boundary: fileSelectionBoundary,
         controlled_upload_evidence: controlledUploadEvidence,
         controlled_upload_evaluation: evaluateControlledUploadEvidence(controlledUploadEvidence),

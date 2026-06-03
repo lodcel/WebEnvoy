@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asRecord, BackgroundRelay, ContentScriptHandler, waitForResponse } from "./extension.relay.shared.js";
+import { buildXhsMediaUploadDiscoveryResult } from "../extension/xhs-media-upload-discovery.js";
 
 const mediaUploadOptions = {
   issue_scope: "issue_755",
@@ -58,6 +59,66 @@ const createRelay = () => {
             notes: "fallback candidate only"
           }
         ],
+        creator_publish_controls_recon: {
+          schema_version: "fr-0032.creator_publish_controls_recon.v1",
+          no_write: true,
+          target_page: "creator_publish_tab",
+          page_url: input?.page_url ?? "",
+          collected_at: "2026-05-28T00:00:00.000Z",
+          recording_policy: "locator_attributes_flags_and_lengths_only",
+          controls: [
+            {
+              role: "private_visibility",
+              required_for_live_write: true,
+              status: "ready",
+              candidate_count: 1,
+              selected_locator: "div.visibility-select",
+              candidates: []
+            },
+            {
+              role: "submit_or_next",
+              required_for_live_write: true,
+              status: "ready",
+              candidate_count: 1,
+              selected_locator: "button.next",
+              candidates: []
+            },
+            {
+              role: "publish_or_confirm",
+              required_for_live_write: true,
+              status: "ready",
+              candidate_count: 1,
+              selected_locator: "button.publish",
+              candidates: []
+            },
+            {
+              role: "error_or_toast",
+              required_for_live_write: true,
+              status: "ready",
+              candidate_count: 1,
+              selected_locator: "div.toast",
+              candidates: []
+            },
+            {
+              role: "cleanup_or_abandon",
+              required_for_live_write: true,
+              status: "ready",
+              candidate_count: 1,
+              selected_locator: "button.delete",
+              candidates: []
+            }
+          ],
+          blocker_candidates: [],
+          file_selection_boundary: {
+            file_bytes_read: false,
+            native_picker_opened: false,
+            data_transfer_injected: false,
+            real_upload_attempted: false,
+            submit_attempted: false,
+            publish_attempted: false,
+            allowed_modes: ["dry_run", "recon"]
+          }
+        },
         file_selection_boundary: {
           file_bytes_read: false,
           native_picker_opened: false,
@@ -206,6 +267,11 @@ describe("extension background relay / media upload discovery", () => {
       publish_attempted: false
     });
     expect(summary.upload_path_catalog).toEqual(mediaUploadDiscovery?.upload_path_catalog);
+    expect(mediaUploadDiscovery?.creator_publish_controls_recon).toMatchObject({
+      schema_version: "fr-0032.creator_publish_controls_recon.v1",
+      no_write: true,
+      blocker_candidates: []
+    });
   });
 
   it("returns controlled upload artifact identity without file picker, DataTransfer, submit or publish", async () => {
@@ -324,5 +390,244 @@ describe("extension background relay / media upload discovery", () => {
         reason: "SOURCE_MEDIA_REF_INVALID"
       }
     });
+  });
+});
+
+class FakeElement {
+  public textContent: string;
+  public offsetParent: object | null;
+  private readonly visible: boolean;
+
+  constructor(
+    public tagName: string,
+    text: string,
+    private readonly attrs: Record<string, string> = {},
+    visible = true
+  ) {
+    this.textContent = text;
+    this.visible = visible;
+    this.offsetParent = visible ? {} : null;
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attrs[name] ?? null;
+  }
+
+  getAttributeNames(): string[] {
+    return Object.keys(this.attrs);
+  }
+
+  getClientRects(): Array<Record<string, number>> {
+    return this.visible ? [{ height: 20, width: 80 }] : [];
+  }
+}
+
+const withFakeDocument = <T>(elements: FakeElement[], callback: () => T): T => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  (globalThis as unknown as { document: unknown }).document = {
+    querySelectorAll: () => elements
+  };
+  (globalThis as unknown as { getComputedStyle: unknown }).getComputedStyle = (element: FakeElement) => {
+    const className = element.getAttribute("class") ?? "";
+    if (className.split(/\s+/u).includes("stylesheet-hidden")) {
+      return { display: "none", opacity: "1", visibility: "visible" };
+    }
+    return { display: "block", opacity: "1", visibility: "visible" };
+  };
+  try {
+    return callback();
+  } finally {
+    if (previousDocument === undefined) {
+      delete (globalThis as unknown as { document?: unknown }).document;
+    } else {
+      (globalThis as unknown as { document: unknown }).document = previousDocument;
+    }
+    if (previousGetComputedStyle === undefined) {
+      delete (globalThis as unknown as { getComputedStyle?: unknown }).getComputedStyle;
+    } else {
+      globalThis.getComputedStyle = previousGetComputedStyle;
+    }
+  }
+};
+
+describe("xhs media upload discovery / creator publish controls recon", () => {
+  it("returns no-write controls recon for d-select visibility and submit/publish controls", () => {
+    const result = withFakeDocument(
+      [
+        new FakeElement("INPUT", "", { type: "file", accept: ".jpg,.png" }),
+        new FakeElement("DIV", "仅自己可见", { class: "reds-select permission-select" }),
+        new FakeElement("BUTTON", "下一步", { class: "reds-button next" }),
+        new FakeElement("BUTTON", "发布", { class: "reds-button publish" }),
+        new FakeElement("DIV", "", { role: "status", class: "toast notice" }),
+        new FakeElement("BUTTON", "删除", { class: "delete-button" })
+      ],
+      () =>
+        buildXhsMediaUploadDiscoveryResult({
+          run_id: "run-1008-controls-recon",
+          profile_ref: "xhs_001",
+          target_tab_id: 32,
+          page_url: "https://creator.xiaohongshu.com/publish/publish"
+        })
+    );
+
+    expect(result.file_selection_boundary).toMatchObject({
+      file_bytes_read: false,
+      data_transfer_injected: false,
+      submit_attempted: false,
+      publish_attempted: false
+    });
+    expect(result.creator_publish_controls_recon).toMatchObject({
+      schema_version: "fr-0032.creator_publish_controls_recon.v1",
+      no_write: true,
+      recording_policy: "locator_attributes_flags_and_lengths_only",
+      blocker_candidates: []
+    });
+    expect(result.creator_publish_controls_recon.controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "private_visibility",
+          required_for_live_write: true,
+          status: "ready",
+          selected_locator: "div.reds-select.permission-select"
+        }),
+        expect.objectContaining({
+          role: "submit_or_next",
+          required_for_live_write: true,
+          status: "ready",
+          selected_locator: "button.reds-button.next"
+        }),
+        expect.objectContaining({
+          role: "publish_or_confirm",
+          required_for_live_write: true,
+          status: "ready",
+          selected_locator: "button.reds-button.publish"
+        }),
+        expect.objectContaining({
+          role: "cleanup_or_abandon",
+          required_for_live_write: true,
+          status: "ready",
+          selected_locator: "button.delete-button"
+        })
+      ])
+    );
+  });
+
+  it("reports precise blocker candidates when required creator publish controls are missing", () => {
+    const result = withFakeDocument(
+      [new FakeElement("INPUT", "", { type: "file", accept: ".jpg,.png" })],
+      () =>
+        buildXhsMediaUploadDiscoveryResult({
+          run_id: "run-1008-controls-missing",
+          page_url: "https://creator.xiaohongshu.com/publish/publish"
+        })
+    );
+
+    expect(result.creator_publish_controls_recon.blocker_candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "PRIVATE_VISIBILITY_CONTROL_MISSING",
+          blocker_layer: "creator_publish_controls_recon",
+          role: "private_visibility"
+        }),
+        expect.objectContaining({
+          blocker_code: "SUBMIT_OR_NEXT_CONTROL_MISSING",
+          role: "submit_or_next"
+        }),
+        expect.objectContaining({
+          blocker_code: "PUBLISH_OR_CONFIRM_CONTROL_MISSING",
+          role: "publish_or_confirm"
+        }),
+        expect.objectContaining({
+          blocker_code: "ERROR_OR_TOAST_CONTROL_MISSING",
+          role: "error_or_toast"
+        }),
+        expect.objectContaining({
+          blocker_code: "CLEANUP_OR_ABANDON_CONTROL_MISSING",
+          role: "cleanup_or_abandon"
+        })
+      ])
+    );
+  });
+
+  it("reports hidden blockers for stylesheet-hidden required controls", () => {
+    const result = withFakeDocument(
+      [
+        new FakeElement("INPUT", "", { type: "file", accept: ".jpg,.png" }),
+        new FakeElement("DIV", "仅自己可见", { class: "reds-select permission-select" }),
+        new FakeElement("BUTTON", "下一步", { class: "reds-button next" }),
+        new FakeElement("BUTTON", "发布", { class: "reds-button publish stylesheet-hidden" }),
+        new FakeElement("DIV", "", { role: "status", class: "toast notice" }),
+        new FakeElement("BUTTON", "删除", { class: "delete-button" })
+      ],
+      () =>
+        buildXhsMediaUploadDiscoveryResult({
+          run_id: "run-1008-controls-stylesheet-hidden",
+          page_url: "https://creator.xiaohongshu.com/publish/publish"
+        })
+    );
+
+    expect(result.creator_publish_controls_recon.controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "publish_or_confirm",
+          status: "hidden",
+          selected_locator: null
+        })
+      ])
+    );
+    expect(result.creator_publish_controls_recon.blocker_candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "PUBLISH_OR_CONFIRM_CONTROL_HIDDEN",
+          blocker_layer: "creator_publish_controls_recon",
+          role: "publish_or_confirm"
+        })
+      ])
+    );
+  });
+
+  it("does not mark mixed public/private visibility containers as private-ready", () => {
+    const result = withFakeDocument(
+      [
+        new FakeElement("INPUT", "", { type: "file", accept: ".jpg,.png" }),
+        new FakeElement("DIV", "公开 仅自己可见", { class: "reds-select permission-select" }),
+        new FakeElement("BUTTON", "下一步", { class: "reds-button next" }),
+        new FakeElement("BUTTON", "发布", { class: "reds-button publish" }),
+        new FakeElement("DIV", "", { role: "status", class: "toast notice" }),
+        new FakeElement("BUTTON", "删除", { class: "delete-button" })
+      ],
+      () =>
+        buildXhsMediaUploadDiscoveryResult({
+          run_id: "run-1008-controls-mixed-visibility",
+          page_url: "https://creator.xiaohongshu.com/publish/publish"
+        })
+    );
+
+    expect(result.creator_publish_controls_recon.controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "private_visibility",
+          status: "ambiguous",
+          selected_locator: null,
+          candidates: [
+            expect.objectContaining({
+              signal_flags: expect.objectContaining({
+                private_visibility: true,
+                public_visibility: true
+              })
+            })
+          ]
+        })
+      ])
+    );
+    expect(result.creator_publish_controls_recon.blocker_candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "PRIVATE_VISIBILITY_CONTROL_AMBIGUOUS",
+          role: "private_visibility"
+        })
+      ])
+    );
   });
 });
