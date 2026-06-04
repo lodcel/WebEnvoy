@@ -1,5 +1,8 @@
 import type { JsonObject } from "../../core/types.js";
-import { bindIssue209LiveReadEnvelopeToSessionForContract } from "../../commands/xhs-input.js";
+import {
+  bindIssue835ControlledLiveWriteEnvelopeToSessionForContract,
+  bindIssue209LiveReadEnvelopeToSessionForContract
+} from "../../commands/xhs-input.js";
 import {
   BRIDGE_PROTOCOL,
   DEFAULT_TRANSPORT_TIMEOUT_MS,
@@ -166,7 +169,12 @@ const resolveForwardCommandParams = (
     runId,
     sessionId
   });
-  const normalizedParams = normalizeCanonicalGrantApprovalTimestamp(boundParams);
+  const liveWriteBoundParams = bindIssue835ControlledLiveWriteEnvelopeToSessionForContract({
+    params: boundParams,
+    runId,
+    sessionId
+  });
+  const normalizedParams = normalizeCanonicalGrantApprovalTimestamp(liveWriteBoundParams);
   if (command !== "runtime.restore_xhs_target") {
     return normalizedParams;
   }

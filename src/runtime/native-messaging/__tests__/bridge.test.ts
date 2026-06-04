@@ -936,6 +936,163 @@ describe("native messaging bridge", () => {
     });
   });
 
+  it("binds issue_835 controlled live write admission artifacts to the final native session", async () => {
+    let forwardedParams: Record<string, unknown> | null = null;
+    const runId = "run-issue835-session-bind-001";
+    const requestId = "issue835-live-session-bind-001";
+    const gateInvocationId = "issue835-gate-run-issue835-session-bind-001";
+    const approvalChecks = {
+      target_domain_confirmed: true,
+      target_tab_confirmed: true,
+      target_page_confirmed: true,
+      risk_state_checked: true,
+      action_type_confirmed: true
+    };
+    const transport = {
+      async open(request: BridgeRequestEnvelope): Promise<BridgeResponseEnvelope> {
+        return {
+          id: request.id,
+          status: "success",
+          summary: {
+            protocol: "webenvoy.native-bridge.v1",
+            session_id: "nm-session-issue835-final",
+            state: "ready"
+          },
+          error: null
+        };
+      },
+      async forward(request: BridgeRequestEnvelope): Promise<BridgeResponseEnvelope> {
+        forwardedParams = request.params.command_params as Record<string, unknown>;
+        return {
+          id: request.id,
+          status: "success",
+          summary: {
+            session_id: "nm-session-issue835-final",
+            run_id: runId,
+            command: "xhs.creator_publish.controlled_live_write"
+          },
+          payload: {},
+          error: null
+        };
+      },
+      async heartbeat(request: BridgeRequestEnvelope): Promise<BridgeResponseEnvelope> {
+        return {
+          id: request.id,
+          status: "success",
+          summary: {
+            session_id: "nm-session-issue835-final"
+          },
+          error: null
+        };
+      }
+    };
+
+    const bridge = new NativeMessagingBridge({
+      transport
+    });
+
+    const result = await bridge.runCommand({
+      runId,
+      profile: "xhs_001",
+      cwd: "/tmp",
+      command: "xhs.creator_publish.controlled_live_write",
+      params: {
+        request_id: requestId,
+        gate_invocation_id: gateInvocationId,
+        ability: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        input: {
+          live_write_attempt_id: "fr0032-attempt-session-bind-001",
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest:
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image"
+        },
+        options: {
+          issue_scope: "issue_835",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          risk_state: "allowed",
+          controlled_live_write: true,
+          admission_context: {
+            approval_admission_evidence: {
+              approval_admission_ref: "approval_admission_issue835_session_bind_001",
+              run_id: runId,
+              issue_scope: "issue_835",
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              action_type: "write",
+              requested_execution_mode: "live_write",
+              approved: true,
+              approver: "mcontheway",
+              approved_at: "2026-06-04T14:00:00.000Z",
+              checks: approvalChecks,
+              recorded_at: "2026-06-04T14:00:00.000Z"
+            },
+            audit_admission_evidence: {
+              audit_admission_ref: "audit_admission_issue835_session_bind_001",
+              run_id: runId,
+              issue_scope: "issue_835",
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              action_type: "write",
+              requested_execution_mode: "live_write",
+              risk_state: "allowed",
+              audited_checks: approvalChecks,
+              recorded_at: "2026-06-04T14:01:00.000Z"
+            }
+          }
+        }
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(forwardedParams).toMatchObject({
+      request_id: requestId,
+      gate_invocation_id: gateInvocationId,
+      approval_record: {
+        decision_id: `gate_decision_${gateInvocationId}`,
+        approval_id: `gate_appr_gate_decision_${gateInvocationId}`,
+        approved: true,
+        approver: "mcontheway"
+      },
+      admission_context: {
+        approval_admission_evidence: {
+          run_id: runId,
+          session_id: "nm-session-issue835-final",
+          issue_scope: "issue_835",
+          decision_id: `gate_decision_${gateInvocationId}`,
+          approval_id: `gate_appr_gate_decision_${gateInvocationId}`
+        },
+        audit_admission_evidence: {
+          run_id: runId,
+          session_id: "nm-session-issue835-final",
+          issue_scope: "issue_835",
+          risk_state: "allowed"
+        }
+      },
+      options: {
+        approval_record: {
+          approved: true,
+          approval_id: `gate_appr_gate_decision_${gateInvocationId}`
+        },
+        admission_context: {
+          approval_admission_evidence: {
+            session_id: "nm-session-issue835-final"
+          }
+        }
+      }
+    });
+  });
+
   it("retries idempotent runCommand after recoverable forward disconnect", async () => {
     let forwardCall = 0;
     const transport = {

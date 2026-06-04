@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { CliError } from "../core/errors.js";
 import type { JsonObject } from "../core/types.js";
 import { prepareIssue209LiveReadSource } from "../../shared/issue209-live-read/source.js";
+import { resolveXhsGateDecisionId } from "../../shared/xhs-gate.js";
 import {
   validateIssue209ApprovalSourceAgainstCurrentLinkage,
   validateIssue209AuditSourceAgainstCurrentLinkage
@@ -229,7 +230,17 @@ const XHS_MEDIA_UPLOAD_DISCOVER_RUNTIME_SCOPE = "issue_755";
 const XHS_CONTROLLED_LIVE_WRITE_RUNTIME_SCOPE = "issue_835";
 const ISSUE209_LIVE_REQUEST_ID_PREFIX = "issue209-live";
 const ISSUE209_GATE_INVOCATION_ID_PREFIX = "issue209-gate";
+const ISSUE835_LIVE_REQUEST_ID_PREFIX = "issue835-live";
+const ISSUE835_GATE_INVOCATION_ID_PREFIX = "issue835-gate";
 export const ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY = "__issue209_admission_draft";
+export const ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY = "__issue835_admission_draft";
+const XHS_REQUIRED_APPROVAL_CHECK_KEYS = [
+  "target_domain_confirmed",
+  "target_tab_confirmed",
+  "target_page_confirmed",
+  "risk_state_checked",
+  "action_type_confirmed"
+] as const;
 
 const asObject = (value: unknown): JsonObject | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -251,6 +262,14 @@ const asStringArray = (value: unknown): string[] | null => {
   return normalized.length === value.length ? normalized : null;
 };
 const cloneJsonObject = (value: JsonObject): JsonObject => JSON.parse(JSON.stringify(value)) as JsonObject;
+
+const hasAllRequiredChecksTrue = (value: unknown): boolean => {
+  const checks = asObject(value);
+  return (
+    checks !== null &&
+    XHS_REQUIRED_APPROVAL_CHECK_KEYS.every((key) => checks[key] === true)
+  );
+};
 
 const projectLegacyActionTypeForContract = (
   actionType: GateActionType | null
@@ -1691,6 +1710,166 @@ const isIssue209LiveReadRequest = (options: JsonObject): options is JsonObject &
   typeof options.requested_execution_mode === "string" &&
   XHS_LIVE_READ_EXECUTION_MODES.has(options.requested_execution_mode as XhsExecutionMode);
 
+const isIssue835ControlledLiveWriteRequest = (options: JsonObject): options is JsonObject & {
+  issue_scope: "issue_835";
+  requested_execution_mode: "live_write";
+} =>
+  options.issue_scope === "issue_835" &&
+  options.controlled_live_write === true &&
+  options.action_type === "write" &&
+  options.target_domain === XHS_WRITE_DOMAIN &&
+  options.target_page === "creator_publish_tab" &&
+  options.requested_execution_mode === "live_write";
+
+const matchesIssue835Binding = (
+  evidence: JsonObject,
+  input: {
+    runId: string;
+    issueScope: "issue_835";
+    targetDomain: unknown;
+    targetTabId: unknown;
+    targetPage: unknown;
+    actionType: "write";
+    requestedExecutionMode: "live_write";
+    riskState: unknown;
+  },
+  includeRiskState: boolean
+): boolean =>
+  asString(evidence.run_id) === input.runId &&
+  asString(evidence.issue_scope) === input.issueScope &&
+  asString(evidence.target_domain) === input.targetDomain &&
+  asInteger(evidence.target_tab_id) === input.targetTabId &&
+  asString(evidence.target_page) === input.targetPage &&
+  asString(evidence.action_type) === input.actionType &&
+  asString(evidence.requested_execution_mode) === input.requestedExecutionMode &&
+  (!includeRiskState || asString(evidence.risk_state) === input.riskState);
+
+const buildIssue835ApprovalRecordFromEvidence = (input: {
+  approvalEvidence: JsonObject;
+  decisionId: string;
+  approvalId: string;
+}): JsonObject => ({
+  decision_id: input.decisionId,
+  approval_id: input.approvalId,
+  approved: true,
+  approver: asString(input.approvalEvidence.approver),
+  approved_at: asString(input.approvalEvidence.approved_at),
+  checks: cloneJsonObject(asObject(input.approvalEvidence.checks) ?? {})
+});
+
+const resolveIssue835AdmissionDraftForContract = (input: {
+  options: JsonObject;
+  runId: string;
+  requestId: string;
+  gateInvocationId: string;
+}): JsonObject | null => {
+  if (!isIssue835ControlledLiveWriteRequest(input.options)) {
+    return null;
+  }
+
+  const admissionContext = asObject(input.options.admission_context);
+  const approvalEvidence = asObject(admissionContext?.approval_admission_evidence);
+  const auditEvidence = asObject(admissionContext?.audit_admission_evidence);
+  const decisionId = resolveXhsGateDecisionId({
+    runId: input.runId,
+    commandRequestId: input.requestId,
+    gateInvocationId: input.gateInvocationId,
+    issueScope: "issue_835",
+    requestedExecutionMode: "live_write",
+    targetPage: input.options.target_page,
+    targetTabId: input.options.target_tab_id
+  });
+  const approvalId = `gate_appr_${decisionId}`;
+  const current = {
+    runId: input.runId,
+    issueScope: "issue_835" as const,
+    targetDomain: input.options.target_domain,
+    targetTabId: input.options.target_tab_id,
+    targetPage: input.options.target_page,
+    actionType: "write" as const,
+    requestedExecutionMode: "live_write" as const,
+    riskState: input.options.risk_state
+  };
+
+  const approvalValid =
+    approvalEvidence !== null &&
+    asString(approvalEvidence.approval_admission_ref) !== null &&
+    approvalEvidence.approved === true &&
+    asString(approvalEvidence.approver) !== null &&
+    asString(approvalEvidence.approved_at) !== null &&
+    asString(approvalEvidence.recorded_at) !== null &&
+    hasAllRequiredChecksTrue(approvalEvidence.checks) &&
+    matchesIssue835Binding(approvalEvidence, current, false);
+  const auditValid =
+    auditEvidence !== null &&
+    asString(auditEvidence.audit_admission_ref) !== null &&
+    asString(auditEvidence.recorded_at) !== null &&
+    hasAllRequiredChecksTrue(auditEvidence.audited_checks) &&
+    matchesIssue835Binding(auditEvidence, current, true);
+
+  if (!approvalValid || !auditValid || !approvalEvidence || !auditEvidence) {
+    return { kind: "missing" };
+  }
+
+  const canonicalApprovalEvidence: JsonObject = {
+    ...approvalEvidence,
+    decision_id: decisionId,
+    approval_id: approvalId,
+    request_id: input.requestId,
+    run_id: input.runId,
+    session_id: null,
+    issue_scope: "issue_835",
+    target_domain: input.options.target_domain,
+    target_tab_id: input.options.target_tab_id,
+    target_page: input.options.target_page,
+    action_type: "write",
+    requested_execution_mode: "live_write"
+  };
+  const canonicalAuditEvidence: JsonObject = {
+    ...auditEvidence,
+    decision_id: decisionId,
+    approval_id: approvalId,
+    request_id: input.requestId,
+    run_id: input.runId,
+    session_id: null,
+    issue_scope: "issue_835",
+    target_domain: input.options.target_domain,
+    target_tab_id: input.options.target_tab_id,
+    target_page: input.options.target_page,
+    action_type: "write",
+    requested_execution_mode: "live_write",
+    risk_state: input.options.risk_state
+  };
+
+  return {
+    kind: "draft",
+    admission_context: {
+      approval_admission_evidence: canonicalApprovalEvidence,
+      audit_admission_evidence: canonicalAuditEvidence
+    },
+    approval_record: buildIssue835ApprovalRecordFromEvidence({
+      approvalEvidence: canonicalApprovalEvidence,
+      decisionId,
+      approvalId
+    }),
+    audit_record: {
+      event_id: `audit_admission_${input.gateInvocationId}`,
+      decision_id: decisionId,
+      approval_id: approvalId,
+      run_id: input.runId,
+      issue_scope: "issue_835",
+      target_domain: input.options.target_domain,
+      target_tab_id: input.options.target_tab_id,
+      target_page: input.options.target_page,
+      action_type: "write",
+      requested_execution_mode: "live_write",
+      risk_state: input.options.risk_state,
+      gate_decision: "pre_gate_admission_ready",
+      recorded_at: asString(canonicalAuditEvidence.recorded_at)
+    }
+  };
+};
+
 const resolveIssue209AdmissionDraftForContract = (input: {
   options: JsonObject;
   runId: string;
@@ -2022,7 +2201,6 @@ export const prepareIssue209LiveReadEnvelopeForContract = (input: {
 
   if (!isIssue209LiveReadRequest(nextOptions)) {
     const admissionDraft = cloneAdmissionDraftForContract(input.admissionDraft);
-    delete nextOptions.admission_context;
     delete nextOptions[ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY];
     return {
       commandRequestId: asString(input.requestId),
@@ -2185,6 +2363,141 @@ export const ensureIssue209AdmissionContextForContract = (input: {
     sessionId: input.sessionId,
     gateInvocationId: input.gateInvocationId
   }).options;
+};
+
+const bindIssue835AdmissionDraftToSession = (
+  draft: JsonObject,
+  sessionId: string
+): JsonObject | null => {
+  if (asString(draft.kind) !== "draft") {
+    return null;
+  }
+  const admissionContext = cloneAdmissionContextForContract(draft.admission_context);
+  const approvalRecord = asObject(draft.approval_record);
+  const auditRecord = asObject(draft.audit_record);
+  if (!admissionContext || !approvalRecord || !auditRecord) {
+    return null;
+  }
+  const bindEvidence = (
+    key: "approval_admission_evidence" | "audit_admission_evidence"
+  ): void => {
+    const evidence = asObject(admissionContext[key]);
+    if (evidence) {
+      admissionContext[key] = {
+        ...evidence,
+        session_id: sessionId
+      };
+    }
+  };
+  bindEvidence("approval_admission_evidence");
+  bindEvidence("audit_admission_evidence");
+
+  return {
+    admission_context: admissionContext,
+    approval_record: cloneJsonObject(approvalRecord),
+    audit_record: {
+      ...cloneJsonObject(auditRecord),
+      session_id: sessionId
+    }
+  };
+};
+
+const cloneIssue835AdmissionDraftForContract = (value: unknown): JsonObject | null => {
+  const object = asObject(value);
+  if (!object) {
+    return null;
+  }
+  const kind = asString(object.kind);
+  if (kind === "missing") {
+    return { kind };
+  }
+  if (kind !== "draft") {
+    return null;
+  }
+  return cloneJsonObject(object);
+};
+
+export const prepareIssue835ControlledLiveWriteEnvelopeForContract = (input: {
+  options: JsonObject;
+  runId: string;
+  requestId?: string | null;
+  gateInvocationId?: string | null;
+}): {
+  commandRequestId: string | null;
+  gateInvocationId: string | null;
+  options: JsonObject;
+  admissionDraft: JsonObject | null;
+} => {
+  const nextOptions = cloneJsonObject(input.options);
+  if (!isIssue835ControlledLiveWriteRequest(nextOptions)) {
+    delete nextOptions[ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY];
+    return {
+      commandRequestId: asString(input.requestId),
+      gateInvocationId: asString(input.gateInvocationId),
+      options: nextOptions,
+      admissionDraft: null
+    };
+  }
+
+  const commandRequestId =
+    asString(input.requestId) ?? `${ISSUE835_LIVE_REQUEST_ID_PREFIX}-${randomUUID()}`;
+  const gateInvocationId =
+    asString(input.gateInvocationId) ??
+    `${ISSUE835_GATE_INVOCATION_ID_PREFIX}-${input.runId}-${randomUUID()}`;
+  const admissionDraft = resolveIssue835AdmissionDraftForContract({
+    options: nextOptions,
+    runId: input.runId,
+    requestId: commandRequestId,
+    gateInvocationId
+  });
+
+  delete nextOptions[ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY];
+  return {
+    commandRequestId,
+    gateInvocationId,
+    options: nextOptions,
+    admissionDraft
+  };
+};
+
+export const bindIssue835ControlledLiveWriteEnvelopeToSessionForContract = (input: {
+  params: JsonObject;
+  runId: string;
+  sessionId: string;
+}): JsonObject => {
+  const nextParams = cloneJsonObject(input.params);
+  const optionParams = asObject(nextParams.options);
+  const prepared = prepareIssue835ControlledLiveWriteEnvelopeForContract({
+    options: optionParams ?? {},
+    runId: input.runId,
+    requestId: asString(nextParams.request_id),
+    gateInvocationId: asString(nextParams.gate_invocation_id)
+  });
+  const draft =
+    cloneIssue835AdmissionDraftForContract(nextParams[ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY]) ??
+    cloneIssue835AdmissionDraftForContract(optionParams?.[ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY]) ??
+    prepared.admissionDraft;
+  const nextOptions = cloneJsonObject(prepared.options);
+  const bound = draft ? bindIssue835AdmissionDraftToSession(draft, input.sessionId) : null;
+  if (bound) {
+    nextParams.admission_context = bound.admission_context;
+    nextParams.approval_record = bound.approval_record;
+    nextParams.audit_record = bound.audit_record;
+    nextOptions.admission_context = bound.admission_context;
+    nextOptions.approval_record = bound.approval_record;
+    nextOptions.audit_record = bound.audit_record;
+  }
+
+  nextParams.options = nextOptions;
+  delete nextParams[ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY];
+  if (prepared.commandRequestId) {
+    nextParams.request_id = prepared.commandRequestId;
+  }
+  if (prepared.gateInvocationId) {
+    nextParams.gate_invocation_id = prepared.gateInvocationId;
+  }
+
+  return nextParams;
 };
 
 export const buildCapabilityResult = (
