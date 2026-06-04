@@ -2449,6 +2449,12 @@ const shouldAttachRuntimeForXhsRestore = (status: Record<string, unknown>): bool
     status.bootstrapState === "stale" &&
     status.executionSurface === "real_browser" &&
     status.headless === false;
+  const pendingBootstrapAttach =
+    takeover?.pendingBootstrapRecoverable === true &&
+    status.transportState === "ready" &&
+    (status.bootstrapState === "not_started" || status.bootstrapState === "pending") &&
+    status.executionSurface === "real_browser" &&
+    status.headless === false;
   return (
     status.lockHeld !== true &&
     takeover?.identityBound === true &&
@@ -2456,6 +2462,7 @@ const shouldAttachRuntimeForXhsRestore = (status: Record<string, unknown>): bool
     takeover.controllerBrowserContinuity === true &&
     (takeover.transportBootstrapViable === true || staleBootstrapRebind) &&
     (takeover?.attachableReadyRuntime === true ||
+      pendingBootstrapAttach ||
       (status.runtimeReadiness === "recoverable" && takeover?.orphanRecoverable === true) ||
       staleBootstrapRebind)
   );
@@ -2611,8 +2618,11 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
   });
   let attachedRuntimeForRestore = false;
   const preAttachTakeover = asObject(status.runtimeTakeoverEvidence);
+  const preAttachPendingBootstrapRecoverable =
+    preAttachTakeover?.pendingBootstrapRecoverable === true;
   const preAttachRuntimeReady =
     (preAttachTakeover?.attachableReadyRuntime === true ||
+      preAttachPendingBootstrapRecoverable ||
       preAttachTakeover?.orphanRecoverable === true) &&
     preAttachTakeover?.identityBound === true &&
     preAttachTakeover?.ownerConflictFree === true &&
@@ -2700,8 +2710,9 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
     status.lockHeld === true &&
     status.identityBindingState === "bound" &&
     status.transportState === "ready" &&
-    status.bootstrapState !== "pending" &&
-    status.runtimeReadiness !== "pending" &&
+    (preAttachPendingBootstrapRecoverable
+      ? status.bootstrapState === "ready" && status.runtimeReadiness === "ready"
+      : status.bootstrapState !== "pending" && status.runtimeReadiness !== "pending") &&
     status.executionSurface === "real_browser" &&
     status.headless === false;
   const runtimeTakeover = asObject(status.runtimeTakeoverEvidence);
@@ -2754,6 +2765,15 @@ const assertRuntimeRestoreXhsTargetSafetyGate = async (
   const validationAllowsRestore = staleBootstrapSameRuntimeReady
     ? validationReady
     : recoveryProbeWindow || validationReady;
+  if (
+    attachedRuntimeForRestore &&
+    preAttachRuntimeReady &&
+    isTransientAttachedRestorePendingStatus(status)
+  ) {
+    throw new CliError("ERR_PROFILE_LOCKED", "profile 当前不存在可安全接管的 ready runtime", {
+      retryable: true
+    });
+  }
   if (
     accountSafetyClear &&
     rhythmAllowsRestore &&

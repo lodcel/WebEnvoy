@@ -7,8 +7,14 @@ import {
 import { buildRuntimeBootstrapContextId } from "../runtime-bootstrap.js";
 
 const buildRuntimeTakeoverEvidence = (input: {
-  mode?: "ready_attach" | "recoverable_rebind" | "stale_bootstrap_rebind" | null;
+  mode?:
+    | "ready_attach"
+    | "recoverable_rebind"
+    | "stale_bootstrap_rebind"
+    | "pending_bootstrap_attach"
+    | null;
   attachableReadyRuntime?: boolean;
+  pendingBootstrapRecoverable?: boolean;
   orphanRecoverable?: boolean;
   staleBootstrapRecoverable?: boolean;
   freshness?: string;
@@ -30,6 +36,7 @@ const buildRuntimeTakeoverEvidence = (input: {
 } = {}) => ({
   mode: input.mode ?? null,
   attachableReadyRuntime: input.attachableReadyRuntime ?? false,
+  pendingBootstrapRecoverable: input.pendingBootstrapRecoverable ?? false,
   orphanRecoverable: input.orphanRecoverable ?? false,
   staleBootstrapRecoverable: input.staleBootstrapRecoverable ?? false,
   freshness: input.freshness ?? "fresh",
@@ -1404,6 +1411,139 @@ describe("prepareOfficialChromeRuntime", () => {
 
     expect(attachRuntime).not.toHaveBeenCalled();
     expect(bridge.runCommand).not.toHaveBeenCalled();
+  });
+
+  it("attaches and bootstraps a verified target when the owner runtime has not started bootstrap", async () => {
+    const readStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension"
+        },
+        profileState: "ready",
+        runtimeReadiness: "blocked",
+        identityBindingState: "bound",
+        bootstrapState: "not_started",
+        transportState: "ready",
+        lockHeld: false,
+        runtimeTakeoverEvidence: buildRuntimeTakeoverEvidence({
+          mode: "pending_bootstrap_attach",
+          pendingBootstrapRecoverable: true,
+          ownerConflictFree: true,
+          controllerBrowserContinuity: true,
+          transportBootstrapViable: true,
+          managedTargetTabId: 1230480255,
+          managedTargetDomain: "creator.xiaohongshu.com",
+          managedTargetPage: "creator_publish_tab",
+          targetTabContinuity: "runtime_trust_state"
+        })
+      })
+      .mockResolvedValueOnce({
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension"
+        },
+        profileState: "ready",
+        runtimeReadiness: "pending",
+        identityBindingState: "bound",
+        bootstrapState: "not_started",
+        transportState: "ready",
+        lockHeld: true
+      })
+      .mockResolvedValueOnce({
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension"
+        },
+        profileState: "ready",
+        runtimeReadiness: "ready",
+        identityBindingState: "bound",
+        bootstrapState: "ready",
+        transportState: "ready",
+        lockHeld: true
+      });
+    const attachRuntime = vi.fn(async () => ({
+      identityPreflight: {
+        mode: "official_chrome_persistent_extension"
+      },
+      profileState: "ready",
+      runtimeReadiness: "pending",
+      identityBindingState: "bound",
+      bootstrapState: "not_started",
+      transportState: "ready",
+      lockHeld: true
+    }));
+    const bridge = {
+      runCommand: vi.fn(async ({ command, params, profile, runId }) => {
+        if (command === "runtime.bootstrap") {
+          return {
+            ok: true as const,
+            payload: {
+              result: {
+                version: "v1",
+                run_id: runId,
+                runtime_context_id: String(params.runtime_context_id),
+                profile,
+                status: "ready"
+              }
+            },
+            relay_path: "host>background"
+          };
+        }
+        if (command === "runtime.ping") {
+          return {
+            ok: true as const,
+            payload: {
+              message: "pong"
+            },
+            relay_path: "host>background>content-script>background>host"
+          };
+        }
+        throw new Error(`unexpected bridge command: ${command}`);
+      })
+    };
+
+    await expect(
+      prepareOfficialChromeRuntime({
+        context: {
+          cwd: "/tmp/webenvoy",
+          profile: "official_pending_bootstrap_profile",
+          run_id: "run-runtime-pending-bootstrap-next-001",
+          command: "runtime.closeout_gate",
+          params: {
+            target_domain: "creator.xiaohongshu.com",
+            target_tab_id: 1230480255,
+            target_page: "creator_publish_tab"
+          }
+        } as never,
+        consumerId: "runtime.closeout_gate",
+        requestedExecutionMode: "live_write",
+        bridge: bridge as never,
+        fingerprintContext: {
+          fingerprint_profile_bundle: null
+        } as never,
+        bootstrapTargetTabId: 1230480255,
+        bootstrapTargetDomain: "creator.xiaohongshu.com",
+        bootstrapTargetPage: "creator_publish_tab",
+        attachRuntime,
+        readStatus
+      })
+    ).resolves.toMatchObject({
+      runtimeReadiness: "ready",
+      bootstrapState: "ready",
+      transportState: "ready",
+      lockHeld: true
+    });
+
+    expect(attachRuntime).toHaveBeenCalledTimes(1);
+    expect(bridge.runCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "runtime.bootstrap",
+        params: expect.objectContaining({
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 1230480255,
+          target_page: "creator_publish_tab"
+        })
+      })
+    );
   });
 
   it("waits for bridge readiness when bootstrap is initially not delivered", async () => {

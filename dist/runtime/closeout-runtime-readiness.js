@@ -195,6 +195,24 @@ export const buildCloseoutRuntimeReadinessPreflight = (input) => {
             ...base
         };
     }
+    if (!lockHeld &&
+        takeoverEvidence?.pendingBootstrapRecoverable === true &&
+        takeoverEvidence?.ownerConflictFree === true &&
+        takeoverEvidence?.controllerBrowserContinuity === true &&
+        takeoverEvidence?.transportBootstrapViable === true &&
+        targetBinding.requested === true &&
+        targetBinding.state === "verified" &&
+        transportState === "ready" &&
+        (bootstrapState === "not_started" || bootstrapState === "pending") &&
+        officialRealBrowserSurface) {
+        return {
+            decision: "RECOVERABLE",
+            runtime_state: "recoverable",
+            recovery_mode: "pending_bootstrap_attach",
+            blocker: null,
+            ...base
+        };
+    }
     if (!lockHeld && takeoverEvidence?.orphanRecoverable === true && officialRealBrowserSurface) {
         return {
             decision: "RECOVERABLE",

@@ -24,11 +24,13 @@ export interface RuntimeLifecycleFileReader {
 export type RuntimeTakeoverMode =
   | "ready_attach"
   | "recoverable_rebind"
-  | "stale_bootstrap_rebind";
+  | "stale_bootstrap_rebind"
+  | "pending_bootstrap_attach";
 
 export interface RuntimeTakeoverEvidenceRecord {
   mode: RuntimeTakeoverMode | null;
   attachableReadyRuntime: boolean;
+  pendingBootstrapRecoverable: boolean;
   orphanRecoverable: boolean;
   staleBootstrapRecoverable: boolean;
   freshness: "fresh" | "stale";
@@ -153,6 +155,31 @@ export const canAttachStaleBootstrapRuntime = (input: {
     isIsoTimestampAtOrAfter(input.readiness.details?.takeover_evidence_observed_at, input.requestedAt)
   );
 };
+
+export const canAttachPendingBootstrapRuntime = (input: {
+  healthyLock: boolean;
+  controlConnected: boolean;
+  profileState: ProfileState;
+  pinnedControllerPid: number | null | undefined;
+  readiness: RuntimeReadinessSnapshot | null;
+  targetBindingComplete: boolean;
+  targetTabId: unknown;
+  targetDomain: unknown;
+  targetPage: unknown;
+}): boolean =>
+  input.healthyLock &&
+  input.controlConnected &&
+  input.profileState === "ready" &&
+  Number.isInteger(input.pinnedControllerPid) &&
+  input.targetBindingComplete &&
+  input.readiness?.identityBindingState === "bound" &&
+  input.readiness.transportState === "ready" &&
+  (input.readiness.bootstrapState === "not_started" ||
+    input.readiness.bootstrapState === "pending") &&
+  asInteger(input.readiness.details?.managed_target_tab_id) === input.targetTabId &&
+  asNonEmptyString(input.readiness.details?.managed_target_domain) === input.targetDomain &&
+  asNonEmptyString(input.readiness.details?.managed_target_page) === input.targetPage &&
+  asNonEmptyString(input.readiness.details?.target_tab_continuity) === "runtime_trust_state";
 
 export const resolveActiveBrowserInstanceState = (input: {
   state: BrowserInstanceStateSnapshot | null;
@@ -299,6 +326,7 @@ export const buildRuntimeTakeoverEvidence = (input: {
   requestedTargetPage?: unknown;
   readiness: RuntimeReadinessSnapshot;
   attachableReadyRuntime: boolean;
+  pendingBootstrapRecoverable: boolean;
   orphanRecoverable: boolean;
   staleBootstrapRecoverable: boolean;
   pinnedControllerPid: number | null | undefined;
@@ -314,6 +342,13 @@ export const buildRuntimeTakeoverEvidence = (input: {
   const recoverableRebind = !input.lockHeld && !readyAttach && input.orphanRecoverable;
   const staleBootstrapRebind =
     !input.lockHeld && !readyAttach && !recoverableRebind && input.staleBootstrapRecoverable;
+  const pendingBootstrapAttach =
+    !input.lockHeld &&
+    !readyAttach &&
+    !recoverableRebind &&
+    !staleBootstrapRebind &&
+    input.pendingBootstrapRecoverable &&
+    controllerBrowserContinuity;
   const transportBootstrapViable = staleBootstrapRebind
     ? input.readiness.transportState === "ready" && input.readiness.bootstrapState === "stale"
     : input.readiness.transportState !== "not_connected" &&
@@ -351,8 +386,11 @@ export const buildRuntimeTakeoverEvidence = (input: {
         ? "recoverable_rebind"
         : staleBootstrapRebind
           ? "stale_bootstrap_rebind"
-          : null,
+          : pendingBootstrapAttach
+            ? "pending_bootstrap_attach"
+            : null,
     attachableReadyRuntime: readyAttach,
+    pendingBootstrapRecoverable: pendingBootstrapAttach,
     orphanRecoverable: recoverableRebind,
     staleBootstrapRecoverable: staleBootstrapRebind,
     freshness:
@@ -362,6 +400,7 @@ export const buildRuntimeTakeoverEvidence = (input: {
     identityBound: input.readiness.identityBindingState === "bound",
     ownerConflictFree:
       input.lockHeld ||
+      pendingBootstrapAttach ||
       recoverableRebind ||
       ((readyAttach || staleBootstrapRebind) && input.healthyLock && input.controlConnected),
     controllerBrowserContinuity,

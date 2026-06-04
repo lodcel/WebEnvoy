@@ -15,8 +15,14 @@ type RuntimeStatusReader = () => Promise<JsonObject>;
 type RuntimeAttachReader = () => Promise<JsonObject>;
 
 type RuntimeTakeoverEvidence = {
-  mode?: "ready_attach" | "recoverable_rebind" | "stale_bootstrap_rebind" | null;
+  mode?:
+    | "ready_attach"
+    | "recoverable_rebind"
+    | "stale_bootstrap_rebind"
+    | "pending_bootstrap_attach"
+    | null;
   attachableReadyRuntime?: boolean;
+  pendingBootstrapRecoverable?: boolean;
   orphanRecoverable?: boolean;
   staleBootstrapRecoverable?: boolean;
   observedRunId?: string;
@@ -537,6 +543,8 @@ export const prepareOfficialChromeRuntime = async (input: {
   const runtimeTakeoverEvidence = readRuntimeTakeoverEvidence(status);
   const preLockOrphanRecoverable = runtimeTakeoverEvidence.orphanRecoverable === true;
   const preLockAttachableReadyRuntime = runtimeTakeoverEvidence.attachableReadyRuntime === true;
+  const preLockPendingBootstrapRecoverable =
+    runtimeTakeoverEvidence.pendingBootstrapRecoverable === true;
   const bootstrapTarget = {
     requestedAt: runtimeBootstrapRequestedAt,
     targetTabId: input.bootstrapTargetTabId,
@@ -580,7 +588,11 @@ export const prepareOfficialChromeRuntime = async (input: {
       (preLockAttachableReadyRuntime ||
         (runtimeReadiness === "recoverable" &&
           preLockOrphanRecoverable &&
-          (profileState === "disconnected" || profileState === "ready")))) ||
+          (profileState === "disconnected" || profileState === "ready")) ||
+        (preLockPendingBootstrapRecoverable &&
+          transportState === "ready" &&
+          (bootstrapState === "not_started" || bootstrapState === "pending") &&
+          profileState === "ready"))) ||
       (bootstrapState === "stale" &&
         hasStaleBootstrapRebindEvidence({
           status,

@@ -6,7 +6,7 @@ import { BROWSER_CONTROL_FILENAME, BROWSER_STATE_FILENAME, BrowserLaunchError, l
 import { createProfileLock } from "./profile-lock.js";
 import { ProfileStore } from "./profile-store.js";
 import { inspectProfileLock, isLoginableProfileState, isRuntimeActiveProfileState, isStartableProfileState, resolveProfileAccessState, shouldRecoverAsDisconnected } from "./profile-access.js";
-import { buildLocklessActiveRuntimeLock, buildRuntimeTakeoverEvidence, canAttachReadyRuntime, canAttachStaleBootstrapRuntime, parseBrowserInstanceState, readBrowserInstanceState, resolveActiveBrowserInstanceState } from "./profile-runtime-lifecycle.js";
+import { buildLocklessActiveRuntimeLock, buildRuntimeTakeoverEvidence, canAttachPendingBootstrapRuntime, canAttachReadyRuntime, canAttachStaleBootstrapRuntime, parseBrowserInstanceState, readBrowserInstanceState, resolveActiveBrowserInstanceState } from "./profile-runtime-lifecycle.js";
 import { buildIdentityPreflightError, runIdentityPreflight } from "./persistent-extension-identity.js";
 import { buildFingerprintContextForMeta } from "./fingerprint-runtime.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "./native-messaging/bridge.js";
@@ -862,6 +862,17 @@ export class ProfileRuntimeService {
             targetPage: input.params.target_page,
             requestedAt: input.params.requested_at
         });
+        const pendingBootstrapRecoverable = canAttachPendingBootstrapRuntime({
+            healthyLock: accessState.healthyLock,
+            controlConnected: accessState.controlConnected,
+            profileState: accessState.profileState,
+            pinnedControllerPid,
+            readiness: observedTargetReadiness,
+            targetBindingComplete: hasCompleteRuntimeTargetBinding(input.params),
+            targetTabId: input.params.target_tab_id,
+            targetDomain: input.params.target_domain,
+            targetPage: input.params.target_page
+        });
         const attachableRecoverableRuntime = !accessState.lockHeld &&
             persistedLock !== null &&
             (accessState.profileState === "ready" || accessState.profileState === "disconnected") &&
@@ -888,6 +899,7 @@ export class ProfileRuntimeService {
             requestedTargetPage: input.params.target_page,
             readiness: evidenceReadiness,
             attachableReadyRuntime,
+            pendingBootstrapRecoverable,
             orphanRecoverable: attachableRecoverableRuntime,
             staleBootstrapRecoverable,
             pinnedControllerPid,
@@ -1024,13 +1036,25 @@ export class ProfileRuntimeService {
             targetPage: input.params.target_page,
             requestedAt: input.params.requested_at
         });
+        const attachablePendingBootstrapRuntime = canAttachPendingBootstrapRuntime({
+            healthyLock: accessState.healthyLock,
+            controlConnected: accessState.controlConnected,
+            profileState: accessState.profileState,
+            pinnedControllerPid,
+            readiness: observedTargetReadiness,
+            targetBindingComplete: hasCompleteRuntimeTargetBinding(input.params),
+            targetTabId: input.params.target_tab_id,
+            targetDomain: input.params.target_domain,
+            targetPage: input.params.target_page
+        });
         const attachableRecoverableRuntime = !lockRecoveredFromBrowserState &&
             (storedProfileState === "ready" || storedProfileState === "disconnected") &&
             lockInspection.orphanRecoverable &&
             preAttachReadiness.bootstrapState !== "stale" &&
             preAttachReadiness.transportState !== "not_connected" &&
             preAttachReadiness.runtimeReadiness === "recoverable";
-        const evidenceReadiness = attachableStaleBootstrapRuntime && observedTargetReadiness !== null
+        const evidenceReadiness = (attachableStaleBootstrapRuntime || attachablePendingBootstrapRuntime) &&
+            observedTargetReadiness !== null
             ? observedTargetReadiness
             : attachableReadyRuntime && observedReadyAttachReadiness !== null
                 ? observedReadyAttachReadiness
@@ -1048,6 +1072,7 @@ export class ProfileRuntimeService {
             requestedTargetPage: input.params.target_page,
             readiness: evidenceReadiness,
             attachableReadyRuntime,
+            pendingBootstrapRecoverable: attachablePendingBootstrapRuntime,
             orphanRecoverable: attachableRecoverableRuntime,
             staleBootstrapRecoverable: attachableStaleBootstrapRuntime,
             pinnedControllerPid,
@@ -1055,6 +1080,7 @@ export class ProfileRuntimeService {
             stateRunId: lockInspection.stateRunId
         });
         if (!runtimeTakeoverEvidence.attachableReadyRuntime &&
+            !runtimeTakeoverEvidence.pendingBootstrapRecoverable &&
             !runtimeTakeoverEvidence.orphanRecoverable &&
             !runtimeTakeoverEvidence.staleBootstrapRecoverable) {
             throw new CliError("ERR_PROFILE_LOCKED", "profile 当前不存在可安全接管的 ready runtime", {
@@ -1095,7 +1121,8 @@ export class ProfileRuntimeService {
             });
             await store.writeMeta(input.profile, nextMeta);
         }
-        const refreshTargetBootstrapOnAttach = takeoverMode === "ready_attach" && hasCompleteRuntimeTargetBinding(input.params);
+        const refreshTargetBootstrapOnAttach = (takeoverMode === "ready_attach" || takeoverMode === "pending_bootstrap_attach") &&
+            hasCompleteRuntimeTargetBinding(input.params);
         const readiness = (takeoverMode === "stale_bootstrap_rebind" || refreshTargetBootstrapOnAttach) &&
             identityPreflight.identityBindingState === "bound"
             ? await this.#deliverRuntimeBootstrap({
