@@ -3190,6 +3190,20 @@ const findVisibilityTriggers = (): HTMLElement[] => {
   ]);
 };
 
+const findVisibilityTriggersForSelection = (
+  options: VisibilityControlSelectionOptions = {}
+): HTMLElement[] => {
+  const triggers = findVisibilityTriggers();
+  if (typeof options.maxTriggerActivations !== "number") {
+    return triggers;
+  }
+  return uniqueVisibilityElements([
+    ...triggers.slice(0, 1),
+    ...findLikelyPublishVisibilitySelectTriggers(),
+    ...triggers
+  ]);
+};
+
 const findPlainPublicVisibilityValueFallbackTriggers = (): HTMLElement[] => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return [];
@@ -3424,7 +3438,7 @@ const selectPrivateVisibilityControl = async (
     await sleep(300);
     return visiblePrivateOption;
   }
-  const triggers = findVisibilityTriggers();
+  const triggers = findVisibilityTriggersForSelection(options);
   if (triggers.length > 0) {
     const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
     if (openedOption) {
@@ -3441,7 +3455,7 @@ const selectPrivateVisibilityControl = async (
       await sleep(300);
       return privateOptionAfterDisclosure;
     }
-    const triggersAfterDisclosure = findVisibilityTriggers();
+    const triggersAfterDisclosure = findVisibilityTriggersForSelection(options);
     const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(
       triggersAfterDisclosure,
       options,
@@ -3591,7 +3605,7 @@ const selectPrivateVisibilityControlAfterBoundedScroll = async (
       await sleep(300);
       return visiblePrivateOption;
     }
-    const triggers = findVisibilityTriggers();
+    const triggers = findVisibilityTriggersForSelection(options);
     const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
     if (openedOption) {
       return openedOption;
@@ -3600,7 +3614,7 @@ const selectPrivateVisibilityControlAfterBoundedScroll = async (
       return null;
     }
     if (await openVisibilitySettingsDisclosure()) {
-      const triggersAfterDisclosure = findVisibilityTriggers();
+      const triggersAfterDisclosure = findVisibilityTriggersForSelection(options);
       const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(
         triggersAfterDisclosure,
         options,
