@@ -4477,4 +4477,24 @@ describe("extension build contract", () => {
     expect(detailCapture).toContain("parsed.hostname === XHS_READ_API_DOMAIN");
     expect(detailCapture).not.toContain("parsed.hostname === XHS_READ_DOMAIN");
   });
+
+  it("reuses active publish identity debugger capture before attaching for visibility clicks", () => {
+    const backgroundSource = fs.readFileSync(backgroundSourcePath, "utf8");
+    const visibilityClickDispatcher = backgroundSource.match(
+      /async #dispatchXhsControlledVisibilityDebuggerClick\([\s\S]*?async #dispatchXhsResultCardDomClick/
+    )?.[0];
+    const publishIdentityCaptureController = backgroundSource.match(
+      /const controller: XhsControlledPublishResultIdentityCaptureController = \{[\s\S]*?this\.#controlledPublishResultIdentityCapturesByTab\.set\(tabId, controller\);/
+    )?.[0];
+
+    expect(visibilityClickDispatcher).toContain(
+      "this.#controlledPublishResultIdentityCapturesByTab.get(tabId)"
+    );
+    expect(visibilityClickDispatcher).toContain("existingCapture.dispatchMouseClick");
+    expect(visibilityClickDispatcher?.indexOf("existingCapture.dispatchMouseClick")).toBeLessThan(
+      visibilityClickDispatcher?.indexOf("debuggerApi.attach") ?? -1
+    );
+    expect(publishIdentityCaptureController).toContain("dispatchMouseClick");
+    expect(publishIdentityCaptureController).toContain("#dispatchEditorInputDebuggerClick");
+  });
 });

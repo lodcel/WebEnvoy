@@ -150,6 +150,22 @@ type VisibilityControlSelectionResult = {
   optionLocator: string | null;
 };
 
+type XhsControlledVisibilityDebuggerClickMessage = {
+  kind: "xhs-controlled-live-write-visibility-debugger-click";
+  locator: string;
+  center_x: number;
+  center_y: number;
+  run_id: string;
+  action_ref: string;
+  timeout_ms?: number;
+};
+
+type XhsControlledVisibilityDebuggerClickResponse = {
+  ok: boolean;
+  result?: Record<string, unknown>;
+  error?: { code?: string; message?: string };
+};
+
 const visibilitySelectionSuccess = (
   selectedOption: HTMLElement,
   openedDropdown: boolean,
@@ -176,6 +192,150 @@ const visibilitySelectionBlocked = (
   triggerCount,
   optionLocator: null
 });
+
+const elementCenterCoordinates = (element: HTMLElement): { centerX: number; centerY: number } | null => {
+  const rect = element.getBoundingClientRect();
+  const width = Number.isFinite(rect.width) ? rect.width : 0;
+  const height = Number.isFinite(rect.height) ? rect.height : 0;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  const left = Number.isFinite(rect.left) ? rect.left : 0;
+  const top = Number.isFinite(rect.top) ? rect.top : 0;
+  return {
+    centerX: Math.max(0, Math.floor(left + width / 2)),
+    centerY: Math.max(0, Math.floor(top + height / 2))
+  };
+};
+
+const requestVisibilityDebuggerClickViaExtension = async (input: {
+  target: HTMLElement;
+  runId: string;
+  actionRef: string;
+  timeoutMs?: number;
+}): Promise<XhsControlledVisibilityDebuggerClickResponse> => {
+  const runtime = (globalThis as {
+    chrome?: {
+      runtime?: {
+        sendMessage?: (
+          message: XhsControlledVisibilityDebuggerClickMessage,
+          callback?: (response?: XhsControlledVisibilityDebuggerClickResponse) => void
+        ) => Promise<XhsControlledVisibilityDebuggerClickResponse | undefined> | void;
+        lastError?: { message?: string };
+      };
+    };
+  }).chrome?.runtime;
+  const sendMessage = runtime?.sendMessage;
+  if (!sendMessage) {
+    return {
+      ok: false,
+      error: {
+        code: "ERR_XHS_VISIBILITY_DEBUGGER_UNAVAILABLE",
+        message: "extension runtime.sendMessage is unavailable"
+      }
+    };
+  }
+  const coordinates = elementCenterCoordinates(input.target);
+  if (!coordinates) {
+    return {
+      ok: false,
+      error: {
+        code: "ERR_XHS_VISIBILITY_DEBUGGER_TARGET_GEOMETRY_MISSING",
+        message: "visibility debugger click target geometry is unavailable"
+      }
+    };
+  }
+  const request: XhsControlledVisibilityDebuggerClickMessage = {
+    kind: "xhs-controlled-live-write-visibility-debugger-click",
+    locator: locatorForElement(input.target),
+    center_x: coordinates.centerX,
+    center_y: coordinates.centerY,
+    run_id: input.runId,
+    action_ref: input.actionRef,
+    ...(typeof input.timeoutMs === "number" ? { timeout_ms: input.timeoutMs } : {})
+  };
+  try {
+    return await new Promise<XhsControlledVisibilityDebuggerClickResponse>((resolve, reject) => {
+      let settled = false;
+      const timeoutMs =
+        typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs) && input.timeoutMs > 0
+          ? Math.floor(input.timeoutMs)
+          : 3_000;
+      const resolveOnce = (message: XhsControlledVisibilityDebuggerClickResponse): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(message);
+      };
+      const rejectOnce = (error: unknown): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      };
+      const timer = setTimeout(() => {
+        resolveOnce({
+          ok: false,
+          error: {
+            code: "ERR_XHS_VISIBILITY_DEBUGGER_TIMEOUT",
+            message: `visibility debugger click timed out after ${timeoutMs}ms`
+          }
+        });
+      }, timeoutMs);
+      try {
+        const maybePromise = sendMessage(request, (message?: XhsControlledVisibilityDebuggerClickResponse) => {
+          const lastError = (globalThis as {
+            chrome?: { runtime?: { lastError?: { message?: string } } };
+          }).chrome?.runtime?.lastError;
+          if (lastError?.message) {
+            resolveOnce({
+              ok: false,
+              error: {
+                code: "ERR_XHS_VISIBILITY_DEBUGGER_FAILED",
+                message: lastError.message
+              }
+            });
+            return;
+          }
+          resolveOnce(
+            message ?? {
+              ok: false,
+              error: {
+                code: "ERR_XHS_VISIBILITY_DEBUGGER_FAILED",
+                message: "response missing"
+              }
+            }
+          );
+        });
+        if (maybePromise && typeof (maybePromise as Promise<unknown>).then === "function") {
+          void (maybePromise as Promise<XhsControlledVisibilityDebuggerClickResponse | undefined>)
+            .then((message) => {
+              if (message) {
+                resolveOnce(message);
+              }
+            })
+            .catch((error) => {
+              rejectOnce(error);
+            });
+        }
+      } catch (error) {
+        rejectOnce(error);
+      }
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: "ERR_XHS_VISIBILITY_DEBUGGER_FAILED",
+        message: error instanceof Error ? error.message : String(error)
+      }
+    };
+  }
+};
 
 const FR0032_FIXTURE_IMAGE_A_REF = "media-ref/fr-0032/fixture-image-a";
 const FR0032_FIXTURE_IMAGE_A_DIGEST =
@@ -3809,6 +3969,7 @@ const resolveNestedVisibilityActivationTargets = (trigger: HTMLElement): HTMLEle
 };
 
 type VisibilityControlSelectionOptions = {
+  runId?: string;
   deadlineMs?: number;
   maxTriggerActivations?: number;
   openedOptionTimeoutMs?: number;
@@ -3885,6 +4046,41 @@ const clickFirstOpenedPrivateVisibilityOption = async (
       const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(activationTargetTimeoutMs, deadline);
       openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
       if (!openedPrivateOption && !openedDropdown && activationTargetIsXhsDSelect) {
+        if (triggerUsesTrustedPostUploadFallback && options.runId) {
+          const debuggerClick = await requestVisibilityDebuggerClickViaExtension({
+            target: activationTarget,
+            runId: options.runId,
+            actionRef: "fr-0032/publish_visibility/d-select-trigger",
+            timeoutMs: Math.min(openedOptionTimeoutMs, 1_500)
+          });
+          if (debuggerClick.ok) {
+            openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
+            const debuggerOpenedPrivateOption = await waitForOpenedPrivateVisibilityOption(
+              Math.min(openedOptionTimeoutMs, 1_200),
+              deadline
+            );
+            openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
+            if (debuggerOpenedPrivateOption && typeof debuggerOpenedPrivateOption.click === "function") {
+              const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(debuggerOpenedPrivateOption);
+              optionClickTarget.click();
+              await sleep(300);
+              const selectedSignal = elementTextSignal(debuggerOpenedPrivateOption);
+              if (
+                hasPrivateVisibilitySignal(selectedSignal) &&
+                !hasPublicVisibilitySignal(selectedSignal) &&
+                (!openedDropdown || hasConfirmedPrivateVisibilitySelection(trigger))
+              ) {
+                return visibilitySelectionSuccess(optionClickTarget, openedDropdown, boundedTriggers.length);
+              }
+              return visibilitySelectionBlocked(
+                "PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED",
+                "publish_visibility_option_selection_failed",
+                openedDropdown,
+                boundedTriggers.length
+              );
+            }
+          }
+        }
         activationTarget.click();
         openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
         const clickOpenedPrivateOption = await waitForOpenedPrivateVisibilityOption(
@@ -4423,6 +4619,7 @@ const performControlledSubmitPublishCleanup = async (
   const continuationVisibilitySelectionOptions: VisibilityControlSelectionOptions =
     input.background_upload_capture_continuation === true || acceptedUploadResume
       ? {
+          runId: input.run_id,
           deadlineMs: 12_000,
           maxTriggerActivations: 4,
           openedOptionTimeoutMs: 1_200,

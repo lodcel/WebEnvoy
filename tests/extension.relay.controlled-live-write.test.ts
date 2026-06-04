@@ -9552,6 +9552,281 @@ it("stops before submit when the XHS d-select option click does not update the v
   }
 });
 
+it("uses a controlled debugger click when trusted XHS visibility d-select DOM activation does not open the portal", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalPointerEvent = globalThis.PointerEvent;
+  const originalChrome = (globalThis as { chrome?: unknown }).chrome;
+
+  const debuggerRequests: Record<string, unknown>[] = [];
+  let opened = false;
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    parentElement: TestElement | null = null;
+    children: TestElement[] = [];
+    disabled = false;
+    clicked = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter((item) => item.length > 0);
+      this.id = attributes.id ?? "";
+      this.tagName = attributes.tagName ?? "DIV";
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click = () => {
+      this.clicked = true;
+      if (this.className.includes("custom-option")) {
+        dSelectWrapper.textContent = "仅自己可见";
+      }
+    };
+    getBoundingClientRect = () => ({ left: 260, top: 600, width: 160, height: 36 });
+    querySelectorAll = () => {
+      const descendants: TestElement[] = [];
+      const visit = (element: TestElement) => {
+        for (const child of element.children) {
+          descendants.push(child);
+          visit(child);
+        }
+      };
+      visit(this);
+      return descendants;
+    };
+  }
+
+  const editorRoot = new TestElement("发布设置 公开可见", {
+    class: "publish-page-content-content-extra"
+  });
+  const settingContent = new TestElement("可见范围 公开", {
+    class: "publish-page-content-setting-content"
+  });
+  const dSelectWrapper = new TestElement("公开可见", {
+    class: "d-select-wrapper d-inline-block custom-select-44",
+    tabindex: "0"
+  });
+  const dSelect = new TestElement("公开可见", {
+    class: "d-select --color-text-title --color-bg-fill"
+  });
+  const portal = new TestElement("仅自己可见", {
+    class: "d-popover d-popover-default d-dropdown"
+  });
+  const dropdownWrapper = new TestElement("仅自己可见", {
+    class: "d-dropdown-wrapper"
+  });
+  const optionsWrapper = new TestElement("仅自己可见", {
+    class: "d-options-wrapper"
+  });
+  const privateOption = new TestElement("仅自己可见", {
+    class: "custom-option --color-bg-fill-light --color-text-title"
+  });
+  const optionName = new TestElement("仅自己可见", {
+    class: "name"
+  });
+
+  settingContent.parentElement = editorRoot;
+  dSelectWrapper.parentElement = settingContent;
+  dSelect.parentElement = dSelectWrapper;
+  portal.parentElement = editorRoot;
+  dropdownWrapper.parentElement = portal;
+  optionsWrapper.parentElement = dropdownWrapper;
+  privateOption.parentElement = optionsWrapper;
+  optionName.parentElement = privateOption;
+  editorRoot.children = [settingContent, portal];
+  settingContent.children = [dSelectWrapper];
+  dSelectWrapper.children = [dSelect];
+  portal.children = [dropdownWrapper];
+  dropdownWrapper.children = [optionsWrapper];
+  optionsWrapper.children = [privateOption];
+  privateOption.children = [optionName];
+  const allElements = [
+    editorRoot,
+    settingContent,
+    dSelectWrapper,
+    dSelect,
+    portal,
+    dropdownWrapper,
+    optionsWrapper,
+    privateOption,
+    optionName
+  ];
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: (element: TestElement) => {
+      const isDropdownElement =
+        element === portal ||
+        element === dropdownWrapper ||
+        element === optionsWrapper ||
+        element === privateOption ||
+        element === optionName;
+      return {
+        display: isDropdownElement && !opened ? "none" : "block",
+        visibility: isDropdownElement && !opened ? "hidden" : "visible",
+        opacity: isDropdownElement && !opened ? "0" : "1"
+      };
+    }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: editorRoot,
+      querySelectorAll: (selector: string) => {
+        if (
+          selector.includes("button") &&
+          !selector.includes("select") &&
+          !selector.includes("dropdown") &&
+          !selector.includes("option") &&
+          !selector.includes("visibility") &&
+          !selector.includes("privacy") &&
+          !selector.includes("permission")
+        ) {
+          return [];
+        }
+        return allElements;
+      }
+    }
+  });
+  (globalThis as {
+    chrome?: {
+      runtime?: {
+        sendMessage?: (
+          message: Record<string, unknown>,
+          callback?: (response?: Record<string, unknown>) => void
+        ) => void;
+      };
+    };
+  }).chrome = {
+    runtime: {
+      sendMessage: (message, callback) => {
+        debuggerRequests.push(message);
+        if (message.kind === "xhs-controlled-live-write-visibility-debugger-click") {
+          opened = true;
+          callback?.({
+            ok: true,
+            result: {
+              action: "controlled_live_write_visibility_click",
+              target_tab_id: 32
+            }
+          });
+          return;
+        }
+        callback?.({
+          ok: false,
+          error: {
+            code: "ERR_UNEXPECTED_MESSAGE",
+            message: "unexpected message"
+          }
+        });
+      }
+    }
+  };
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-issue1067-d-select-debugger-click",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1067-d-select-debugger-click",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/issue1067-d-select-debugger-click",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload-d4.xhscdn.com/spectrum/issue1067-d-select-debugger-click",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-04T00:00:00.000Z",
+        preview_diagnostics: null
+      },
+      background_upload_capture_continuation: true
+    });
+
+    expect(debuggerRequests).toEqual([
+      expect.objectContaining({
+        kind: "xhs-controlled-live-write-visibility-debugger-click",
+        locator: "div.d-select-wrapper",
+        center_x: 340,
+        center_y: 618,
+        run_id: "run-xhs-issue-1067-d-select-debugger-click",
+        action_ref: "fr-0032/publish_visibility/d-select-trigger"
+      })
+    ]);
+    expect(privateOption.clicked).toBe(true);
+    expect(dSelectWrapper.textContent).toBe("仅自己可见");
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      upload_success: true,
+      submit_success: false,
+      publish_success: false
+    });
+    expect(JSON.stringify(result.live_write_evaluation)).not.toContain(
+      "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED"
+    );
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "PointerEvent", {
+      configurable: true,
+      value: originalPointerEvent
+    });
+    (globalThis as { chrome?: unknown }).chrome = originalChrome;
+  }
+});
+
 it("does not activate the content type declaration d-select when visibility d-select is absent", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
