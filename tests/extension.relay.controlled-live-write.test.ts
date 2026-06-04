@@ -3820,7 +3820,14 @@ it("opens creator d-select visibility controls inside publish settings when labe
   const originalHTMLElement = globalThis.HTMLElement;
   const originalGetComputedStyle = globalThis.getComputedStyle;
   const originalWindow = globalThis.window;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalPointerEvent = globalThis.PointerEvent;
   const originalChromeDescriptor = Object.getOwnPropertyDescriptor(globalThis, "chrome");
+  class TestMouseEvent extends Event {
+    constructor(type: string, init?: EventInit) {
+      super(type, { bubbles: init?.bubbles, cancelable: init?.cancelable });
+    }
+  }
   class TestElement {
     id = "";
     tagName = "DIV";
@@ -3839,7 +3846,14 @@ it("opens creator d-select visibility controls inside publish settings when labe
       }
       return null;
     };
-    getBoundingClientRect = () => ({ width: 128, height: 32 });
+    getBoundingClientRect = () => ({ left: 40, top: 80, width: 128, height: 32 });
+    dispatchEvent = (event: Event) => {
+      if ((this.className.includes("d-select") || this.className === "wrapper") && event.type === "mousedown") {
+        privateOptionVisible = true;
+        clickOrder.push("visibility-select");
+      }
+      return true;
+    };
     querySelectorAll = () => {
       const descendants: TestElement[] = [];
       const visit = (element: TestElement) => {
@@ -3911,6 +3925,14 @@ it("opens creator d-select visibility controls inside publish settings when labe
     configurable: true,
     value: () => ({ display: "block", visibility: "visible", opacity: "1" })
   });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
@@ -3961,7 +3983,7 @@ it("opens creator d-select visibility controls inside publish settings when labe
       }
     });
 
-    expect(selectWrapper.clicked).toBe(true);
+    expect(privateOptionVisible).toBe(true);
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(clickOrder).toEqual(["visibility-select", "private-option", "submit"]);
@@ -3991,6 +4013,14 @@ it("opens creator d-select visibility controls inside publish settings when labe
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: originalWindow
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "PointerEvent", {
+      configurable: true,
+      value: originalPointerEvent
     });
     if (originalChromeDescriptor) {
       Object.defineProperty(globalThis, "chrome", originalChromeDescriptor);
@@ -6605,10 +6635,14 @@ it("opens XHS d-select visibility dropdown with keyboard activation when pointer
     expect(opened).toBe(true);
     expect(dSelect.focused).toBe(true);
     expect(dSelect.dispatched).toEqual([
+      "pointerover",
+      "mouseover",
+      "pointermove",
+      "mousemove",
       "pointerdown",
       "mousedown",
-      "mouseup",
       "pointerup",
+      "mouseup",
       "keydown",
       "keyup",
       "keydown",
@@ -6820,7 +6854,7 @@ it("prioritizes post-upload XHS d-select visibility trigger before generic setti
     });
 
     expect(genericSettings.filter((element) => element.clicked)).toHaveLength(0);
-    expect(wrapper.clicked).toBe(true);
+    expect(wrapper.dispatched).toContain("mousedown");
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(result.live_write_evaluation).toMatchObject({
@@ -7032,7 +7066,7 @@ it("prioritizes XHS d-select before generic public visibility setting candidates
     });
 
     expect(genericPublicSettings.filter((element) => element.clicked).length).toBeLessThanOrEqual(1);
-    expect(wrapper.clicked).toBe(true);
+    expect(wrapper.dispatched).toContain("mousedown");
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(result.live_write_evaluation).toMatchObject({
@@ -7524,12 +7558,319 @@ it("opens the XHS d-select portal and selects the private option from the #1042 
 
     expect(opened).toBe(true);
     expect(contentTypeDeclarationSelect.clicked).toBe(false);
-    expect(dSelectWrapper.clicked || dSelect.clicked).toBe(true);
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(clickOrder).toContain("trigger");
     expect(clickOrder).toContain("private-option");
     expect(clickOrder).toContain("submit");
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+        })
+      ]
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "PointerEvent", {
+      configurable: true,
+      value: originalPointerEvent
+    });
+  }
+});
+
+it("opens post-upload XHS d-select when only the real inner target receives pointer metadata", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalPointerEvent = globalThis.PointerEvent;
+
+  let opened = false;
+  const clickOrder: string[] = [];
+  class TestMouseEvent extends Event {
+    button: number | undefined;
+    buttons: number | undefined;
+    clientX: number | undefined;
+    clientY: number | undefined;
+    constructor(type: string, init?: MouseEventInit) {
+      super(type, { bubbles: init?.bubbles, cancelable: init?.cancelable });
+      this.button = init?.button;
+      this.buttons = init?.buttons;
+      this.clientX = init?.clientX;
+      this.clientY = init?.clientY;
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    parentElement: TestElement | null = null;
+    children: TestElement[] = [];
+    disabled = false;
+    clicked = false;
+    dispatched: string[] = [];
+    textContent: string;
+    attributes: Record<string, string>;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter((item) => item.length > 0);
+      this.id = attributes.id ?? "";
+      this.tagName = attributes.tagName ?? "DIV";
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent(event: Event) {
+      this.dispatched.push(event.type);
+      const mouseEvent = event as TestMouseEvent;
+      if (
+        this.className.includes("d-select-main") &&
+        event.type === "mousedown" &&
+        mouseEvent.button === 0 &&
+        mouseEvent.buttons === 1 &&
+        typeof mouseEvent.clientX === "number" &&
+        mouseEvent.clientX > 0 &&
+        typeof mouseEvent.clientY === "number" &&
+        mouseEvent.clientY > 0
+      ) {
+        opened = true;
+        clickOrder.push("inner-pointer-target");
+      }
+      if (this.className.includes("d-select-main") && event.type === "click") {
+        opened = false;
+        clickOrder.push("inner-toggle-click-closed");
+      }
+      return true;
+    }
+    focus = () => undefined;
+    click = () => {
+      this.clicked = true;
+      if (this.className.includes("d-select-main")) {
+        opened = false;
+        clickOrder.push("inner-native-click-closed");
+      }
+      if (this.className.includes("custom-option")) {
+        dSelectWrapper.textContent = "仅自己可见";
+        dSelect.textContent = "仅自己可见";
+        dSelectMain.textContent = "仅自己可见";
+        dText.textContent = "仅自己可见";
+        clickOrder.push("private-option");
+      }
+    };
+    getBoundingClientRect = () => ({ left: 40, top: 80, width: 120, height: 32 });
+    querySelectorAll = () => {
+      const descendants: TestElement[] = [];
+      const visit = (element: TestElement) => {
+        for (const child of element.children) {
+          descendants.push(child);
+          visit(child);
+        }
+      };
+      visit(this);
+      return descendants;
+    };
+  }
+
+  const editorRoot = new TestElement("发布设置", {
+    class: "publish-page-content-content-extra"
+  });
+  const settingContent = new TestElement("发布设置项", {
+    class: "publish-page-content-setting-content"
+  });
+  const localWrapper = new TestElement("当前选项", {
+    class: "wrapper"
+  });
+  const dSelectWrapper = new TestElement("当前选项", {
+    class: "d-select-wrapper d-inline-block custom-select-44",
+    tabindex: "0"
+  });
+  const dSelect = new TestElement("当前选项", {
+    class: "d-select --color-text-title --color-bg-fill"
+  });
+  const dSelectMain = new TestElement("当前选项", {
+    class: "d-select-main d-select-main-prefix-indicator --color-text-title"
+  });
+  const dText = new TestElement("当前选项", {
+    class: "d-text d-select-placeholder d-text-ellipsis d-text-nowrap"
+  });
+  const portal = new TestElement("仅自己可见", {
+    class: "d-popover d-popover-default d-dropdown"
+  });
+  const dropdownWrapper = new TestElement("仅自己可见", {
+    class: "d-dropdown-wrapper"
+  });
+  const dropdownContent = new TestElement("仅自己可见", {
+    class: "d-dropdown-content"
+  });
+  const optionsWrapper = new TestElement("仅自己可见", {
+    class: "d-options-wrapper"
+  });
+  const privateOption = new TestElement("仅自己可见", {
+    class: "custom-option --color-bg-fill-light --color-text-title"
+  });
+  const optionName = new TestElement("仅自己可见", {
+    class: "name"
+  });
+  const submit = new TestElement("发布", {
+    tagName: "BUTTON",
+    class: "publish-button"
+  });
+
+  settingContent.parentElement = editorRoot;
+  localWrapper.parentElement = settingContent;
+  dSelectWrapper.parentElement = localWrapper;
+  dSelect.parentElement = dSelectWrapper;
+  dSelectMain.parentElement = dSelect;
+  dText.parentElement = dSelectMain;
+  portal.parentElement = editorRoot;
+  dropdownWrapper.parentElement = portal;
+  dropdownContent.parentElement = dropdownWrapper;
+  optionsWrapper.parentElement = dropdownContent;
+  privateOption.parentElement = optionsWrapper;
+  optionName.parentElement = privateOption;
+  submit.parentElement = editorRoot;
+  editorRoot.children = [settingContent, portal, submit];
+  settingContent.children = [localWrapper];
+  localWrapper.children = [dSelectWrapper];
+  dSelectWrapper.children = [dSelect];
+  dSelect.children = [dSelectMain];
+  dSelectMain.children = [dText];
+  portal.children = [dropdownWrapper];
+  dropdownWrapper.children = [dropdownContent];
+  dropdownContent.children = [optionsWrapper];
+  optionsWrapper.children = [privateOption];
+  privateOption.children = [optionName];
+  submit.click = () => {
+    submit.clicked = true;
+    clickOrder.push("submit");
+  };
+
+  const allElements = [
+    editorRoot,
+    settingContent,
+    localWrapper,
+    dSelectWrapper,
+    dSelect,
+    dSelectMain,
+    dText,
+    portal,
+    dropdownWrapper,
+    dropdownContent,
+    optionsWrapper,
+    privateOption,
+    optionName,
+    submit
+  ];
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: (element: TestElement) => {
+      const isDropdownElement =
+        element === portal ||
+        element === dropdownWrapper ||
+        element === dropdownContent ||
+        element === optionsWrapper ||
+        element === privateOption ||
+        element === optionName;
+      return {
+        display: isDropdownElement && !opened ? "none" : "block",
+        visibility: isDropdownElement && !opened ? "hidden" : "visible",
+        opacity: isDropdownElement && !opened ? "0" : "1"
+      };
+    }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: editorRoot,
+      querySelectorAll: (selector: string) => {
+        if (
+          selector.includes("button") &&
+          !selector.includes("select") &&
+          !selector.includes("dropdown") &&
+          !selector.includes("option") &&
+          !selector.includes("visibility") &&
+          !selector.includes("privacy") &&
+          !selector.includes("permission")
+        ) {
+          return [submit];
+        }
+        return allElements;
+      }
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-issue1052-d-select-inner-pointer-target",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1052-d-select-inner-pointer-target",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/issue1052-d-select-inner-pointer",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload-d4.xhscdn.com/spectrum/issue1052-d-select-inner",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-04T00:00:00.000Z",
+        preview_diagnostics: null
+      },
+      background_upload_capture_continuation: true
+    });
+
+    expect(opened).toBe(true);
+    expect(clickOrder).toContain("inner-pointer-target");
+    expect(clickOrder).not.toContain("inner-toggle-click-closed");
+    expect(clickOrder).not.toContain("inner-native-click-closed");
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
     expect(result.live_write_evaluation).toMatchObject({
       decision: "NO_GO",
       upload_success: true,
@@ -7799,7 +8140,7 @@ it("uses the post-upload d-select structural fallback when public visibility tex
     });
 
     expect(opened).toBe(true);
-    expect(dSelectWrapper.clicked || dSelect.clicked || dGrid.clicked).toBe(true);
+    expect(clickOrder.some((entry) => entry === "wrapper-trigger" || entry === "nested-trigger")).toBe(true);
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(clickOrder).toContain("private-option");
@@ -8049,7 +8390,7 @@ it("stops before submit when the XHS d-select option click does not update the v
     });
 
     expect(opened).toBe(true);
-    expect(dSelectWrapper.clicked || dSelect.clicked).toBe(true);
+    expect(clickOrder).toContain("trigger");
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(false);
     expect(clickOrder).toContain("trigger");
