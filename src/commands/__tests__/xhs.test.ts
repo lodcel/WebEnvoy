@@ -24,6 +24,7 @@ import {
 import { executeCommand } from "../../core/router.js";
 import { createCommandRegistry } from "../index.js";
 import { NativeMessagingBridge } from "../../runtime/native-messaging/bridge.js";
+import { FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST } from "../../../shared/fr0032-approved-source-media.js";
 import { createLoopbackNativeBridgeTransport } from "../../runtime/native-messaging/loopback.js";
 import { ProfileStore } from "../../runtime/profile-store.js";
 import {
@@ -9758,8 +9759,7 @@ describe("normalizeGateOptionsForContract", () => {
               input: {
                 live_write_attempt_id: "fr0032-attempt-bundle-001",
                 source_media_ref: "media-ref/fr-0032/fixture-image-a",
-                source_media_digest:
-                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
                 source_media_kind: "image"
               },
               target_domain: "creator.xiaohongshu.com",
@@ -9827,8 +9827,7 @@ describe("normalizeGateOptionsForContract", () => {
               input: {
                 live_write_attempt_id: "fr0032-attempt-shorthand-001",
                 source_media_ref: "media-ref/fr-0032/fixture-image-a",
-                source_media_digest:
-                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
                 source_media_kind: "image"
               },
               target_domain: "creator.xiaohongshu.com",
