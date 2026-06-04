@@ -9089,6 +9089,29 @@ const findPlainPublicVisibilityValueFallbackTriggers = () => {
         return resolvePlainPublicVisibilityClickTarget(element);
     }));
 };
+const visibilityActivationEventInit = (element, eventName) => {
+    const rect = element.getBoundingClientRect();
+    const clientX = Math.max(0, Math.floor(rect.left + rect.width / 2));
+    const clientY = Math.max(0, Math.floor(rect.top + rect.height / 2));
+    const isDownEvent = /down/iu.test(eventName);
+    const isMoveOrOverEvent = /move|over/iu.test(eventName);
+    return {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: typeof window !== "undefined" ? window : null,
+        detail: eventName === "click" ? 1 : 0,
+        button: 0,
+        buttons: isDownEvent || isMoveOrOverEvent ? 1 : 0,
+        clientX,
+        clientY,
+        screenX: clientX,
+        screenY: clientY,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true
+    };
+};
 const dispatchVisibilityActivationEvent = (element, eventName) => {
     if (typeof element.dispatchEvent !== "function") {
         return;
@@ -9099,7 +9122,7 @@ const dispatchVisibilityActivationEvent = (element, eventName) => {
             : typeof MouseEvent === "function"
                 ? MouseEvent
                 : Event;
-        element.dispatchEvent(new EventCtor(eventName, { bubbles: true, cancelable: true }));
+        element.dispatchEvent(new EventCtor(eventName, visibilityActivationEventInit(element, eventName)));
     }
     catch {
         // Some test/runtime shims expose partial event constructors. The native click below remains the fallback.
@@ -9123,11 +9146,31 @@ const isSelectLikeVisibilityActivationTarget = (element) => {
     const signal = `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""} ${visibilityStructuralSignal(element)}`;
     return /combobox|listbox|select|dropdown|permission-card|d-select|reds-select|el-select|semi-select|ant-select/iu.test(signal);
 };
+const isXhsDSelectActivationTarget = (element) => {
+    const signal = visibilityStructuralSignal(element);
+    return (!/permission-card/iu.test(signal) &&
+        /(^|[\s_-])d-select($|[\s_-])|d-select-wrapper|d-select-main|d-select-content|d-select-placeholder/iu.test(signal));
+};
 const activateVisibilityTrigger = (trigger) => {
-    for (const eventName of ["pointerdown", "mousedown", "mouseup", "pointerup"]) {
+    const isXhsDSelectTarget = isXhsDSelectActivationTarget(trigger);
+    const eventNames = isXhsDSelectTarget
+        ? [
+            "pointerover",
+            "mouseover",
+            "pointermove",
+            "mousemove",
+            "pointerdown",
+            "mousedown",
+            "pointerup",
+            "mouseup"
+        ]
+        : ["pointerdown", "mousedown", "mouseup", "pointerup"];
+    for (const eventName of eventNames) {
         dispatchVisibilityActivationEvent(trigger, eventName);
     }
-    trigger.click();
+    if (!isXhsDSelectTarget) {
+        trigger.click();
+    }
     if (!isSelectLikeVisibilityActivationTarget(trigger)) {
         return;
     }
@@ -9150,6 +9193,10 @@ const nestedVisibilityActivationSelector = [
     '[class*="current" i]',
     '[class*="value" i]',
     '[class*="grid" i]',
+    '[class*="d-select-main" i]',
+    '[class*="d-select-content" i]',
+    '[class*="d-select-placeholder" i]',
+    '[class*="d-text" i]',
     '[tabindex]',
     "button",
     "label",
