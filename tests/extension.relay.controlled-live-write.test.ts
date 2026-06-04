@@ -382,6 +382,112 @@ it("extracts a trusted private platform publish record from the creator submit r
   });
 });
 
+it("extracts a trusted post-submit note id from the v2 creator submit response shape", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/galaxy/v2/creator/note/user/post",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-04T22:07:14.000Z",
+    body: {
+      success: true,
+      data: {
+        id: "64b7d8ef000000001f03981",
+        publish_id: "publish-task-64b7d8ef000000001f03981",
+        status: "submitted"
+      }
+    }
+  });
+
+  expect(capture).toMatchObject({
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    publish_visibility_scope: null,
+    publish_visibility_proof_locator: null,
+    url: "https://creator.xiaohongshu.com/api/galaxy/v2/creator/note/user/post"
+  });
+});
+
+it("does not observe creator submit publish result identity from GET responses", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/galaxy/v2/creator/note/user/post",
+    method: "GET",
+    status: 200,
+    captured_at: "2026-06-04T22:07:14.000Z",
+    body: {
+      success: true,
+      data: {
+        id: "64b7d8ef000000001f03981"
+      }
+    }
+  });
+
+  expect(capture).toBeNull();
+});
+
+it("does not recursively treat nested generic ids as post-submit note ids", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/galaxy/v2/creator/note/user/post",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-04T22:07:14.000Z",
+    body: {
+      success: true,
+      data: {
+        media: {
+          id: "64b7d8ef000000001f03981"
+        },
+        user: {
+          id: "64b7d8ef000000001f03982"
+        }
+      }
+    }
+  });
+
+  expect(capture).toBeNull();
+});
+
+it("extracts an unbound platform publish record only from creator submit endpoints", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/galaxy/v2/creator/note/user/post",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-04T22:07:14.000Z",
+    body: {
+      success: true,
+      data: {
+        publish_id: "publish-task-64b7d8ef000000001f03981"
+      }
+    }
+  });
+
+  expect(capture).toMatchObject({
+    result_kind: "platform_publish_record",
+    note_id: null,
+    published_url: null,
+    platform_record_ref: "publish-task-64b7d8ef000000001f03981",
+    publish_visibility_scope: null,
+    publish_visibility_proof_locator: null
+  });
+
+  const adjacentCapture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/creator/publish/result",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-04T22:07:14.000Z",
+    body: {
+      success: true,
+      data: {
+        publish_id: "publish-task-64b7d8ef000000001f03981"
+      }
+    }
+  });
+
+  expect(adjacentCapture).toBeNull();
+});
+
 it("records publish identity capture without advancing closeout state when debugger captures a trusted post-submit note id", () => {
   const baseResult = {
     live_write_action: "controlled_upload_submit_publish",
@@ -814,7 +920,117 @@ it("finalizes background identity capture from a trusted private platform publis
   });
 });
 
-it("does not promote publish identity evidence without platform visibility proof", () => {
+it("finalizes trusted background identity when the same controlled flow already proved private visibility", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1071-unbound-identity",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      stop_classification: {
+        publish_visibility_scope: "private_or_self_visible"
+      },
+      scope: {
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        run_id: "run-xhs-issue-1071-unbound-identity"
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/unbound-identity",
+        accepted_by_platform: true
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/unbound-identity",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-04T22:07:13.802Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        proof_locator: "div.custom-option",
+        residual_record: {
+          visibility_scope: "private_or_self_visible"
+        }
+      },
+      risk_signals: [{ kind: "publish_identity_missing" }],
+      stop_signal: {
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      },
+      residual_record: {
+        reason: "identity_missing_after_publish",
+        visibility_scope: "private_or_self_visible"
+      }
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      blockers: [
+        {
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity"
+        }
+      ]
+    }
+  } as const;
+
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    creator_result_url: null,
+    platform_record_ref: null,
+    publish_visibility_scope: null,
+    publish_visibility_proof_locator: null,
+    url: "https://creator.xiaohongshu.com/api/galaxy/v2/creator/note/user/post",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-04T22:07:14.000Z"
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "GO",
+    publish_success: true,
+    cleanup_success: true,
+    blockers: []
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    execution_phase: "closed",
+    publish_result_identity_capture: expect.objectContaining({
+      note_id: "64b7d8ef000000001f03981",
+      publish_visibility_scope: null
+    }),
+    publish_result_identity: expect.objectContaining({
+      result_kind: "note_id",
+      note_id: "64b7d8ef000000001f03981",
+      publish_visibility_scope: "private_or_self_visible",
+      verification_state: "verified"
+    }),
+    cleanup_result: expect.objectContaining({
+      cleanup_action: "hide_published_result",
+      cleanup_outcome: "hidden",
+      proof_locator: "div.custom-option",
+      residual_record: null
+    }),
+    risk_signals: [],
+    stop_signal: null,
+    residual_record: null
+  });
+});
+
+it("does not promote publish identity evidence without private visibility proof", () => {
   const baseResult = {
     live_write_action: "controlled_upload_submit_publish",
     target_page: "creator_publish_tab",
@@ -871,7 +1087,7 @@ it("does not promote publish identity evidence without platform visibility proof
     }
   } as const;
 
-  const result = applyXhsControlledPublishResultIdentityCapture(baseResult, {
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
     source: "chrome_debugger_network",
     evidence_basis: "trusted_platform_response_body",
     result_kind: "note_id",
