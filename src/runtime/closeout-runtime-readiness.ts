@@ -14,7 +14,12 @@ export type CloseoutRuntimeBlockerCode =
 export interface CloseoutRuntimeReadinessPreflight {
   decision: CloseoutRuntimePreflightDecision;
   runtime_state: "ready" | "recoverable" | "blocked";
-  recovery_mode: "none" | "ready_attach" | "recoverable_rebind" | "stale_bootstrap_rebind";
+  recovery_mode:
+    | "none"
+    | "ready_attach"
+    | "recoverable_rebind"
+    | "stale_bootstrap_rebind"
+    | "pending_bootstrap_attach";
   blocker: {
     blocker_layer: "runtime_readiness";
     blocker_code: CloseoutRuntimeBlockerCode;
@@ -299,6 +304,27 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       decision: "RECOVERABLE",
       runtime_state: "recoverable",
       recovery_mode: "ready_attach",
+      blocker: null,
+      ...base
+    };
+  }
+
+  if (
+    !lockHeld &&
+    takeoverEvidence?.pendingBootstrapRecoverable === true &&
+    takeoverEvidence?.ownerConflictFree === true &&
+    takeoverEvidence?.controllerBrowserContinuity === true &&
+    takeoverEvidence?.transportBootstrapViable === true &&
+    targetBinding.requested === true &&
+    targetBinding.state === "verified" &&
+    transportState === "ready" &&
+    (bootstrapState === "not_started" || bootstrapState === "pending") &&
+    officialRealBrowserSurface
+  ) {
+    return {
+      decision: "RECOVERABLE",
+      runtime_state: "recoverable",
+      recovery_mode: "pending_bootstrap_attach",
       blocker: null,
       ...base
     };

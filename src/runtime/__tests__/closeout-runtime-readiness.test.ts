@@ -235,6 +235,56 @@ describe("closeout runtime readiness preflight", () => {
     });
   });
 
+  it("returns RECOVERABLE for a verified target whose official runtime still needs bootstrap", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        params: {
+          requested_at: "2026-06-04T03:21:00.000Z",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 1230480255,
+          target_page: "creator_publish_tab"
+        },
+        status: {
+          ...readyStatus(),
+          lockHeld: false,
+          transportState: "ready",
+          bootstrapState: "not_started",
+          runtimeReadiness: "blocked",
+          runtimeTakeoverEvidence: {
+            identityBound: true,
+            ownerConflictFree: true,
+            controllerBrowserContinuity: true,
+            transportBootstrapViable: true,
+            mode: "pending_bootstrap_attach",
+            attachableReadyRuntime: false,
+            pendingBootstrapRecoverable: true,
+            orphanRecoverable: false,
+            staleBootstrapRecoverable: false,
+            freshness: "fresh",
+            observedRunId: "issue835-post1043-runtime-start-creator-r3",
+            runtimeContextId: buildRuntimeBootstrapContextId(
+              PROFILE,
+              "issue835-post1043-runtime-start-creator-r3"
+            ),
+            managedTargetTabId: 1230480255,
+            managedTargetDomain: "creator.xiaohongshu.com",
+            managedTargetPage: "creator_publish_tab",
+            targetTabContinuity: "runtime_trust_state"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "RECOVERABLE",
+      runtime_state: "recoverable",
+      recovery_mode: "pending_bootstrap_attach",
+      blocker: null,
+      target_binding: {
+        requested: true,
+        state: "verified"
+      }
+    });
+  });
+
   it("returns RECOVERABLE for fresh stale-bootstrap rebind evidence bound to the requested target", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({

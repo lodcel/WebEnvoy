@@ -162,6 +162,60 @@ const createTargetReadyRuntimeBridge = (input: {
   }
 });
 
+const createTargetPendingBootstrapRuntimeBridge = (input: {
+  targetTabId: number;
+  targetDomain: string;
+  targetPage: string;
+}) => ({
+  runCommand: async ({
+    command,
+    params,
+    profile,
+    runId
+  }: {
+    command: string;
+    params: Record<string, unknown>;
+    profile: string | null;
+    runId: string;
+  }) => {
+    if (command === "runtime.bootstrap") {
+      return {
+        ok: true as const,
+        payload: {
+          result: {
+            version: "v1",
+            run_id: runId,
+            runtime_context_id: String(params.runtime_context_id),
+            profile,
+            status: "ready"
+          }
+        },
+        relay_path: "host>background"
+      };
+    }
+    if (command === "runtime.readiness") {
+      const targetRequested = hasExplicitRuntimeTargetBinding(params);
+      return {
+        ok: true as const,
+        payload: {
+          bootstrap_state: "not_started",
+          transport_state: "ready",
+          ...(targetRequested
+            ? {
+                managed_target_tab_id: input.targetTabId,
+                managed_target_domain: input.targetDomain,
+                managed_target_page: input.targetPage,
+                target_tab_continuity: "runtime_trust_state"
+              }
+            : {})
+        },
+        relay_path: "host>background"
+      };
+    }
+    throw new Error(`unexpected bridge command: ${command}`);
+  }
+});
+
 const hasExplicitRuntimeTargetBinding = (params: Record<string, unknown>): boolean =>
   Object.prototype.hasOwnProperty.call(params, "target_domain") ||
   Object.prototype.hasOwnProperty.call(params, "target_tab_id") ||
@@ -3447,6 +3501,97 @@ describe("profile-runtime identity preflight", () => {
       runtimeReadiness: "pending",
       transportState: "ready",
       bootstrapState: "pending"
+    });
+  });
+
+  it("marks a verified target with pending bootstrap as safely attachable", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-pending-bootstrap-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "pending_bootstrap_attach_profile"
+    });
+    const service = createTestService({
+      bridgeFactory: () =>
+        createTargetPendingBootstrapRuntimeBridge({
+          targetTabId: 1230480255,
+          targetDomain: "creator.xiaohongshu.com",
+          targetPage: "creator_publish_tab"
+        })
+    });
+
+    await service.start({
+      cwd: baseDir,
+      profile: "pending_bootstrap_attach_profile",
+      runId: "run-runtime-pending-bootstrap-owner-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+    const profileDir = join(baseDir, ".webenvoy", "profiles", "pending_bootstrap_attach_profile");
+    await writeFile(
+      join(profileDir, BROWSER_STATE_FILENAME),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          launchToken: "pending-bootstrap-attach-token-001",
+          profileDir,
+          runId: "run-runtime-pending-bootstrap-owner-001",
+          browserPath: "/mock/chrome",
+          controllerPid: 999998,
+          browserPid: 999999,
+          launchedAt: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      service.status({
+        cwd: baseDir,
+        profile: "pending_bootstrap_attach_profile",
+        runId: "run-runtime-pending-bootstrap-next-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          },
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 1230480255,
+          target_page: "creator_publish_tab",
+          requested_at: "2026-06-04T03:21:00.000Z"
+        }
+      })
+    ).resolves.toMatchObject({
+      profileState: "ready",
+      lockHeld: false,
+      identityBindingState: "bound",
+      transportState: "ready",
+      bootstrapState: "not_started",
+      runtimeReadiness: "blocked",
+      runtimeTakeoverEvidence: expect.objectContaining({
+        mode: "pending_bootstrap_attach",
+        attachableReadyRuntime: false,
+        pendingBootstrapRecoverable: true,
+        orphanRecoverable: false,
+        staleBootstrapRecoverable: false,
+        ownerConflictFree: true,
+        controllerBrowserContinuity: true,
+        transportBootstrapViable: true,
+        managedTargetTabId: 1230480255,
+        managedTargetDomain: "creator.xiaohongshu.com",
+        managedTargetPage: "creator_publish_tab",
+        targetTabContinuity: "runtime_trust_state"
+      })
     });
   });
 

@@ -39,6 +39,7 @@ import {
 import {
   buildLocklessActiveRuntimeLock,
   buildRuntimeTakeoverEvidence,
+  canAttachPendingBootstrapRuntime,
   canAttachReadyRuntime,
   canAttachStaleBootstrapRuntime,
   parseBrowserInstanceState,
@@ -1211,6 +1212,17 @@ export class ProfileRuntimeService {
       targetPage: input.params.target_page,
       requestedAt: input.params.requested_at
     });
+    const pendingBootstrapRecoverable = canAttachPendingBootstrapRuntime({
+      healthyLock: accessState.healthyLock,
+      controlConnected: accessState.controlConnected,
+      profileState: accessState.profileState,
+      pinnedControllerPid,
+      readiness: observedTargetReadiness,
+      targetBindingComplete: hasCompleteRuntimeTargetBinding(input.params),
+      targetTabId: input.params.target_tab_id,
+      targetDomain: input.params.target_domain,
+      targetPage: input.params.target_page
+    });
     const attachableRecoverableRuntime =
       !accessState.lockHeld &&
       persistedLock !== null &&
@@ -1239,6 +1251,7 @@ export class ProfileRuntimeService {
       requestedTargetPage: input.params.target_page,
       readiness: evidenceReadiness,
       attachableReadyRuntime,
+      pendingBootstrapRecoverable,
       orphanRecoverable: attachableRecoverableRuntime,
       staleBootstrapRecoverable,
       pinnedControllerPid,
@@ -1391,6 +1404,17 @@ export class ProfileRuntimeService {
       targetPage: input.params.target_page,
       requestedAt: input.params.requested_at
     });
+    const attachablePendingBootstrapRuntime = canAttachPendingBootstrapRuntime({
+      healthyLock: accessState.healthyLock,
+      controlConnected: accessState.controlConnected,
+      profileState: accessState.profileState,
+      pinnedControllerPid,
+      readiness: observedTargetReadiness,
+      targetBindingComplete: hasCompleteRuntimeTargetBinding(input.params),
+      targetTabId: input.params.target_tab_id,
+      targetDomain: input.params.target_domain,
+      targetPage: input.params.target_page
+    });
     const attachableRecoverableRuntime =
       !lockRecoveredFromBrowserState &&
       (storedProfileState === "ready" || storedProfileState === "disconnected") &&
@@ -1399,7 +1423,8 @@ export class ProfileRuntimeService {
       preAttachReadiness.transportState !== "not_connected" &&
       preAttachReadiness.runtimeReadiness === "recoverable";
     const evidenceReadiness =
-      attachableStaleBootstrapRuntime && observedTargetReadiness !== null
+      (attachableStaleBootstrapRuntime || attachablePendingBootstrapRuntime) &&
+      observedTargetReadiness !== null
         ? observedTargetReadiness
         : attachableReadyRuntime && observedReadyAttachReadiness !== null
           ? observedReadyAttachReadiness
@@ -1417,6 +1442,7 @@ export class ProfileRuntimeService {
       requestedTargetPage: input.params.target_page,
       readiness: evidenceReadiness,
       attachableReadyRuntime,
+      pendingBootstrapRecoverable: attachablePendingBootstrapRuntime,
       orphanRecoverable: attachableRecoverableRuntime,
       staleBootstrapRecoverable: attachableStaleBootstrapRuntime,
       pinnedControllerPid,
@@ -1425,6 +1451,7 @@ export class ProfileRuntimeService {
     });
     if (
       !runtimeTakeoverEvidence.attachableReadyRuntime &&
+      !runtimeTakeoverEvidence.pendingBootstrapRecoverable &&
       !runtimeTakeoverEvidence.orphanRecoverable &&
       !runtimeTakeoverEvidence.staleBootstrapRecoverable
     ) {
@@ -1471,7 +1498,8 @@ export class ProfileRuntimeService {
       await store.writeMeta(input.profile, nextMeta);
     }
     const refreshTargetBootstrapOnAttach =
-      takeoverMode === "ready_attach" && hasCompleteRuntimeTargetBinding(input.params);
+      (takeoverMode === "ready_attach" || takeoverMode === "pending_bootstrap_attach") &&
+      hasCompleteRuntimeTargetBinding(input.params);
     const readiness =
       (takeoverMode === "stale_bootstrap_rebind" || refreshTargetBootstrapOnAttach) &&
       identityPreflight.identityBindingState === "bound"
