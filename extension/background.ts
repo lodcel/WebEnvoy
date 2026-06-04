@@ -58,6 +58,7 @@ import {
 } from "./xhs-command-contract.js";
 import {
   applyXhsControlledLiveWriteContinuationTimeout,
+  applyXhsControlledPublishResultIdentityCaptureStatus,
   applyXhsControlledUploadPlatformCapture,
   applyXhsControlledUploadPlatformCaptureStatus,
   decodeXhsControlledUploadNetworkResponseBody,
@@ -66,8 +67,10 @@ import {
   finalizeXhsControlledPublishResultIdentityCapture,
   isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
+  summarizeXhsControlledPublishIdentityObservedRequest,
   summarizeXhsControlledUploadObservedRequest,
   type XhsControlledPublishResultIdentityCapture,
+  type XhsControlledPublishResultIdentityCaptureStatus,
   type XhsControlledLiveWriteResult,
   type XhsControlledUploadPlatformCapture,
   type XhsControlledUploadPlatformCaptureStatus
@@ -407,9 +410,14 @@ type XhsControlledUploadPlatformCaptureProbeResult = {
 };
 
 type XhsControlledPublishResultIdentityCaptureController = {
-  read: () => Promise<Record<string, unknown> | null>;
+  read: () => Promise<XhsControlledPublishResultIdentityCaptureProbeResult>;
   dispatchMouseClick?: (target: EditorInputProbeTarget) => Promise<void>;
   stop: () => Promise<void>;
+};
+
+type XhsControlledPublishResultIdentityCaptureProbeResult = {
+  capture: Record<string, unknown> | null;
+  status: XhsControlledPublishResultIdentityCaptureStatus;
 };
 
 interface NativeHeartbeatMessage {
@@ -8030,11 +8038,31 @@ class ChromeBackgroundBridge {
     tabId: number,
     timeoutMs: number,
     signal?: AbortSignal
-  ): Promise<Record<string, unknown> | null> {
+  ): Promise<XhsControlledPublishResultIdentityCaptureProbeResult> {
     const debuggerApi = this.chromeApi.debugger;
     const onEvent = debuggerApi?.onEvent;
+    const statusAt = (input: {
+      status: XhsControlledPublishResultIdentityCaptureStatus["status"];
+      reason: string | null;
+      blockerCode: XhsControlledPublishResultIdentityCaptureStatus["blocker_code"];
+      observedRequests?: Record<string, unknown>[];
+    }): XhsControlledPublishResultIdentityCaptureStatus => ({
+      attempted: true,
+      status: input.status,
+      reason: input.reason,
+      blocker_code: input.blockerCode,
+      recorded_at: new Date().toISOString(),
+      ...(input.observedRequests ? { observed_requests: input.observedRequests } : {})
+    });
     if (!debuggerApi || !onEvent || signal?.aborted) {
-      return Promise.resolve(null);
+      return Promise.resolve({
+        capture: null,
+        status: statusAt({
+          status: "not_started",
+          reason: signal?.aborted ? "capture_aborted_before_start" : "chrome_debugger_unavailable",
+          blockerCode: "PUBLISH_IDENTITY_CAPTURE_NOT_STARTED"
+        })
+      });
     }
 
     type PendingRequest = {
@@ -8044,12 +8072,18 @@ class ChromeBackgroundBridge {
       capturedAt: number;
     };
     const pending = new Map<string, PendingRequest>();
+    const observedRequests: Record<string, unknown>[] = [];
+    let lastObservedFailureBlockerCode: XhsControlledPublishResultIdentityCaptureStatus["blocker_code"] = null;
+    let lastObservedFailureReason: string | null = null;
     const shouldObserve = (url: string, method: string): boolean => {
       return isXhsControlledPublishResultIdentityCaptureUrl(url, method);
     };
     return new Promise((resolve) => {
       let settled = false;
-      const finish = (capture: Record<string, unknown> | null) => {
+      const finish = (
+        capture: Record<string, unknown> | null,
+        status: XhsControlledPublishResultIdentityCaptureStatus
+      ) => {
         if (settled) {
           return;
         }
@@ -8061,10 +8095,37 @@ class ChromeBackgroundBridge {
           // Listener removal best effort.
         }
         signal?.removeEventListener("abort", abortHandler);
-        resolve(capture);
+        resolve({ capture, status });
       };
-      const timeout = setTimeout(() => finish(null), Math.max(1, timeoutMs));
-      const abortHandler = () => finish(null);
+      const unresolvedStatus = (
+        reason: string,
+        fallbackBlockerCode: XhsControlledPublishResultIdentityCaptureStatus["blocker_code"]
+      ) =>
+        statusAt({
+          status: "timeout",
+          reason,
+          blockerCode:
+            observedRequests.length === 0
+              ? "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED"
+              : (lastObservedFailureBlockerCode ?? fallbackBlockerCode),
+          observedRequests
+        });
+      const timeout = setTimeout(
+        () =>
+          finish(
+            null,
+            unresolvedStatus(
+              lastObservedFailureReason ?? "capture_timeout",
+              "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT"
+            )
+          ),
+        Math.max(1, timeoutMs)
+      );
+      const abortHandler = () =>
+        finish(
+          null,
+          unresolvedStatus("capture_aborted", "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT")
+        );
       signal?.addEventListener("abort", abortHandler, { once: true });
       const listener = (
         source: { tabId?: number },
@@ -8085,6 +8146,14 @@ class ChromeBackgroundBridge {
           if (!url || !requestMethod || !shouldObserve(url, requestMethod)) {
             return;
           }
+          observedRequests.push(
+            summarizeXhsControlledPublishIdentityObservedRequest({
+              url,
+              method: requestMethod,
+              status: null,
+              reason: "request_will_be_sent"
+            })
+          );
           pending.set(requestId, {
             url,
             method: requestMethod,
@@ -8100,11 +8169,32 @@ class ChromeBackgroundBridge {
           }
           const response = asRecord(params.response);
           entry.status = typeof response?.status === "number" ? response.status : null;
+          observedRequests.push(
+            summarizeXhsControlledPublishIdentityObservedRequest({
+              url: entry.url,
+              method: entry.method,
+              status: entry.status,
+              reason: "response_received"
+            })
+          );
           return;
         }
         if (method === "Network.loadingFinished") {
           const entry = pending.get(requestId);
-          if (!entry || entry.status === null || entry.status < 200 || entry.status >= 300) {
+          if (!entry) {
+            return;
+          }
+          if (entry.status === null || entry.status < 200 || entry.status >= 300) {
+            lastObservedFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT";
+            lastObservedFailureReason = "non_2xx_or_missing_status";
+            observedRequests.push(
+              summarizeXhsControlledPublishIdentityObservedRequest({
+                url: entry.url,
+                method: entry.method,
+                status: entry.status,
+                reason: "non_2xx_or_missing_status"
+              })
+            );
             return;
           }
           const status = entry.status;
@@ -8126,10 +8216,39 @@ class ChromeBackgroundBridge {
                 captured_at: new Date(entry.capturedAt).toISOString()
               });
               if (capture) {
-                finish(capture);
+                finish(capture, statusAt({
+                  status: "started",
+                  reason: null,
+                  blockerCode: null,
+                  observedRequests
+                }));
+                return;
               }
+              lastObservedFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING";
+              lastObservedFailureReason = "response_identity_missing";
+              observedRequests.push(
+                summarizeXhsControlledPublishIdentityObservedRequest({
+                  url: entry.url,
+                  method: entry.method,
+                  status,
+                  reason: "response_identity_missing"
+                })
+              );
             } catch {
-              finish(null);
+              observedRequests.push(
+                summarizeXhsControlledPublishIdentityObservedRequest({
+                  url: entry.url,
+                  method: entry.method,
+                  status,
+                  reason: "response_body_unreadable"
+                })
+              );
+              finish(null, statusAt({
+                status: "started",
+                reason: "response_body_unreadable",
+                blockerCode: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE",
+                observedRequests
+              }));
             }
           })();
         }
@@ -8149,7 +8268,19 @@ class ChromeBackgroundBridge {
     }
     const debuggerApi = this.chromeApi.debugger;
     if (!debuggerApi) {
-      return null;
+      return {
+        read: async () => ({
+          capture: null,
+          status: {
+            attempted: true,
+            status: "not_started",
+            reason: "chrome_debugger_unavailable",
+            blocker_code: "PUBLISH_IDENTITY_CAPTURE_NOT_STARTED",
+            recorded_at: new Date().toISOString()
+          }
+        }),
+        stop: async () => undefined
+      };
     }
     let attached = false;
     try {
@@ -8183,7 +8314,19 @@ class ChromeBackgroundBridge {
         await debuggerApi.detach({ tabId }).catch(() => undefined);
       }
       this.#controlledPublishResultIdentityCapturesByTab.delete(tabId);
-      return null;
+      return {
+        read: async () => ({
+          capture: null,
+          status: {
+            attempted: true,
+            status: "not_started",
+            reason: "chrome_debugger_attach_or_network_enable_failed",
+            blocker_code: "PUBLISH_IDENTITY_CAPTURE_NOT_STARTED",
+            recorded_at: new Date().toISOString()
+          }
+        }),
+        stop: async () => undefined
+      };
     }
   }
 
@@ -9882,9 +10025,11 @@ class ChromeBackgroundBridge {
     const controlledUploadPlatformCaptureStatus = uploadCaptureController?.status() ?? null;
     const controlledLiveWrite =
       asRecord(payload.controlled_live_write) ?? asRecord(summary?.controlled_live_write);
-    const controlledPublishResultIdentityCapture = publishResultIdentityCaptureController
+    const controlledPublishResultIdentityCaptureProbe = publishResultIdentityCaptureController
       ? await publishResultIdentityCaptureController.read().finally(() => publishResultIdentityCaptureController.stop())
       : null;
+    const controlledPublishResultIdentityCapture =
+      controlledPublishResultIdentityCaptureProbe?.capture ?? null;
     if (controlledLiveWrite && controlledUploadPlatformCapture) {
       const mergedControlledLiveWrite = applyXhsControlledUploadPlatformCapture(
         controlledLiveWrite as XhsControlledLiveWriteResult,
@@ -9941,6 +10086,22 @@ class ChromeBackgroundBridge {
       const mergedControlledLiveWrite = finalizeXhsControlledPublishResultIdentityCapture(
         controlledLiveWriteAfterUploadMerge as XhsControlledLiveWriteResult,
         controlledPublishResultIdentityCapture as XhsControlledPublishResultIdentityCapture
+      ) as Record<string, unknown>;
+      payload.controlled_live_write = mergedControlledLiveWrite;
+      payload.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
+      payload.live_write_evaluation = mergedControlledLiveWrite.live_write_evaluation;
+      if (summary !== null) {
+        summary.controlled_live_write = mergedControlledLiveWrite;
+        summary.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;
+        summary.live_write_evaluation = mergedControlledLiveWrite.live_write_evaluation;
+      }
+    } else if (
+      controlledLiveWriteAfterUploadMerge &&
+      controlledPublishResultIdentityCaptureProbe?.status
+    ) {
+      const mergedControlledLiveWrite = applyXhsControlledPublishResultIdentityCaptureStatus(
+        controlledLiveWriteAfterUploadMerge as XhsControlledLiveWriteResult,
+        controlledPublishResultIdentityCaptureProbe.status
       ) as Record<string, unknown>;
       payload.controlled_live_write = mergedControlledLiveWrite;
       payload.live_write_evidence = mergedControlledLiveWrite.live_write_evidence;

@@ -776,6 +776,23 @@ export const extractXhsControlledPublishResultIdentityCapture = (input) => {
         captured_at: input.captured_at
     };
 };
+export const summarizeXhsControlledPublishIdentityObservedRequest = (input) => {
+    const output = {
+        method: input.method,
+        status: typeof input.status === "number" ? input.status : null,
+        reason: input.reason ?? null
+    };
+    try {
+        const parsed = new URL(input.url);
+        output.host = parsed.hostname;
+        output.path = parsed.pathname;
+    }
+    catch {
+        output.host = "unparseable";
+        output.path = "unparseable";
+    }
+    return output;
+};
 const sourceMediaKind = (value) => value === "video" || value === "mixed" ? value : "image";
 const acceptedUploadArtifactResumeBlockedInput = (detailsRef) => ({
     blockerCode: "ACCEPTED_UPLOAD_ARTIFACT_RESUME_INVALID",
@@ -1969,6 +1986,95 @@ export const finalizeXhsControlledPublishResultIdentityCapture = (result, captur
         },
         published: true,
         cleanup_attempted: true
+    };
+};
+const publishIdentityCaptureStatusMessage = (blockerCode) => {
+    switch (blockerCode) {
+        case "PUBLISH_IDENTITY_CAPTURE_NOT_STARTED":
+            return "Background publish identity capture did not start for the submit continuation.";
+        case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED":
+            return "Background publish identity capture did not observe a trusted publish/result endpoint after submit.";
+        case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE":
+            return "Background publish identity capture observed a trusted publish/result endpoint but could not read its response body.";
+        case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING":
+            return "Background publish identity capture observed a readable publish/result response without a trusted publish identity.";
+        case "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT":
+            return "Background publish identity capture timed out before producing a trusted publish identity.";
+    }
+};
+export const applyXhsControlledPublishResultIdentityCaptureStatus = (result, status) => {
+    if (!status?.blocker_code) {
+        return result;
+    }
+    const evidence = result.live_write_evidence;
+    if (evidence.publish_result_identity) {
+        return result;
+    }
+    const evaluation = result.live_write_evaluation;
+    const blockers = Array.isArray(evaluation.blockers) ? evaluation.blockers : [];
+    const publishIdentityMissing = blockers.some((blocker) => {
+        const record = asPlainRecord(blocker);
+        return (record?.blocker_code === "PUBLISH_RESULT_IDENTITY_MISSING" &&
+            record?.blocker_layer === "published_identity");
+    });
+    if (result.uploaded !== true || result.submitted !== true || publishIdentityMissing !== true) {
+        return result;
+    }
+    const timestamp = nowIso();
+    const liveWriteAttemptId = String(evidence.live_write_attempt_id ?? "unknown");
+    const message = publishIdentityCaptureStatusMessage(status.blocker_code);
+    const stopSignal = asPlainRecord(evidence.stop_signal) ?? {};
+    const nextStopSignal = {
+        ...stopSignal,
+        blocker_code: status.blocker_code,
+        required_recovery_action: "fix background publish identity capture diagnostics/parser before retrying publish identity",
+        diagnostics: {
+            ...(asPlainRecord(stopSignal.diagnostics) ?? {}),
+            publish_result_identity_capture_status: status
+        }
+    };
+    return {
+        ...result,
+        live_write_evidence: {
+            ...evidence,
+            publish_result_identity_capture_status: status,
+            stop_classification: {
+                ...(asPlainRecord(evidence.stop_classification) ?? {}),
+                stop_reason: status.reason ?? status.blocker_code,
+                publish_identity_capture_blocker_code: status.blocker_code
+            },
+            risk_signals: [
+                {
+                    risk_signal_id: `risk/fr-0032/${liveWriteAttemptId}/${status.blocker_code}`,
+                    detected_at: timestamp,
+                    source: "background_publish_identity_capture",
+                    kind: "publish_identity_missing",
+                    severity: "blocking",
+                    details_ref: status.reason ?? status.blocker_code,
+                    blocker_code: status.blocker_code
+                }
+            ],
+            stop_signal: nextStopSignal,
+            updated_at: timestamp
+        },
+        live_write_evaluation: {
+            ...evaluation,
+            decision: "NO_GO",
+            full_live_write_success: false,
+            upload_success: true,
+            submit_success: true,
+            publish_success: false,
+            cleanup_success: false,
+            later_write_actions_blocked: true,
+            cleanup_required: true,
+            blockers: [
+                {
+                    blocker_code: status.blocker_code,
+                    blocker_layer: "published_identity",
+                    message
+                }
+            ]
+        }
     };
 };
 export const applyXhsControlledLiveWriteContinuationTimeout = (result, input) => {
