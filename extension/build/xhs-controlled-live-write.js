@@ -397,19 +397,39 @@ export const extractXhsControlledUploadPlatformCapture = (input) => {
         captured_at: input.captured_at
     };
 };
-const trustedPublishResultEndpointPattern = /^\/(?:api|web_api)\/(?:creator\/publish\/result|galaxy\/creator\/note\/user\/(?:post|publish))(?:[/?#]|$)/iu;
+const trustedPublishResultEndpointPattern = /^\/(?:api|web_api)\/(?:creator\/publish\/result|galaxy\/(?:v\d+\/)?creator\/note\/user\/(?:post|publish))(?:[/?#]|$)/iu;
+const trustedCreatorSubmitPublishEndpointPattern = /^\/(?:api|web_api)\/galaxy\/(?:v\d+\/)?creator\/note\/user\/(?:post|publish)(?:[/?#]|$)/iu;
 const noteIdFromTrustedHrefValue = (href) => {
     const match = /[?&](?:note_id|noteId|source_note_id)=([A-Za-z0-9_-]{8,64})(?:&|$)/u.exec(href) ??
         /\/(?:explore|notes?|note|publish\/success)\/([A-Za-z0-9_-]{8,64})(?:[/?#]|$)/u.exec(href);
     return match?.[1] ?? null;
 };
-const isXhsControlledPublishResultIdentityCaptureUrl = (url, method) => {
+export const isXhsControlledPublishResultIdentityCaptureUrl = (url, method) => {
     if (!/^(GET|POST)$/iu.test(method)) {
         return false;
     }
     try {
         const parsed = new URL(url);
-        return parsed.hostname === "creator.xiaohongshu.com" && trustedPublishResultEndpointPattern.test(parsed.pathname);
+        if (parsed.hostname !== "creator.xiaohongshu.com") {
+            return false;
+        }
+        if (trustedCreatorSubmitPublishEndpointPattern.test(parsed.pathname)) {
+            return /^POST$/iu.test(method);
+        }
+        return trustedPublishResultEndpointPattern.test(parsed.pathname);
+    }
+    catch {
+        return false;
+    }
+};
+const isXhsControlledCreatorSubmitPublishCaptureUrl = (url, method) => {
+    if (!/^(GET|POST)$/iu.test(method)) {
+        return false;
+    }
+    try {
+        const parsed = new URL(url);
+        return (parsed.hostname === "creator.xiaohongshu.com" &&
+            trustedCreatorSubmitPublishEndpointPattern.test(parsed.pathname));
     }
     catch {
         return false;
@@ -493,7 +513,7 @@ const normalizeTrustedPlatformPublishRecordRef = (value) => {
     }
     return normalized;
 };
-const findDirectTrustedPublishResultIdentity = (record) => {
+const findDirectTrustedPublishResultIdentity = (record, allowUnboundPlatformRecordRef = false) => {
     for (const key of ["note_id", "noteId", "source_note_id", "sourceNoteId"]) {
         const noteId = normalizeTrustedNoteIdValue(record[key]);
         if (noteId) {
@@ -518,7 +538,8 @@ const findDirectTrustedPublishResultIdentity = (record) => {
             };
         }
     }
-    if (findDirectTrustedPublishVisibilityScope(record) === "private_or_self_visible") {
+    if (allowUnboundPlatformRecordRef ||
+        findDirectTrustedPublishVisibilityScope(record) === "private_or_self_visible") {
         for (const key of [
             "platform_record_ref",
             "platformRecordRef",
@@ -545,6 +566,24 @@ const findDirectTrustedPublishResultIdentity = (record) => {
     }
     return null;
 };
+const findTrustedCreatorSubmitDataIdIdentity = (value) => {
+    const root = asPlainRecord(value);
+    const data = asPlainRecord(root?.data);
+    if (!data) {
+        return null;
+    }
+    const noteId = normalizeTrustedNoteIdValue(data.id);
+    if (!noteId) {
+        return null;
+    }
+    return {
+        result_kind: "note_id",
+        note_id: noteId,
+        published_url: `https://www.xiaohongshu.com/explore/${noteId}`,
+        creator_result_url: null,
+        platform_record_ref: null
+    };
+};
 const samePublishResultIdentityCaptureFields = (left, right) => {
     const identityKey = (value) => {
         if (value.note_id) {
@@ -565,7 +604,7 @@ const samePublishResultIdentityCaptureFields = (left, right) => {
     };
     return identityKey(left) === identityKey(right);
 };
-const collectTrustedPublishResultIdentities = (value, output, seen = new Set()) => {
+const collectTrustedPublishResultIdentities = (value, output, allowUnboundPlatformRecordRef = false, seen = new Set()) => {
     if (typeof value === "string") {
         const published = noteIdFromTrustedPublishedUrl(value);
         if (published) {
@@ -581,7 +620,7 @@ const collectTrustedPublishResultIdentities = (value, output, seen = new Set()) 
     }
     if (Array.isArray(value)) {
         for (const item of value) {
-            collectTrustedPublishResultIdentities(item, output, seen);
+            collectTrustedPublishResultIdentities(item, output, allowUnboundPlatformRecordRef, seen);
         }
         return;
     }
@@ -590,28 +629,46 @@ const collectTrustedPublishResultIdentities = (value, output, seen = new Set()) 
         return;
     }
     seen.add(record);
-    const directIdentity = findDirectTrustedPublishResultIdentity(record);
+    const directIdentity = findDirectTrustedPublishResultIdentity(record, allowUnboundPlatformRecordRef);
     if (directIdentity) {
         output.push(directIdentity);
     }
     for (const item of Object.values(record)) {
-        collectTrustedPublishResultIdentities(item, output, seen);
+        collectTrustedPublishResultIdentities(item, output, allowUnboundPlatformRecordRef, seen);
     }
 };
-const resolveUniqueTrustedPublishResultIdentity = (value) => {
-    const identities = [];
-    collectTrustedPublishResultIdentities(value, identities);
-    let match = null;
-    for (const identity of identities) {
-        if (!match) {
-            match = identity;
-            continue;
+const resolveUniqueTrustedPublishResultIdentity = (value, allowUnboundPlatformRecordRef = false) => {
+    const resolveUniqueIdentity = (identities) => {
+        let match = null;
+        for (const identity of identities) {
+            if (!match) {
+                match = identity;
+                continue;
+            }
+            if (!samePublishResultIdentityCaptureFields(match, identity)) {
+                return null;
+            }
         }
-        if (!samePublishResultIdentityCaptureFields(match, identity)) {
-            return null;
-        }
+        return match;
+    };
+    const primaryIdentities = [];
+    const submitDataIdIdentity = allowUnboundPlatformRecordRef
+        ? findTrustedCreatorSubmitDataIdIdentity(value)
+        : null;
+    if (submitDataIdIdentity) {
+        primaryIdentities.push(submitDataIdIdentity);
     }
-    return match;
+    collectTrustedPublishResultIdentities(value, primaryIdentities, false);
+    const primaryMatch = resolveUniqueIdentity(primaryIdentities);
+    if (primaryMatch || primaryIdentities.length > 0) {
+        return primaryMatch;
+    }
+    if (!allowUnboundPlatformRecordRef) {
+        return null;
+    }
+    const fallbackIdentities = [];
+    collectTrustedPublishResultIdentities(value, fallbackIdentities, true);
+    return resolveUniqueIdentity(fallbackIdentities);
 };
 const findTrustedPublishVisibilityScope = (value, seen = new Set()) => {
     if (Array.isArray(value)) {
@@ -698,7 +755,7 @@ export const extractXhsControlledPublishResultIdentityCapture = (input) => {
         !isXhsControlledPublishResultIdentityCaptureUrl(input.url, input.method)) {
         return null;
     }
-    const identity = resolveUniqueTrustedPublishResultIdentity(input.body);
+    const identity = resolveUniqueTrustedPublishResultIdentity(input.body, isXhsControlledCreatorSubmitPublishCaptureUrl(input.url, input.method));
     if (!identity) {
         return null;
     }
@@ -1763,14 +1820,29 @@ export const applyXhsControlledPublishResultIdentityCapture = (result, capture) 
         }
     };
 };
+const resolvePrivatePublishVisibilityProofLocator = (evidence, capture) => {
+    if (capture.publish_visibility_scope === "private_or_self_visible" &&
+        typeof capture.publish_visibility_proof_locator === "string" &&
+        capture.publish_visibility_proof_locator.trim().length > 0) {
+        return capture.publish_visibility_proof_locator.trim();
+    }
+    const cleanupResult = asPlainRecord(evidence.cleanup_result);
+    const residualRecord = asPlainRecord(evidence.residual_record) ?? asPlainRecord(cleanupResult?.residual_record);
+    const stopClassification = asPlainRecord(evidence.stop_classification);
+    const visibilityScope = normalizeTrustedPublishVisibilityScope(residualRecord?.visibility_scope) ??
+        normalizeTrustedPublishVisibilityScope(stopClassification?.publish_visibility_scope);
+    const cleanupProofLocator = typeof cleanupResult?.proof_locator === "string" && cleanupResult.proof_locator.trim().length > 0
+        ? cleanupResult.proof_locator.trim()
+        : null;
+    return visibilityScope === "private_or_self_visible" ? cleanupProofLocator : null;
+};
 export const finalizeXhsControlledPublishResultIdentityCapture = (result, capture) => {
     const captured = applyXhsControlledPublishResultIdentityCapture(result, capture);
     if (!capture || captured.live_write_evidence.publish_result_identity) {
         return captured;
     }
-    if (capture.publish_visibility_scope !== "private_or_self_visible" ||
-        typeof capture.publish_visibility_proof_locator !== "string" ||
-        capture.publish_visibility_proof_locator.trim().length === 0) {
+    const visibilityProofLocator = resolvePrivatePublishVisibilityProofLocator(captured.live_write_evidence, capture);
+    if (!visibilityProofLocator) {
         return captured;
     }
     const evidence = captured.live_write_evidence;
@@ -1863,8 +1935,8 @@ export const finalizeXhsControlledPublishResultIdentityCapture = (result, captur
         cleanup_policy_ref: cleanupPolicyRef,
         cleanup_action: "hide_published_result",
         cleanup_outcome: "hidden",
-        proof_locator: capture.url,
-        platform_message: "publish_visibility_scope=private_or_self_visible captured in trusted platform response",
+        proof_locator: visibilityProofLocator,
+        platform_message: "publish_visibility_scope=private_or_self_visible confirmed before submit; trusted platform response captured publish identity",
         attempted_at: closedAt,
         completed_at: closedAt,
         residual_record: null

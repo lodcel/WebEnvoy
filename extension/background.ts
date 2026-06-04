@@ -64,6 +64,7 @@ import {
   extractXhsControlledPublishResultIdentityCapture,
   extractXhsControlledUploadPlatformCapture,
   finalizeXhsControlledPublishResultIdentityCapture,
+  isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
   summarizeXhsControlledUploadObservedRequest,
   type XhsControlledPublishResultIdentityCapture,
@@ -136,8 +137,6 @@ const xhsForwardResponseSafetyMs = 5_000;
 const xhsPreForwardStageTimeoutMs = 5_000;
 const xhsControlledUploadCaptureMaxBodyBytes = 256_000;
 const xhsStaleRestoreBindingLeaseMaxAgeMs = 120_000;
-const xhsTrustedPublishResultEndpointPattern =
-  /^\/(?:api|web_api)\/(?:creator\/publish\/result|galaxy\/creator\/note\/user\/(?:post|publish))(?:[/?#]|$)/iu;
 const xhsSearchInputSelectors = [
   'input[type="search"]',
   'input[class*="search"]',
@@ -8046,18 +8045,7 @@ class ChromeBackgroundBridge {
     };
     const pending = new Map<string, PendingRequest>();
     const shouldObserve = (url: string, method: string): boolean => {
-      if (!/^(GET|POST)$/iu.test(method)) {
-        return false;
-      }
-      try {
-        const parsed = new URL(url);
-        return (
-          parsed.hostname === "creator.xiaohongshu.com" &&
-          xhsTrustedPublishResultEndpointPattern.test(parsed.pathname)
-        );
-      } catch {
-        return false;
-      }
+      return isXhsControlledPublishResultIdentityCaptureUrl(url, method);
     };
     return new Promise((resolve) => {
       let settled = false;
