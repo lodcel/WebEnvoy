@@ -9061,18 +9061,10 @@ const findVisibilityTriggersForSelection = (options = {}) => {
     }
     const likelyTriggers = findLikelyPublishVisibilitySelectTriggers();
     const structuralFallbackTriggers = findPostUploadStructuralVisibilitySelectFallbackTriggers();
-    if (triggers.length > 50) {
-        return uniqueVisibilityElements([
-            ...likelyTriggers,
-            ...structuralFallbackTriggers,
-            ...triggers.slice(0, 1),
-            ...triggers
-        ]);
-    }
     return uniqueVisibilityElements([
+        ...structuralFallbackTriggers,
         ...triggers.slice(0, 1),
         ...likelyTriggers,
-        ...structuralFallbackTriggers,
         ...triggers,
     ]);
 };
@@ -9193,9 +9185,11 @@ const nestedVisibilityActivationSelector = [
     '[class*="current" i]',
     '[class*="value" i]',
     '[class*="grid" i]',
+    '[class*="d-select-prefix" i]',
     '[class*="d-select-main" i]',
     '[class*="d-select-content" i]',
     '[class*="d-select-placeholder" i]',
+    '[class*="d-select-suffix" i]',
     '[class*="d-text" i]',
     '[tabindex]',
     "button",
@@ -9302,6 +9296,24 @@ const clickFirstOpenedPrivateVisibilityOption = async (triggers, options = {}, d
             openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
             const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(openedOptionTimeoutMs, deadline);
             openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
+            if (!openedPrivateOption && !openedDropdown && isXhsDSelectActivationTarget(activationTarget)) {
+                activationTarget.click();
+                openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
+                const clickOpenedPrivateOption = await waitForOpenedPrivateVisibilityOption(Math.min(openedOptionTimeoutMs, 800), deadline);
+                openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
+                if (clickOpenedPrivateOption && typeof clickOpenedPrivateOption.click === "function") {
+                    const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(clickOpenedPrivateOption);
+                    optionClickTarget.click();
+                    await sleep(300);
+                    const selectedSignal = elementTextSignal(clickOpenedPrivateOption);
+                    if (hasPrivateVisibilitySignal(selectedSignal) &&
+                        !hasPublicVisibilitySignal(selectedSignal) &&
+                        (!openedDropdown || hasConfirmedPrivateVisibilitySelection(trigger))) {
+                        return visibilitySelectionSuccess(optionClickTarget, openedDropdown, boundedTriggers.length);
+                    }
+                    return visibilitySelectionBlocked("PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED", "publish_visibility_option_selection_failed", openedDropdown, boundedTriggers.length);
+                }
+            }
             if (openedPrivateOption && typeof openedPrivateOption.click === "function") {
                 const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(openedPrivateOption);
                 optionClickTarget.click();
