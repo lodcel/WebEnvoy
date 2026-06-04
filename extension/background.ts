@@ -137,7 +137,7 @@ const xhsPreForwardStageTimeoutMs = 5_000;
 const xhsControlledUploadCaptureMaxBodyBytes = 256_000;
 const xhsStaleRestoreBindingLeaseMaxAgeMs = 120_000;
 const xhsTrustedPublishResultEndpointPattern =
-  /^\/(?:api|web_api)\/creator\/publish\/result(?:[/?#]|$)/iu;
+  /^\/(?:api|web_api)\/(?:creator\/publish\/result|galaxy\/creator\/note\/user\/(?:post|publish))(?:[/?#]|$)/iu;
 const xhsSearchInputSelectors = [
   'input[type="search"]',
   'input[class*="search"]',

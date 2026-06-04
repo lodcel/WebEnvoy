@@ -6445,7 +6445,7 @@ const extractXhsControlledUploadPlatformCapture = (input) => {
         captured_at: input.captured_at
     };
 };
-const trustedPublishResultEndpointPattern = /^\/(?:api|web_api)\/creator\/publish\/result(?:[/?#]|$)/iu;
+const trustedPublishResultEndpointPattern = /^\/(?:api|web_api)\/(?:creator\/publish\/result|galaxy\/creator\/note\/user\/(?:post|publish))(?:[/?#]|$)/iu;
 const noteIdFromTrustedHrefValue = (href) => {
     const match = /[?&](?:note_id|noteId|source_note_id)=([A-Za-z0-9_-]{8,64})(?:&|$)/u.exec(href) ??
         /\/(?:explore|notes?|note|publish\/success)\/([A-Za-z0-9_-]{8,64})(?:[/?#]|$)/u.exec(href);
@@ -6483,6 +6483,64 @@ const noteIdFromTrustedPublishedUrl = (value) => {
         return null;
     }
 };
+const normalizeTrustedPublishVisibilityScope = (value) => {
+    if (typeof value !== "string") {
+        return null;
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === "private_or_self_visible" ||
+        normalized === "private" ||
+        normalized === "self" ||
+        normalized === "self_visible" ||
+        normalized === "only_me" ||
+        normalized === "only_self" ||
+        normalized === "one_self" ||
+        normalized.includes("仅自己可见") ||
+        normalized.includes("仅自己") ||
+        normalized.includes("自己可见")) {
+        return "private_or_self_visible";
+    }
+    return null;
+};
+const trustedPublishVisibilityScopeKeys = new Set([
+    "publish_visibility_scope",
+    "publishVisibilityScope",
+    "visibility_scope",
+    "visibilityScope",
+    "permission_scope",
+    "permissionScope",
+    "privacy_scope",
+    "privacyScope",
+    "visibility",
+    "permission",
+    "privacy",
+    "visible_type",
+    "visibleType",
+    "permission_type",
+    "permissionType"
+]);
+const findDirectTrustedPublishVisibilityScope = (record) => {
+    for (const [key, nestedValue] of Object.entries(record)) {
+        if (!trustedPublishVisibilityScopeKeys.has(key)) {
+            continue;
+        }
+        const scope = normalizeTrustedPublishVisibilityScope(nestedValue);
+        if (scope) {
+            return scope;
+        }
+    }
+    return null;
+};
+const normalizeTrustedPlatformPublishRecordRef = (value) => {
+    if (typeof value !== "string" && typeof value !== "number") {
+        return null;
+    }
+    const normalized = String(value).trim();
+    if (!/^[A-Za-z0-9:_./-]{8,160}$/u.test(normalized)) {
+        return null;
+    }
+    return normalized;
+};
 const findDirectTrustedPublishResultIdentity = (record) => {
     for (const key of ["note_id", "noteId", "source_note_id", "sourceNoteId"]) {
         const noteId = normalizeTrustedNoteIdValue(record[key]);
@@ -6506,6 +6564,31 @@ const findDirectTrustedPublishResultIdentity = (record) => {
                 creator_result_url: null,
                 platform_record_ref: null
             };
+        }
+    }
+    if (findDirectTrustedPublishVisibilityScope(record) === "private_or_self_visible") {
+        for (const key of [
+            "platform_record_ref",
+            "platformRecordRef",
+            "publish_id",
+            "publishId",
+            "publish_record_id",
+            "publishRecordId",
+            "publish_task_id",
+            "publishTaskId",
+            "task_id",
+            "taskId"
+        ]) {
+            const platformRecordRef = normalizeTrustedPlatformPublishRecordRef(record[key]);
+            if (platformRecordRef) {
+                return {
+                    result_kind: "platform_publish_record",
+                    note_id: null,
+                    published_url: null,
+                    creator_result_url: null,
+                    platform_record_ref: platformRecordRef
+                };
+            }
         }
     }
     return null;
@@ -6577,54 +6660,6 @@ const resolveUniqueTrustedPublishResultIdentity = (value) => {
         }
     }
     return match;
-};
-const normalizeTrustedPublishVisibilityScope = (value) => {
-    if (typeof value !== "string") {
-        return null;
-    }
-    const normalized = String(value).trim().toLowerCase();
-    if (normalized === "private_or_self_visible" ||
-        normalized === "private" ||
-        normalized === "self" ||
-        normalized === "self_visible" ||
-        normalized === "only_me" ||
-        normalized === "only_self" ||
-        normalized === "one_self" ||
-        normalized.includes("仅自己可见") ||
-        normalized.includes("仅自己") ||
-        normalized.includes("自己可见")) {
-        return "private_or_self_visible";
-    }
-    return null;
-};
-const trustedPublishVisibilityScopeKeys = new Set([
-    "publish_visibility_scope",
-    "publishVisibilityScope",
-    "visibility_scope",
-    "visibilityScope",
-    "permission_scope",
-    "permissionScope",
-    "privacy_scope",
-    "privacyScope",
-    "visibility",
-    "permission",
-    "privacy",
-    "visible_type",
-    "visibleType",
-    "permission_type",
-    "permissionType"
-]);
-const findDirectTrustedPublishVisibilityScope = (record) => {
-    for (const [key, nestedValue] of Object.entries(record)) {
-        if (!trustedPublishVisibilityScopeKeys.has(key)) {
-            continue;
-        }
-        const scope = normalizeTrustedPublishVisibilityScope(nestedValue);
-        if (scope) {
-            return scope;
-        }
-    }
-    return null;
 };
 const findTrustedPublishVisibilityScope = (value, seen = new Set()) => {
     if (Array.isArray(value)) {

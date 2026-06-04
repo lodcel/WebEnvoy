@@ -353,6 +353,35 @@ it("does not promote an internal publish record without a verifiable note identi
   expect(capture).toBeNull();
 });
 
+it("extracts a trusted private platform publish record from the creator submit response", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/galaxy/creator/note/user/post",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:00.000Z",
+    body: {
+      code: 0,
+      data: {
+        publish_id: "publish-task-64b7d8ef000000001f03981",
+        visible_type: "仅自己可见"
+      }
+    }
+  });
+
+  expect(capture).toMatchObject({
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "platform_publish_record",
+    note_id: null,
+    published_url: null,
+    creator_result_url: null,
+    platform_record_ref: "publish-task-64b7d8ef000000001f03981",
+    publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
+    url: "https://creator.xiaohongshu.com/api/galaxy/creator/note/user/post"
+  });
+});
+
 it("records publish identity capture without advancing closeout state when debugger captures a trusted post-submit note id", () => {
   const baseResult = {
     live_write_action: "controlled_upload_submit_publish",
@@ -652,6 +681,136 @@ it("promotes trusted publish result identity capture into formal closeout when p
     stop_signal: null,
     residual_record: null,
     stop_classification: null
+  });
+});
+
+it("finalizes background identity capture from a trusted private platform publish record", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1038-platform-record",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      scope: {
+        platform: "xhs",
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        browser_channel: "Google Chrome stable",
+        execution_surface: "real_browser",
+        requested_execution_mode: "live_write",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+        run_id: "run-xhs-issue-1038-platform-record",
+        artifact_identity: "upload-artifact/fr-0032/platform-record"
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/platform-record",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload.xiaohongshu.com/spectrum/test-record",
+        page_preview_locator: "img.img",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-03T00:00:00.000Z",
+        preview_diagnostics: null
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/live-write-attempt/fr-0032/run-xhs-issue-1038-platform-record",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-03T00:00:01.000Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked",
+        residual_record: {}
+      },
+      risk_signals: [{ kind: "publish_identity_missing" }],
+      stop_signal: {
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      },
+      residual_record: {
+        reason: "identity_missing_after_publish"
+      },
+      created_at: "2026-06-03T00:00:02.000Z",
+      updated_at: "2026-06-03T00:00:02.000Z"
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      cleanup_success: false,
+      later_write_actions_blocked: true,
+      cleanup_required: true,
+      blockers: [
+        {
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity",
+          message: "background identity capture pending"
+        }
+      ]
+    }
+  } as const;
+
+  const result = finalizeXhsControlledPublishResultIdentityCapture(baseResult, {
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "platform_publish_record",
+    note_id: null,
+    published_url: null,
+    creator_result_url: null,
+    platform_record_ref: "publish-task-64b7d8ef000000001f03981",
+    publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
+    url: "https://creator.xiaohongshu.com/api/galaxy/creator/note/user/post",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-03T00:00:03.000Z"
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "GO",
+    full_live_write_success: true,
+    upload_success: true,
+    submit_success: true,
+    publish_success: true,
+    cleanup_success: true,
+    blockers: []
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    execution_phase: "closed",
+    publish_result_identity: expect.objectContaining({
+      result_kind: "platform_publish_record",
+      note_id: null,
+      published_url: null,
+      platform_record_ref: "publish-task-64b7d8ef000000001f03981",
+      publish_visibility_scope: "private_or_self_visible",
+      verification_state: "verified"
+    }),
+    cleanup_result: expect.objectContaining({
+      cleanup_action: "hide_published_result",
+      cleanup_outcome: "hidden",
+      residual_record: null
+    }),
+    risk_signals: [],
+    stop_signal: null,
+    residual_record: null
   });
 });
 
