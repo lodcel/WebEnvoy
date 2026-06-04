@@ -3053,12 +3053,62 @@ const isNestedSelectLikeVisibilityActivationCandidate = (element, boundary) => {
     }
     return hasSelectLikeAncestor;
 };
+const isElementWithinVisibilityBoundary = (element, boundary) => {
+    if (element === boundary) {
+        return true;
+    }
+    if (typeof boundary.contains === "function") {
+        try {
+            return boundary.contains(element);
+        }
+        catch {
+            // Fall through to the parentElement walk for partial DOM shims.
+        }
+    }
+    let current = element.parentElement;
+    for (let depth = 0; current && depth < 12; depth += 1) {
+        if (current === boundary) {
+            return true;
+        }
+        current = current.parentElement;
+    }
+    return false;
+};
+const resolveCenterHitTestVisibilityActivationTarget = (trigger) => {
+    if (typeof document === "undefined" ||
+        typeof document.elementFromPoint !== "function" ||
+        !isTrustedPostUploadVisibilitySelectFallback(trigger)) {
+        return null;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const width = Number.isFinite(rect.width) ? rect.width : 0;
+    const height = Number.isFinite(rect.height) ? rect.height : 0;
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+    const left = Number.isFinite(rect.left) ? rect.left : 0;
+    const top = Number.isFinite(rect.top) ? rect.top : 0;
+    const hitElement = document.elementFromPoint(left + width / 2, top + height / 2);
+    if (!(hitElement instanceof HTMLElement)) {
+        return null;
+    }
+    if (!isElementWithinVisibilityBoundary(hitElement, trigger)) {
+        return null;
+    }
+    if (!isVisibleElement(hitElement) || isDisabledElement(hitElement)) {
+        return null;
+    }
+    return hitElement;
+};
 const resolveNestedVisibilityActivationTargets = (trigger) => {
     if (typeof trigger.querySelectorAll !== "function") {
         return [trigger];
     }
     const triggerUsesStructuralFallback = /d-select-wrapper|custom-select-44|permission-card-select/iu.test(visibilityStructuralSignal(trigger)) ||
         (isTrustedPostUploadVisibilitySelectFallback(trigger) && !hasPublicVisibilitySignal(elementTextSignal(trigger)));
+    const centerHitTestTarget = triggerUsesStructuralFallback
+        ? resolveCenterHitTestVisibilityActivationTarget(trigger)
+        : null;
     const nested = Array.from(trigger.querySelectorAll(nestedVisibilityActivationSelector))
         .filter((element) => element instanceof HTMLElement &&
         (isVisibilityClickTarget(element) || isNestedSelectLikeVisibilityActivationCandidate(element, trigger)))
@@ -3069,7 +3119,7 @@ const resolveNestedVisibilityActivationTargets = (trigger) => {
         .sort((left, right) => right.score - left.score)
         .map(({ element }) => element);
     return triggerUsesStructuralFallback
-        ? uniqueVisibilityElements([trigger, ...nested])
+        ? uniqueVisibilityElements([centerHitTestTarget, trigger, ...nested])
         : uniqueVisibilityElements([...nested, trigger]);
 };
 const remainingSelectionTime = (deadline) => deadline === null ? Number.POSITIVE_INFINITY : Math.max(0, deadline - Date.now());
