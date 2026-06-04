@@ -3654,6 +3654,7 @@ const nestedVisibilityActivationSelector = [
   '[class*="privacy" i]',
   '[class*="current" i]',
   '[class*="value" i]',
+  '[class*="indicator" i]',
   '[class*="grid" i]',
   '[class*="d-select-prefix" i]',
   '[class*="d-select-main" i]',
@@ -3664,7 +3665,12 @@ const nestedVisibilityActivationSelector = [
   '[tabindex]',
   "button",
   "label",
-  "input"
+  "input",
+  "svg",
+  "use",
+  "path",
+  "i",
+  "span"
 ].join(",");
 
 const visibilityActivationTargetScore = (element: HTMLElement, sourceIndex: number): number => {
@@ -3673,6 +3679,9 @@ const visibilityActivationTargetScore = (element: HTMLElement, sourceIndex: numb
   let score = 0;
   if (/permission-card-select|d-select-wrapper|reds-select|select|dropdown/iu.test(structuralSignal)) {
     score += 90;
+  }
+  if (/d-select-suffix|indicator|icon|svg/iu.test(structuralSignal)) {
+    score += 140;
   }
   if (hasPublicVisibilitySignal(textSignal) && !hasPrivateVisibilitySignal(textSignal)) {
     score += 40;
@@ -3691,11 +3700,28 @@ const isNestedSelectLikeVisibilityActivationCandidate = (
     return false;
   }
   const structuralSignal = visibilityStructuralSignal(element);
-  if (!visibilityStructuralPattern.test(structuralSignal) && !/\b(?:d-)?grid\b/iu.test(structuralSignal)) {
-    return false;
-  }
   const textSignal = elementTextSignal(element);
   const boundaryAllowsStructuralFallback = isTrustedPostUploadVisibilitySelectFallback(boundary);
+  const hasSelectLikeAncestor = (() => {
+    let current: HTMLElement | null = element;
+    for (let depth = 0; current && depth < 5; depth += 1) {
+      if (isSelectLikeVisibilityActivationTarget(current)) {
+        return true;
+      }
+      if (current === boundary) {
+        break;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  })();
+  if (
+    !visibilityStructuralPattern.test(structuralSignal) &&
+    !/\b(?:d-)?grid\b/iu.test(structuralSignal) &&
+    !(boundaryAllowsStructuralFallback && hasSelectLikeAncestor)
+  ) {
+    return false;
+  }
   if (
     (!hasPublicVisibilitySignal(textSignal) && !boundaryAllowsStructuralFallback) ||
     hasPrivateVisibilitySignal(textSignal) ||
@@ -3703,17 +3729,7 @@ const isNestedSelectLikeVisibilityActivationCandidate = (
   ) {
     return false;
   }
-  let current: HTMLElement | null = element;
-  for (let depth = 0; current && depth < 5; depth += 1) {
-    if (isSelectLikeVisibilityActivationTarget(current)) {
-      return true;
-    }
-    if (current === boundary) {
-      break;
-    }
-    current = current.parentElement;
-  }
-  return false;
+  return hasSelectLikeAncestor;
 };
 
 const resolveNestedVisibilityActivationTargets = (trigger: HTMLElement): HTMLElement[] => {
@@ -3804,13 +3820,17 @@ const clickFirstOpenedPrivateVisibilityOption = async (
       }
       activateVisibilityTrigger(activationTarget);
       openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
-      const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(openedOptionTimeoutMs, deadline);
+      const activationTargetIsXhsDSelect = isXhsDSelectActivationTarget(activationTarget);
+      const activationTargetTimeoutMs = activationTargetIsXhsDSelect
+        ? Math.min(openedOptionTimeoutMs, 180)
+        : openedOptionTimeoutMs;
+      const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(activationTargetTimeoutMs, deadline);
       openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
-      if (!openedPrivateOption && !openedDropdown && isXhsDSelectActivationTarget(activationTarget)) {
+      if (!openedPrivateOption && !openedDropdown && activationTargetIsXhsDSelect) {
         activationTarget.click();
         openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
         const clickOpenedPrivateOption = await waitForOpenedPrivateVisibilityOption(
-          Math.min(openedOptionTimeoutMs, 800),
+          Math.min(openedOptionTimeoutMs, 320),
           deadline
         );
         openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
