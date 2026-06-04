@@ -7,6 +7,8 @@ import {
   parseDetailInputForContract,
   parseSearchInputForContract,
   parseUserHomeInputForContract,
+  bindIssue835ControlledLiveWriteEnvelopeToSessionForContract,
+  prepareIssue835ControlledLiveWriteEnvelopeForContract,
   prepareIssue209LiveReadContract,
   resolveIssue209CommandRequestIdForContract,
   resolveIssue209GateInvocationIdForContract
@@ -574,6 +576,173 @@ describe("xhs-input", () => {
         issue_scope: "issue_835",
         action_type: "write",
         controlled_live_write: true
+      }
+    });
+  });
+
+  it("reports missing #835 controlled live write approval admission context before live relay", () => {
+    const gate = normalizeGateOptionsForContract({
+      target_domain: "creator.xiaohongshu.com",
+      target_tab_id: 32,
+      target_page: "creator_publish_tab",
+      requested_execution_mode: "live_write",
+      risk_state: "allowed",
+      confirm_live_write: true,
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/manual-delete-or-residual"
+    }, "xhs.creator.publish.v1", {
+      command: "xhs.creator_publish.controlled_live_write",
+      abilityAction: "write",
+      runtimeProfile: "profile-a"
+    });
+
+    const prepared = prepareIssue835ControlledLiveWriteEnvelopeForContract({
+      options: gate.options,
+      runId: "run-cli-issue835-live-missing-001",
+      requestId: "issue835-live-missing-001",
+      gateInvocationId: "issue835-gate-run-cli-issue835-live-missing-001"
+    });
+
+    expect(prepared).toMatchObject({
+      commandRequestId: "issue835-live-missing-001",
+      gateInvocationId: "issue835-gate-run-cli-issue835-live-missing-001",
+      admissionDraft: {
+        kind: "missing"
+      },
+      options: {
+        issue_scope: "issue_835",
+        controlled_live_write: true
+      }
+    });
+  });
+
+  it("binds complete #835 controlled live write approval admission context to current gate linkage", () => {
+    const runId = "run-cli-issue835-live-approved-001";
+    const requestId = "issue835-live-approved-001";
+    const gateInvocationId = "issue835-gate-run-cli-issue835-live-approved-001";
+    const options = {
+      target_domain: "creator.xiaohongshu.com",
+      target_tab_id: 32,
+      target_page: "creator_publish_tab",
+      requested_execution_mode: "live_write",
+      risk_state: "allowed",
+      confirm_live_write: true,
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/manual-delete-or-residual",
+      admission_context: {
+        approval_admission_evidence: {
+          approval_admission_ref: "approval_admission_issue835_live_001",
+          run_id: runId,
+          issue_scope: "issue_835",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          approved: true,
+          approver: "mcontheway",
+          approved_at: "2026-06-04T13:40:00.000Z",
+          checks: {
+            target_domain_confirmed: true,
+            target_tab_confirmed: true,
+            target_page_confirmed: true,
+            risk_state_checked: true,
+            action_type_confirmed: true
+          },
+          recorded_at: "2026-06-04T13:40:00.000Z"
+        },
+        audit_admission_evidence: {
+          audit_admission_ref: "audit_admission_issue835_live_001",
+          run_id: runId,
+          issue_scope: "issue_835",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          risk_state: "allowed",
+          audited_checks: {
+            target_domain_confirmed: true,
+            target_tab_confirmed: true,
+            target_page_confirmed: true,
+            risk_state_checked: true,
+            action_type_confirmed: true
+          },
+          recorded_at: "2026-06-04T13:41:00.000Z"
+        }
+      }
+    };
+    const gate = normalizeGateOptionsForContract(options, "xhs.creator.publish.v1", {
+      command: "xhs.creator_publish.controlled_live_write",
+      abilityAction: "write",
+      runtimeProfile: "profile-a"
+    });
+    const prepared = prepareIssue835ControlledLiveWriteEnvelopeForContract({
+      options: gate.options,
+      runId,
+      requestId,
+      gateInvocationId
+    });
+    const bound = bindIssue835ControlledLiveWriteEnvelopeToSessionForContract({
+      params: {
+        request_id: prepared.commandRequestId,
+        gate_invocation_id: prepared.gateInvocationId,
+        options: prepared.options,
+        __issue835_admission_draft: prepared.admissionDraft
+      },
+      runId,
+      sessionId: "nm-session-issue835-live"
+    });
+
+    expect(prepared.admissionDraft).toMatchObject({
+      kind: "draft",
+      approval_record: {
+        decision_id: `gate_decision_${gateInvocationId}`,
+        approval_id: `gate_appr_gate_decision_${gateInvocationId}`,
+        approved: true,
+        approver: "mcontheway"
+      }
+    });
+    expect(bound).toMatchObject({
+      request_id: requestId,
+      gate_invocation_id: gateInvocationId,
+      approval_record: {
+        approved: true,
+        approver: "mcontheway",
+        checks: {
+          target_domain_confirmed: true,
+          target_tab_confirmed: true,
+          target_page_confirmed: true,
+          risk_state_checked: true,
+          action_type_confirmed: true
+        }
+      },
+      admission_context: {
+        approval_admission_evidence: {
+          request_id: requestId,
+          run_id: runId,
+          session_id: "nm-session-issue835-live",
+          issue_scope: "issue_835",
+          decision_id: `gate_decision_${gateInvocationId}`,
+          approval_id: `gate_appr_gate_decision_${gateInvocationId}`
+        },
+        audit_admission_evidence: {
+          request_id: requestId,
+          run_id: runId,
+          session_id: "nm-session-issue835-live",
+          issue_scope: "issue_835",
+          risk_state: "allowed"
+        }
+      },
+      options: {
+        approval_record: {
+          approved: true
+        },
+        admission_context: {
+          approval_admission_evidence: {
+            session_id: "nm-session-issue835-live"
+          }
+        }
       }
     });
   });

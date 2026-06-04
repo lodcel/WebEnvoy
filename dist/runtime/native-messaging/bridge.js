@@ -1,4 +1,4 @@
-import { bindIssue209LiveReadEnvelopeToSessionForContract } from "../../commands/xhs-input.js";
+import { bindIssue835ControlledLiveWriteEnvelopeToSessionForContract, bindIssue209LiveReadEnvelopeToSessionForContract } from "../../commands/xhs-input.js";
 import { BRIDGE_PROTOCOL, DEFAULT_TRANSPORT_TIMEOUT_MS, createBridgeForwardRequest, createBridgeOpenRequest, createHeartbeatRequest, ensureBridgeRequestEnvelope, ensureBridgeSuccess } from "./protocol.js";
 import { NativeHostBridgeTransport } from "./host.js";
 import { MAX_PENDING_DURING_RECOVERY, NativeMessagingSession, RECOVERY_WINDOW_MS, classifyTransportFailure } from "./session.js";
@@ -100,7 +100,12 @@ const resolveForwardCommandParams = (params, runId, sessionId, command) => {
         runId,
         sessionId
     });
-    const normalizedParams = normalizeCanonicalGrantApprovalTimestamp(boundParams);
+    const liveWriteBoundParams = bindIssue835ControlledLiveWriteEnvelopeToSessionForContract({
+        params: boundParams,
+        runId,
+        sessionId
+    });
+    const normalizedParams = normalizeCanonicalGrantApprovalTimestamp(liveWriteBoundParams);
     if (command !== "runtime.restore_xhs_target") {
         return normalizedParams;
     }

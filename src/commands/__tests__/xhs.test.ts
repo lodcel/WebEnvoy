@@ -121,6 +121,52 @@ const createIssue209FormalAuditRecord = (
   recorded_at: "2026-04-23T14:17:31Z"
 });
 
+const createApprovedIssue835LiveWriteAdmissionContext = (input: {
+  runId: string;
+  targetTabId: number;
+}) => ({
+  approval_admission_evidence: {
+    approval_admission_ref: `approval_admission_${input.runId}`,
+    run_id: input.runId,
+    issue_scope: "issue_835",
+    target_domain: "creator.xiaohongshu.com",
+    target_tab_id: input.targetTabId,
+    target_page: "creator_publish_tab",
+    action_type: "write",
+    requested_execution_mode: "live_write",
+    approved: true,
+    approver: "mcontheway",
+    approved_at: "2026-06-04T13:40:00.000Z",
+    checks: {
+      target_domain_confirmed: true,
+      target_tab_confirmed: true,
+      target_page_confirmed: true,
+      risk_state_checked: true,
+      action_type_confirmed: true
+    },
+    recorded_at: "2026-06-04T13:40:00.000Z"
+  },
+  audit_admission_evidence: {
+    audit_admission_ref: `audit_admission_${input.runId}`,
+    run_id: input.runId,
+    issue_scope: "issue_835",
+    target_domain: "creator.xiaohongshu.com",
+    target_tab_id: input.targetTabId,
+    target_page: "creator_publish_tab",
+    action_type: "write",
+    requested_execution_mode: "live_write",
+    risk_state: "allowed",
+    audited_checks: {
+      target_domain_confirmed: true,
+      target_tab_confirmed: true,
+      target_page_confirmed: true,
+      risk_state_checked: true,
+      action_type_confirmed: true
+    },
+    recorded_at: "2026-06-04T13:41:00.000Z"
+  }
+});
+
 const seedXhsCloseoutReady = async (input: {
   cwd: string;
   profile: string;
@@ -9726,9 +9772,153 @@ describe("normalizeGateOptionsForContract", () => {
           createCommandRegistry()
         )
       ).rejects.toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: expect.objectContaining({
+          reason: "LIVE_WRITE_APPROVAL_ADMISSION_CONTEXT_MISSING",
+          blocker_code: "LIVE_WRITE_APPROVAL_ADMISSION_CONTEXT_MISSING"
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts issue_835 controlled live write admission context through dedicated shorthand", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-controlled-live-write-shorthand-"));
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    const runId = "run-controlled-live-write-shorthand-001";
+    const targetTabId = 32;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "profile-controlled-live-write-shorthand-001",
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.controlled_live_write",
+            profile: "profile-controlled-live-write-shorthand-001",
+            run_id: runId,
+            params: {
+              input: {
+                live_write_attempt_id: "fr0032-attempt-shorthand-001",
+                source_media_ref: "media-ref/fr-0032/fixture-image-a",
+                source_media_digest:
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                source_media_kind: "image"
+              },
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: targetTabId,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "live_write",
+              risk_state: "allowed",
+              issue_scope: "issue_835",
+              action_type: "write",
+              controlled_live_write: true,
+              confirm_live_write: true,
+              publish_visibility_scope: "private_or_self_visible",
+              cleanup_policy_ref: "fr0032-cleanup-policy/manual-delete-or-residual",
+              admission_context: createApprovedIssue835LiveWriteAdmissionContext({
+                runId,
+                targetTabId
+              }),
+              approval_record: {
+                approved: true,
+                approver: "mcontheway",
+                approved_at: "2026-06-04T13:40:00.000Z",
+                checks: {
+                  target_domain_confirmed: true,
+                  target_tab_confirmed: true,
+                  target_page_confirmed: true,
+                  risk_state_checked: true,
+                  action_type_confirmed: true
+                }
+              },
+              audit_record: {
+                event_id: "gate_evt_issue835_shorthand_001",
+                issue_scope: "issue_835",
+                target_domain: "creator.xiaohongshu.com",
+                target_tab_id: targetTabId,
+                target_page: "creator_publish_tab",
+                action_type: "write",
+                requested_execution_mode: "live_write",
+                risk_state: "allowed",
+                gate_decision: "allowed",
+                audited_checks: {
+                  target_domain_confirmed: true,
+                  target_tab_confirmed: true,
+                  target_page_confirmed: true,
+                  risk_state_checked: true,
+                  action_type_confirmed: true
+                },
+                recorded_at: "2026-06-04T13:41:00.000Z"
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
         code: "ERR_EXECUTION_FAILED",
         details: expect.objectContaining({
-          reason: "EXECUTION_MODE_GATE_BLOCKED"
+          reason: "EXECUTION_MODE_GATE_BLOCKED",
+          gate_input: expect.objectContaining({
+            admission_context: expect.objectContaining({
+              approval_admission_evidence: expect.objectContaining({
+                issue_scope: "issue_835",
+                run_id: runId,
+                session_id: "nm-session-001"
+              }),
+              audit_admission_evidence: expect.objectContaining({
+                issue_scope: "issue_835",
+                risk_state: "allowed",
+                session_id: "nm-session-001"
+              })
+            })
+          }),
+          request_admission_result: expect.objectContaining({
+            derived_from: expect.objectContaining({
+              approval_admission_ref: `approval_admission_${runId}`,
+              audit_admission_ref: `audit_admission_${runId}`
+            })
+          }),
+          consumer_gate_result: expect.objectContaining({
+            issue_scope: "issue_835",
+            requested_execution_mode: "live_write",
+            effective_execution_mode: "dry_run"
+          }),
+          approval_record: expect.objectContaining({
+            approved: true,
+            approver: "mcontheway"
+          }),
+          audit_record: expect.objectContaining({
+            issue_scope: "issue_835",
+            target_domain: "creator.xiaohongshu.com",
+            risk_state: "allowed"
+          })
         })
       });
     } finally {

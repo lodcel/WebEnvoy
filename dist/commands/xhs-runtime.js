@@ -22,7 +22,7 @@ import { resolveRuntimeProfileRoot } from "../runtime/worktree-root.js";
 import { readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBundleRef, resolveXhsCloseoutReadinessBaselineExecutionMode, toXhsCloseoutValidationGateJson } from "../runtime/anti-detection-validation.js";
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
-import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseControlledLiveWriteInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
+import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY, bindIssue835ControlledLiveWriteEnvelopeToSessionForContract, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseControlledLiveWriteInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue835ControlledLiveWriteEnvelopeForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_ABILITY_ID = "xhs.editor.input.v1";
@@ -73,7 +73,9 @@ const DEDICATED_XHS_SHORTHAND_OPTION_KEYS = new Set([
     "validation_action",
     "editor_text_write",
     "discovery_action",
+    "admission_context",
     "approval_record",
+    "audit_record",
     "fixture_success",
     "controlled_live_write",
     "confirm_live_write",
@@ -2606,6 +2608,29 @@ const xhsReadCommand = async (context, inputConfig) => {
             gateInvocationId: envelope.gateInvocationId,
             runId: context.run_id
         });
+        const preparedIssue835ControlledLiveWrite = prepareIssue835ControlledLiveWriteEnvelopeForContract({
+            options: preparedIssue209LiveRead.options,
+            requestId: preparedIssue209LiveRead.commandRequestId ?? envelope.requestId,
+            gateInvocationId: preparedIssue209LiveRead.gateInvocationId ?? envelope.gateInvocationId,
+            runId: context.run_id
+        });
+        if (context.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND &&
+            preparedIssue835ControlledLiveWrite.admissionDraft?.kind === "missing") {
+            throw new CliError("ERR_CLI_INVALID_ARGS", "controlled live write approval admission context is required", {
+                details: {
+                    ability_id: envelope.ability.id,
+                    stage: "input_validation",
+                    reason: "LIVE_WRITE_APPROVAL_ADMISSION_CONTEXT_MISSING",
+                    issue_scope: "issue_835",
+                    target_domain: gate.targetDomain,
+                    target_tab_id: gate.targetTabId,
+                    target_page: gate.targetPage,
+                    action_type: "write",
+                    requested_execution_mode: gate.requestedExecutionMode,
+                    blocker_code: "LIVE_WRITE_APPROVAL_ADMISSION_CONTEXT_MISSING"
+                }
+            });
+        }
         if (context.command !== XHS_CREATOR_PUBLISH_ADMIT_COMMAND &&
             context.command !== XHS_MEDIA_UPLOAD_DISCOVER_COMMAND &&
             context.command !== XHS_CONTROLLED_LIVE_WRITE_COMMAND &&
@@ -2647,7 +2672,24 @@ const xhsReadCommand = async (context, inputConfig) => {
             profileMeta = await profileStore.readMeta(context.profile);
         }
         const transportIsLoopback = process.env.WEBENVOY_NATIVE_TRANSPORT === "loopback";
-        const { __anonymous_isolation_verified: anonymousIsolationVerified, target_site_logged_in: targetSiteLoggedIn, ...preparedGateOptions } = preparedIssue209LiveRead.options;
+        const issue835BoundEnvelope = context.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+            ? bindIssue835ControlledLiveWriteEnvelopeToSessionForContract({
+                params: {
+                    request_id: preparedIssue835ControlledLiveWrite.commandRequestId,
+                    gate_invocation_id: preparedIssue835ControlledLiveWrite.gateInvocationId,
+                    options: preparedIssue835ControlledLiveWrite.options,
+                    ...(preparedIssue835ControlledLiveWrite.admissionDraft
+                        ? {
+                            [ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY]: preparedIssue835ControlledLiveWrite.admissionDraft
+                        }
+                        : {})
+                },
+                runId: context.run_id,
+                sessionId: bridgeSessionId
+            })
+            : null;
+        const issue835BoundOptions = asObject(issue835BoundEnvelope?.options);
+        const { __anonymous_isolation_verified: anonymousIsolationVerified, target_site_logged_in: targetSiteLoggedIn, ...preparedGateOptions } = issue835BoundOptions ?? preparedIssue835ControlledLiveWrite.options;
         const sessionRhythmAdmission = sessionRhythmGateApplies
             ? await buildSessionRhythmAdmissionForRuntime({
                 cwd: context.cwd,
@@ -2702,16 +2744,36 @@ const xhsReadCommand = async (context, inputConfig) => {
         };
         const commandParams = appendFingerprintContext({
             ...(forwardTimeoutMs ? { timeout_ms: forwardTimeoutMs } : {}),
-            ...(preparedIssue209LiveRead.commandRequestId
-                ? { request_id: preparedIssue209LiveRead.commandRequestId }
+            ...(preparedIssue835ControlledLiveWrite.commandRequestId ?? preparedIssue209LiveRead.commandRequestId
+                ? {
+                    request_id: preparedIssue835ControlledLiveWrite.commandRequestId ??
+                        preparedIssue209LiveRead.commandRequestId
+                }
                 : {}),
-            ...(preparedIssue209LiveRead.gateInvocationId
-                ? { gate_invocation_id: preparedIssue209LiveRead.gateInvocationId }
+            ...(preparedIssue835ControlledLiveWrite.gateInvocationId ?? preparedIssue209LiveRead.gateInvocationId
+                ? {
+                    gate_invocation_id: preparedIssue835ControlledLiveWrite.gateInvocationId ??
+                        preparedIssue209LiveRead.gateInvocationId
+                }
                 : {}),
             ...(preparedIssue209LiveRead.admissionDraft
                 ? {
                     [ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY]: preparedIssue209LiveRead.admissionDraft
                 }
+                : {}),
+            ...(preparedIssue835ControlledLiveWrite.admissionDraft
+                ? {
+                    [ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY]: preparedIssue835ControlledLiveWrite.admissionDraft
+                }
+                : {}),
+            ...(asObject(issue835BoundEnvelope?.admission_context)
+                ? { admission_context: issue835BoundEnvelope?.admission_context }
+                : {}),
+            ...(asObject(issue835BoundEnvelope?.approval_record)
+                ? { approval_record: issue835BoundEnvelope?.approval_record }
+                : {}),
+            ...(asObject(issue835BoundEnvelope?.audit_record)
+                ? { audit_record: issue835BoundEnvelope?.audit_record }
                 : {}),
             target_domain: gate.targetDomain,
             target_tab_id: gate.targetTabId,
