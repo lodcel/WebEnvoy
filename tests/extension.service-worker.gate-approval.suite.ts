@@ -1078,6 +1078,95 @@ describe("extension service worker / gate and approval", () => {
     });
   });
 
+  it("dispatches a controlled visibility debugger click only from creator publish tabs", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi, runtimeMessageListeners, debuggerAttach, debuggerDetach, debuggerSendCommand } =
+      createChromeApi([firstPort]);
+
+    startChromeBackgroundBridge(chromeApi);
+
+    const listener = runtimeMessageListeners[0];
+    expect(listener).toBeDefined();
+
+    const forbiddenResponses: unknown[] = [];
+    const handledForbidden = listener?.(
+      {
+        kind: "xhs-controlled-live-write-visibility-debugger-click",
+        locator: "div.d-select-wrapper.custom-select-44",
+        center_x: 320,
+        center_y: 640,
+        run_id: "run-xhs-visibility-debugger-click",
+        action_ref: "fr-0032/publish_visibility/d-select-trigger"
+      },
+      {
+        tab: {
+          id: 44,
+          url: "https://www.xiaohongshu.com/search_result?keyword=test"
+        }
+      },
+      (response) => {
+        forbiddenResponses.push(response);
+      }
+    );
+    expect(handledForbidden).toBe(true);
+    await waitForBridgeTurn();
+    expect(forbiddenResponses).toEqual([
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          code: "ERR_XHS_VISIBILITY_DEBUGGER_FORBIDDEN"
+        })
+      })
+    ]);
+    expect(debuggerAttach).not.toHaveBeenCalled();
+
+    const allowedResponses: unknown[] = [];
+    const handledAllowed = listener?.(
+      {
+        kind: "xhs-controlled-live-write-visibility-debugger-click",
+        locator: "div.d-select-wrapper.custom-select-44",
+        center_x: 320,
+        center_y: 640,
+        run_id: "run-xhs-visibility-debugger-click",
+        action_ref: "fr-0032/publish_visibility/d-select-trigger"
+      },
+      {
+        tab: {
+          id: 45,
+          url: "https://creator.xiaohongshu.com/publish/publish?source=web"
+        }
+      },
+      (response) => {
+        allowedResponses.push(response);
+      }
+    );
+    expect(handledAllowed).toBe(true);
+    await waitForBridgeTurn();
+
+    expect(debuggerAttach).toHaveBeenCalledWith({ tabId: 45 }, "1.3");
+    expect(debuggerSendCommand).toHaveBeenCalledWith(
+      { tabId: 45 },
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mousePressed", x: 320, y: 640 })
+    );
+    expect(debuggerSendCommand).toHaveBeenCalledWith(
+      { tabId: 45 },
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mouseReleased", x: 320, y: 640 })
+    );
+    expect(debuggerDetach).toHaveBeenCalledWith({ tabId: 45 });
+    expect(allowedResponses).toEqual([
+      expect.objectContaining({
+        ok: true,
+        result: expect.objectContaining({
+          action: "controlled_live_write_visibility_click",
+          target_tab_id: 45,
+          locator: "div.d-select-wrapper.custom-select-44"
+        })
+      })
+    ]);
+  });
+
   it("opens an XHS search result card into detail page with pc_search continuity", async () => {
     const firstPort = createMockPort();
     const {
