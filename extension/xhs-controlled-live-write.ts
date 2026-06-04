@@ -148,6 +148,7 @@ type VisibilityControlSelectionResult = {
   openedDropdown: boolean;
   triggerCount: number;
   optionLocator: string | null;
+  debuggerClick: JsonRecord | null;
 };
 
 type XhsControlledVisibilityDebuggerClickMessage = {
@@ -169,28 +170,32 @@ type XhsControlledVisibilityDebuggerClickResponse = {
 const visibilitySelectionSuccess = (
   selectedOption: HTMLElement,
   openedDropdown: boolean,
-  triggerCount: number
+  triggerCount: number,
+  debuggerClick: JsonRecord | null = null
 ): VisibilityControlSelectionResult => ({
   selectedOption,
   blockerCode: null,
   detailsRef: null,
   openedDropdown,
   triggerCount,
-  optionLocator: locatorForElement(selectedOption)
+  optionLocator: locatorForElement(selectedOption),
+  debuggerClick
 });
 
 const visibilitySelectionBlocked = (
   blockerCode: VisibilitySelectionBlockerCode,
   detailsRef: string,
   openedDropdown: boolean,
-  triggerCount: number
+  triggerCount: number,
+  debuggerClick: JsonRecord | null = null
 ): VisibilityControlSelectionResult => ({
   selectedOption: null,
   blockerCode,
   detailsRef,
   openedDropdown,
   triggerCount,
-  optionLocator: null
+  optionLocator: null,
+  debuggerClick
 });
 
 const elementCenterCoordinates = (element: HTMLElement): { centerX: number; centerY: number } | null => {
@@ -234,6 +239,14 @@ const requestVisibilityDebuggerClickViaExtension = async (input: {
         message: "extension runtime.sendMessage is unavailable"
       }
     };
+  }
+  if (typeof input.target.scrollIntoView === "function") {
+    try {
+      input.target.scrollIntoView({ block: "center", inline: "nearest" });
+      await sleep(100);
+    } catch {
+      // Best-effort positioning before CDP mouse input; geometry validation below remains authoritative.
+    }
   }
   const coordinates = elementCenterCoordinates(input.target);
   if (!coordinates) {
@@ -4000,6 +4013,18 @@ const waitForOpenedPrivateVisibilityOption = async (
   } while (true);
 };
 
+const visibilityDebuggerClickDiagnostics = (
+  target: HTMLElement,
+  response: XhsControlledVisibilityDebuggerClickResponse
+): JsonRecord => ({
+  attempted: true,
+  target_locator: locatorForElement(target),
+  target_structural_signal: visibilityStructuralSignal(target).slice(0, 160),
+  response_ok: response.ok,
+  ...(response.error?.code ? { error_code: response.error.code } : {}),
+  ...(response.error?.message ? { error_message: response.error.message.slice(0, 160) } : {})
+});
+
 const clickFirstOpenedPrivateVisibilityOption = async (
   triggers: HTMLElement[],
   options: VisibilityControlSelectionOptions = {},
@@ -4011,6 +4036,7 @@ const clickFirstOpenedPrivateVisibilityOption = async (
       ? triggers.slice(0, Math.max(0, options.maxTriggerActivations))
       : triggers;
   let openedDropdown = false;
+  let lastDebuggerClick: JsonRecord | null = null;
   for (const trigger of boundedTriggers) {
     const triggerUsesTrustedPostUploadFallback =
       isTrustedPostUploadVisibilitySelectFallback(trigger) ||
@@ -4045,14 +4071,16 @@ const clickFirstOpenedPrivateVisibilityOption = async (
         : openedOptionTimeoutMs;
       const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(activationTargetTimeoutMs, deadline);
       openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
-      if (!openedPrivateOption && !openedDropdown && activationTargetIsXhsDSelect) {
+      if (!openedPrivateOption && !openedDropdown && (activationTargetIsXhsDSelect || triggerUsesTrustedPostUploadFallback)) {
         if (triggerUsesTrustedPostUploadFallback && options.runId) {
+          const debuggerTarget = isTrustedPostUploadVisibilitySelectFallback(trigger) ? trigger : activationTarget;
           const debuggerClick = await requestVisibilityDebuggerClickViaExtension({
-            target: activationTarget,
+            target: debuggerTarget,
             runId: options.runId,
             actionRef: "fr-0032/publish_visibility/d-select-trigger",
             timeoutMs: Math.min(openedOptionTimeoutMs, 1_500)
           });
+          lastDebuggerClick = visibilityDebuggerClickDiagnostics(debuggerTarget, debuggerClick);
           if (debuggerClick.ok) {
             openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
             const debuggerOpenedPrivateOption = await waitForOpenedPrivateVisibilityOption(
@@ -4070,13 +4098,14 @@ const clickFirstOpenedPrivateVisibilityOption = async (
                 !hasPublicVisibilitySignal(selectedSignal) &&
                 (!openedDropdown || hasConfirmedPrivateVisibilitySelection(trigger))
               ) {
-                return visibilitySelectionSuccess(optionClickTarget, openedDropdown, boundedTriggers.length);
+                return visibilitySelectionSuccess(optionClickTarget, openedDropdown, boundedTriggers.length, lastDebuggerClick);
               }
               return visibilitySelectionBlocked(
                 "PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED",
                 "publish_visibility_option_selection_failed",
                 openedDropdown,
-                boundedTriggers.length
+                boundedTriggers.length,
+                lastDebuggerClick
               );
             }
           }
@@ -4106,7 +4135,8 @@ const clickFirstOpenedPrivateVisibilityOption = async (
             "PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED",
             "publish_visibility_option_selection_failed",
             openedDropdown,
-            boundedTriggers.length
+            boundedTriggers.length,
+            lastDebuggerClick
           );
         }
       }
@@ -4126,7 +4156,8 @@ const clickFirstOpenedPrivateVisibilityOption = async (
           "PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED",
           "publish_visibility_option_selection_failed",
           openedDropdown,
-          boundedTriggers.length
+          boundedTriggers.length,
+          lastDebuggerClick
         );
       }
     }
@@ -4136,14 +4167,16 @@ const clickFirstOpenedPrivateVisibilityOption = async (
       "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED",
       "publish_visibility_portal_option_not_selected",
       openedDropdown,
-      boundedTriggers.length
+      boundedTriggers.length,
+      lastDebuggerClick
     );
   }
   return visibilitySelectionBlocked(
     "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED",
     "publish_visibility_d_select_trigger_not_activated",
     false,
-    boundedTriggers.length
+    boundedTriggers.length,
+    lastDebuggerClick
   );
 };
 
@@ -4651,6 +4684,7 @@ const performControlledSubmitPublishCleanup = async (
         opened_dropdown: visibilitySelection.openedDropdown,
         trigger_count: visibilitySelection.triggerCount,
         option_locator: visibilitySelection.optionLocator,
+        debugger_click: visibilitySelection.debuggerClick,
         observed_symptom: "PUBLISH_VISIBILITY_CONTROL_MISSING"
       }
     };
