@@ -6913,8 +6913,9 @@ it("prioritizes XHS d-select before generic public visibility setting candidates
   const editorRoot = new TestElement("发布设置 可见范围 公开", {
     class: "publish-page-content-content-extra"
   });
-  const genericPublicSettings = Array.from({ length: 8 }, (_, index) => new TestElement(`可见范围 公开 ${index}`, {
-    class: "publish-page-content-setting-content"
+  const genericPublicSettings = Array.from({ length: 583 }, (_, index) => new TestElement(`可见范围 公开 ${index}`, {
+    class: "publish-page-content-setting-content generic-select-control",
+    tabindex: "0"
   }));
   const wrapper = new TestElement("公开", {
     class: "d-select-wrapper d-inline-block custom-select-44",
@@ -6976,8 +6977,11 @@ it("prioritizes XHS d-select before generic public visibility setting candidates
         if (selector.includes("button")) {
           return [submit];
         }
+        if (selector.includes("[tabindex]") && selector.includes("select")) {
+          return [...genericPublicSettings, wrapper, dSelect, dGrid, dText];
+        }
         if (selector.includes("[tabindex]")) {
-          return [wrapper];
+          return [...genericPublicSettings, wrapper];
         }
         if (selector.includes("setting") || selector.includes("select")) {
           return [...genericPublicSettings, wrapper, dSelect, dGrid, dText];

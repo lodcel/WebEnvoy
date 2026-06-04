@@ -3127,12 +3127,39 @@ const hasPublishSettingsAncestor = (element: HTMLElement): boolean => {
   return false;
 };
 
+const publishVisibilitySelectTriggerScore = (element: HTMLElement, sourceIndex: number): number => {
+  const structuralSignal = visibilityStructuralSignal(element);
+  const textSignal = elementTextSignal(element);
+  const displayedSignal = elementDisplayedTextSignal(element).replace(/\s+/gu, "");
+  let score = 0;
+
+  if (/permission-card-select|d-select-wrapper|reds-select|custom-select/iu.test(structuralSignal)) {
+    score += 120;
+  } else if (/\bd-select\b|select|dropdown|combobox/iu.test(structuralSignal)) {
+    score += 85;
+  }
+  if (publicVisibilityPattern.test(textSignal) && !privateVisibilityPattern.test(textSignal)) {
+    score += 45;
+  }
+  if (displayedSignal.length > 0 && displayedSignal.length <= 12) {
+    score += 30;
+  }
+  if (/publish-page-content-setting|publish-settings|permission|visibility|privacy/iu.test(structuralSignal)) {
+    score += 25;
+  }
+  if (/address|location|poi|place|topic|tag|relation|file-relation|travel/iu.test(structuralSignal)) {
+    score -= 120;
+  }
+
+  return score * 1_000 - sourceIndex;
+};
+
 const findLikelyPublishVisibilitySelectTriggers = (): HTMLElement[] => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return [];
   }
-  return uniqueVisibilityElements(
-    Array.from(document.querySelectorAll<HTMLElement>(likelyPublishVisibilitySelectSelector)).map((element) => {
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(likelyPublishVisibilitySelectSelector))
+    .map((element, sourceIndex) => {
       if (
         !isVisibleElement(element) ||
         isDisabledElement(element) ||
@@ -3144,9 +3171,16 @@ const findLikelyPublishVisibilitySelectTriggers = (): HTMLElement[] => {
       if (!isSelectLikeVisibilityActivationTarget(element) && !/d-select|reds-select|select|dropdown/iu.test(structuralSignal)) {
         return null;
       }
-      return resolveVisibilityClickTarget(element);
+      const trigger = resolveVisibilityClickTarget(element);
+      return {
+        element: trigger,
+        score: publishVisibilitySelectTriggerScore(trigger, sourceIndex)
+      };
     })
-  );
+    .filter((candidate): candidate is { element: HTMLElement; score: number } => candidate !== null)
+    .sort((left, right) => right.score - left.score)
+    .map(({ element }) => element);
+  return uniqueVisibilityElements(candidates);
 };
 
 const findVisibilityTriggers = (): HTMLElement[] => {
