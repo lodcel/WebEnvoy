@@ -9296,6 +9296,8 @@ const clickFirstOpenedPrivateVisibilityOption = async (triggers, options = {}, d
         : triggers;
     let openedDropdown = false;
     for (const trigger of boundedTriggers) {
+        const triggerUsesTrustedPostUploadFallback = isTrustedPostUploadVisibilitySelectFallback(trigger) ||
+            /d-select-wrapper|custom-select-44/iu.test(visibilityStructuralSignal(trigger));
         if (remainingSelectionTime(deadline) <= 0) {
             return visibilitySelectionBlocked(openedDropdown ? "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" : "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", openedDropdown ? "publish_visibility_portal_option_not_selected" : "publish_visibility_d_select_trigger_not_activated", openedDropdown, boundedTriggers.length);
         }
@@ -9310,14 +9312,18 @@ const clickFirstOpenedPrivateVisibilityOption = async (triggers, options = {}, d
             openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
             const activationTargetIsXhsDSelect = isXhsDSelectActivationTarget(activationTarget);
             const activationTargetTimeoutMs = activationTargetIsXhsDSelect
-                ? Math.min(openedOptionTimeoutMs, 180)
+                ? triggerUsesTrustedPostUploadFallback
+                    ? Math.min(openedOptionTimeoutMs, 600)
+                    : Math.min(openedOptionTimeoutMs, 180)
                 : openedOptionTimeoutMs;
             const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(activationTargetTimeoutMs, deadline);
             openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
             if (!openedPrivateOption && !openedDropdown && activationTargetIsXhsDSelect) {
                 activationTarget.click();
                 openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
-                const clickOpenedPrivateOption = await waitForOpenedPrivateVisibilityOption(Math.min(openedOptionTimeoutMs, 320), deadline);
+                const clickOpenedPrivateOption = await waitForOpenedPrivateVisibilityOption(triggerUsesTrustedPostUploadFallback
+                    ? Math.min(openedOptionTimeoutMs, 600)
+                    : Math.min(openedOptionTimeoutMs, 320), deadline);
                 openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
                 if (clickOpenedPrivateOption && typeof clickOpenedPrivateOption.click === "function") {
                     const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(clickOpenedPrivateOption);
