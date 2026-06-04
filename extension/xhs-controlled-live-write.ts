@@ -1026,6 +1026,25 @@ const elementDisplayedTextSignal = (element: Element): string =>
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join(" ");
 
+const elementDescendantDisplayedTextSignal = (element: Element): string => {
+  if (typeof element.querySelectorAll !== "function") {
+    return "";
+  }
+  return Array.from(element.querySelectorAll("*"))
+    .map((descendant) => elementDisplayedTextSignal(descendant))
+    .filter((value) => value.trim().length > 0)
+    .slice(0, 6)
+    .join(" ");
+};
+
+const elementVisibleTextSignal = (element: Element): string =>
+  [
+    elementDisplayedTextSignal(element),
+    elementDescendantDisplayedTextSignal(element)
+  ]
+    .filter((value) => value.trim().length > 0)
+    .join(" ");
+
 const isDisabledElement = (element: HTMLElement): boolean =>
   (element as HTMLButtonElement).disabled === true ||
   getElementAttribute(element, "aria-disabled") === "true" ||
@@ -2383,6 +2402,20 @@ const uploadStageContinuationSelector = [
   '[class*="continue" i]'
 ].join(",");
 
+const normalizeVisibilitySemanticSignal = (value: string): string =>
+  value
+    .normalize("NFKC")
+    .replace(/[\s\u00a0\u1680\u180e\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]+/gu, "");
+
+const hasPrivateVisibilitySignal = (value: string): boolean =>
+  privateVisibilityPattern.test(value) || privateVisibilityPattern.test(normalizeVisibilitySemanticSignal(value));
+
+const hasPublicVisibilitySignal = (value: string): boolean =>
+  publicVisibilityPattern.test(value) || publicVisibilityPattern.test(normalizeVisibilitySemanticSignal(value));
+
+const hasVisibilityTriggerSignal = (value: string): boolean =>
+  visibilityTriggerPattern.test(value) || visibilityTriggerPattern.test(normalizeVisibilitySemanticSignal(value));
+
 const isNativeSubmitControl = (element: HTMLElement): boolean => {
   const tagName = element.tagName.toLowerCase();
   const type = getElementAttribute(element, "type") ?? "";
@@ -2686,8 +2719,8 @@ const isPrivateVisibilityOptionCandidate = (element: HTMLElement): boolean => {
   if (
     !isVisibleElement(element) ||
     isDisabledElement(element) ||
-    !privateVisibilityPattern.test(signal) ||
-    publicVisibilityPattern.test(signal)
+    !hasPrivateVisibilitySignal(signal) ||
+    hasPublicVisibilitySignal(signal)
   ) {
     return false;
   }
@@ -2742,8 +2775,8 @@ const hasMountedPrivateVisibilityOption = (): boolean => {
       const signal = elementTextSignal(element);
       return (
         isVisibleElement(element) &&
-        privateVisibilityPattern.test(signal) &&
-        !publicVisibilityPattern.test(signal) &&
+        hasPrivateVisibilitySignal(signal) &&
+        !hasPublicVisibilitySignal(signal) &&
         !isDisabledElement(element)
       );
     });
@@ -2802,8 +2835,8 @@ const hasConfirmedPrivateVisibilitySelection = (root: HTMLElement): boolean => {
     return (
       isVisibleElement(element) &&
       isVisibilitySelectionConfirmationElement(element) &&
-      privateVisibilityPattern.test(signal) &&
-      !publicVisibilityPattern.test(signal)
+      hasPrivateVisibilitySignal(signal) &&
+      !hasPublicVisibilitySignal(signal)
     );
   });
 };
@@ -2891,8 +2924,8 @@ const hasPublicVisibilityCandidate = (element: HTMLElement, context: HTMLElement
       candidate !== context &&
       isVisibleElement(candidate) &&
       !isDisabledElement(candidate) &&
-      publicVisibilityPattern.test(signal) &&
-      !privateVisibilityPattern.test(signal) &&
+      hasPublicVisibilitySignal(signal) &&
+      !hasPrivateVisibilitySignal(signal) &&
       !nonSubmitPublishPattern.test(signal)
     );
   });
@@ -2903,7 +2936,7 @@ const visibilityContextContainer = (element: HTMLElement): HTMLElement | null =>
   let nearestPublicCandidateContainer: HTMLElement | null = null;
   for (let depth = 0; current && depth < 8; depth += 1) {
     const currentText = textContentOf(current);
-    if (publicVisibilityPattern.test(currentText) || privateVisibilityPattern.test(currentText)) {
+    if (hasPublicVisibilitySignal(currentText) || hasPrivateVisibilitySignal(currentText)) {
       return current;
     }
     if (!nearestPublicCandidateContainer && hasPublicVisibilityCandidate(current, element)) {
@@ -2930,6 +2963,10 @@ const resolveVisibilityClickTarget = (
   element: HTMLElement,
   boundary: HTMLElement | null = null
 ): HTMLElement => {
+  const trustedPostUploadSelectTrigger = nearestTrustedPostUploadVisibilitySelectFallbackTrigger(element);
+  if (trustedPostUploadSelectTrigger !== element) {
+    return trustedPostUploadSelectTrigger;
+  }
   let current: HTMLElement | null = element;
   for (let depth = 0; current && depth < 5; depth += 1) {
     if (isVisibilityClickTarget(current)) {
@@ -2948,8 +2985,8 @@ const isShortPublicVisibilityValue = (element: HTMLElement): boolean => {
   return (
     text.length > 0 &&
     text.length <= 12 &&
-    publicVisibilityPattern.test(text) &&
-    !privateVisibilityPattern.test(text) &&
+    hasPublicVisibilitySignal(text) &&
+    !hasPrivateVisibilitySignal(text) &&
     !nonSubmitPublishPattern.test(text)
   );
 };
@@ -2958,7 +2995,7 @@ const isPublishSettingsLikeContainer = (element: HTMLElement): boolean => {
   const signal = `${elementTextSignal(element)} ${visibilityStructuralSignal(element)}`;
   return (
     /publish|发布|setting|form|field|row|item|option|select|dropdown|scope|range|permission|visibility|privacy|visible|audience|viewer/iu.test(signal) ||
-    visibilityTriggerPattern.test(signal)
+    hasVisibilityTriggerSignal(signal)
   );
 };
 
@@ -2974,9 +3011,9 @@ const hasPlainPublicVisibilityTextContext = (element: HTMLElement): boolean => {
     const text = `${currentText} ${elementSignal}`;
     const signal = `${elementTextSignal(current)} ${visibilityStructuralSignal(current)}`;
     if (
-      (visibilityTriggerPattern.test(signal) || isPublishSettingsLikeContainer(current)) &&
-      publicVisibilityPattern.test(text) &&
-      !privateVisibilityPattern.test(text) &&
+      (hasVisibilityTriggerSignal(signal) || isPublishSettingsLikeContainer(current)) &&
+      hasPublicVisibilitySignal(text) &&
+      !hasPrivateVisibilitySignal(text) &&
       !nonSubmitPublishPattern.test(text)
     ) {
       return true;
@@ -3084,19 +3121,19 @@ const visibilityDiagnosticCandidateScore = (element: HTMLElement, sourceIndex: n
   const locator = locatorForElement(element);
   let score = 0;
 
-  if (privateVisibilityPattern.test(fullSignal)) {
+  if (hasPrivateVisibilitySignal(fullSignal)) {
     score += 120;
   }
   if (isVisibilityClickTarget(element)) {
     score += 90;
   }
-  if (visibilityTriggerPattern.test(fullSignal)) {
+  if (hasVisibilityTriggerSignal(fullSignal)) {
     score += 70;
   }
   if (visibilityStructuralPattern.test(structuralSignal)) {
     score += 55;
   }
-  if (publicVisibilityPattern.test(fullSignal) && displayedSignal.length <= 120) {
+  if (hasPublicVisibilitySignal(fullSignal) && displayedSignal.length <= 120) {
     score += 45;
   }
   if (visibilitySettingsDisclosurePattern.test(fullSignal) && displayedSignal.length <= 160) {
@@ -3182,9 +3219,9 @@ const collectVisibilityLocatorDiagnostics = (): JsonRecord => {
         has_placeholder_attribute: getElementAttribute(element, "placeholder") !== null,
         displayed_signal_length: displayedSignal.length,
         full_signal_length: fullSignal.length,
-        public_visibility_signal: publicVisibilityPattern.test(fullSignal),
-        private_visibility_signal: privateVisibilityPattern.test(fullSignal),
-        visibility_trigger_signal: visibilityTriggerPattern.test(fullSignal),
+        public_visibility_signal: hasPublicVisibilitySignal(fullSignal),
+        private_visibility_signal: hasPrivateVisibilitySignal(fullSignal),
+        visibility_trigger_signal: hasVisibilityTriggerSignal(fullSignal),
         visibility_structural_signal: visibilityStructuralPattern.test(structuralSignal),
         settings_disclosure_signal: visibilitySettingsDisclosurePattern.test(fullSignal),
         disabled: isDisabledElement(element),
@@ -3201,8 +3238,8 @@ const isVisibilitySettingsDisclosureCandidate = (element: HTMLElement): boolean 
     isVisibleElement(element) &&
     !isDisabledElement(element) &&
     visibilitySettingsDisclosurePattern.test(signal) &&
-    !privateVisibilityPattern.test(signal) &&
-    !publicVisibilityPattern.test(signal)
+    !hasPrivateVisibilitySignal(signal) &&
+    !hasPublicVisibilitySignal(signal)
   );
 };
 
@@ -3236,7 +3273,7 @@ const findVisibilityTriggersFromExplicitContext = (): HTMLElement[] => {
   }
   const contexts = Array.from(document.querySelectorAll<HTMLElement>(visibilityContextSelector)).filter((element) => {
     const signal = elementTextSignal(element);
-    return isVisibleElement(element) && visibilityTriggerPattern.test(signal);
+    return isVisibleElement(element) && hasVisibilityTriggerSignal(signal);
   });
   return uniqueVisibilityElements(
     contexts.flatMap((context) => {
@@ -3251,8 +3288,8 @@ const findVisibilityTriggersFromExplicitContext = (): HTMLElement[] => {
           element !== context &&
           isVisibleElement(element) &&
           !isDisabledElement(element) &&
-          publicVisibilityPattern.test(signal) &&
-          !privateVisibilityPattern.test(signal) &&
+          hasPublicVisibilitySignal(signal) &&
+          !hasPrivateVisibilitySignal(signal) &&
           !nonSubmitPublishPattern.test(signal);
         return matches ? resolveVisibilityClickTarget(element, container) : null;
       });
@@ -3269,7 +3306,19 @@ const likelyPublishVisibilitySelectSelector = [
 ].join(",");
 
 const nonVisibilitySelectContextPattern =
-  /address|location|poi|place|topic|tag|relation|file-relation|travel|poi-card|address-card|content[-_ ]?type|declaration/iu;
+  /address|location|poi|place|topic|tag|relation|file-relation|travel|poi-card|address-card|group-card|content[-_ ]?type|declaration/iu;
+
+const hasNonVisibilitySelectContext = (element: HTMLElement): boolean => {
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 6; depth += 1) {
+    const signal = `${locatorForElement(current)} ${visibilityStructuralSignal(current)} ${elementDisplayedTextSignal(current)}`;
+    if (nonVisibilitySelectContextPattern.test(signal)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+};
 
 const hasPublishSettingsAncestor = (element: HTMLElement): boolean => {
   let current: HTMLElement | null = element;
@@ -3290,10 +3339,51 @@ const hasPublishSettingsAncestor = (element: HTMLElement): boolean => {
   return false;
 };
 
-const publishVisibilitySelectTriggerScore = (element: HTMLElement, sourceIndex: number): number => {
+const isTrustedPostUploadVisibilitySelectFallback = (element: HTMLElement): boolean => {
+  if (typeof HTMLElement !== "function") {
+    return false;
+  }
+  const structuralSignal = visibilityStructuralSignal(element);
+  const displayedSignal = elementVisibleTextSignal(element).replace(/\s+/gu, "");
+  return (
+    isVisibleElement(element) &&
+    !isDisabledElement(element) &&
+    !hasNonVisibilitySelectContext(element) &&
+    hasPublishSettingsAncestor(element) &&
+    /custom-select-44|d-select-wrapper|\bd-select\b|d-select-main|d-select-content/iu.test(structuralSignal) &&
+    displayedSignal.length > 0 &&
+    displayedSignal.length <= 16 &&
+    !hasPrivateVisibilitySignal(displayedSignal)
+  );
+};
+
+const nearestTrustedPostUploadVisibilitySelectFallbackTrigger = (element: HTMLElement): HTMLElement => {
+  let current: HTMLElement | null = element;
+  let nearestTrusted = isTrustedPostUploadVisibilitySelectFallback(element) ? element : null;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const structuralSignal = visibilityStructuralSignal(current);
+    if (
+      isTrustedPostUploadVisibilitySelectFallback(current) &&
+      /d-select-wrapper|custom-select-44|permission-card-select/iu.test(structuralSignal)
+    ) {
+      return current;
+    }
+    if (!nearestTrusted && isTrustedPostUploadVisibilitySelectFallback(current)) {
+      nearestTrusted = current;
+    }
+    current = current.parentElement;
+  }
+  return nearestTrusted ?? element;
+};
+
+const publishVisibilitySelectTriggerScore = (
+  element: HTMLElement,
+  sourceIndex: number,
+  structuralFallback = false
+): number => {
   const structuralSignal = visibilityStructuralSignal(element);
   const textSignal = elementTextSignal(element);
-  const displayedSignal = elementDisplayedTextSignal(element).replace(/\s+/gu, "");
+  const displayedSignal = elementVisibleTextSignal(element).replace(/\s+/gu, "");
   let score = 0;
 
   if (/permission-card-select|d-select-wrapper|reds-select|custom-select/iu.test(structuralSignal)) {
@@ -3301,14 +3391,23 @@ const publishVisibilitySelectTriggerScore = (element: HTMLElement, sourceIndex: 
   } else if (/\bd-select\b|select|dropdown|combobox/iu.test(structuralSignal)) {
     score += 85;
   }
-  if (publicVisibilityPattern.test(textSignal) && !privateVisibilityPattern.test(textSignal)) {
-    score += 45;
+  if (/custom-select-44|d-select-wrapper/iu.test(structuralSignal) && hasPublishSettingsAncestor(element)) {
+    score += 80;
+  }
+  if (hasPublicVisibilitySignal(textSignal) && !hasPrivateVisibilitySignal(textSignal)) {
+    score += 70;
   }
   if (displayedSignal.length > 0 && displayedSignal.length <= 12) {
     score += 30;
   }
+  if (hasVisibilityTriggerSignal(textSignal)) {
+    score += 30;
+  }
   if (/publish-page-content-setting|publish-settings|permission|visibility|privacy/iu.test(structuralSignal)) {
     score += 25;
+  }
+  if (structuralFallback) {
+    score -= 45;
   }
   if (/address|location|poi|place|topic|tag|relation|file-relation|travel|content[-_ ]?type|declaration/iu.test(structuralSignal)) {
     score -= 120;
@@ -3317,7 +3416,7 @@ const publishVisibilitySelectTriggerScore = (element: HTMLElement, sourceIndex: 
   return score * 1_000 - sourceIndex;
 };
 
-const findLikelyPublishVisibilitySelectTriggers = (): HTMLElement[] => {
+const findLikelyPublishVisibilitySelectTriggers = (structuralFallback = false): HTMLElement[] => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
     return [];
   }
@@ -3334,10 +3433,21 @@ const findLikelyPublishVisibilitySelectTriggers = (): HTMLElement[] => {
       if (!isSelectLikeVisibilityActivationTarget(element) && !/d-select|reds-select|select|dropdown/iu.test(structuralSignal)) {
         return null;
       }
-      const trigger = resolveVisibilityClickTarget(element);
+      const textSignal = elementTextSignal(element);
+      const semanticCandidate =
+        hasPublicVisibilitySignal(textSignal) ||
+        hasVisibilityTriggerSignal(textSignal) ||
+        /permission-card-select/iu.test(structuralSignal);
+      if (!semanticCandidate && (!structuralFallback || !isTrustedPostUploadVisibilitySelectFallback(element))) {
+        return null;
+      }
+      const trigger =
+        !hasPublicVisibilitySignal(textSignal) && isTrustedPostUploadVisibilitySelectFallback(element)
+          ? nearestTrustedPostUploadVisibilitySelectFallbackTrigger(element)
+          : resolveVisibilityClickTarget(element);
       return {
         element: trigger,
-        score: publishVisibilitySelectTriggerScore(trigger, sourceIndex)
+        score: publishVisibilitySelectTriggerScore(trigger, sourceIndex, !semanticCandidate)
       };
     })
     .filter((candidate): candidate is { element: HTMLElement; score: number } => candidate !== null)
@@ -3345,6 +3455,9 @@ const findLikelyPublishVisibilitySelectTriggers = (): HTMLElement[] => {
     .map(({ element }) => element);
   return uniqueVisibilityElements(candidates);
 };
+
+const findPostUploadStructuralVisibilitySelectFallbackTriggers = (): HTMLElement[] =>
+  findLikelyPublishVisibilitySelectTriggers(true).filter(isTrustedPostUploadVisibilitySelectFallback);
 
 const findVisibilityTriggers = (): HTMLElement[] => {
   if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
@@ -3357,7 +3470,7 @@ const findVisibilityTriggers = (): HTMLElement[] => {
       return (
         isVisibleElement(element) &&
         !isDisabledElement(element) &&
-        visibilityTriggerPattern.test(signal) &&
+        hasVisibilityTriggerSignal(signal) &&
         visibilityTriggerActionPattern.test(
           `${element.tagName.toLowerCase()} ${getElementAttribute(element, "role") ?? ""} ${visibilityStructuralSignal(element)}`
         ) &&
@@ -3370,7 +3483,7 @@ const findVisibilityTriggers = (): HTMLElement[] => {
     const textSignal = elementTextSignal(element);
     const structuralSignal = visibilityStructuralSignal(element);
     const publicDefaultWithVisibilityStructure =
-      publicVisibilityPattern.test(textSignal) && visibilityStructuralPattern.test(structuralSignal);
+      hasPublicVisibilitySignal(textSignal) && visibilityStructuralPattern.test(structuralSignal);
     return publicDefaultWithVisibilityStructure &&
       isVisibleElement(element) &&
       !isDisabledElement(element) &&
@@ -3380,10 +3493,11 @@ const findVisibilityTriggers = (): HTMLElement[] => {
   });
   return uniqueVisibilityElements([
     ...explicitContextTriggers,
-    ...publicDefaultTriggers,
     ...findLikelyPublishVisibilitySelectTriggers(),
+    ...publicDefaultTriggers,
     ...directTriggers,
-    ...findPlainPublicVisibilityValueFallbackTriggers()
+    ...findPlainPublicVisibilityValueFallbackTriggers(),
+    ...findPostUploadStructuralVisibilitySelectFallbackTriggers()
   ]);
 };
 
@@ -3394,10 +3508,21 @@ const findVisibilityTriggersForSelection = (
   if (typeof options.maxTriggerActivations !== "number") {
     return triggers;
   }
+  const likelyTriggers = findLikelyPublishVisibilitySelectTriggers();
+  const structuralFallbackTriggers = findPostUploadStructuralVisibilitySelectFallbackTriggers();
+  if (triggers.length > 50) {
+    return uniqueVisibilityElements([
+      ...likelyTriggers,
+      ...structuralFallbackTriggers,
+      ...triggers.slice(0, 1),
+      ...triggers
+    ]);
+  }
   return uniqueVisibilityElements([
     ...triggers.slice(0, 1),
-    ...findLikelyPublishVisibilitySelectTriggers(),
-    ...triggers
+    ...likelyTriggers,
+    ...structuralFallbackTriggers,
+    ...triggers,
   ]);
 };
 
@@ -3501,7 +3626,7 @@ const visibilityActivationTargetScore = (element: HTMLElement, sourceIndex: numb
   if (/permission-card-select|d-select-wrapper|reds-select|select|dropdown/iu.test(structuralSignal)) {
     score += 90;
   }
-  if (publicVisibilityPattern.test(textSignal) && !privateVisibilityPattern.test(textSignal)) {
+  if (hasPublicVisibilitySignal(textSignal) && !hasPrivateVisibilitySignal(textSignal)) {
     score += 40;
   }
   if (isVisibilityClickTarget(element)) {
@@ -3522,9 +3647,10 @@ const isNestedSelectLikeVisibilityActivationCandidate = (
     return false;
   }
   const textSignal = elementTextSignal(element);
+  const boundaryAllowsStructuralFallback = isTrustedPostUploadVisibilitySelectFallback(boundary);
   if (
-    !publicVisibilityPattern.test(textSignal) ||
-    privateVisibilityPattern.test(textSignal) ||
+    (!hasPublicVisibilitySignal(textSignal) && !boundaryAllowsStructuralFallback) ||
+    hasPrivateVisibilitySignal(textSignal) ||
     nonSubmitPublishPattern.test(textContentOf(element))
   ) {
     return false;
@@ -3546,6 +3672,9 @@ const resolveNestedVisibilityActivationTargets = (trigger: HTMLElement): HTMLEle
   if (typeof trigger.querySelectorAll !== "function") {
     return [trigger];
   }
+  const triggerUsesStructuralFallback =
+    /d-select-wrapper|custom-select-44|permission-card-select/iu.test(visibilityStructuralSignal(trigger)) ||
+    (isTrustedPostUploadVisibilitySelectFallback(trigger) && !hasPublicVisibilitySignal(elementTextSignal(trigger)));
   const nested = Array.from(trigger.querySelectorAll<HTMLElement>(nestedVisibilityActivationSelector))
     .filter((element) =>
       element instanceof HTMLElement &&
@@ -3557,7 +3686,9 @@ const resolveNestedVisibilityActivationTargets = (trigger: HTMLElement): HTMLEle
     }))
     .sort((left, right) => right.score - left.score)
     .map(({ element }) => element);
-  return uniqueVisibilityElements([...nested, trigger]);
+  return triggerUsesStructuralFallback
+    ? uniqueVisibilityElements([trigger, ...nested])
+    : uniqueVisibilityElements([...nested, trigger]);
 };
 
 type VisibilityControlSelectionOptions = {
@@ -3633,8 +3764,8 @@ const clickFirstOpenedPrivateVisibilityOption = async (
         await sleep(300);
         const selectedSignal = elementTextSignal(openedPrivateOption);
         if (
-          privateVisibilityPattern.test(selectedSignal) &&
-          !publicVisibilityPattern.test(selectedSignal) &&
+          hasPrivateVisibilitySignal(selectedSignal) &&
+          !hasPublicVisibilitySignal(selectedSignal) &&
           (!openedDropdown || hasConfirmedPrivateVisibilitySelection(trigger))
         ) {
           return visibilitySelectionSuccess(optionClickTarget, openedDropdown, boundedTriggers.length);
