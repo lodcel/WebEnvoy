@@ -7345,29 +7345,30 @@ it("opens the XHS d-select portal and selects the private option from the #1042 
     };
   }
 
+  const publicVisibilityWithSeparators = "公\u200b开\u200b可\u200b见";
   const editorRoot = new TestElement("发布设置 可见范围 公开", {
     class: "publish-page-content-content-extra"
   });
   const contentTypeDeclarationSelect = new TestElement("添加内容类型声明", {
     class: "d-select-wrapper d-inline-block content-type-declaration-select"
   });
-  const settingContent = new TestElement("可见范围 公开", {
+  const settingContent = new TestElement(`可见范围 ${publicVisibilityWithSeparators}`, {
     class: "publish-page-content-setting-content"
   });
-  const localWrapper = new TestElement("公开", {
+  const localWrapper = new TestElement(publicVisibilityWithSeparators, {
     class: "wrapper"
   });
-  const dSelectWrapper = new TestElement("公开", {
+  const dSelectWrapper = new TestElement(publicVisibilityWithSeparators, {
     class: "d-select-wrapper d-inline-block custom-select-44",
     tabindex: "0"
   });
-  const dSelect = new TestElement("公开", {
+  const dSelect = new TestElement(publicVisibilityWithSeparators, {
     class: "d-select --color-text-title --color-bg-fill"
   });
-  const dGrid = new TestElement("公开", {
+  const dGrid = new TestElement(publicVisibilityWithSeparators, {
     class: "d-grid d-select-main d-select-main-prefix-indicator --color-text-title"
   });
-  const dText = new TestElement("公开", {
+  const dText = new TestElement(publicVisibilityWithSeparators, {
     class: "d-text d-select-placeholder d-text-ellipsis d-text-nowrap"
   });
   const portal = new TestElement("仅自己可见", {
@@ -7527,6 +7528,280 @@ it("opens the XHS d-select portal and selects the private option from the #1042 
     expect(privateOption.clicked).toBe(true);
     expect(submit.clicked).toBe(true);
     expect(clickOrder).toContain("trigger");
+    expect(clickOrder).toContain("private-option");
+    expect(clickOrder).toContain("submit");
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING"
+        })
+      ]
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "PointerEvent", {
+      configurable: true,
+      value: originalPointerEvent
+    });
+  }
+});
+
+it("uses the post-upload d-select structural fallback when public visibility text is not readable", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalPointerEvent = globalThis.PointerEvent;
+
+  let opened = false;
+  const clickOrder: string[] = [];
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "DIV";
+    className = "";
+    classList: string[] = [];
+    parentElement: TestElement | null = null;
+    children: TestElement[] = [];
+    disabled = false;
+    clicked = false;
+    dispatched: string[] = [];
+    textContent: string;
+    attributes: Record<string, string>;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter((item) => item.length > 0);
+      this.id = attributes.id ?? "";
+      this.tagName = attributes.tagName ?? "DIV";
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    dispatchEvent(event: Event) {
+      this.dispatched.push(event.type);
+      if (this.className.includes("d-select") && event.type === "mousedown") {
+        opened = true;
+        clickOrder.push(this.className.includes("d-select-wrapper") ? "wrapper-trigger" : "nested-trigger");
+      }
+      return true;
+    }
+    click = () => {
+      this.clicked = true;
+      if (this.className.includes("custom-option")) {
+        dSelectWrapper.textContent = "仅自己可见";
+        dSelect.textContent = "仅自己可见";
+        dGrid.textContent = "仅自己可见";
+        dText.textContent = "仅自己可见";
+        clickOrder.push("private-option");
+      }
+    };
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+    querySelectorAll = () => {
+      const descendants: TestElement[] = [];
+      const visit = (element: TestElement) => {
+        for (const child of element.children) {
+          descendants.push(child);
+          visit(child);
+        }
+      };
+      visit(this);
+      return descendants;
+    };
+  }
+
+  const editorRoot = new TestElement("发布设置", {
+    class: "publish-page-content-content-extra"
+  });
+  const settingContent = new TestElement("发布设置项", {
+    class: "publish-page-content-setting-content"
+  });
+  const localWrapper = new TestElement("当前选项", {
+    class: "wrapper"
+  });
+  const dSelectWrapper = new TestElement("当前选项", {
+    class: "d-select-wrapper d-inline-block custom-select-44",
+    tabindex: "0"
+  });
+  const dSelect = new TestElement("当前选项", {
+    class: "d-select --color-text-title --color-bg-fill"
+  });
+  const dGrid = new TestElement("当前选项", {
+    class: "d-grid d-select-main d-select-main-prefix-indicator --color-text-title"
+  });
+  const dText = new TestElement("当前选项", {
+    class: "d-text d-select-placeholder d-text-ellipsis d-text-nowrap"
+  });
+  const portal = new TestElement("仅自己可见", {
+    class: "d-popover d-popover-default d-dropdown"
+  });
+  const dropdownWrapper = new TestElement("仅自己可见", {
+    class: "d-dropdown-wrapper"
+  });
+  const optionsWrapper = new TestElement("仅自己可见", {
+    class: "d-options-wrapper"
+  });
+  const privateOption = new TestElement("仅自己可见", {
+    class: "custom-option --color-bg-fill-light --color-text-title"
+  });
+  const optionName = new TestElement("仅自己可见", {
+    class: "name"
+  });
+  const submit = new TestElement("发布", {
+    tagName: "BUTTON",
+    class: "publish-button"
+  });
+
+  settingContent.parentElement = editorRoot;
+  localWrapper.parentElement = settingContent;
+  dSelectWrapper.parentElement = localWrapper;
+  dSelect.parentElement = dSelectWrapper;
+  dGrid.parentElement = dSelect;
+  dText.parentElement = dGrid;
+  portal.parentElement = editorRoot;
+  dropdownWrapper.parentElement = portal;
+  optionsWrapper.parentElement = dropdownWrapper;
+  privateOption.parentElement = optionsWrapper;
+  optionName.parentElement = privateOption;
+  submit.parentElement = editorRoot;
+  editorRoot.children = [settingContent, portal, submit];
+  settingContent.children = [localWrapper];
+  localWrapper.children = [dSelectWrapper];
+  dSelectWrapper.children = [dSelect];
+  dSelect.children = [dGrid];
+  dGrid.children = [dText];
+  portal.children = [dropdownWrapper];
+  dropdownWrapper.children = [optionsWrapper];
+  optionsWrapper.children = [privateOption];
+  privateOption.children = [optionName];
+  submit.click = () => {
+    submit.clicked = true;
+    clickOrder.push("submit");
+  };
+
+  const allElements = [
+    editorRoot,
+    settingContent,
+    localWrapper,
+    dSelectWrapper,
+    dSelect,
+    dGrid,
+    dText,
+    portal,
+    dropdownWrapper,
+    optionsWrapper,
+    privateOption,
+    optionName,
+    submit
+  ];
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: (element: TestElement) => {
+      const isDropdownElement =
+        element === portal ||
+        element === dropdownWrapper ||
+        element === optionsWrapper ||
+        element === privateOption ||
+        element === optionName;
+      return {
+        display: isDropdownElement && !opened ? "none" : "block",
+        visibility: isDropdownElement && !opened ? "hidden" : "visible",
+        opacity: isDropdownElement && !opened ? "0" : "1"
+      };
+    }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: editorRoot,
+      querySelectorAll: (selector: string) => {
+        if (
+          selector.includes("button") &&
+          !selector.includes("select") &&
+          !selector.includes("dropdown") &&
+          !selector.includes("option") &&
+          !selector.includes("visibility") &&
+          !selector.includes("privacy") &&
+          !selector.includes("permission")
+        ) {
+          return [submit];
+        }
+        return allElements;
+      }
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-issue1049-structural-fallback",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1049-structural-fallback",
+      profile_ref: "profile-a",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/issue1049-structural-fallback",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref: "object_upload:ros-upload-d4.xhscdn.com/spectrum/issue1049-structural",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-04T00:00:00.000Z",
+        preview_diagnostics: null
+      },
+      background_upload_capture_continuation: true
+    });
+
+    expect(opened).toBe(true);
+    expect(dSelectWrapper.clicked || dSelect.clicked || dGrid.clicked).toBe(true);
+    expect(privateOption.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
     expect(clickOrder).toContain("private-option");
     expect(clickOrder).toContain("submit");
     expect(result.live_write_evaluation).toMatchObject({
@@ -7877,7 +8152,7 @@ it("does not activate the content type declaration d-select when visibility d-se
     };
   }
 
-  const editorRoot = new TestElement("发布设置 添加内容类型声明", {
+  const editorRoot = new TestElement("发布设置 添加内容类型声明 地址 群组", {
     class: "publish-page-content-content-extra"
   });
   const contentTypeDeclarationSelect = new TestElement("添加内容类型声明", {
@@ -7887,6 +8162,14 @@ it("does not activate the content type declaration d-select when visibility d-se
   const declarationSelect = new TestElement("添加内容类型声明", {
     class: "d-select --color-text-title --color-bg-fill"
   });
+  const addressSelect = new TestElement("地址", {
+    class: "d-select-wrapper d-inline-block address-card-select custom-select-44",
+    tabindex: "0"
+  });
+  const groupSelect = new TestElement("群组", {
+    class: "d-select-wrapper d-inline-block group-card-select custom-select-44",
+    tabindex: "0"
+  });
   const submit = new TestElement("发布", {
     tagName: "BUTTON",
     class: "publish-button"
@@ -7894,15 +8177,17 @@ it("does not activate the content type declaration d-select when visibility d-se
 
   contentTypeDeclarationSelect.parentElement = editorRoot;
   declarationSelect.parentElement = contentTypeDeclarationSelect;
+  addressSelect.parentElement = editorRoot;
+  groupSelect.parentElement = editorRoot;
   submit.parentElement = editorRoot;
-  editorRoot.children = [contentTypeDeclarationSelect, submit];
+  editorRoot.children = [contentTypeDeclarationSelect, addressSelect, groupSelect, submit];
   contentTypeDeclarationSelect.children = [declarationSelect];
   submit.click = () => {
     submit.clicked = true;
     clickOrder.push("submit");
   };
 
-  const allElements = [editorRoot, contentTypeDeclarationSelect, declarationSelect, submit];
+  const allElements = [editorRoot, contentTypeDeclarationSelect, declarationSelect, addressSelect, groupSelect, submit];
 
   Object.defineProperty(globalThis, "HTMLElement", {
     configurable: true,
@@ -7972,6 +8257,8 @@ it("does not activate the content type declaration d-select when visibility d-se
     });
 
     expect(contentTypeDeclarationSelect.clicked).toBe(false);
+    expect(addressSelect.clicked).toBe(false);
+    expect(groupSelect.clicked).toBe(false);
     expect(submit.clicked).toBe(false);
     expect(clickOrder).toEqual([]);
     expect(result.live_write_evaluation).toMatchObject({
