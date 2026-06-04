@@ -3,6 +3,7 @@ import { CliError } from "../core/errors.js";
 import type { JsonObject } from "../core/types.js";
 import { prepareIssue209LiveReadSource } from "../../shared/issue209-live-read/source.js";
 import { resolveXhsGateDecisionId } from "../../shared/xhs-gate.js";
+import { resolveApprovedFr0032SourceMediaDigest } from "../../shared/fr0032-approved-source-media.js";
 import {
   validateIssue209ApprovalSourceAgainstCurrentLinkage,
   validateIssue209AuditSourceAgainstCurrentLinkage
@@ -1009,6 +1010,7 @@ export const parseCreatorPublishAdmissionInputForContract = (): XhsCreatorPublis
 
 const SOURCE_MEDIA_KINDS = new Set(["image", "video", "mixed"]);
 const SOURCE_MEDIA_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const SOURCE_MEDIA_PLACEHOLDER_DIGEST_PATTERN = /^sha256:a{64}$/u;
 const UNSAFE_SOURCE_MEDIA_REF_PATTERN = /^(?:file:|\/|[A-Za-z]:[\\/])/u;
 
 export const parseMediaUploadDiscoveryInputForContract = (
@@ -1083,26 +1085,26 @@ export const parseControlledLiveWriteInputForContract = (
     "SOURCE_MEDIA_REF_INVALID",
     abilityId
   );
-  const sourceMediaDigest = parseRequiredStringFieldForContract(
-    input,
-    "source_media_digest",
-    "SOURCE_MEDIA_DIGEST_INVALID",
-    abilityId
-  );
   const sourceMediaKind = parseRequiredStringFieldForContract(
     input,
     "source_media_kind",
     "SOURCE_MEDIA_KIND_INVALID",
     abilityId
   );
+  const sourceMediaDigest =
+    parseOptionalStringFieldForContract(input, "source_media_digest", "SOURCE_MEDIA_DIGEST_INVALID", abilityId) ??
+    resolveApprovedFr0032SourceMediaDigest({ sourceMediaRef, sourceMediaKind });
   if (UNSAFE_SOURCE_MEDIA_REF_PATTERN.test(sourceMediaRef)) {
     throw invalidAbilityInput("SOURCE_MEDIA_REF_INVALID", abilityId);
   }
-  if (!SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
-    throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", abilityId);
-  }
   if (!SOURCE_MEDIA_KINDS.has(sourceMediaKind)) {
     throw invalidAbilityInput("SOURCE_MEDIA_KIND_INVALID", abilityId);
+  }
+  if (!sourceMediaDigest || !SOURCE_MEDIA_DIGEST_PATTERN.test(sourceMediaDigest)) {
+    throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_INVALID", abilityId);
+  }
+  if (SOURCE_MEDIA_PLACEHOLDER_DIGEST_PATTERN.test(sourceMediaDigest)) {
+    throw invalidAbilityInput("SOURCE_MEDIA_DIGEST_PLACEHOLDER", abilityId);
   }
   const acceptedUploadArtifactIdentity =
     hasOwn(input, "accepted_upload_artifact_identity") &&

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST } from "../../../shared/fr0032-approved-source-media.js";
 import {
   ensureIssue209AdmissionContextForContract,
   normalizeGateOptionsForContract,
@@ -416,7 +417,7 @@ describe("xhs-input", () => {
       ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
       input: {
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
-        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
         source_media_kind: "image"
       },
       options: {
@@ -443,7 +444,7 @@ describe("xhs-input", () => {
       target_page: "creator_publish_tab",
       discovery_action: "media_upload_path",
       source_media_ref: "media-ref/fr-0032/fixture-image-a",
-      source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
       source_media_kind: "image"
     });
     expect(gate).toMatchObject({
@@ -464,7 +465,7 @@ describe("xhs-input", () => {
       ability: { id: "xhs.creator.publish.v1", layer: "L3", action: "write" },
       input: {
         source_media_ref: "/Users/mc/private/source.png",
-        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
         source_media_kind: "image"
       },
       options: {
@@ -534,7 +535,7 @@ describe("xhs-input", () => {
       input: {
         live_write_attempt_id: "fr0032-attempt-001",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
-        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
         source_media_kind: "image"
       },
       options: {
@@ -564,7 +565,7 @@ describe("xhs-input", () => {
       target_page: "creator_publish_tab",
       live_write_attempt_id: "fr0032-attempt-001",
       source_media_ref: "media-ref/fr-0032/fixture-image-a",
-      source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
       source_media_kind: "image"
     });
     expect(gate).toMatchObject({
@@ -578,6 +579,69 @@ describe("xhs-input", () => {
         controlled_live_write: true
       }
     });
+  });
+
+  it("resolves the approved #835 controlled live write fixture digest when omitted", () => {
+    const parsed = parseXhsCommandInputForContract({
+      command: "xhs.creator_publish.controlled_live_write",
+      abilityId: "xhs.creator.publish.v1",
+      abilityAction: "write",
+      payload: {
+        live_write_attempt_id: "fr0032-attempt-resolved-digest",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_kind: "image"
+      },
+      options: {
+        issue_scope: "issue_835",
+        target_domain: "creator.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "creator_publish_tab",
+        action_type: "write",
+        requested_execution_mode: "live_write",
+        controlled_live_write: true
+      }
+    });
+
+    expect(parsed).toMatchObject({
+      target_page: "creator_publish_tab",
+      live_write_attempt_id: "fr0032-attempt-resolved-digest",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
+      source_media_kind: "image"
+    });
+  });
+
+  it("rejects the stale #835 controlled live write placeholder digest before live upload", () => {
+    try {
+      parseXhsCommandInputForContract({
+        command: "xhs.creator_publish.controlled_live_write",
+        abilityId: "xhs.creator.publish.v1",
+        abilityAction: "write",
+        payload: {
+          live_write_attempt_id: "fr0032-attempt-placeholder-digest",
+          source_media_ref: "media-ref/fr-0032/fixture-image-a",
+          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_kind: "image"
+        },
+        options: {
+          issue_scope: "issue_835",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          controlled_live_write: true
+        }
+      });
+      throw new Error("expected placeholder source media digest to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "ERR_CLI_INVALID_ARGS",
+        details: expect.objectContaining({
+          reason: "SOURCE_MEDIA_DIGEST_PLACEHOLDER"
+        })
+      });
+    }
   });
 
   it("reports missing #835 controlled live write approval admission context before live relay", () => {
@@ -753,12 +817,12 @@ describe("xhs-input", () => {
       input: {
         live_write_attempt_id: "fr0032-attempt-submit-001",
         source_media_ref: "media-ref/fr-0032/fixture-image-a",
-        source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
         source_media_kind: "image",
         accepted_upload_artifact_identity: {
-          upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/aaaaaaaaaaaa",
+          upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/3ed47d9dd37e",
           source_media_ref: "media-ref/fr-0032/fixture-image-a",
-          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
           source_media_kind: "image",
           accepted_by_platform: true,
           visible_in_editor: true,
@@ -793,7 +857,7 @@ describe("xhs-input", () => {
       target_page: "creator_publish_tab",
       live_write_attempt_id: "fr0032-attempt-submit-001",
       accepted_upload_artifact_identity: {
-        upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/aaaaaaaaaaaa",
+        upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/3ed47d9dd37e",
         accepted_by_platform: true,
         visible_in_editor: true
       }
@@ -809,12 +873,12 @@ describe("xhs-input", () => {
         payload: {
           live_write_attempt_id: "fr0032-attempt-submit-001",
           source_media_ref: "media-ref/fr-0032/fixture-image-a",
-          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
           source_media_kind: "image",
           accepted_upload_artifact_identity: {
             upload_artifact_id: "upload-artifact/fr-0032/run-submit-001/bbbbbbbbbbbb",
             source_media_ref: "media-ref/fr-0032/fixture-image-b",
-            source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
             source_media_kind: "image",
             accepted_by_platform: true,
             visible_in_editor: true,
@@ -852,7 +916,7 @@ describe("xhs-input", () => {
         payload: {
           live_write_attempt_id: "fr0032-attempt-unsafe",
           source_media_ref: "/Users/mc/private/source.png",
-          source_media_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
           source_media_kind: "image"
         },
         options: {
