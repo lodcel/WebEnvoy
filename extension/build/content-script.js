@@ -6197,6 +6197,22 @@ const createLayer2EventWithFallback = (type, createSpecificEvent, fields = {}) =
 return { buildLayer2InteractionEvidence, buildLayer2RhythmPlan, buildLayer2ScheduledEventChain, buildLayer2WriteBoundaryAudit, buildXhsSearchLayer2InteractionEvidence, dispatchLayer2ScheduledEventChain, getLayer2BehaviorEvidenceBaseline, getLayer2EventChainPolicies, resolveLayer2SettleRecovery };
 })();
 const __webenvoy_module_xhs_controlled_live_write = (() => {
+const visibilitySelectionSuccess = (selectedOption, openedDropdown, triggerCount) => ({
+    selectedOption,
+    blockerCode: null,
+    detailsRef: null,
+    openedDropdown,
+    triggerCount,
+    optionLocator: locatorForElement(selectedOption)
+});
+const visibilitySelectionBlocked = (blockerCode, detailsRef, openedDropdown, triggerCount) => ({
+    selectedOption: null,
+    blockerCode,
+    detailsRef,
+    openedDropdown,
+    triggerCount,
+    optionLocator: null
+});
 const FR0032_FIXTURE_IMAGE_A_REF = "media-ref/fr-0032/fixture-image-a";
 const FR0032_FIXTURE_IMAGE_A_DIGEST = "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18";
 const FR0032_FIXTURE_IMAGE_A_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD0eNT6AAAG5ElEQVR42u3WMQ0AAAjAMGQhB//BA5jgo0cN7Fp01gAAv4QIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAHBnAVzllrXr0ZtlAAAAAElFTkSuQmCC";
@@ -8339,12 +8355,115 @@ const openedPlainPrivateVisibilityOptionSelector = [
     '[class*="option" i]',
     '[class*="item" i]'
 ].join(",");
+const visibleVisibilityDropdownPortalSelector = [
+    "div.d-popover.d-popover-default.d-dropdown",
+    "div.d-dropdown-wrapper",
+    "div.d-dropdown-content",
+    "div.d-options-wrapper",
+    '[class*="popover" i][class*="dropdown" i]',
+    '[class*="dropdown" i][class*="wrapper" i]',
+    '[class*="dropdown" i][class*="content" i]',
+    '[class*="options" i][class*="wrapper" i]'
+].join(",");
+const isPrivateVisibilityOptionCandidate = (element) => {
+    const signal = elementTextSignal(element);
+    if (!isVisibleElement(element) ||
+        isDisabledElement(element) ||
+        !privateVisibilityPattern.test(signal) ||
+        publicVisibilityPattern.test(signal)) {
+        return false;
+    }
+    const structuralSignal = visibilityStructuralSignal(element);
+    if (/d-popover|d-dropdown-wrapper|d-dropdown-content|d-options-wrapper/iu.test(structuralSignal)) {
+        return false;
+    }
+    if (/custom-option|select-option|dropdown-item|option|menuitem|\bname\b/iu.test(structuralSignal)) {
+        return true;
+    }
+    return typeof element.querySelectorAll !== "function" || element.querySelectorAll("*").length === 0;
+};
+const findPrivateVisibilityOptionFromSelector = (selector) => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return null;
+    }
+    return Array.from(document.querySelectorAll(selector)).find(isPrivateVisibilityOptionCandidate) ?? null;
+};
 const findPrivateVisibilityOption = (allowOpenedPlainTextOption = false) => {
-    const structuredOption = findVisibleElementMatchingText(privateVisibilityOptionSelector, privateVisibilityPattern, publicVisibilityPattern);
+    const structuredOption = findPrivateVisibilityOptionFromSelector(privateVisibilityOptionSelector);
     if (structuredOption || !allowOpenedPlainTextOption) {
         return structuredOption;
     }
-    return findVisibleElementMatchingText(openedPlainPrivateVisibilityOptionSelector, privateVisibilityPattern, publicVisibilityPattern);
+    return findPrivateVisibilityOptionFromSelector(openedPlainPrivateVisibilityOptionSelector);
+};
+const findVisibleVisibilityDropdownPortal = () => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return null;
+    }
+    return Array.from(document.querySelectorAll(visibleVisibilityDropdownPortalSelector))
+        .find((element) => {
+        const structuralSignal = visibilityStructuralSignal(element);
+        return (isVisibleElement(element) &&
+            /d-popover|d-dropdown-wrapper|d-dropdown-content|d-options-wrapper|popover.*dropdown|dropdown.*wrapper|dropdown.*content|options.*wrapper/iu.test(structuralSignal) &&
+            !/custom-option|select-option|dropdown-item|\boption\b|menuitem|\bname\b/iu.test(structuralSignal));
+    }) ?? null;
+};
+const hasMountedPrivateVisibilityOption = () => {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+        return false;
+    }
+    return Array.from(document.querySelectorAll(openedPlainPrivateVisibilityOptionSelector))
+        .some((element) => {
+        const signal = elementTextSignal(element);
+        return (isVisibleElement(element) &&
+            privateVisibilityPattern.test(signal) &&
+            !publicVisibilityPattern.test(signal) &&
+            !isDisabledElement(element));
+    });
+};
+const resolvePrivateVisibilityOptionClickTarget = (element) => {
+    let current = element;
+    for (let depth = 0; current && depth < 4; depth += 1) {
+        const structuralSignal = visibilityStructuralSignal(current);
+        if (/custom-option|select-option|dropdown-item|option|menuitem/iu.test(structuralSignal) &&
+            !/\bname\b/iu.test(structuralSignal) &&
+            !/d-popover|d-dropdown-wrapper|d-dropdown-content|d-options-wrapper/iu.test(structuralSignal) &&
+            typeof current.click === "function" &&
+            !isDisabledElement(current)) {
+            return current;
+        }
+        current = current.parentElement;
+    }
+    return element;
+};
+const visibilitySelectionConfirmationCandidates = (root) => {
+    const descendants = typeof root.querySelectorAll === "function"
+        ? Array.from(root.querySelectorAll(visibilityControlSelector))
+        : [];
+    return uniqueVisibilityElements([root, ...descendants]);
+};
+const isVisibilitySelectionConfirmationElement = (element) => {
+    const structuralSignal = visibilityStructuralSignal(element);
+    return (!/d-popover|d-dropdown-wrapper|d-dropdown-content|d-options-wrapper|custom-option|select-option|dropdown-item|\boption\b|menuitem|\bname\b/iu.test(structuralSignal) &&
+        !nonVisibilitySelectContextPattern.test(structuralSignal));
+};
+const nearestVisibilityConfirmationRoot = (element) => {
+    let current = element;
+    for (let depth = 0; current && depth < 5; depth += 1) {
+        if (isVisibilitySelectionConfirmationElement(current)) {
+            return current;
+        }
+        current = current.parentElement;
+    }
+    return element;
+};
+const hasConfirmedPrivateVisibilitySelection = (root) => {
+    return visibilitySelectionConfirmationCandidates(root).some((element) => {
+        const signal = elementDisplayedTextSignal(element);
+        return (isVisibleElement(element) &&
+            isVisibilitySelectionConfirmationElement(element) &&
+            privateVisibilityPattern.test(signal) &&
+            !publicVisibilityPattern.test(signal));
+    });
 };
 const visibilityStructuralSignal = (element) => [
     getElementAttribute(element, "data-testid"),
@@ -8746,7 +8865,7 @@ const likelyPublishVisibilitySelectSelector = [
     '[role="combobox"]',
     '[tabindex]'
 ].join(",");
-const nonVisibilitySelectContextPattern = /address|location|poi|place|topic|tag|relation|file-relation|travel|poi-card|address-card/iu;
+const nonVisibilitySelectContextPattern = /address|location|poi|place|topic|tag|relation|file-relation|travel|poi-card|address-card|content[-_ ]?type|declaration/iu;
 const hasPublishSettingsAncestor = (element) => {
     let current = element;
     for (let depth = 0; current && depth < 6; depth += 1) {
@@ -8781,7 +8900,7 @@ const publishVisibilitySelectTriggerScore = (element, sourceIndex) => {
     if (/publish-page-content-setting|publish-settings|permission|visibility|privacy/iu.test(structuralSignal)) {
         score += 25;
     }
-    if (/address|location|poi|place|topic|tag|relation|file-relation|travel/iu.test(structuralSignal)) {
+    if (/address|location|poi|place|topic|tag|relation|file-relation|travel|content[-_ ]?type|declaration/iu.test(structuralSignal)) {
         score -= 120;
     }
     return score * 1_000 - sourceIndex;
@@ -9016,61 +9135,85 @@ const clickFirstOpenedPrivateVisibilityOption = async (triggers, options = {}, d
     const boundedTriggers = typeof options.maxTriggerActivations === "number"
         ? triggers.slice(0, Math.max(0, options.maxTriggerActivations))
         : triggers;
+    let openedDropdown = false;
     for (const trigger of boundedTriggers) {
         if (remainingSelectionTime(deadline) <= 0) {
-            return null;
+            return visibilitySelectionBlocked(openedDropdown ? "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" : "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", openedDropdown ? "publish_visibility_portal_option_not_selected" : "publish_visibility_d_select_trigger_not_activated", openedDropdown, boundedTriggers.length);
         }
         for (const activationTarget of resolveNestedVisibilityActivationTargets(trigger)) {
             if (remainingSelectionTime(deadline) <= 0) {
-                return null;
+                return visibilitySelectionBlocked(openedDropdown ? "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" : "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", openedDropdown ? "publish_visibility_portal_option_not_selected" : "publish_visibility_d_select_trigger_not_activated", openedDropdown, boundedTriggers.length);
             }
             if (typeof activationTarget.click !== "function") {
                 continue;
             }
             activateVisibilityTrigger(activationTarget);
+            openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
             const openedPrivateOption = await waitForOpenedPrivateVisibilityOption(openedOptionTimeoutMs, deadline);
+            openedDropdown = findVisibleVisibilityDropdownPortal() !== null || openedDropdown;
             if (openedPrivateOption && typeof openedPrivateOption.click === "function") {
-                openedPrivateOption.click();
+                const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(openedPrivateOption);
+                optionClickTarget.click();
                 await sleep(300);
-                return openedPrivateOption;
+                const selectedSignal = elementTextSignal(openedPrivateOption);
+                if (privateVisibilityPattern.test(selectedSignal) &&
+                    !publicVisibilityPattern.test(selectedSignal) &&
+                    (!openedDropdown || hasConfirmedPrivateVisibilitySelection(trigger))) {
+                    return visibilitySelectionSuccess(optionClickTarget, openedDropdown, boundedTriggers.length);
+                }
+                return visibilitySelectionBlocked("PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED", "publish_visibility_option_selection_failed", openedDropdown, boundedTriggers.length);
             }
         }
     }
-    return null;
+    if (openedDropdown || hasMountedPrivateVisibilityOption()) {
+        return visibilitySelectionBlocked("PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED", "publish_visibility_portal_option_not_selected", openedDropdown, boundedTriggers.length);
+    }
+    return visibilitySelectionBlocked("PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", "publish_visibility_d_select_trigger_not_activated", false, boundedTriggers.length);
 };
 const selectPrivateVisibilityControl = async (options = {}) => {
     const deadline = typeof options.deadlineMs === "number" ? Date.now() + Math.max(0, options.deadlineMs) : null;
     const visiblePrivateOption = findPrivateVisibilityOption();
     if (visiblePrivateOption) {
-        visiblePrivateOption.click();
+        const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(visiblePrivateOption);
+        optionClickTarget.click();
         await sleep(300);
-        return visiblePrivateOption;
+        return visibilitySelectionSuccess(optionClickTarget, findVisibleVisibilityDropdownPortal() !== null, 0);
     }
     const triggers = findVisibilityTriggersForSelection(options);
     if (triggers.length > 0) {
-        const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
-        if (openedOption) {
-            return openedOption;
+        const openedOptionResult = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
+        if (openedOptionResult.selectedOption) {
+            return openedOptionResult;
+        }
+        if (openedOptionResult.blockerCode === "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" ||
+            openedOptionResult.blockerCode === "PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED") {
+            return openedOptionResult;
         }
     }
     if (remainingSelectionTime(deadline) <= 0) {
-        return null;
+        return visibilitySelectionBlocked("PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", "publish_visibility_d_select_trigger_not_activated", false, triggers.length);
     }
     if (await openVisibilitySettingsDisclosure()) {
         const privateOptionAfterDisclosure = findPrivateVisibilityOption();
         if (privateOptionAfterDisclosure) {
-            privateOptionAfterDisclosure.click();
+            const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(privateOptionAfterDisclosure);
+            optionClickTarget.click();
             await sleep(300);
-            return privateOptionAfterDisclosure;
+            const dropdownVisible = findVisibleVisibilityDropdownPortal() !== null;
+            if (!dropdownVisible || hasConfirmedPrivateVisibilitySelection(nearestVisibilityConfirmationRoot(optionClickTarget))) {
+                return visibilitySelectionSuccess(optionClickTarget, dropdownVisible, triggers.length);
+            }
+            return visibilitySelectionBlocked("PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED", "publish_visibility_option_selection_failed", dropdownVisible, triggers.length);
         }
         const triggersAfterDisclosure = findVisibilityTriggersForSelection(options);
-        const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(triggersAfterDisclosure, options, deadline);
-        if (openedOptionAfterDisclosure) {
-            return openedOptionAfterDisclosure;
+        const openedOptionAfterDisclosureResult = await clickFirstOpenedPrivateVisibilityOption(triggersAfterDisclosure, options, deadline);
+        if (openedOptionAfterDisclosureResult.selectedOption) {
+            return openedOptionAfterDisclosureResult;
         }
+        return openedOptionAfterDisclosureResult;
     }
     if (remainingSelectionTime(deadline) <= 0) {
-        return null;
+        return visibilitySelectionBlocked("PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", "publish_visibility_d_select_trigger_not_activated", false, triggers.length);
     }
     return selectPrivateVisibilityControlAfterBoundedScroll(options, deadline);
 };
@@ -9176,37 +9319,49 @@ const findNearestScrollablePublishEditorContainer = (element) => {
 };
 const selectPrivateVisibilityControlAfterBoundedScroll = async (options = {}, deadline = null) => {
     const maxAttempts = options.boundedScrollAttempts ?? 4;
+    let openedDropdown = false;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (remainingSelectionTime(deadline) <= 0) {
-            return null;
+            return visibilitySelectionBlocked(openedDropdown ? "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" : "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", openedDropdown ? "publish_visibility_portal_option_not_selected" : "publish_visibility_d_select_trigger_not_activated", openedDropdown, 0);
         }
         if (!scrollPublishEditorForLazyVisibilityControls()) {
-            return null;
+            return visibilitySelectionBlocked(openedDropdown ? "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" : "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", openedDropdown ? "publish_visibility_portal_option_not_selected" : "publish_visibility_d_select_trigger_not_activated", openedDropdown, 0);
         }
         await sleep(250);
         const visiblePrivateOption = findPrivateVisibilityOption();
         if (visiblePrivateOption) {
-            visiblePrivateOption.click();
+            const optionClickTarget = resolvePrivateVisibilityOptionClickTarget(visiblePrivateOption);
+            optionClickTarget.click();
             await sleep(300);
-            return visiblePrivateOption;
+            const dropdownVisible = findVisibleVisibilityDropdownPortal() !== null;
+            if (!dropdownVisible || hasConfirmedPrivateVisibilitySelection(nearestVisibilityConfirmationRoot(optionClickTarget))) {
+                return visibilitySelectionSuccess(optionClickTarget, dropdownVisible, 0);
+            }
+            return visibilitySelectionBlocked("PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED", "publish_visibility_option_selection_failed", dropdownVisible, 0);
         }
         const triggers = findVisibilityTriggersForSelection(options);
-        const openedOption = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
-        if (openedOption) {
-            return openedOption;
+        const openedOptionResult = await clickFirstOpenedPrivateVisibilityOption(triggers, options, deadline);
+        openedDropdown = openedOptionResult.openedDropdown || openedDropdown;
+        if (openedOptionResult.selectedOption) {
+            return openedOptionResult;
+        }
+        if (openedOptionResult.blockerCode === "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" ||
+            openedOptionResult.blockerCode === "PUBLISH_VISIBILITY_OPTION_SELECTION_FAILED") {
+            return openedOptionResult;
         }
         if (remainingSelectionTime(deadline) <= 0) {
-            return null;
+            return openedOptionResult;
         }
         if (await openVisibilitySettingsDisclosure()) {
             const triggersAfterDisclosure = findVisibilityTriggersForSelection(options);
-            const openedOptionAfterDisclosure = await clickFirstOpenedPrivateVisibilityOption(triggersAfterDisclosure, options, deadline);
-            if (openedOptionAfterDisclosure) {
-                return openedOptionAfterDisclosure;
+            const openedOptionAfterDisclosureResult = await clickFirstOpenedPrivateVisibilityOption(triggersAfterDisclosure, options, deadline);
+            openedDropdown = openedOptionAfterDisclosureResult.openedDropdown || openedDropdown;
+            if (openedOptionAfterDisclosureResult.selectedOption) {
+                return openedOptionAfterDisclosureResult;
             }
         }
     }
-    return null;
+    return visibilitySelectionBlocked(openedDropdown ? "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED" : "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED", openedDropdown ? "publish_visibility_portal_option_not_selected" : "publish_visibility_d_select_trigger_not_activated", openedDropdown, 0);
 };
 const currentHref = () => typeof window !== "undefined" && window.location?.href
     ? window.location.href
@@ -9385,17 +9540,37 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             cleanupRequired: true
         }, null, uploadStageCleanupResult(input, timestamp, "non-private visibility refused before submit"));
     }
-    let visibilityControl = await selectPrivateVisibilityControl(continuationVisibilitySelectionOptions);
-    if (!visibilityControl && await continueFromAcceptedUploadStageIfNeeded()) {
-        visibilityControl = await selectPrivateVisibilityControl(continuationVisibilitySelectionOptions);
+    let visibilitySelection = await selectPrivateVisibilityControl(continuationVisibilitySelectionOptions);
+    if (!visibilitySelection.selectedOption && await continueFromAcceptedUploadStageIfNeeded()) {
+        visibilitySelection = await selectPrivateVisibilityControl(continuationVisibilitySelectionOptions);
     }
-    if (!visibilityControl) {
-        const diagnostics = collectVisibilityLocatorDiagnostics();
+    if (!visibilitySelection.selectedOption) {
+        const diagnostics = {
+            ...collectVisibilityLocatorDiagnostics(),
+            selection_result: {
+                blocker_code: visibilitySelection.blockerCode ?? "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED",
+                details_ref: visibilitySelection.detailsRef ?? "publish_visibility_d_select_trigger_not_activated",
+                opened_dropdown: visibilitySelection.openedDropdown,
+                trigger_count: visibilitySelection.triggerCount,
+                option_locator: visibilitySelection.optionLocator,
+                observed_symptom: "PUBLISH_VISIBILITY_CONTROL_MISSING"
+            }
+        };
+        const blockerCode = visibilitySelection.blockerCode ?? "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED";
+        const detailsRef = visibilitySelection.detailsRef ?? "publish_visibility_d_select_trigger_not_activated";
         return buildStepBlockedResult(input, artifact, {
-            blockerCode: "PUBLISH_VISIBILITY_CONTROL_MISSING",
-            blockerMessage: "Controlled publish cannot find a private/self-visible visibility control.",
-            detailsRef: "publish_visibility_control_missing",
-            requiredRecoveryAction: "update the XHS private visibility locator before retrying publish",
+            blockerCode,
+            blockerMessage: blockerCode === "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED"
+                ? "Controlled publish did not activate the post-upload visibility d-select trigger."
+                : blockerCode === "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED"
+                    ? "Controlled publish opened the visibility dropdown but did not select the private/self-visible option."
+                    : "Controlled publish found a private/self-visible option but could not confirm selection.",
+            detailsRef,
+            requiredRecoveryAction: blockerCode === "PUBLISH_VISIBILITY_D_SELECT_TRIGGER_NOT_ACTIVATED"
+                ? "update the XHS post-upload d-select trigger locator/activation before retrying publish visibility"
+                : blockerCode === "PUBLISH_VISIBILITY_PORTAL_OPTION_NOT_SELECTED"
+                    ? "update the XHS private/self-visible option locator/click target before retrying publish visibility"
+                    : "update the XHS visibility option selected-state verification before retrying publish visibility",
             stoppedStep: "publish",
             blockerLayer: "publish",
             riskKind: "submit_failure",
@@ -9403,6 +9578,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             diagnostics
         }, null, uploadStageCleanupResult(input, timestamp, "private visibility not selected before submit"));
     }
+    const selectedVisibilityOption = visibilitySelection.selectedOption;
     const submitControl = findSubmitPublishControl();
     if (!submitControl || typeof submitControl.click !== "function") {
         return buildStepBlockedResult(input, artifact, {
@@ -9454,7 +9630,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             cleanup_policy_ref: input.cleanup_policy_ref,
             cleanup_action: "no_safe_cleanup_action",
             cleanup_outcome: "cleanup_blocked",
-            proof_locator: locatorForElement(visibilityControl),
+            proof_locator: locatorForElement(selectedVisibilityOption),
             platform_message: backgroundCapturePending
                 ? "submit accepted; background publish identity capture remains authoritative"
                 : "submit accepted; accepted-upload resume returned before page navigation could exceed the native bridge deadline",
@@ -9482,7 +9658,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
     const deadline = Date.now() + (isExtensionBrowserSurface ? 15_000 : 50);
     let publishIdentity = null;
     do {
-        publishIdentity = buildPublishIdentity(input, artifact, submitEvidence, initialHref, locatorForElement(visibilityControl), previousPageIdentityKeys);
+        publishIdentity = buildPublishIdentity(input, artifact, submitEvidence, initialHref, locatorForElement(selectedVisibilityOption), previousPageIdentityKeys);
         if (publishIdentity || Date.now() >= deadline) {
             break;
         }
@@ -9540,7 +9716,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
         cleanup_policy_ref: input.cleanup_policy_ref,
         cleanup_action: "hide_published_result",
         cleanup_outcome: "hidden",
-        proof_locator: locatorForElement(visibilityControl),
+        proof_locator: locatorForElement(selectedVisibilityOption),
         platform_message: "publish_visibility_scope=private_or_self_visible selected before publish",
         attempted_at: closedAt,
         completed_at: closedAt,
