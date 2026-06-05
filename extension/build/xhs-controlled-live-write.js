@@ -1,3 +1,19 @@
+export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract = (input) => {
+    if (input.observedRequestCount <= 0) {
+        return {
+            blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED",
+            reason: input.fallbackReason
+        };
+    }
+    return {
+        blocker_code: input.trustedFailureBlockerCode ??
+            (!input.trustedEndpointObserved ? input.adjacentFailureBlockerCode : null) ??
+            input.fallbackBlockerCode,
+        reason: input.trustedFailureReason ??
+            (!input.trustedEndpointObserved ? input.adjacentFailureReason : null) ??
+            input.fallbackReason
+    };
+};
 const visibilitySelectionSuccess = (selectedOption, openedDropdown, triggerCount, debuggerClick = null) => ({
     selectedOption,
     blockerCode: null,
@@ -424,6 +440,22 @@ export const isXhsControlledPublishResultIdentityCaptureUrl = (url, method) => {
         return false;
     }
 };
+export const isXhsControlledPublishIdentityAdjacentWriteRequestUrl = (url, method) => {
+    if (!/^(POST|PUT|PATCH)$/iu.test(method)) {
+        return false;
+    }
+    try {
+        const parsed = new URL(url);
+        if (parsed.hostname !== "creator.xiaohongshu.com") {
+            return false;
+        }
+        return (/^\/(?:api|web_api)\//iu.test(parsed.pathname) &&
+            /(?:creator|publish|note|sns|galaxy)/iu.test(parsed.pathname));
+    }
+    catch {
+        return false;
+    }
+};
 const isXhsControlledCreatorSubmitPublishCaptureUrl = (url, method) => {
     if (!/^(GET|POST)$/iu.test(method)) {
         return false;
@@ -785,6 +817,14 @@ export const summarizeXhsControlledPublishIdentityObservedRequest = (input) => {
         status: typeof input.status === "number" ? input.status : null,
         reason: input.reason ?? null
     };
+    if (typeof input.captureCandidate === "boolean") {
+        output.capture_candidate = input.captureCandidate;
+    }
+    if (input.rejectionReason) {
+        output.rejection_reason = input.rejectionReason;
+        output.body_values_recorded = false;
+        output.body_recording_policy = "shape_only";
+    }
     try {
         const parsed = new URL(input.url);
         output.host = parsed.hostname;
@@ -1997,6 +2037,8 @@ const publishIdentityCaptureStatusMessage = (blockerCode) => {
             return "Background publish identity capture did not start for the submit continuation.";
         case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED":
             return "Background publish identity capture did not observe a trusted publish/result endpoint after submit.";
+        case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED":
+            return "Background publish identity capture observed post-submit XHS write requests, but none matched the trusted publish/result endpoint taxonomy.";
         case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE":
             return "Background publish identity capture observed a trusted publish/result endpoint but could not read its response body.";
         case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING":

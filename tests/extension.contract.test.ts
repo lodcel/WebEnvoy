@@ -4497,4 +4497,23 @@ describe("extension build contract", () => {
     expect(publishIdentityCaptureController).toContain("dispatchMouseClick");
     expect(publishIdentityCaptureController).toContain("#dispatchEditorInputDebuggerClick");
   });
+
+  it("records publish-adjacent XHS write requests before reporting endpoint taxonomy misses", () => {
+    const backgroundSource = fs.readFileSync(backgroundSourcePath, "utf8");
+    const publishIdentityCapture = backgroundSource.match(
+      /#waitForXhsControlledPublishResultIdentityCapture\([\s\S]*?async #startXhsControlledPublishResultIdentityCapture/
+    )?.[0];
+
+    expect(publishIdentityCapture).toContain(
+      "isXhsControlledPublishIdentityAdjacentWriteRequestUrl"
+    );
+    expect(publishIdentityCapture).toContain("adjacentPending");
+    expect(publishIdentityCapture).toContain(
+      "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED"
+    );
+    expect(publishIdentityCapture).toContain("untrusted_publish_identity_endpoint");
+    expect(publishIdentityCapture?.indexOf("!shouldObserve")).toBeLessThan(
+      publishIdentityCapture?.indexOf("pending.set") ?? -1
+    );
+  });
 });
