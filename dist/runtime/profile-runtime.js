@@ -2122,7 +2122,12 @@ export class ProfileRuntimeService {
     }
     async #readPersistentRuntimeReadiness(input) {
         const baseIdentity = input.identityPreflight.identityBindingState;
-        const bridge = this.#bridgeFactory();
+        const bridge = this.#bridgeFactory({
+            waitForProfileSocketOnOpen: requiresPersistentBootstrapSocketAdmission({
+                params: input.runtimeInput.params,
+                identityPreflight: input.identityPreflight
+            })
+        });
         const runtimeContextId = buildRuntimeBootstrapContextId(input.runtimeInput.profile, input.runtimeInput.runId);
         try {
             const result = await bridge.runCommand({

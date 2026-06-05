@@ -1907,6 +1907,78 @@ describe("profile-runtime identity preflight", () => {
     });
   }, 15_000);
 
+  it("keeps startup readiness retries on required persistent socket admission", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-retry-socket-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "identity_bound_live_bridge_retry_socket_profile"
+    });
+    const bridgeFactoryOptions: Array<{ waitForProfileSocketOnOpen?: boolean } | undefined> = [];
+    const service = createTestService({
+      bridgeFactory: (options) => {
+        bridgeFactoryOptions.push(options);
+        return {
+          runCommand: async ({ command }) => {
+            if (options?.waitForProfileSocketOnOpen === true) {
+              throw new NativeMessagingTransportError(
+                "ERR_TRANSPORT_HANDSHAKE_FAILED",
+                "native bridge profile socket did not open before admission deadline"
+              );
+            }
+            if (command === "runtime.readiness") {
+              return {
+                ok: true as const,
+                payload: {
+                  bootstrap_state: "stale",
+                  transport_state: "ready"
+                },
+                relay_path: "host>background"
+              };
+            }
+            throw new Error(`unexpected bridge command without socket admission: ${command}`);
+          },
+          currentTransportProof: () => ({
+            surface: "spawned_host" as const,
+            spawned_host_configured: true
+          })
+        };
+      }
+    });
+
+    await expect(
+      service.start({
+        cwd: baseDir,
+        profile: "identity_bound_live_bridge_retry_socket_profile",
+        runId: "run-runtime-live-bridge-retry-socket-001",
+        params: {
+          headless: false,
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "live_write",
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED",
+      details: {
+        reason: "PERSISTENT_EXTENSION_NATIVE_BRIDGE_SOCKET_NOT_OPENED",
+        transport_state: "not_connected"
+      }
+    });
+    expect(bridgeFactoryOptions.length).toBeGreaterThan(1);
+    expect(
+      bridgeFactoryOptions.every((options) => options?.waitForProfileSocketOnOpen === true)
+    ).toBe(true);
+  }, 15_000);
+
   it("cleans launched external persistent browser state when live bridge admission fails", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-cleanup-"));
     tempDirs.push(baseDir);

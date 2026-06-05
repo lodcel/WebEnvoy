@@ -2727,7 +2727,12 @@ export class ProfileRuntimeService {
     includeTargetBinding?: boolean;
   }): Promise<RuntimeReadinessSnapshot> {
     const baseIdentity = input.identityPreflight.identityBindingState;
-    const bridge = this.#bridgeFactory();
+    const bridge = this.#bridgeFactory({
+      waitForProfileSocketOnOpen: requiresPersistentBootstrapSocketAdmission({
+        params: input.runtimeInput.params,
+        identityPreflight: input.identityPreflight
+      })
+    });
     const runtimeContextId = buildRuntimeBootstrapContextId(
       input.runtimeInput.profile,
       input.runtimeInput.runId
