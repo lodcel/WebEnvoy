@@ -22,6 +22,7 @@ import {
   extractXhsControlledUploadPlatformCapture,
   finalizeXhsControlledPublishResultIdentityCapture,
   isXhsControlledPublishIdentityAdjacentWriteRequestUrl,
+  isXhsControlledPublishIdentityDiagnosticRequestUrl,
   isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
   resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract,
@@ -484,6 +485,61 @@ it("records publish-adjacent XHS write requests without trusting them as identit
     host: "creator.xiaohongshu.com",
     path: "/api/sns/web/v1/note/save",
     method: "POST",
+    status: 200,
+    capture_candidate: false,
+    rejection_reason: "untrusted_publish_identity_endpoint",
+    body_values_recorded: false,
+    body_recording_policy: "shape_only"
+  });
+});
+
+it("records unclassified creator API requests as publish identity diagnostics only", () => {
+  const unclassifiedRequestUrl =
+    "https://creator.xiaohongshu.com/api/galaxy/foo/bar?trace_id=trace-001";
+
+  expect(isXhsControlledPublishIdentityDiagnosticRequestUrl(unclassifiedRequestUrl, "GET")).toBe(
+    true
+  );
+  expect(isXhsControlledPublishIdentityAdjacentWriteRequestUrl(unclassifiedRequestUrl, "GET")).toBe(
+    false
+  );
+  expect(isXhsControlledPublishResultIdentityCaptureUrl(unclassifiedRequestUrl, "GET")).toBe(
+    false
+  );
+  expect(
+    isXhsControlledPublishIdentityDiagnosticRequestUrl(
+      "https://www.xiaohongshu.com/api/galaxy/foo/bar",
+      "GET"
+    )
+  ).toBe(false);
+
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract({
+      observedRequestCount: 1,
+      trustedEndpointObserved: false,
+      adjacentFailureBlockerCode: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+      adjacentFailureReason: "publish_adjacent_request_not_trusted_identity_endpoint",
+      fallbackBlockerCode: "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT",
+      fallbackReason: "capture_timeout"
+    })
+  ).toEqual({
+    blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+    reason: "publish_adjacent_request_not_trusted_identity_endpoint"
+  });
+
+  expect(
+    summarizeXhsControlledPublishIdentityObservedRequest({
+      url: unclassifiedRequestUrl,
+      method: "GET",
+      status: 200,
+      reason: "response_received",
+      captureCandidate: false,
+      rejectionReason: "untrusted_publish_identity_endpoint"
+    })
+  ).toMatchObject({
+    host: "creator.xiaohongshu.com",
+    path: "/api/galaxy/foo/bar",
+    method: "GET",
     status: 200,
     capture_candidate: false,
     rejection_reason: "untrusted_publish_identity_endpoint",
