@@ -8,7 +8,7 @@ import { WRITE_INTERACTION_TIER, APPROVAL_CHECK_KEYS, EXECUTION_MODES, buildRisk
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsCommandGateReasons, evaluateXhsGate, collectXhsMatrixGateReasons, finalizeXhsGateOutcome, resolveXhsGateApprovalId, resolveXhsGateDecisionId, resolveXhsActionType, resolveXhsExecutionMode, normalizeXhsApprovalRecord } from "../shared/xhs-gate.js";
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
-import { applyXhsControlledLiveWriteContinuationTimeout, applyXhsControlledPublishResultIdentityCaptureStatus, applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledPublishResultIdentityCapture, extractXhsControlledUploadPlatformCapture, finalizeXhsControlledPublishResultIdentityCapture, isXhsControlledPublishIdentityAdjacentWriteRequestUrl, isXhsControlledPublishIdentityDiagnosticRequestUrl, isXhsControlledPublishResultIdentityCaptureUrl, isXhsControlledUploadPlatformCaptureUrl, resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract, summarizeXhsControlledPublishIdentityObservedRequest, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
+import { applyXhsControlledLiveWriteContinuationTimeout, applyXhsControlledPublishResultIdentityCaptureStatus, applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledPublishResultIdentityCapture, extractXhsControlledUploadPlatformCapture, finalizeXhsControlledPublishResultIdentityCapture, isXhsControlledPublishIdentityAdjacentWriteRequestUrl, isXhsControlledPublishIdentityDiagnosticRequestUrl, isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl, isXhsControlledPublishResultIdentityCaptureUrl, isXhsControlledUploadPlatformCaptureUrl, resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract, summarizeXhsControlledPublishIdentityObservedRequest, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -6430,7 +6430,13 @@ class ChromeBackgroundBridge {
             reason: input.reason,
             blocker_code: input.blockerCode,
             recorded_at: new Date().toISOString(),
-            ...(input.observedRequests ? { observed_requests: input.observedRequests } : {})
+            ...(input.observedRequests ? { observed_requests: input.observedRequests } : {}),
+            ...(typeof input.networkRequestEventCount === "number"
+                ? { network_event_count: input.networkRequestEventCount }
+                : {}),
+            ...(typeof input.ignoredRequestCount === "number"
+                ? { ignored_request_count: input.ignoredRequestCount }
+                : {})
         });
         if (!debuggerApi || !onEvent || signal?.aborted) {
             return Promise.resolve({
@@ -6445,6 +6451,8 @@ class ChromeBackgroundBridge {
         const pending = new Map();
         const adjacentPending = new Map();
         const observedRequests = [];
+        let networkRequestEventCount = 0;
+        let ignoredRequestCount = 0;
         let lastTrustedFailureBlockerCode = null;
         let lastTrustedFailureReason = null;
         let lastAdjacentFailureBlockerCode = null;
@@ -6463,6 +6471,7 @@ class ChromeBackgroundBridge {
             return (isXhsControlledPublishIdentityAdjacentWriteRequestUrl(url, method) ||
                 isXhsControlledPublishIdentityDiagnosticRequestUrl(url, method));
         };
+        const shouldRecordIgnoredDiagnostic = (url, method) => isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl(url, method);
         return new Promise((resolve) => {
             let settled = false;
             const finish = (capture, status) => {
@@ -6488,6 +6497,7 @@ class ChromeBackgroundBridge {
                     trustedFailureReason: lastTrustedFailureReason,
                     adjacentFailureBlockerCode: lastAdjacentFailureBlockerCode,
                     adjacentFailureReason: lastAdjacentFailureReason,
+                    networkRequestEventCount,
                     fallbackBlockerCode,
                     fallbackReason: reason
                 });
@@ -6495,7 +6505,9 @@ class ChromeBackgroundBridge {
                     status: "timeout",
                     reason: classification.reason,
                     blockerCode: classification.blocker_code,
-                    observedRequests
+                    observedRequests,
+                    networkRequestEventCount,
+                    ignoredRequestCount
                 });
             };
             const timeout = setTimeout(() => finish(null, unresolvedStatus("capture_timeout", "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT")), Math.max(1, timeoutMs));
@@ -6516,25 +6528,39 @@ class ChromeBackgroundBridge {
                     if (!url || !requestMethod) {
                         return;
                     }
+                    networkRequestEventCount += 1;
                     if (!shouldObserve(url, requestMethod)) {
-                        if (!shouldRecordAdjacent(url, requestMethod)) {
+                        const recordAdjacent = shouldRecordAdjacent(url, requestMethod);
+                        const recordIgnoredDiagnostic = !recordAdjacent && shouldRecordIgnoredDiagnostic(url, requestMethod);
+                        if (!recordAdjacent && !recordIgnoredDiagnostic) {
+                            ignoredRequestCount += 1;
                             return;
                         }
                         lastAdjacentFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED";
-                        lastAdjacentFailureReason = "publish_adjacent_request_not_trusted_identity_endpoint";
+                        lastAdjacentFailureReason = recordIgnoredDiagnostic
+                            ? "xhs_request_outside_publish_identity_diagnostic_scope"
+                            : "publish_adjacent_request_not_trusted_identity_endpoint";
+                        if (recordIgnoredDiagnostic) {
+                            ignoredRequestCount += 1;
+                        }
                         appendObservedRequest(summarizeXhsControlledPublishIdentityObservedRequest({
                             url,
                             method: requestMethod,
                             status: null,
                             reason: "request_will_be_sent",
                             captureCandidate: false,
-                            rejectionReason: "untrusted_publish_identity_endpoint"
+                            rejectionReason: recordIgnoredDiagnostic
+                                ? "outside_publish_identity_diagnostic_scope"
+                                : "untrusted_publish_identity_endpoint"
                         }));
                         adjacentPending.set(requestId, {
                             url,
                             method: requestMethod,
                             status: null,
-                            capturedAt: Date.now()
+                            capturedAt: Date.now(),
+                            rejectionReason: recordIgnoredDiagnostic
+                                ? "outside_publish_identity_diagnostic_scope"
+                                : "untrusted_publish_identity_endpoint"
                         });
                         return;
                     }
@@ -6569,7 +6595,7 @@ class ChromeBackgroundBridge {
                             status: adjacentEntry.status,
                             reason: "response_received",
                             captureCandidate: false,
-                            rejectionReason: "untrusted_publish_identity_endpoint"
+                            rejectionReason: adjacentEntry.rejectionReason ?? "untrusted_publish_identity_endpoint"
                         }));
                         return;
                     }
