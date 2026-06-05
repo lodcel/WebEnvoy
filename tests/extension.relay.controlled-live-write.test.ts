@@ -29,7 +29,8 @@ import {
   resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract,
   summarizeXhsControlledPublishIdentityObservedRequest,
   performXhsControlledLiveWriteWithApprovedSourceMedia,
-  summarizeXhsControlledUploadObservedRequest
+  summarizeXhsControlledUploadObservedRequest,
+  xhsControlledPublishDebuggerClickTimeoutMs
 } from "../extension/xhs-controlled-live-write.js";
 import { buildXhsMediaUploadDiscoveryResult } from "../extension/xhs-media-upload-discovery.js";
 
@@ -5188,7 +5189,8 @@ it("uses debugger mouse input for xhs publish submit continuation instead of DOM
         kind: "xhs-controlled-live-write-publish-debugger-click",
         locator: "button.publish-submit",
         run_id: "run-xhs-issue-1092-publish-debugger-click",
-        action_ref: "fr-0032/fr0032-attempt-1092-publish-debugger-click/publish-submit"
+        action_ref: "fr-0032/fr0032-attempt-1092-publish-debugger-click/publish-submit",
+        timeout_ms: xhsControlledPublishDebuggerClickTimeoutMs
       })
     ]);
     expect(submit.clicked).toBe(false);

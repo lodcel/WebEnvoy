@@ -73,6 +73,7 @@ import {
   resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract,
   summarizeXhsControlledPublishIdentityObservedRequest,
   summarizeXhsControlledUploadObservedRequest,
+  xhsControlledPublishDebuggerClickTimeoutMs,
   type XhsControlledPublishResultIdentityCapture,
   type XhsControlledPublishResultIdentityCaptureStatus,
   type XhsControlledLiveWriteResult,
@@ -9869,7 +9870,10 @@ class ChromeBackgroundBridge {
     }
 
     try {
-      const timeoutMs = Math.min(readTimeoutMs(message.timeout_ms) ?? 3_000, 3_000);
+      const timeoutMs = Math.min(
+        readTimeoutMs(message.timeout_ms) ?? xhsControlledPublishDebuggerClickTimeoutMs,
+        xhsControlledPublishDebuggerClickTimeoutMs
+      );
       const result = await Promise.race([
         this.#dispatchXhsControlledPublishDebuggerClick(tabId, message),
         new Promise<Record<string, unknown>>((_, reject) => {

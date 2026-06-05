@@ -8,7 +8,7 @@ import { WRITE_INTERACTION_TIER, APPROVAL_CHECK_KEYS, EXECUTION_MODES, buildRisk
 import { ensureFingerprintRuntimeContext } from "../shared/fingerprint-profile.js";
 import { buildXhsGatePolicyState, buildIssue209PostGateArtifacts, collectXhsCommandGateReasons, evaluateXhsGate, collectXhsMatrixGateReasons, finalizeXhsGateOutcome, resolveXhsGateApprovalId, resolveXhsGateDecisionId, resolveXhsActionType, resolveXhsExecutionMode, normalizeXhsApprovalRecord } from "../shared/xhs-gate.js";
 import { ExtensionContractError, validateXhsCommandInputForExtension } from "./xhs-command-contract.js";
-import { applyXhsControlledLiveWriteContinuationTimeout, applyXhsControlledPublishResultIdentityCaptureStatus, applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledPublishResultIdentityCapture, extractXhsControlledUploadPlatformCapture, finalizeXhsControlledPublishResultIdentityCapture, isXhsControlledPublishIdentityAdjacentWriteRequestUrl, isXhsControlledPublishIdentityDiagnosticRequestUrl, isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl, isXhsControlledPublishResultIdentityCaptureUrl, isXhsControlledUploadPlatformCaptureUrl, resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract, summarizeXhsControlledPublishIdentityObservedRequest, summarizeXhsControlledUploadObservedRequest } from "./xhs-controlled-live-write.js";
+import { applyXhsControlledLiveWriteContinuationTimeout, applyXhsControlledPublishResultIdentityCaptureStatus, applyXhsControlledUploadPlatformCapture, applyXhsControlledUploadPlatformCaptureStatus, decodeXhsControlledUploadNetworkResponseBody, extractXhsControlledPublishResultIdentityCapture, extractXhsControlledUploadPlatformCapture, finalizeXhsControlledPublishResultIdentityCapture, isXhsControlledPublishIdentityAdjacentWriteRequestUrl, isXhsControlledPublishIdentityDiagnosticRequestUrl, isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl, isXhsControlledPublishResultIdentityCaptureUrl, isXhsControlledUploadPlatformCaptureUrl, resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract, summarizeXhsControlledPublishIdentityObservedRequest, summarizeXhsControlledUploadObservedRequest, xhsControlledPublishDebuggerClickTimeoutMs } from "./xhs-controlled-live-write.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "./xhs-controlled-upload-platform-capture.js";
 import { createPageContextNamespace, SEARCH_ENDPOINT } from "./xhs-search-types.js";
 const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
@@ -7967,7 +7967,7 @@ class ChromeBackgroundBridge {
             return;
         }
         try {
-            const timeoutMs = Math.min(readTimeoutMs(message.timeout_ms) ?? 3_000, 3_000);
+            const timeoutMs = Math.min(readTimeoutMs(message.timeout_ms) ?? xhsControlledPublishDebuggerClickTimeoutMs, xhsControlledPublishDebuggerClickTimeoutMs);
             const result = await Promise.race([
                 this.#dispatchXhsControlledPublishDebuggerClick(tabId, message),
                 new Promise((_, reject) => {

@@ -1,3 +1,4 @@
+export const xhsControlledPublishDebuggerClickTimeoutMs = 12_000;
 export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract = (input) => {
     if (input.observedRequestCount <= 0) {
         if (typeof input.networkRequestEventCount === "number" && input.networkRequestEventCount <= 0) {
@@ -4312,7 +4313,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             target: submitControl,
             runId: input.run_id,
             actionRef: `fr-0032/${input.live_write_attempt_id}/publish-submit`,
-            timeoutMs: 3_000
+            timeoutMs: xhsControlledPublishDebuggerClickTimeoutMs
         });
         publishDebuggerClick = {
             ok: debuggerClick.ok,
