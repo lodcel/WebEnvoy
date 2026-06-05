@@ -3052,7 +3052,8 @@ const runtimeCloseoutPreflight = async (context: RuntimeContext) => {
   return {
     closeout_runtime_readiness_preflight: buildCloseoutRuntimeReadinessPreflight({
       status,
-      params: context.params
+      params: context.params,
+      expectedExtensionPath: join(context.cwd, "extension")
     }),
     runtime_status: status
   };
@@ -3119,7 +3120,8 @@ const runtimeCloseoutGate = async (context: RuntimeContext) => {
   });
   let closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
     status,
-    params: context.params
+    params: context.params,
+    expectedExtensionPath: join(context.cwd, "extension")
   });
   status = await prepareCloseoutGateRuntimeStatus(
     context,
@@ -3128,7 +3130,8 @@ const runtimeCloseoutGate = async (context: RuntimeContext) => {
   );
   closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
     status,
-    params: context.params
+    params: context.params,
+    expectedExtensionPath: join(context.cwd, "extension")
   });
   let store: SQLiteRuntimeStore | null = null;
   try {

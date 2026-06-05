@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { CliError } from "../core/errors.js";
 import { WRITE_INTERACTION_TIER, getWriteActionMatrixDecisions, isIssueScope } from "../../shared/risk-state.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "../runtime/native-messaging/bridge.js";
@@ -2469,7 +2470,8 @@ const runtimeCloseoutPreflight = async (context) => {
     return {
         closeout_runtime_readiness_preflight: buildCloseoutRuntimeReadinessPreflight({
             status,
-            params: context.params
+            params: context.params,
+            expectedExtensionPath: join(context.cwd, "extension")
         }),
         runtime_status: status
     };
@@ -2530,12 +2532,14 @@ const runtimeCloseoutGate = async (context) => {
     });
     let closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
         status,
-        params: context.params
+        params: context.params,
+        expectedExtensionPath: join(context.cwd, "extension")
     });
     status = await prepareCloseoutGateRuntimeStatus(context, status, closeoutRuntimeReadinessPreflight);
     closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
         status,
-        params: context.params
+        params: context.params,
+        expectedExtensionPath: join(context.cwd, "extension")
     });
     let store = null;
     try {

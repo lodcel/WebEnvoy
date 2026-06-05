@@ -26,6 +26,10 @@ const readyRuntimePreflight = (): CloseoutRuntimeReadinessPreflight => ({
     profile_state: "ready",
     lock_held: true,
     identity_binding_state: "bound",
+    extension_service_worker_freshness_state: null,
+    extension_service_worker_freshness_reason: null,
+    extension_source_path: null,
+    expected_extension_source_path: null,
     transport_state: "ready",
     bootstrap_state: "ready",
     runtime_readiness: "ready",
@@ -247,6 +251,51 @@ describe("closeout gate aggregator", () => {
         blocker_layer: "runtime_readiness",
         blocker_code: "bootstrap_stale_unrecoverable",
         required_recovery_action: "restart_runtime_with_fresh_bootstrap"
+      }
+    });
+  });
+
+  it("blocks when runtime preflight reports stale extension service worker cache", () => {
+    const runtimePreflight = readyRuntimePreflight();
+    runtimePreflight.decision = "NO_GO";
+    runtimePreflight.runtime_state = "blocked";
+    runtimePreflight.blocker = {
+      blocker_layer: "runtime_readiness",
+      blocker_code: "extension_service_worker_stale",
+      required_recovery_action: "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+    };
+    runtimePreflight.runtime_status.extension_service_worker_freshness_state = "stale";
+    runtimePreflight.runtime_status.extension_service_worker_freshness_reason =
+      "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD";
+
+    expect(buildGate({ runtimePreflight })).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "runtime_readiness",
+        blocker_code: "extension_service_worker_stale",
+        required_recovery_action: "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+      }
+    });
+  });
+
+  it("blocks when runtime preflight reports current-worktree extension source mismatch", () => {
+    const runtimePreflight = readyRuntimePreflight();
+    runtimePreflight.decision = "NO_GO";
+    runtimePreflight.runtime_state = "blocked";
+    runtimePreflight.blocker = {
+      blocker_layer: "runtime_readiness",
+      blocker_code: "extension_source_mismatch",
+      required_recovery_action: "reinstall_runtime_extension_from_current_worktree_then_restart_runtime"
+    };
+    runtimePreflight.runtime_status.extension_source_path = "/repo/old/extension";
+    runtimePreflight.runtime_status.expected_extension_source_path = "/repo/current/extension";
+
+    expect(buildGate({ runtimePreflight })).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "runtime_readiness",
+        blocker_code: "extension_source_mismatch",
+        required_recovery_action: "reinstall_runtime_extension_from_current_worktree_then_restart_runtime"
       }
     });
   });

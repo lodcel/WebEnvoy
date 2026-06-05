@@ -1,4 +1,5 @@
 import type { JsonObject } from "../core/types.js";
+import { resolve } from "node:path";
 import { buildRuntimeBootstrapContextId } from "./runtime-bootstrap.js";
 
 export type CloseoutRuntimePreflightDecision = "GO" | "RECOVERABLE" | "NO_GO";
@@ -9,6 +10,8 @@ export type CloseoutRuntimeBlockerCode =
   | "target_mismatch"
   | "lock_conflict"
   | "identity_mismatch"
+  | "extension_service_worker_stale"
+  | "extension_source_mismatch"
   | "request_identity_replay";
 
 export interface CloseoutRuntimeReadinessPreflight {
@@ -40,6 +43,10 @@ export interface CloseoutRuntimeReadinessPreflight {
     profile_state: string | null;
     lock_held: boolean;
     identity_binding_state: string | null;
+    extension_service_worker_freshness_state: string | null;
+    extension_service_worker_freshness_reason: string | null;
+    extension_source_path: string | null;
+    expected_extension_source_path: string | null;
     transport_state: string | null;
     bootstrap_state: string | null;
     runtime_readiness: string | null;
@@ -212,12 +219,32 @@ const hasStaleBootstrapRebindEvidence = (
 export const buildCloseoutRuntimeReadinessPreflight = (input: {
   status: JsonObject;
   params?: JsonObject | null;
+  expectedExtensionPath?: string | null;
 }): CloseoutRuntimeReadinessPreflight => {
   const params = input.params ?? {};
   const status = input.status;
   const takeoverEvidence = asObject(status.runtimeTakeoverEvidence);
   const targetBinding = buildTargetBinding(params, takeoverEvidence);
   const identityBindingState = asString(status.identityBindingState);
+  const identityPreflight = asObject(status.identityPreflight);
+  const extensionServiceWorkerFreshness = asObject(
+    identityPreflight?.extensionServiceWorkerFreshness
+  );
+  const extensionServiceWorkerFreshnessState = asString(
+    extensionServiceWorkerFreshness?.state ??
+      identityPreflight?.extension_service_worker_freshness_state
+  );
+  const extensionServiceWorkerFreshnessReason = asString(
+    extensionServiceWorkerFreshness?.reason ??
+      identityPreflight?.extension_service_worker_freshness_reason
+  );
+  const extensionSourcePath = asString(
+    extensionServiceWorkerFreshness?.extensionPath ??
+      identityPreflight?.extension_service_worker_extension_path
+  );
+  const expectedExtensionSourcePath = input.expectedExtensionPath
+    ? resolve(input.expectedExtensionPath)
+    : null;
   const transportState = asString(status.transportState);
   const bootstrapState = asString(status.bootstrapState);
   const runtimeReadiness = asString(status.runtimeReadiness);
@@ -233,6 +260,10 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       profile_state: asString(status.profileState),
       lock_held: lockHeld,
       identity_binding_state: identityBindingState,
+      extension_service_worker_freshness_state: extensionServiceWorkerFreshnessState,
+      extension_service_worker_freshness_reason: extensionServiceWorkerFreshnessReason,
+      extension_source_path: extensionSourcePath,
+      expected_extension_source_path: expectedExtensionSourcePath,
       transport_state: transportState,
       bootstrap_state: bootstrapState,
       runtime_readiness: runtimeReadiness,
@@ -248,6 +279,36 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       runtime_state: "blocked",
       recovery_mode: "none",
       blocker: blocker("identity_mismatch", "rebind_official_chrome_extension_identity"),
+      ...base
+    };
+  }
+
+  if (
+    expectedExtensionSourcePath !== null &&
+    extensionSourcePath !== null &&
+    resolve(extensionSourcePath) !== expectedExtensionSourcePath
+  ) {
+    return {
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: blocker(
+        "extension_source_mismatch",
+        "reinstall_runtime_extension_from_current_worktree_then_restart_runtime"
+      ),
+      ...base
+    };
+  }
+
+  if (extensionServiceWorkerFreshnessState === "stale") {
+    return {
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: blocker(
+        "extension_service_worker_stale",
+        "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+      ),
       ...base
     };
   }

@@ -13,6 +13,9 @@ let nativeReadBuffer = Buffer.alloc(0);
 let sessionId = DEFAULT_SESSION_ID;
 let extensionOpened = false;
 let shuttingDown = false;
+let activeNativeInputs = 0;
+let pendingNativeOutputFlushes = 0;
+let requestedShutdownCode = null;
 let socketServer = null;
 let activeProfileDir = null;
 let activeSocketPath = null;
@@ -112,8 +115,11 @@ const encodeEnvelope = (envelope) => {
     return Buffer.concat([header, payload]);
 };
 const writeNativeEnvelope = (envelope, onFlushed) => {
+    pendingNativeOutputFlushes += 1;
     process.stdout.write(encodeEnvelope(envelope), () => {
+        pendingNativeOutputFlushes = Math.max(0, pendingNativeOutputFlushes - 1);
         onFlushed?.();
+        maybeShutdown();
     });
 };
 const writeSocketEnvelope = (socket, envelope) => {
@@ -199,6 +205,18 @@ const shutdown = async (code = 0) => {
     await cleanupSocketServer();
     process.exit(code);
 };
+const requestShutdown = (code = 0) => {
+    requestedShutdownCode = requestedShutdownCode ?? code;
+    maybeShutdown();
+};
+function maybeShutdown() {
+    if (requestedShutdownCode === null ||
+        activeNativeInputs > 0 ||
+        pendingNativeOutputFlushes > 0) {
+        return;
+    }
+    void shutdown(requestedShutdownCode);
+}
 const ensureSocketServer = async (target) => {
     if (!target) {
         return;
@@ -384,7 +402,7 @@ const handleExtensionRequest = async (request) => {
                 }, activeSocketPath
                     ? undefined
                     : () => {
-                        process.exit(0);
+                        requestShutdown(0);
                     });
                 return;
             }
@@ -400,7 +418,7 @@ const handleExtensionRequest = async (request) => {
             }, activeSocketPath
                 ? undefined
                 : () => {
-                    process.exit(0);
+                    requestShutdown(0);
                 });
             return;
         }
@@ -414,7 +432,7 @@ const handleExtensionRequest = async (request) => {
                 },
                 payload: buildPingPayload(request)
             }, () => {
-                process.exit(0);
+                requestShutdown(0);
             });
             return;
         }
@@ -465,11 +483,15 @@ process.stdin.on("data", (chunk) => {
         const frame = nativeReadBuffer.subarray(4, frameEnd);
         nativeReadBuffer = nativeReadBuffer.subarray(frameEnd);
         const request = JSON.parse(frame.toString("utf8"));
-        void handleNativeInput(request);
+        activeNativeInputs += 1;
+        void handleNativeInput(request).finally(() => {
+            activeNativeInputs = Math.max(0, activeNativeInputs - 1);
+            maybeShutdown();
+        });
     }
 });
 process.stdin.on("end", () => {
-    void shutdown(0);
+    requestShutdown(0);
 });
 process.stdin.on("error", () => {
     void shutdown(1);

@@ -79,6 +79,69 @@ describe("closeout runtime readiness preflight", () => {
     });
   });
 
+  it("blocks a ready runtime when the managed extension service worker cache is stale", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "stale",
+              reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD"
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: {
+        blocker_code: "extension_service_worker_stale",
+        required_recovery_action: "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+      },
+      runtime_status: {
+        extension_service_worker_freshness_state: "stale",
+        extension_service_worker_freshness_reason:
+          "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD"
+      }
+    });
+  });
+
+  it("blocks a ready runtime when the active extension source is not the current worktree", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "unknown",
+              reason: "SERVICE_WORKER_CACHE_MISSING",
+              extensionPath: "/repo/old/extension"
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: {
+        blocker_code: "extension_source_mismatch",
+        required_recovery_action: "reinstall_runtime_extension_from_current_worktree_then_restart_runtime"
+      },
+      runtime_status: {
+        extension_service_worker_freshness_state: "unknown",
+        extension_service_worker_freshness_reason: "SERVICE_WORKER_CACHE_MISSING",
+        extension_source_path: "/repo/old/extension",
+        expected_extension_source_path: "/repo/current/extension"
+      }
+    });
+  });
+
   it("returns RECOVERABLE for an attachable ready runtime without mutating ownership", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
