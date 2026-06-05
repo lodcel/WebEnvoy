@@ -1835,6 +1835,78 @@ describe("profile-runtime identity preflight", () => {
     });
   });
 
+  it("fails live-write runtime.start when persistent extension bridge socket never opens", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-missing-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "identity_bound_live_bridge_missing_profile"
+    });
+    const service = createTestService({
+      bridgeFactory: () => ({
+        runCommand: async () => {
+          throw new NativeMessagingTransportError(
+            "ERR_TRANSPORT_HANDSHAKE_FAILED",
+            "native host command is not configured or invalid"
+          );
+        },
+        currentTransportProof: () => ({
+          surface: "spawned_host" as const,
+          spawned_host_configured: false,
+          attempted_socket_paths: [
+            join(
+              baseDir,
+              ".webenvoy",
+              "profiles",
+              "identity_bound_live_bridge_missing_profile",
+              "nm.sock"
+            ),
+            join(baseDir, ".webenvoy", "profiles", "nm.sock")
+          ],
+          socket_wait_ms: 5000
+        })
+      })
+    });
+
+    await expect(
+      service.start({
+        cwd: baseDir,
+        profile: "identity_bound_live_bridge_missing_profile",
+        runId: "run-runtime-live-bridge-missing-001",
+        params: {
+          headless: false,
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "live_write",
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED",
+      details: {
+        reason: "PERSISTENT_EXTENSION_NATIVE_BRIDGE_SOCKET_NOT_OPENED",
+        transport_state: "not_connected",
+        bootstrap_state: "not_started",
+        runtime_readiness: "recoverable",
+        transport_diagnostics: {
+          code: "ERR_TRANSPORT_HANDSHAKE_FAILED",
+          transport_proof: {
+            surface: "spawned_host",
+            spawned_host_configured: false,
+            socket_wait_ms: 5000
+          }
+        }
+      }
+    });
+  }, 15_000);
+
   it("maps stale runtime.bootstrap ack to blocked readiness", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-bootstrap-stale-"));
     tempDirs.push(baseDir);

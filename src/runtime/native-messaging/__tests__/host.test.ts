@@ -66,6 +66,100 @@ describe("native host bridge transport classification", () => {
     });
   });
 
+  it("waits for a persistent extension profile socket before falling back to spawned host", async () => {
+    const baseDir = await mkdtemp("/tmp/webenvoy-host-delayed-profile-socket-");
+    const profile = "xhs_delayed_socket";
+    const profileDir = path.join(baseDir, ".webenvoy", "profiles", profile);
+    const socketPath = path.join(profileDir, PROFILE_NATIVE_BRIDGE_SOCKET_FILENAME);
+    const previousCwd = process.cwd();
+    const previousWait = process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+    const previousPoll = process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS;
+    await mkdir(profileDir, { recursive: true });
+
+    const server = createServer((socket) => {
+      let buffer = Buffer.alloc(0);
+      socket.on("data", (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (buffer.length < 4) {
+          return;
+        }
+        const frameLength = buffer.readUInt32LE(0);
+        const frameEnd = 4 + frameLength;
+        if (buffer.length < frameEnd) {
+          return;
+        }
+        const frame = buffer.subarray(4, frameEnd);
+        const request = JSON.parse(frame.toString("utf8")) as {
+          id: string;
+        };
+        const payload = {
+          id: request.id,
+          status: "success",
+          summary: {
+            protocol: "webenvoy.native-bridge.v1",
+            session_id: "nm-session-delayed-socket",
+            state: "ready"
+          },
+          error: null
+        };
+        const body = Buffer.from(JSON.stringify(payload), "utf8");
+        const header = Buffer.alloc(4);
+        header.writeUInt32LE(body.length, 0);
+        socket.end(Buffer.concat([header, body]));
+      });
+    });
+
+    try {
+      process.chdir(baseDir);
+      process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = "500";
+      process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS = "20";
+      setTimeout(() => {
+        server.listen(socketPath);
+      }, 80);
+      const transport = new NativeHostBridgeTransport(null);
+
+      await expect(
+        transport.open(
+          createBridgeOpenRequest({
+            id: "open-delayed-profile-socket-001",
+            profile,
+            timeoutMs: 1_000
+          })
+        )
+      ).resolves.toMatchObject({
+        status: "success",
+        summary: {
+          session_id: "nm-session-delayed-socket"
+        }
+      });
+      expect(transport.currentTransportProof()).toMatchObject({
+        surface: "profile_socket",
+        spawned_host_configured: false
+      });
+      expect(transport.currentTransportProof().socket_path).toMatch(
+        /webenvoy-host-delayed-profile-socket-.+\/\.webenvoy\/profiles\/xhs_delayed_socket\/nm\.sock$/u
+      );
+      expect(transport.currentTransportProof().attempted_socket_paths?.some((candidate) =>
+        /webenvoy-host-delayed-profile-socket-.+\/\.webenvoy\/profiles\/xhs_delayed_socket\/nm\.sock$/u.test(candidate)
+      )).toBe(true);
+      expect(transport.currentTransportProof().socket_wait_ms).toBeGreaterThan(0);
+    } finally {
+      process.chdir(previousCwd);
+      if (previousWait === undefined) {
+        delete process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+      } else {
+        process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = previousWait;
+      }
+      if (previousPoll === undefined) {
+        delete process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS;
+      } else {
+        process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS = previousPoll;
+      }
+      server.close();
+      await rm(baseDir, { recursive: true, force: true });
+    }
+  });
+
   it("classifies open response timeout as timeout error", async () => {
     const mockNativeHostPath = path.resolve(
       path.join(import.meta.dirname, "../../../../tests/fixtures/native-host-mock.mjs")

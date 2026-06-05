@@ -90,6 +90,19 @@ const socketResponseTimeoutMs = (requestTimeoutMs) => {
     const responseMarginMs = Math.min(5_000, Math.max(1_000, Math.floor(requestTimeoutMs * 0.05)));
     return requestTimeoutMs + responseMarginMs;
 };
+const readPositiveIntegerEnv = (name, fallback) => {
+    const raw = process.env[name];
+    if (raw === undefined) {
+        return fallback;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+const sleep = async (ms) => await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+});
+const PERSISTENT_BRIDGE_SOCKET_WAIT_MS = 5_000;
+const PERSISTENT_BRIDGE_SOCKET_POLL_MS = 100;
 export class NativeHostBridgeTransport {
     #hostCommand;
     #hostSpec;
@@ -157,13 +170,13 @@ export class NativeHostBridgeTransport {
     }
     async #send(phase, request) {
         ensureBridgeRequestEnvelope(request);
-        const resolvedSocket = await this.#resolveSocketPath(request);
+        const resolvedSocket = await this.#resolveSocketPath(phase, request);
         if (resolvedSocket) {
             return await this.#sendViaSocket(phase, request, resolvedSocket.path, resolvedSocket.surface);
         }
         return await this.#sendViaSpawn(phase, request);
     }
-    async #resolveSocketPath(request) {
+    async #resolveSocketPath(phase, request) {
         const profileRoot = resolveRuntimeProfileRoot(process.cwd());
         const requestedProfile = typeof request.profile === "string" && request.profile.trim().length > 0
             ? request.profile.trim()
@@ -183,28 +196,62 @@ export class NativeHostBridgeTransport {
         const candidates = (requestedProfile !== null
             ? [requestedProfileSocketPath, rootSocketPath, this.#activeSocketPath]
             : [this.#activeSocketPath, rootSocketPath]).filter((candidate, index, all) => typeof candidate === "string" && candidate.length > 0 && all.indexOf(candidate) === index);
-        for (const candidate of candidates) {
-            if (!candidate) {
-                continue;
+        const resolveCandidate = async () => {
+            for (const candidate of candidates) {
+                if (!candidate) {
+                    continue;
+                }
+                try {
+                    await access(candidate);
+                    this.#activeSocketPath = candidate;
+                    const surface = requestedProfileSocketPath && candidate === requestedProfileSocketPath
+                        ? "profile_socket"
+                        : candidate === rootSocketPath
+                            ? "root_socket"
+                            : "root_socket";
+                    return {
+                        path: candidate,
+                        required: false,
+                        surface
+                    };
+                }
+                catch {
+                    continue;
+                }
             }
-            try {
-                await access(candidate);
-                this.#activeSocketPath = candidate;
-                const surface = requestedProfileSocketPath && candidate === requestedProfileSocketPath
-                    ? "profile_socket"
-                    : candidate === rootSocketPath
-                        ? "root_socket"
-                        : "root_socket";
-                return {
-                    path: candidate,
-                    required: false,
-                    surface
+            return null;
+        };
+        const immediate = await resolveCandidate();
+        if (immediate) {
+            this.#lastTransportProof = {
+                ...this.#lastTransportProof,
+                attempted_socket_paths: candidates,
+                socket_wait_ms: 0
+            };
+            return immediate;
+        }
+        const waitMs = phase === "open" && requestedProfile !== null && !this.#socketPath
+            ? Math.min(request.timeout_ms ?? PERSISTENT_BRIDGE_SOCKET_WAIT_MS, readPositiveIntegerEnv("WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS", PERSISTENT_BRIDGE_SOCKET_WAIT_MS))
+            : 0;
+        const startedAt = Date.now();
+        const deadline = startedAt + waitMs;
+        while (Date.now() < deadline) {
+            await sleep(Math.min(readPositiveIntegerEnv("WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS", PERSISTENT_BRIDGE_SOCKET_POLL_MS), Math.max(1, deadline - Date.now())));
+            const resolved = await resolveCandidate();
+            if (resolved) {
+                this.#lastTransportProof = {
+                    ...this.#lastTransportProof,
+                    attempted_socket_paths: candidates,
+                    socket_wait_ms: Date.now() - startedAt
                 };
-            }
-            catch {
-                continue;
+                return resolved;
             }
         }
+        this.#lastTransportProof = {
+            ...this.#lastTransportProof,
+            attempted_socket_paths: candidates,
+            socket_wait_ms: waitMs
+        };
         return null;
     }
     async #promoteProfileSocketPath(profile, currentSocketPath) {
@@ -229,7 +276,9 @@ export class NativeHostBridgeTransport {
     #sendViaSpawn(phase, request) {
         this.#lastTransportProof = {
             surface: "spawned_host",
-            spawned_host_configured: !!this.#hostCommand
+            spawned_host_configured: !!this.#hostCommand,
+            attempted_socket_paths: this.#lastTransportProof.attempted_socket_paths,
+            socket_wait_ms: this.#lastTransportProof.socket_wait_ms
         };
         if (!this.#hostCommand || !this.#hostSpec) {
             const code = phase === "open" ? "ERR_TRANSPORT_HANDSHAKE_FAILED" : "ERR_TRANSPORT_DISCONNECTED";
@@ -274,7 +323,9 @@ export class NativeHostBridgeTransport {
         this.#lastTransportProof = {
             surface,
             socket_path: socketPath,
-            spawned_host_configured: !!this.#hostCommand
+            spawned_host_configured: !!this.#hostCommand,
+            attempted_socket_paths: this.#lastTransportProof.attempted_socket_paths,
+            socket_wait_ms: this.#lastTransportProof.socket_wait_ms
         };
         try {
             await access(socketPath);

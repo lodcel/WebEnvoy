@@ -174,6 +174,16 @@ const hasRuntimeBootstrapTargetHint = (params: JsonObject): boolean =>
   (typeof params.target_tab_id === "number" && Number.isInteger(params.target_tab_id)) ||
   params.requested_execution_mode === "live_write";
 
+const shouldFailPersistentBootstrapTransportAdmission = (input: {
+  params: JsonObject;
+  identityPreflight: IdentityPreflightResult;
+  readiness: RuntimeReadinessSnapshot;
+}): boolean =>
+  input.identityPreflight.mode === "official_chrome_persistent_extension" &&
+  input.identityPreflight.identityBindingState === "bound" &&
+  hasRuntimeBootstrapTargetHint(input.params) &&
+  input.readiness.transportState === "not_connected";
+
 const hasCompleteStaleBootstrapRecoveryTarget = (params: JsonObject): boolean =>
   hasCompleteRuntimeTargetBinding(params) &&
   typeof params.requested_at === "string" &&
@@ -254,6 +264,7 @@ interface RuntimeBridgeLike {
     command: string;
     params: JsonObject;
   }): Promise<BridgeCommandResult>;
+  currentTransportProof?: NativeMessagingBridge["currentTransportProof"];
 }
 const isoNow = (): string => new Date().toISOString();
 const DEFAULT_LOCK_FILE_ADAPTER: LockFileAdapter = {
@@ -794,6 +805,39 @@ export class ProfileRuntimeService {
               identityPreflight,
               profileState: session.profileState
             });
+      if (
+        shouldFailPersistentBootstrapTransportAdmission({
+          params: input.params,
+          identityPreflight,
+          readiness
+        })
+      ) {
+        throw new CliError(
+          "ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED",
+          "official Chrome persistent extension native bridge socket was not opened",
+          {
+            details: {
+              ability_id: "runtime.start",
+              stage: "execution",
+              reason: "PERSISTENT_EXTENSION_NATIVE_BRIDGE_SOCKET_NOT_OPENED",
+              transport_state: readiness.transportState,
+              bootstrap_state: readiness.bootstrapState,
+              runtime_readiness: readiness.runtimeReadiness,
+              profile: input.profile,
+              target_domain:
+                typeof input.params.target_domain === "string" ? input.params.target_domain : null,
+              target_page:
+                typeof input.params.target_page === "string" ? input.params.target_page : null,
+              requested_execution_mode:
+                typeof input.params.requested_execution_mode === "string"
+                  ? input.params.requested_execution_mode
+                  : null,
+              transport_diagnostics: readiness.details ?? {}
+            },
+            retryable: true
+          }
+        );
+      }
 
       const nextMeta = this.#patchMeta(recoveredMeta, {
         profileName: input.profile,
@@ -2420,9 +2464,14 @@ export class ProfileRuntimeService {
         return mapBootstrapCliErrorToReadiness(error);
       }
       if (error instanceof NativeMessagingTransportError) {
+        const readiness = mapTransportErrorToReadiness(error);
         return {
           identityBindingState: "bound",
-          ...mapTransportErrorToReadiness(error)
+          ...readiness,
+          details: {
+            ...(readiness.details ?? {}),
+            transport_proof: bridge.currentTransportProof?.() ?? { surface: "unknown" }
+          }
         };
       }
       throw error;
@@ -2651,9 +2700,14 @@ export class ProfileRuntimeService {
       });
     } catch (error) {
       if (error instanceof NativeMessagingTransportError) {
+        const readiness = mapTransportErrorToReadiness(error);
         return {
           identityBindingState: baseIdentity,
-          ...mapTransportErrorToReadiness(error)
+          ...readiness,
+          details: {
+            ...(readiness.details ?? {}),
+            transport_proof: bridge.currentTransportProof?.() ?? { surface: "unknown" }
+          }
         };
       }
       if (error instanceof CliError) {

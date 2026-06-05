@@ -12,6 +12,8 @@ export interface NativeBridgeTransportProof {
   surface: NativeBridgeTransportSurface;
   socket_path?: string | null;
   spawned_host_configured?: boolean;
+  attempted_socket_paths?: string[];
+  socket_wait_ms?: number;
 }
 
 export interface NativeBridgeTransport {
