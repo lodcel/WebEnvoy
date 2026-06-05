@@ -176,6 +176,9 @@ export class NativeHostBridgeTransport {
         if (resolvedSocket) {
             return await this.#sendViaSocket(phase, request, resolvedSocket.path, resolvedSocket.surface);
         }
+        if (phase === "open" && this.#waitForProfileSocketOnOpen) {
+            return Promise.reject(withTransportCode(new Error("native bridge profile socket did not open before admission deadline"), "ERR_TRANSPORT_HANDSHAKE_FAILED"));
+        }
         return await this.#sendViaSpawn(phase, request);
     }
     async #resolveSocketPath(phase, request) {
@@ -235,7 +238,6 @@ export class NativeHostBridgeTransport {
         const waitMs = phase === "open" &&
             requestedProfile !== null &&
             !this.#socketPath &&
-            !this.#hostSpec &&
             this.#waitForProfileSocketOnOpen
             ? Math.min(request.timeout_ms ?? PERSISTENT_BRIDGE_SOCKET_WAIT_MS, readPositiveIntegerEnv("WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS", PERSISTENT_BRIDGE_SOCKET_WAIT_MS))
             : 0;

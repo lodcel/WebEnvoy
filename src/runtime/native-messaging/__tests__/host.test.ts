@@ -211,6 +211,50 @@ describe("native host bridge transport classification", () => {
     }
   });
 
+  it("requires a profile socket for persistent admission even when spawned host is configured", async () => {
+    const baseDir = await mkdtemp("/tmp/webenvoy-host-admission-requires-socket-");
+    const mockNativeHostPath = path.resolve(
+      path.join(import.meta.dirname, "../../../../tests/fixtures/native-host-mock.mjs")
+    );
+    const hostCommand = `"${process.execPath}" "${mockNativeHostPath}"`;
+    const previousCwd = process.cwd();
+    const previousWait = process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+    const transport = new NativeHostBridgeTransport(hostCommand, {
+      waitForProfileSocketOnOpen: true
+    });
+
+    try {
+      process.chdir(baseDir);
+      process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = "100";
+
+      await expect(
+        transport.open(
+          createBridgeOpenRequest({
+            id: "open-admission-requires-profile-socket-001",
+            profile: "xhs_admission_without_socket",
+            timeoutMs: 500
+          })
+        )
+      ).rejects.toMatchObject({
+        transportCode: "ERR_TRANSPORT_HANDSHAKE_FAILED"
+      });
+      expect(transport.currentTransportProof()).toMatchObject({
+        surface: "unknown",
+        socket_wait_ms: 100
+      });
+      expect(transport.currentTransportProof().spawned_host_configured).not.toBe(true);
+    } finally {
+      await transport.close();
+      process.chdir(previousCwd);
+      if (previousWait === undefined) {
+        delete process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+      } else {
+        process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = previousWait;
+      }
+      await rm(baseDir, { recursive: true, force: true });
+    }
+  });
+
   it("classifies open response timeout as timeout error", async () => {
     const mockNativeHostPath = path.resolve(
       path.join(import.meta.dirname, "../../../../tests/fixtures/native-host-mock.mjs")
