@@ -41,6 +41,7 @@ const xhsOpenResultCardNavigationTimeoutMs = 5_000;
 const xhsForwardResponseSafetyMs = 5_000;
 const xhsPreForwardStageTimeoutMs = 5_000;
 const xhsControlledUploadCaptureMaxBodyBytes = 256_000;
+const xhsControlledPublishIdentityCaptureMaxMs = 90_000;
 const xhsStaleRestoreBindingLeaseMaxAgeMs = 120_000;
 const xhsSearchInputSelectors = [
     'input[type="search"]',
@@ -53,6 +54,7 @@ const reserveXhsForwardResponseSafetyMs = (timeoutMs) => timeoutMs > xhsForwardR
     ? Math.max(1, timeoutMs - xhsForwardResponseSafetyMs)
     : timeoutMs;
 export const resolveXhsControlledLiveWriteContinuationTimeoutMsForContract = (absoluteRequestDeadlineMs, nowMs) => Math.max(1, Math.floor(absoluteRequestDeadlineMs - nowMs));
+export const resolveXhsControlledPublishIdentityCaptureTimeoutMsForContract = (absoluteRequestDeadlineMs, nowMs) => Math.min(xhsControlledPublishIdentityCaptureMaxMs, Math.max(1, reserveXhsForwardResponseSafetyMs(resolveXhsControlledLiveWriteContinuationTimeoutMsForContract(absoluteRequestDeadlineMs, nowMs)) - 1_000));
 const reserveXhsPassiveCaptureResponseSafetyMs = (timeoutMs) => {
     if (timeoutMs <= 1) {
         return 1;
@@ -7857,7 +7859,8 @@ class ChromeBackgroundBridge {
     }
     async #dispatchXhsControlledLiveWriteContinuation(input) {
         const commandParams = asRecord(input.pendingRequest.params.command_params) ?? {};
-        const publishResultIdentityCapture = await this.#startXhsControlledPublishResultIdentityCapture(input.targetTabId, Math.min(20_000, Math.max(1, input.requestDeadlineMs - Date.now() - 1_000)));
+        const publishIdentityCaptureTimeoutMs = resolveXhsControlledPublishIdentityCaptureTimeoutMsForContract(input.requestDeadlineMs, Date.now());
+        const publishResultIdentityCapture = await this.#startXhsControlledPublishResultIdentityCapture(input.targetTabId, publishIdentityCaptureTimeoutMs);
         if (publishResultIdentityCapture) {
             this.#controlledPublishResultIdentityCapturesByRequest.set(input.forwardId, publishResultIdentityCapture);
         }
