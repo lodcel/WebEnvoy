@@ -28,6 +28,7 @@ import {
   resolveProfileScopedNativeBridgeSocketPath,
   validateNativeHostInstallPaths
 } from "./native-host-paths.js";
+import { rebindManagedProfileExtensionSource } from "../runtime/persistent-extension-identity-install.js";
 
 export {
   DEFAULT_BROWSER_CHANNEL,
@@ -285,6 +286,7 @@ export interface InstallNativeHostInput {
   manifestDir?: string;
   launcherPath?: string;
   profileDir?: string;
+  rebindExtensionSource?: boolean;
 }
 
 export interface UninstallNativeHostInput {
@@ -474,6 +476,14 @@ export const installNativeHost = async (input: InstallNativeHostInput) => {
     await mkdir(dirname(profileScopedManifestPath), { recursive: true });
     await writeFile(profileScopedManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   }
+  const extensionSourceRebind =
+    input.rebindExtensionSource && profileDir
+      ? await rebindManagedProfileExtensionSource({
+          cwd: resolvedPaths.worktreePath,
+          profileDir,
+          extensionId: input.extensionId
+        })
+      : null;
   if (
     previousManagedInstall &&
     normalizePathForBoundaryCheck(previousManagedInstall.channelRoot) !==
@@ -518,6 +528,16 @@ export const installNativeHost = async (input: InstallNativeHostInput) => {
       browser_channel: input.browserChannel,
       manifest_path: normalizePathForOutput(resolvedPaths.manifestPath)
     },
+    extension_source_rebind: extensionSourceRebind
+      ? {
+          ...extensionSourceRebind,
+          profileDir: normalizePathForOutput(extensionSourceRebind.profileDir),
+          preferencePath: normalizePathForOutput(extensionSourceRebind.preferencePath),
+          previousExtensionPath: normalizePathForOutput(extensionSourceRebind.previousExtensionPath),
+          expectedExtensionPath: normalizePathForOutput(extensionSourceRebind.expectedExtensionPath),
+          updatedExtensionPath: normalizePathForOutput(extensionSourceRebind.updatedExtensionPath)
+        }
+      : null,
     existed_before: {
       manifest: manifestExisted,
       profile_scoped_manifest: profileScopedManifestExisted,

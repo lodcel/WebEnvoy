@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectManagedNativeHostInstall } from "./native-host-install-root.js";
 import { assertNoSymlinkAncestorBetween, assertNotSymlink, nativeHostPathError, normalizePathForBoundaryCheck, normalizePathForOutput, pathExists, resolveInstallPaths, resolveLegacyDefaultLauncherPath, resolveLegacyProfileDirForLauncher, resolveProfileDirForLauncher, resolveProfileRoot, resolveProfileScopedNativeBridgeSocketPath, validateNativeHostInstallPaths } from "./native-host-paths.js";
+import { rebindManagedProfileExtensionSource } from "../runtime/persistent-extension-identity-install.js";
 export { DEFAULT_BROWSER_CHANNEL, DEFAULT_NATIVE_HOST_NAME, isBrowserChannel, isValidExtensionId, isValidNativeHostName } from "./native-host-platform.js";
 const NATIVE_HOST_DESCRIPTION = "WebEnvoy CLI ↔ Extension bridge";
 const MANAGED_INSTALL_METADATA_FILENAME = "install-metadata.json";
@@ -326,6 +327,13 @@ export const installNativeHost = async (input) => {
         await mkdir(dirname(profileScopedManifestPath), { recursive: true });
         await writeFile(profileScopedManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     }
+    const extensionSourceRebind = input.rebindExtensionSource && profileDir
+        ? await rebindManagedProfileExtensionSource({
+            cwd: resolvedPaths.worktreePath,
+            profileDir,
+            extensionId: input.extensionId
+        })
+        : null;
     if (previousManagedInstall &&
         normalizePathForBoundaryCheck(previousManagedInstall.channelRoot) !==
             normalizePathForBoundaryCheck(resolvedPaths.channelRoot)) {
@@ -363,6 +371,16 @@ export const installNativeHost = async (input) => {
             browser_channel: input.browserChannel,
             manifest_path: normalizePathForOutput(resolvedPaths.manifestPath)
         },
+        extension_source_rebind: extensionSourceRebind
+            ? {
+                ...extensionSourceRebind,
+                profileDir: normalizePathForOutput(extensionSourceRebind.profileDir),
+                preferencePath: normalizePathForOutput(extensionSourceRebind.preferencePath),
+                previousExtensionPath: normalizePathForOutput(extensionSourceRebind.previousExtensionPath),
+                expectedExtensionPath: normalizePathForOutput(extensionSourceRebind.expectedExtensionPath),
+                updatedExtensionPath: normalizePathForOutput(extensionSourceRebind.updatedExtensionPath)
+            }
+            : null,
         existed_before: {
             manifest: manifestExisted,
             profile_scoped_manifest: profileScopedManifestExisted,

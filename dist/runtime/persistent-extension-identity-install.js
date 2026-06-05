@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { access, lstat, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { access, lstat, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { inspectManagedNativeHostInstall } from "../install/native-host-install-root.js";
 import { resolveManifestPathForChannel } from "../install/native-host-platform.js";
@@ -252,6 +252,127 @@ const readProfileExtensionStateFromPreferences = (input, extensionId) => {
     return {
         state: "enabled",
         unpackedPath
+    };
+};
+const removeProtectedMac = (root, segments, removed) => {
+    let current = root;
+    for (const segment of segments.slice(0, -1)) {
+        current = asRecord(current?.[segment]);
+        if (!current) {
+            return;
+        }
+    }
+    const leaf = segments[segments.length - 1];
+    if (leaf && Object.prototype.hasOwnProperty.call(current, leaf)) {
+        delete current[leaf];
+        const removedPath = segments.join(".");
+        if (!removed.includes(removedPath)) {
+            removed.push(removedPath);
+        }
+    }
+};
+const assertExtensionSourcePathSafe = async (input) => {
+    const expectedExtensionPath = normalizePathForComparison(input.extensionPath);
+    const expectedWorktreePath = normalizePathForComparison(input.cwd);
+    const extensionRel = relative(expectedWorktreePath, expectedExtensionPath);
+    if (extensionRel.startsWith("..") || isAbsolute(extensionRel)) {
+        throw new Error("EXTENSION_SOURCE_OUTSIDE_WORKTREE");
+    }
+    const extensionStat = await lstat(expectedExtensionPath);
+    if (extensionStat.isSymbolicLink()) {
+        throw new Error("EXTENSION_SOURCE_SYMLINK");
+    }
+    const manifestStat = await lstat(join(expectedExtensionPath, "manifest.json"));
+    if (manifestStat.isSymbolicLink()) {
+        throw new Error("EXTENSION_MANIFEST_SYMLINK");
+    }
+    return expectedExtensionPath;
+};
+export const rebindManagedProfileExtensionSource = async (input) => {
+    const expectedExtensionPath = await assertExtensionSourcePathSafe({
+        cwd: input.cwd,
+        extensionPath: input.extensionPath ?? join(input.cwd, "extension")
+    });
+    const preferenceCandidates = [
+        join(input.profileDir, "Default", "Preferences"),
+        join(input.profileDir, "Default", "Secure Preferences"),
+        join(input.profileDir, "Secure Preferences")
+    ];
+    const loadedPreferences = [];
+    for (const preferencePath of preferenceCandidates) {
+        let parsed;
+        try {
+            parsed = JSON.parse(await readFile(preferencePath, "utf8"));
+        }
+        catch {
+            continue;
+        }
+        const extensions = asRecord(parsed.extensions);
+        const settings = asRecord(extensions?.settings);
+        const extensionEntry = asRecord(settings?.[input.extensionId]);
+        const previousState = readProfileExtensionStateFromPreferences(parsed, input.extensionId);
+        loadedPreferences.push({
+            preferencePath,
+            parsed,
+            extensionEntry,
+            previousState
+        });
+    }
+    const primaryPreference = loadedPreferences.find((entry) => entry.previousState.state === "enabled");
+    if (!primaryPreference) {
+        return {
+            operation: "missing",
+            profileDir: input.profileDir,
+            extensionId: input.extensionId,
+            preferencePath: null,
+            previousExtensionPath: null,
+            expectedExtensionPath,
+            updatedExtensionPath: null,
+            protectedMacsRemoved: [],
+            serviceWorkerCacheRemoved: false
+        };
+    }
+    const protectedMacsRemoved = [];
+    let preferenceUpdated = false;
+    let pathUpdated = false;
+    for (const preference of loadedPreferences) {
+        const before = JSON.stringify(preference.parsed);
+        if (preference.extensionEntry &&
+            (preference.previousState.state === "enabled" || preference.previousState.unpackedPath !== null)) {
+            if (!preference.previousState.unpackedPath ||
+                normalizePathForComparison(preference.previousState.unpackedPath) !== expectedExtensionPath) {
+                pathUpdated = true;
+            }
+            preference.extensionEntry.location = 4;
+            preference.extensionEntry.path = expectedExtensionPath;
+        }
+        removeProtectedMac(preference.parsed, ["protection", "macs", "extensions", "settings", input.extensionId], protectedMacsRemoved);
+        removeProtectedMac(preference.parsed, ["protection", "macs", "extensions", "settings_encrypted_hash", input.extensionId], protectedMacsRemoved);
+        removeProtectedMac(preference.parsed, ["protection", "super_mac"], protectedMacsRemoved);
+        if (JSON.stringify(preference.parsed) !== before) {
+            await writeFile(preference.preferencePath, `${JSON.stringify(preference.parsed, null, 2)}\n`, "utf8");
+            preferenceUpdated = true;
+        }
+    }
+    let serviceWorkerCacheRemoved = false;
+    if (input.clearServiceWorkerCache !== false && (pathUpdated || protectedMacsRemoved.length > 0)) {
+        const serviceWorkerPath = join(input.profileDir, "Default", "Service Worker");
+        const blocker = await resolveServiceWorkerRefreshPathBlocker(input.profileDir, serviceWorkerPath);
+        if (!blocker) {
+            await rm(serviceWorkerPath, { recursive: true, force: true });
+            serviceWorkerCacheRemoved = true;
+        }
+    }
+    return {
+        operation: preferenceUpdated || serviceWorkerCacheRemoved ? "rebound" : "already_current",
+        profileDir: input.profileDir,
+        extensionId: input.extensionId,
+        preferencePath: primaryPreference.preferencePath,
+        previousExtensionPath: primaryPreference.previousState.unpackedPath,
+        expectedExtensionPath,
+        updatedExtensionPath: expectedExtensionPath,
+        protectedMacsRemoved,
+        serviceWorkerCacheRemoved
     };
 };
 const resolveLatestMtimeMs = async (path) => {
