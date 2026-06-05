@@ -6364,6 +6364,172 @@ it("returns accepted-upload resume publish identity stop before extension naviga
   }
 });
 
+it("does not mark submit accepted when publish click produces no activation signal", async () => {
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName = "BUTTON";
+    classList: string[] = [];
+    className = "";
+    parentElement = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    clicked = false;
+    constructor(text: string, attributes: Record<string, string> = {}) {
+      this.textContent = text;
+      this.attributes = attributes;
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    hasAttribute(name: string) {
+      return this.attributes[name] !== undefined;
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click() {
+      this.clicked = true;
+    }
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+  const visibility = new TestElement("仅自己可见");
+  const submit = new TestElement("发布");
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "https://creator.xiaohongshu.com/publish/publish" }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: globalThis.location }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      documentElement: new TestElement("小红书创作服务平台 仅自己可见 发布成功 审核中 发布"),
+      querySelectorAll: () => [visibility, submit]
+    }
+  });
+
+  try {
+    const result = await performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-publish-action-not-observed",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1077-publish-action-not-observed",
+      profile_ref: "xhs_001",
+      target_tab_id: 32,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      background_upload_capture_continuation: true,
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/publish-action-not-observed",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref:
+          "object_upload:ros-upload.xiaohongshu.com/spectrum/publish-action-not-observed",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-05T02:33:45.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    expect(visibility.clicked).toBe(true);
+    expect(submit.clicked).toBe(true);
+    expect(result).toMatchObject({
+      uploaded: true,
+      submitted: false,
+      published: false,
+      cleanup_attempted: true
+    });
+    expect(result.live_write_evaluation).toMatchObject({
+      decision: "NO_GO",
+      submit_success: false,
+      publish_success: false,
+      cleanup_success: true,
+      blockers: [
+        expect.objectContaining({
+          blocker_code: "PUBLISH_ACTION_ENDPOINT_NOT_OBSERVED",
+          blocker_layer: "publish"
+        })
+      ]
+    });
+    expect(result.live_write_evidence).toMatchObject({
+      execution_phase: "publish",
+      submit_evidence: expect.objectContaining({
+        submit_result_state: "unknown"
+      }),
+      stop_signal: expect.objectContaining({
+        stopped_step: "publish",
+        blocker_code: "PUBLISH_ACTION_ENDPOINT_NOT_OBSERVED",
+        diagnostics: expect.objectContaining({
+          publish_action_activation: expect.objectContaining({
+            activated: false
+          })
+        })
+      })
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
 it("captures publish result identity from a current-page note link when creator URL does not change", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;
