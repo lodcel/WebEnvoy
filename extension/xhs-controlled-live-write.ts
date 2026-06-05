@@ -758,6 +758,24 @@ export const isXhsControlledPublishIdentityAdjacentWriteRequestUrl = (
   }
 };
 
+export const isXhsControlledPublishIdentityDiagnosticRequestUrl = (
+  url: string,
+  method: string
+): boolean => {
+  if (!/^(GET|POST|PUT|PATCH)$/iu.test(method)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === "creator.xiaohongshu.com" &&
+      /^\/(?:api|web_api)\//iu.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
+};
+
 const isXhsControlledCreatorSubmitPublishCaptureUrl = (url: string, method: string): boolean => {
   if (!/^(GET|POST)$/iu.test(method)) {
     return false;

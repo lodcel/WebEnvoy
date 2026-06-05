@@ -66,6 +66,7 @@ import {
   extractXhsControlledUploadPlatformCapture,
   finalizeXhsControlledPublishResultIdentityCapture,
   isXhsControlledPublishIdentityAdjacentWriteRequestUrl,
+  isXhsControlledPublishIdentityDiagnosticRequestUrl,
   isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
   resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract,
@@ -8108,7 +8109,10 @@ class ChromeBackgroundBridge {
       return isXhsControlledPublishResultIdentityCaptureUrl(url, method);
     };
     const shouldRecordAdjacent = (url: string, method: string): boolean => {
-      return isXhsControlledPublishIdentityAdjacentWriteRequestUrl(url, method);
+      return (
+        isXhsControlledPublishIdentityAdjacentWriteRequestUrl(url, method) ||
+        isXhsControlledPublishIdentityDiagnosticRequestUrl(url, method)
+      );
     };
     return new Promise((resolve) => {
       let settled = false;
