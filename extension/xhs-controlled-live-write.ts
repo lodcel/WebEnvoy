@@ -97,6 +97,7 @@ export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForC
   adjacentFailureBlockerCode?: XhsControlledPublishResultIdentityCaptureFailureCode | null;
   adjacentFailureReason?: string | null;
   networkRequestEventCount?: number;
+  ignoredRequestCount?: number;
   fallbackBlockerCode: XhsControlledPublishResultIdentityCaptureFailureCode | null;
   fallbackReason: string;
 }): {
@@ -119,6 +120,17 @@ export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForC
     return {
       blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED",
       reason: input.fallbackReason
+    };
+  }
+  if (
+    input.trustedEndpointObserved !== true &&
+    !input.adjacentFailureBlockerCode &&
+    typeof input.ignoredRequestCount === "number" &&
+    input.ignoredRequestCount > 0
+  ) {
+    return {
+      blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED",
+      reason: "only_outside_publish_identity_diagnostic_scope"
     };
   }
   return {
