@@ -177,6 +177,125 @@ const requestVisibilityDebuggerClickViaExtension = async (input) => {
         };
     }
 };
+const requestPublishDebuggerClickViaExtension = async (input) => {
+    const runtime = globalThis.chrome?.runtime;
+    const sendMessage = runtime?.sendMessage;
+    if (!sendMessage) {
+        return {
+            ok: false,
+            error: {
+                code: "ERR_XHS_PUBLISH_DEBUGGER_UNAVAILABLE",
+                message: "extension runtime.sendMessage is unavailable"
+            }
+        };
+    }
+    if (typeof input.target.scrollIntoView === "function") {
+        try {
+            input.target.scrollIntoView({ block: "center", inline: "nearest" });
+            await sleep(100);
+        }
+        catch {
+            // Best-effort positioning before CDP mouse input; geometry validation below remains authoritative.
+        }
+    }
+    const coordinates = elementCenterCoordinates(input.target);
+    if (!coordinates) {
+        return {
+            ok: false,
+            error: {
+                code: "ERR_XHS_PUBLISH_DEBUGGER_TARGET_GEOMETRY_MISSING",
+                message: "publish debugger click target geometry is unavailable"
+            }
+        };
+    }
+    const request = {
+        kind: "xhs-controlled-live-write-publish-debugger-click",
+        locator: locatorForElement(input.target),
+        center_x: coordinates.centerX,
+        center_y: coordinates.centerY,
+        run_id: input.runId,
+        action_ref: input.actionRef,
+        ...(typeof input.timeoutMs === "number" ? { timeout_ms: input.timeoutMs } : {})
+    };
+    try {
+        return await new Promise((resolve, reject) => {
+            let settled = false;
+            const timeoutMs = typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs) && input.timeoutMs > 0
+                ? Math.floor(input.timeoutMs)
+                : 3_000;
+            const resolveOnce = (message) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                resolve(message);
+            };
+            const rejectOnce = (error) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                reject(error);
+            };
+            const timer = setTimeout(() => {
+                resolveOnce({
+                    ok: false,
+                    error: {
+                        code: "ERR_XHS_PUBLISH_DEBUGGER_TIMEOUT",
+                        message: `publish debugger click timed out after ${timeoutMs}ms`
+                    }
+                });
+            }, timeoutMs);
+            try {
+                const maybePromise = sendMessage(request, (message) => {
+                    const lastError = globalThis.chrome?.runtime?.lastError;
+                    if (lastError?.message) {
+                        resolveOnce({
+                            ok: false,
+                            error: {
+                                code: "ERR_XHS_PUBLISH_DEBUGGER_FAILED",
+                                message: lastError.message
+                            }
+                        });
+                        return;
+                    }
+                    resolveOnce(message ?? {
+                        ok: false,
+                        error: {
+                            code: "ERR_XHS_PUBLISH_DEBUGGER_FAILED",
+                            message: "response missing"
+                        }
+                    });
+                });
+                if (maybePromise && typeof maybePromise.then === "function") {
+                    void maybePromise
+                        .then((message) => {
+                        if (message) {
+                            resolveOnce(message);
+                        }
+                    })
+                        .catch((error) => {
+                        rejectOnce(error);
+                    });
+                }
+            }
+            catch (error) {
+                rejectOnce(error);
+            }
+        });
+    }
+    catch (error) {
+        return {
+            ok: false,
+            error: {
+                code: "ERR_XHS_PUBLISH_DEBUGGER_FAILED",
+                message: error instanceof Error ? error.message : String(error)
+            }
+        };
+    }
+};
 const FR0032_FIXTURE_IMAGE_A_REF = "media-ref/fr-0032/fixture-image-a";
 const FR0032_FIXTURE_IMAGE_A_DIGEST = "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18";
 const FR0032_FIXTURE_IMAGE_A_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD0eNT6AAAG5ElEQVR42u3WMQ0AAAjAMGQhB//BA5jgo0cN7Fp01gAAv4QIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAADIAIAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAGQAgAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAHBnAVzllrXr0ZtlAAAAAElFTkSuQmCC";
@@ -4175,7 +4294,47 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
     const initialDocumentText = typeof document !== "undefined" && document.documentElement
         ? textContentOf(document.documentElement)
         : "";
-    submitControl.click();
+    const requiresPublishDebuggerClick = input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001";
+    let publishDebuggerClick = null;
+    if (requiresPublishDebuggerClick) {
+        const debuggerClick = await requestPublishDebuggerClickViaExtension({
+            target: submitControl,
+            runId: input.run_id,
+            actionRef: `fr-0032/${input.live_write_attempt_id}/publish-submit`,
+            timeoutMs: 3_000
+        });
+        publishDebuggerClick = {
+            ok: debuggerClick.ok,
+            ...(debuggerClick.result ? { result: debuggerClick.result } : {}),
+            ...(debuggerClick.error ? { error: debuggerClick.error } : {})
+        };
+        if (!debuggerClick.ok) {
+            const unknownSubmitEvidence = {
+                submit_action_ref: `submit/fr-0032/${input.live_write_attempt_id}`,
+                submit_locator: locatorForElement(submitControl),
+                submitted_at: submittedAt,
+                submit_result_state: "unknown",
+                platform_message: "publish debugger click failed before submit"
+            };
+            return buildStepBlockedResult(input, artifact, {
+                blockerCode: "PUBLISH_ACTION_ENDPOINT_NOT_OBSERVED",
+                blockerMessage: "Controlled publish could not dispatch the final publish control through the debugger click path.",
+                detailsRef: "publish_debugger_click_failed",
+                requiredRecoveryAction: "repair the XHS final publish debugger click path before retrying publish identity capture",
+                stoppedStep: "publish",
+                blockerLayer: "publish",
+                riskKind: "submit_failure",
+                cleanupRequired: true,
+                diagnostics: {
+                    publish_debugger_click: publishDebuggerClick,
+                    submit_locator: unknownSubmitEvidence.submit_locator
+                }
+            }, unknownSubmitEvidence, uploadStageCleanupResult(input, nowIso(), "publish debugger click failed; unpublished upload abandoned"));
+        }
+    }
+    else {
+        submitControl.click();
+    }
     const submitEvidence = {
         submit_action_ref: `submit/fr-0032/${input.live_write_attempt_id}`,
         submit_locator: locatorForElement(submitControl),
@@ -4203,6 +4362,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
                 cleanupRequired: true,
                 diagnostics: {
                     publish_action_activation: activation,
+                    ...(publishDebuggerClick ? { publish_debugger_click: publishDebuggerClick } : {}),
                     initial_href: initialHref,
                     submit_locator: submitEvidence.submit_locator
                 }

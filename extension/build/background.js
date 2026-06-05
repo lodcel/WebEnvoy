@@ -1739,6 +1739,10 @@ class ChromeBackgroundBridge {
                 void this.#handleXhsControlledVisibilityDebuggerClick(message, sender, sendResponse);
                 return true;
             }
+            if (this.#isXhsControlledPublishDebuggerClickMessage(message)) {
+                void this.#handleXhsControlledPublishDebuggerClick(message, sender, sendResponse);
+                return true;
+            }
             if (this.#isXhsMainWorldRequestMessage(message)) {
                 void this.#handleXhsMainWorldRequest(message, sender, sendResponse);
                 return true;
@@ -5690,6 +5694,69 @@ class ChromeBackgroundBridge {
             }
         }
     }
+    async #dispatchXhsControlledPublishDebuggerClick(tabId, input) {
+        const debuggerApi = this.chromeApi.debugger;
+        if (!debuggerApi) {
+            throw new Error("chrome.debugger is unavailable");
+        }
+        const centerX = input.center_x;
+        const centerY = input.center_y;
+        if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+            throw new Error("publish debugger click coordinates are invalid");
+        }
+        const existingCapture = this.#controlledPublishResultIdentityCapturesByTab.get(tabId);
+        if (existingCapture?.dispatchMouseClick) {
+            await existingCapture.dispatchMouseClick({
+                locator: input.locator,
+                targetKey: input.locator,
+                centerX,
+                centerY
+            });
+            return {
+                source: "chrome_debugger",
+                action: "controlled_live_write_publish_click",
+                debugger_session: "reused_publish_identity_capture",
+                target_tab_id: tabId,
+                locator: input.locator,
+                center_x: centerX,
+                center_y: centerY,
+                run_id: asNonEmptyString(input.run_id),
+                action_ref: asNonEmptyString(input.action_ref)
+            };
+        }
+        try {
+            await debuggerApi.attach({ tabId }, debuggerProtocolVersion);
+        }
+        catch (error) {
+            throw new Error(`chrome.debugger attach failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        try {
+            await this.#dispatchEditorInputDebuggerClick(tabId, {
+                locator: input.locator,
+                targetKey: input.locator,
+                centerX,
+                centerY
+            });
+            return {
+                source: "chrome_debugger",
+                action: "controlled_live_write_publish_click",
+                target_tab_id: tabId,
+                locator: input.locator,
+                center_x: centerX,
+                center_y: centerY,
+                run_id: asNonEmptyString(input.run_id),
+                action_ref: asNonEmptyString(input.action_ref)
+            };
+        }
+        finally {
+            try {
+                await debuggerApi.detach({ tabId });
+            }
+            catch {
+                // Keep primary failure semantics if detach races with Chrome.
+            }
+        }
+    }
     async #dispatchXhsResultCardDomClick(tabId, target) {
         const executeScript = this.chromeApi.scripting?.executeScript;
         if (!executeScript) {
@@ -7598,6 +7665,31 @@ class ChromeBackgroundBridge {
         }
         return true;
     }
+    #isXhsControlledPublishDebuggerClickMessage(message) {
+        const record = asRecord(message);
+        if (record?.kind !== "xhs-controlled-live-write-publish-debugger-click") {
+            return false;
+        }
+        if (asNonEmptyString(record.locator) === null) {
+            return false;
+        }
+        if (typeof record.center_x !== "number" || !Number.isFinite(record.center_x)) {
+            return false;
+        }
+        if (typeof record.center_y !== "number" || !Number.isFinite(record.center_y)) {
+            return false;
+        }
+        if (record.run_id !== undefined && asNonEmptyString(record.run_id) === null) {
+            return false;
+        }
+        if (record.action_ref !== undefined && asNonEmptyString(record.action_ref) === null) {
+            return false;
+        }
+        if (record.timeout_ms !== undefined && readTimeoutMs(record.timeout_ms) === null) {
+            return false;
+        }
+        return true;
+    }
     #isXhsMainWorldRequestMessage(message) {
         const record = asRecord(message);
         if (record?.kind !== "xhs-main-world-request" ||
@@ -7851,6 +7943,48 @@ class ChromeBackgroundBridge {
                 ok: false,
                 error: {
                     code: "ERR_XHS_VISIBILITY_DEBUGGER_FAILED",
+                    message: error instanceof Error ? error.message : String(error)
+                }
+            });
+        }
+    }
+    async #handleXhsControlledPublishDebuggerClick(message, sender, sendResponse) {
+        const tabId = asInteger(sender.tab?.id);
+        const senderUrl = asNonEmptyString(sender.tab?.url);
+        const parsedSenderUrl = senderUrl ? parseUrl(senderUrl) : null;
+        if (tabId === null ||
+            !parsedSenderUrl ||
+            parsedSenderUrl.hostname !== "creator.xiaohongshu.com" ||
+            !parsedSenderUrl.pathname.startsWith("/publish")) {
+            sendResponse({
+                ok: false,
+                error: {
+                    code: "ERR_XHS_PUBLISH_DEBUGGER_FORBIDDEN",
+                    message: "xhs controlled publish debugger click is out of allowlist scope"
+                }
+            });
+            return;
+        }
+        try {
+            const timeoutMs = Math.min(readTimeoutMs(message.timeout_ms) ?? 3_000, 3_000);
+            const result = await Promise.race([
+                this.#dispatchXhsControlledPublishDebuggerClick(tabId, message),
+                new Promise((_, reject) => {
+                    setTimeout(() => {
+                        reject(new Error(`xhs controlled publish debugger click timed out after ${timeoutMs}ms`));
+                    }, timeoutMs);
+                })
+            ]);
+            sendResponse({
+                ok: true,
+                result
+            });
+        }
+        catch (error) {
+            sendResponse({
+                ok: false,
+                error: {
+                    code: "ERR_XHS_PUBLISH_DEBUGGER_FAILED",
                     message: error instanceof Error ? error.message : String(error)
                 }
             });
