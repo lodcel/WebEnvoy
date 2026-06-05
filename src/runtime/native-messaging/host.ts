@@ -578,10 +578,13 @@ export class NativeHostBridgeTransport implements NativeBridgeTransport {
     });
 
     child.on("exit", () => {
+      this.#child = null;
+    });
+
+    child.on("close", () => {
       this.#drainPending(
         withTransportCode(new Error("native host process exited"), "ERR_TRANSPORT_DISCONNECTED")
       );
-      this.#child = null;
       this.#stdoutBuffer = Buffer.alloc(0);
     });
   }
