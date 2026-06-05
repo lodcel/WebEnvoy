@@ -16,9 +16,9 @@ const repoOwnedNativeHostPath = path.join(
   "native-host-entry.js"
 );
 
-const runCli = (args: string[], env?: Record<string, string>) =>
+const runCli = (args: string[], env?: Record<string, string>, options?: { cwd?: string }) =>
   spawnSync(process.execPath, [binPath, ...args], {
-    cwd: repoRoot,
+    cwd: options?.cwd ?? repoRoot,
     encoding: "utf8",
     env: {
       ...process.env,
@@ -36,6 +36,11 @@ const withNativeHost = (mode: string): Record<string, string> => ({
 const withRepoOwnedNativeHost = (): Record<string, string> => ({
   WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(repoOwnedNativeHostPath)
 });
+const createIsolatedRuntimeCwd = async (): Promise<string> => {
+  const dir = await mkdtemp(path.join(tmpdir(), "webenvoy-native-contract-cwd-"));
+  tempDirs.push(dir);
+  return dir;
+};
 const PROFILE_MODE_ROOT_PREFERRED = "profile_root_preferred";
 const tempDirs: string[] = [];
 
@@ -168,12 +173,14 @@ describe("native messaging contract", () => {
     );
   });
 
-  it("returns transport metadata on runtime.ping success via repo-owned native host entry", () => {
+  it("returns transport metadata on runtime.ping success via repo-owned native host entry", async () => {
+    const runtimeCwd = await createIsolatedRuntimeCwd();
     const result = runCli(
       ["runtime.ping", "--run-id", "run-nm-repo-owned-001"],
-      withRepoOwnedNativeHost()
+      withRepoOwnedNativeHost(),
+      { cwd: runtimeCwd }
     );
-    expect(result.status).toBe(0);
+    expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
 
     const body = parseJson(result.stdout);
     expect(body).toMatchObject({
@@ -189,13 +196,17 @@ describe("native messaging contract", () => {
     });
   });
 
-  it("keeps repo-owned native host responses stable across repeated forward calls", () => {
+  it("keeps repo-owned native host responses stable across repeated forward calls", async () => {
+    const runtimeCwd = await createIsolatedRuntimeCwd();
     for (let index = 0; index < 8; index += 1) {
       const result = runCli(
         ["runtime.ping", "--run-id", `run-nm-repo-owned-repeat-${index}`],
-        withRepoOwnedNativeHost()
+        withRepoOwnedNativeHost(),
+        { cwd: runtimeCwd }
       );
-      expect(result.status).toBe(0);
+      expect(result.status, `iteration: ${index}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(
+        0
+      );
 
       const body = parseJson(result.stdout);
       expect(body).toMatchObject({
