@@ -6,6 +6,7 @@ import {
   ContentScriptHandler,
   waitForResponse
 } from "./extension.relay.shared.js";
+import { resolveXhsControlledPublishIdentityCaptureTimeoutMsForContract } from "../extension/background.js";
 import { resolveContentCommandDeadlineMsForContract } from "../extension/content-script-handler.js";
 import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "../extension/xhs-controlled-upload-platform-capture.js";
 import {
@@ -45,6 +46,20 @@ it("lets controlled upload platform capture use the live write deadline instead 
   expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(55_000)).toBe(55_000);
   expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(90_000)).toBe(60_000);
   expect(resolveXhsControlledUploadPlatformCaptureTimeoutMs(0)).toBe(1);
+});
+
+it("lets publish identity capture use the live write deadline instead of a short fixed cap", () => {
+  const now = Date.parse("2026-06-05T00:00:00.000Z");
+
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutMsForContract(now + 240_000, now)
+  ).toBe(90_000);
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutMsForContract(now + 30_000, now)
+  ).toBe(24_000);
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutMsForContract(now + 4_000, now)
+  ).toBe(3_000);
 });
 
 it("lets controlled live write keep a long content deadline before native timeout", () => {
