@@ -348,6 +348,13 @@ export class NativeHostBridgeTransport implements NativeBridgeTransport {
         : 0;
     const startedAt = Date.now();
     const deadline = startedAt + waitMs;
+    if (waitMs > 0) {
+      this.#lastTransportProof = {
+        ...this.#lastTransportProof,
+        attempted_socket_paths: candidates,
+        socket_wait_ms: 0
+      };
+    }
     while (Date.now() < deadline) {
       await sleep(
         Math.min(

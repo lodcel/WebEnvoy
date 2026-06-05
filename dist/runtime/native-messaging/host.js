@@ -243,6 +243,13 @@ export class NativeHostBridgeTransport {
             : 0;
         const startedAt = Date.now();
         const deadline = startedAt + waitMs;
+        if (waitMs > 0) {
+            this.#lastTransportProof = {
+                ...this.#lastTransportProof,
+                attempted_socket_paths: candidates,
+                socket_wait_ms: 0
+            };
+        }
         while (Date.now() < deadline) {
             await sleep(Math.min(readPositiveIntegerEnv("WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS", PERSISTENT_BRIDGE_SOCKET_POLL_MS), Math.max(1, deadline - Date.now())));
             const resolved = await resolveCandidate();

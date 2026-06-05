@@ -188,7 +188,8 @@ const shouldFailPersistentBootstrapTransportAdmission = (input: {
   readiness: RuntimeReadinessSnapshot;
 }): boolean =>
   requiresPersistentBootstrapSocketAdmission(input) &&
-  input.readiness.transportState === "not_connected" &&
+  (input.readiness.transportState === "not_connected" ||
+    input.readiness.transportState === "disconnected") &&
   hasPersistentBootstrapMissingSocketProof(input.readiness);
 
 const hasPersistentBootstrapMissingSocketProof = (readiness: RuntimeReadinessSnapshot): boolean => {
@@ -2600,7 +2601,8 @@ export class ProfileRuntimeService {
         params: input.runtimeInput.params,
         identityPreflight: input.identityPreflight
       }) &&
-      readiness.transportState === "not_connected" &&
+      (readiness.transportState === "not_connected" ||
+        readiness.transportState === "disconnected") &&
       hasPersistentBootstrapMissingSocketProof(readiness)
     ) {
       return readiness;

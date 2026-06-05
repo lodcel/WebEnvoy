@@ -2043,6 +2043,72 @@ describe("profile-runtime identity preflight", () => {
     });
   }, 15_000);
 
+  it("fails live-write runtime.start when low timeout still records persistent socket proof", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-timeout-proof-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "identity_bound_live_bridge_timeout_proof_profile"
+    });
+    const profileSocketPath = join(
+      baseDir,
+      ".webenvoy",
+      "profiles",
+      "identity_bound_live_bridge_timeout_proof_profile",
+      "nm.sock"
+    );
+    const service = createTestService({
+      bridgeFactory: () => ({
+        runCommand: async () => {
+          throw new NativeMessagingTransportError(
+            "ERR_TRANSPORT_TIMEOUT",
+            "native bridge socket wait exceeded the low runtime timeout"
+          );
+        },
+        currentTransportProof: () => ({
+          surface: "unknown" as const,
+          attempted_socket_paths: [profileSocketPath, join(baseDir, ".webenvoy", "profiles", "nm.sock")],
+          socket_wait_ms: 0
+        })
+      })
+    });
+
+    await expect(
+      service.start({
+        cwd: baseDir,
+        profile: "identity_bound_live_bridge_timeout_proof_profile",
+        runId: "run-runtime-live-bridge-timeout-proof-001",
+        params: {
+          headless: false,
+          timeout_ms: 20,
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "live_write",
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED",
+      details: {
+        reason: "PERSISTENT_EXTENSION_NATIVE_BRIDGE_SOCKET_NOT_OPENED",
+        transport_state: "disconnected",
+        transport_diagnostics: {
+          transport_proof: {
+            attempted_socket_paths: [profileSocketPath, join(baseDir, ".webenvoy", "profiles", "nm.sock")],
+            socket_wait_ms: 0
+          }
+        }
+      }
+    });
+  }, 15_000);
+
   it("stops startup readiness retries after required persistent socket admission fails", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-retry-socket-"));
     tempDirs.push(baseDir);

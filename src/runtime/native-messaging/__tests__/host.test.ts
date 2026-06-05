@@ -164,6 +164,58 @@ describe("native host bridge transport classification", () => {
     }
   });
 
+  it("records attempted socket paths before a required profile socket wait can time out", async () => {
+    const baseDir = await mkdtemp("/tmp/webenvoy-host-proof-before-timeout-");
+    const previousCwd = process.cwd();
+    const previousWait = process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+    const previousPoll = process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS;
+    const profile = "xhs_timeout_socket";
+
+    try {
+      await mkdir(path.join(baseDir, ".webenvoy", "profiles", profile), { recursive: true });
+      process.chdir(baseDir);
+      process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = "500";
+      process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS = "50";
+      const transport = new NativeHostBridgeTransport(null, {
+        waitForProfileSocketOnOpen: true
+      });
+      const openPromise = transport.open(
+        createBridgeOpenRequest({
+          id: "open-proof-before-timeout-001",
+          profile,
+          timeoutMs: 20
+        })
+      );
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
+
+      expect(transport.currentTransportProof().attempted_socket_paths?.some((candidate) =>
+        candidate.endsWith(
+          path.join(".webenvoy", "profiles", profile, PROFILE_NATIVE_BRIDGE_SOCKET_FILENAME)
+        )
+      )).toBe(true);
+      expect(transport.currentTransportProof().socket_wait_ms).toBe(0);
+      await expect(openPromise).rejects.toMatchObject({
+        transportCode: "ERR_TRANSPORT_HANDSHAKE_FAILED"
+      });
+    } finally {
+      process.chdir(previousCwd);
+      if (previousWait === undefined) {
+        delete process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+      } else {
+        process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = previousWait;
+      }
+      if (previousPoll === undefined) {
+        delete process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS;
+      } else {
+        process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS = previousPoll;
+      }
+      await rm(baseDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not wait for a missing profile socket when spawned host is configured", async () => {
     const baseDir = await mkdtemp("/tmp/webenvoy-host-spawn-no-socket-wait-");
     const mockNativeHostPath = path.resolve(
