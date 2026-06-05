@@ -6598,6 +6598,7 @@ const extractXhsControlledUploadPlatformCapture = (input) => {
 };
 const trustedPublishResultEndpointPattern = /^\/(?:api|web_api)\/(?:creator\/publish\/result|galaxy\/(?:v\d+\/)?creator\/note\/user\/(?:post|publish))(?:[/?#]|$)/iu;
 const trustedCreatorSubmitPublishEndpointPattern = /^\/(?:api|web_api)\/galaxy\/(?:v\d+\/)?creator\/note\/user\/(?:post|publish)(?:[/?#]|$)/iu;
+const trustedCreatorSnsSubmitPublishEndpointPattern = /^\/api\/sns\/web\/v1\/note\/commit(?:[/?#]|$)/iu;
 const noteIdFromTrustedHrefValue = (href) => {
     const match = /[?&](?:note_id|noteId|source_note_id)=([A-Za-z0-9_-]{8,64})(?:&|$)/u.exec(href) ??
         /\/(?:explore|notes?|note|publish\/success)\/([A-Za-z0-9_-]{8,64})(?:[/?#]|$)/u.exec(href);
@@ -6612,7 +6613,8 @@ const isXhsControlledPublishResultIdentityCaptureUrl = (url, method) => {
         if (parsed.hostname !== "creator.xiaohongshu.com") {
             return false;
         }
-        if (trustedCreatorSubmitPublishEndpointPattern.test(parsed.pathname)) {
+        if (trustedCreatorSubmitPublishEndpointPattern.test(parsed.pathname) ||
+            trustedCreatorSnsSubmitPublishEndpointPattern.test(parsed.pathname)) {
             return /^POST$/iu.test(method);
         }
         return trustedPublishResultEndpointPattern.test(parsed.pathname);
@@ -6628,7 +6630,8 @@ const isXhsControlledCreatorSubmitPublishCaptureUrl = (url, method) => {
     try {
         const parsed = new URL(url);
         return (parsed.hostname === "creator.xiaohongshu.com" &&
-            trustedCreatorSubmitPublishEndpointPattern.test(parsed.pathname));
+            (trustedCreatorSubmitPublishEndpointPattern.test(parsed.pathname) ||
+                trustedCreatorSnsSubmitPublishEndpointPattern.test(parsed.pathname)));
     }
     catch {
         return false;

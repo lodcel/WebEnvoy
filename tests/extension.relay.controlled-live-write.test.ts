@@ -21,6 +21,7 @@ import {
   extractXhsControlledPublishResultIdentityCapture,
   extractXhsControlledUploadPlatformCapture,
   finalizeXhsControlledPublishResultIdentityCapture,
+  isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
   performXhsControlledLiveWriteWithApprovedSourceMedia,
   summarizeXhsControlledUploadObservedRequest
@@ -423,6 +424,84 @@ it("extracts a trusted post-submit note id from the v2 creator submit response s
     publish_visibility_scope: null,
     publish_visibility_proof_locator: null,
     url: "https://creator.xiaohongshu.com/api/galaxy/v2/creator/note/user/post"
+  });
+});
+
+it("observes the creator sns note commit endpoint as a post-submit publish identity source", () => {
+  expect(
+    isXhsControlledPublishResultIdentityCaptureUrl(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit",
+      "POST"
+    )
+  ).toBe(true);
+  expect(
+    isXhsControlledPublishResultIdentityCaptureUrl(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit",
+      "GET"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledPublishResultIdentityCaptureUrl(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/feed",
+      "POST"
+    )
+  ).toBe(false);
+});
+
+it("extracts a trusted post-submit note id from the creator sns note commit response", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-05T04:40:00.000Z",
+    body: {
+      success: true,
+      data: {
+        id: "64b7d8ef000000001f03981",
+        publish_id: "publish-task-64b7d8ef000000001f03981",
+        status: "submitted"
+      }
+    }
+  });
+
+  expect(capture).toMatchObject({
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "note_id",
+    note_id: "64b7d8ef000000001f03981",
+    published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981",
+    publish_visibility_scope: null,
+    publish_visibility_proof_locator: null,
+    url: "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit"
+  });
+});
+
+it("extracts a trusted private platform publish record from the creator sns note commit response", () => {
+  const capture = extractXhsControlledPublishResultIdentityCapture({
+    url: "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit",
+    method: "POST",
+    status: 200,
+    captured_at: "2026-06-05T04:40:00.000Z",
+    body: {
+      code: 0,
+      data: {
+        publish_id: "publish-task-64b7d8ef000000001f03981",
+        visible_type: "仅自己可见"
+      }
+    }
+  });
+
+  expect(capture).toMatchObject({
+    source: "chrome_debugger_network",
+    evidence_basis: "trusted_platform_response_body",
+    result_kind: "platform_publish_record",
+    note_id: null,
+    published_url: null,
+    creator_result_url: null,
+    platform_record_ref: "publish-task-64b7d8ef000000001f03981",
+    publish_visibility_scope: "private_or_self_visible",
+    publish_visibility_proof_locator: "$.data",
+    url: "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit"
   });
 });
 
