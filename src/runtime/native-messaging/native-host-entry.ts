@@ -21,6 +21,9 @@ let nativeReadBuffer = Buffer.alloc(0);
 let sessionId = DEFAULT_SESSION_ID;
 let extensionOpened = false;
 let shuttingDown = false;
+let activeNativeInputs = 0;
+let pendingNativeOutputFlushes = 0;
+let requestedShutdownCode: number | null = null;
 let socketServer: Server | null = null;
 let activeProfileDir: string | null = null;
 let activeSocketPath: string | null = null;
@@ -171,8 +174,11 @@ const writeNativeEnvelope = (
   envelope: NativeEnvelope,
   onFlushed?: () => void
 ): void => {
+  pendingNativeOutputFlushes += 1;
   process.stdout.write(encodeEnvelope(envelope), () => {
+    pendingNativeOutputFlushes = Math.max(0, pendingNativeOutputFlushes - 1);
     onFlushed?.();
+    maybeShutdown();
   });
 };
 
@@ -303,6 +309,22 @@ const shutdown = async (code = 0): Promise<void> => {
   await cleanupSocketServer();
   process.exit(code);
 };
+
+const requestShutdown = (code = 0): void => {
+  requestedShutdownCode = requestedShutdownCode ?? code;
+  maybeShutdown();
+};
+
+function maybeShutdown(): void {
+  if (
+    requestedShutdownCode === null ||
+    activeNativeInputs > 0 ||
+    pendingNativeOutputFlushes > 0
+  ) {
+    return;
+  }
+  void shutdown(requestedShutdownCode);
+}
 
 const ensureSocketServer = async (
   target: { profileDir: string; socketPath: string } | null
@@ -540,7 +562,7 @@ const handleExtensionRequest = async (request: BridgeRequestEnvelope): Promise<v
           activeSocketPath
             ? undefined
             : () => {
-                process.exit(0);
+                requestShutdown(0);
               }
         );
         return;
@@ -561,7 +583,7 @@ const handleExtensionRequest = async (request: BridgeRequestEnvelope): Promise<v
         activeSocketPath
           ? undefined
           : () => {
-              process.exit(0);
+              requestShutdown(0);
             }
       );
       return;
@@ -580,7 +602,7 @@ const handleExtensionRequest = async (request: BridgeRequestEnvelope): Promise<v
           payload: buildPingPayload(request)
         },
         () => {
-          process.exit(0);
+          requestShutdown(0);
         }
       );
       return;
@@ -639,12 +661,16 @@ process.stdin.on("data", (chunk: Buffer) => {
     const frame = nativeReadBuffer.subarray(4, frameEnd);
     nativeReadBuffer = nativeReadBuffer.subarray(frameEnd);
     const request = JSON.parse(frame.toString("utf8")) as unknown;
-    void handleNativeInput(request);
+    activeNativeInputs += 1;
+    void handleNativeInput(request).finally(() => {
+      activeNativeInputs = Math.max(0, activeNativeInputs - 1);
+      maybeShutdown();
+    });
   }
 });
 
 process.stdin.on("end", () => {
-  void shutdown(0);
+  requestShutdown(0);
 });
 
 process.stdin.on("error", () => {
