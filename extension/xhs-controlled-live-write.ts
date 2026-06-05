@@ -5165,6 +5165,7 @@ const findPagePublishIdentityCandidate = (
 };
 
 const publishActionPendingPattern = /发布中|正在发布|提交中|审核中|publishing|submitting|loading/iu;
+const xhsBackgroundContinuationPageIdentityWaitMs = 30_000;
 
 const readPublishActionActivation = (
   submitControl: HTMLElement,
@@ -5413,6 +5414,7 @@ const performControlledSubmitPublishCleanup = async (
   const requiresPublishDebuggerClick =
     input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001";
   let publishDebuggerClick: JsonRecord | null = null;
+  let publishActionActivation: PublishActionActivationResult | null = null;
   if (requiresPublishDebuggerClick) {
     const debuggerClick = await requestPublishDebuggerClickViaExtension({
       target: submitControl,
@@ -5469,6 +5471,7 @@ const performControlledSubmitPublishCleanup = async (
       previousPageIdentityKeys,
       3_000
     );
+    publishActionActivation = activation;
     if (!activation.activated) {
       const unknownSubmitEvidence: SubmitEvidence = {
         ...submitEvidence,
@@ -5497,7 +5500,11 @@ const performControlledSubmitPublishCleanup = async (
   }
   let publishIdentity: PublishResultIdentity | null = null;
   if (input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001") {
-    const deadline = Date.now() + 3_000;
+    const pageLevelActivation =
+      publishActionActivation?.signal !== "submit_control_busy" &&
+      publishActionActivation?.signal !== "submit_control_disabled";
+    const deadline =
+      Date.now() + (pageLevelActivation ? xhsBackgroundContinuationPageIdentityWaitMs : 3_000);
     do {
       publishIdentity = buildPublishIdentity(
         input,
