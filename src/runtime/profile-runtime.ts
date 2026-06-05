@@ -2593,7 +2593,8 @@ export class ProfileRuntimeService {
         runtimeInput: input.runtimeInput,
         lockHeld: true,
         identityPreflight: input.identityPreflight,
-        profileState: input.profileState
+        profileState: input.profileState,
+        requirePersistentBootstrapSocketAdmission: true
       });
       if (observed.runtimeReadiness === "ready" || observed.bootstrapState === "stale") {
         return observed;
@@ -2632,6 +2633,7 @@ export class ProfileRuntimeService {
     observedRunId?: string;
     identityPreflight: IdentityPreflightResult;
     profileState: ProfileState;
+    requirePersistentBootstrapSocketAdmission?: boolean;
   }): Promise<RuntimeReadinessSnapshot> {
     const baseIdentity = input.identityPreflight.identityBindingState;
     if (input.identityPreflight.mode !== "official_chrome_persistent_extension") {
@@ -2725,13 +2727,16 @@ export class ProfileRuntimeService {
     identityPreflight: IdentityPreflightResult;
     profileState: ProfileState;
     includeTargetBinding?: boolean;
+    requirePersistentBootstrapSocketAdmission?: boolean;
   }): Promise<RuntimeReadinessSnapshot> {
     const baseIdentity = input.identityPreflight.identityBindingState;
     const bridge = this.#bridgeFactory({
-      waitForProfileSocketOnOpen: requiresPersistentBootstrapSocketAdmission({
-        params: input.runtimeInput.params,
-        identityPreflight: input.identityPreflight
-      })
+      waitForProfileSocketOnOpen:
+        input.requirePersistentBootstrapSocketAdmission === true &&
+        requiresPersistentBootstrapSocketAdmission({
+          params: input.runtimeInput.params,
+          identityPreflight: input.identityPreflight
+        })
     });
     const runtimeContextId = buildRuntimeBootstrapContextId(
       input.runtimeInput.profile,

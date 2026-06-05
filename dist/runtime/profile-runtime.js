@@ -2022,7 +2022,8 @@ export class ProfileRuntimeService {
                 runtimeInput: input.runtimeInput,
                 lockHeld: true,
                 identityPreflight: input.identityPreflight,
-                profileState: input.profileState
+                profileState: input.profileState,
+                requirePersistentBootstrapSocketAdmission: true
             });
             if (observed.runtimeReadiness === "ready" || observed.bootstrapState === "stale") {
                 return observed;
@@ -2123,10 +2124,11 @@ export class ProfileRuntimeService {
     async #readPersistentRuntimeReadiness(input) {
         const baseIdentity = input.identityPreflight.identityBindingState;
         const bridge = this.#bridgeFactory({
-            waitForProfileSocketOnOpen: requiresPersistentBootstrapSocketAdmission({
-                params: input.runtimeInput.params,
-                identityPreflight: input.identityPreflight
-            })
+            waitForProfileSocketOnOpen: input.requirePersistentBootstrapSocketAdmission === true &&
+                requiresPersistentBootstrapSocketAdmission({
+                    params: input.runtimeInput.params,
+                    identityPreflight: input.identityPreflight
+                })
         });
         const runtimeContextId = buildRuntimeBootstrapContextId(input.runtimeInput.profile, input.runtimeInput.runId);
         try {
