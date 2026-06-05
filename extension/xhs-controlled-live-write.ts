@@ -2818,6 +2818,10 @@ const submitControlActionSignalPattern =
   /(^|[\s_-])(submit|publish|post|confirm|btn|button)([\s_-]|$)|d-button|reds-button|semi-button|ant-btn|el-button/iu;
 const submitControlContainerSignalPattern =
   /publish-(page|panel|content|container|form|wrapper|editor)|(^|[\s_-])(page|panel|content|container|form|wrapper|editor|settings)([\s_-]|$)/iu;
+const publishModeNavigationPattern =
+  /发布\s*(?:视频|图文|笔记)|(?:^|[\s_-])publish[\s_-]?(?:video|image|note)(?:$|[\s_-])/iu;
+const publishModeNavigationSelector =
+  ".publish-video,.publish-image,.publish-note,.menu-container,.menu-panel,[data-role='publish-mode-nav']";
 const uploadStageContinuationPattern = /下一步|下一|继续|完成|next|continue/iu;
 const uploadStageContainerPattern =
   /upload|media|material|publish-page-content-media|upload-wrapper|upload-container/iu;
@@ -2850,13 +2854,48 @@ const isNativeSubmitControl = (element: HTMLElement): boolean => {
   return tagName === "button" || (tagName === "input" && /button|submit/iu.test(type));
 };
 
+const hasPublishModeNavigationAncestor = (element: HTMLElement): boolean => {
+  if (typeof element.closest === "function") {
+    try {
+      return element.closest(publishModeNavigationSelector) !== null;
+    } catch {
+      // Fall through to the parentElement walk for partial DOM shims.
+    }
+  }
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 6; depth += 1) {
+    const signal = `${getElementAttribute(current, "class") ?? ""} ${getElementAttribute(current, "data-role") ?? ""}`;
+    if (publishModeNavigationPattern.test(signal) || getElementAttribute(current, "data-role") === "publish-mode-nav") {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+};
+
+const isPublishModeNavigationSubmitControl = (element: HTMLElement, signal: string): boolean => {
+  const tagName = element.tagName.toLowerCase();
+  const className = getElementAttribute(element, "class") ?? "";
+  const roleAttr = getElementAttribute(element, "role");
+  const semanticActionTarget =
+    isNativeSubmitControl(element) ||
+    tagName === "a" ||
+    roleAttr === "button" ||
+    /\b(?:button|submit|confirm|btn)\b/iu.test(className);
+  if (semanticActionTarget) {
+    return false;
+  }
+  return publishModeNavigationPattern.test(`${signal} ${className}`) || hasPublishModeNavigationAncestor(element);
+};
+
 const isSafeSubmitPublishControl = (element: HTMLElement): boolean => {
   const signal = elementTextSignal(element);
   if (
     !isVisibleElement(element) ||
     isDisabledElement(element) ||
     !submitPublishPattern.test(signal) ||
-    nonSubmitPublishPattern.test(signal)
+    nonSubmitPublishPattern.test(signal) ||
+    isPublishModeNavigationSubmitControl(element, signal)
   ) {
     return false;
   }

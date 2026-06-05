@@ -6625,7 +6625,8 @@ it("captures publish result identity from a current-page note link when creator 
   class TestElement {
     id = "";
     tagName = "DIV";
-    classList: string[] = [];
+    classList: string[];
+    className: string;
     parentElement = null;
     disabled = false;
     textContent: string;
@@ -6634,6 +6635,8 @@ it("captures publish result identity from a current-page note link when creator 
     constructor(text: string, attributes: Record<string, string> = {}) {
       this.textContent = text;
       this.attributes = attributes;
+      this.className = attributes.class ?? "";
+      this.classList = this.className.split(/\s+/u).filter(Boolean);
     }
     getAttribute(name: string) {
       return this.attributes[name] ?? null;
@@ -6647,7 +6650,8 @@ it("captures publish result identity from a current-page note link when creator 
     getBoundingClientRect = () => ({ width: 120, height: 32 });
   }
   const visibility = new TestElement("仅自己可见");
-  const submit = new TestElement("发布");
+  const publishModeNav = new TestElement("发布视频", { class: "publish-video", role: "menuitem" });
+  const submit = new TestElement("发布", { class: "publish-action" });
   submit.tagName = "BUTTON";
   const publishRecord = new TestElement("发布成功 查看笔记", {
     href: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03981"
@@ -6686,6 +6690,7 @@ it("captures publish result identity from a current-page note link when creator 
       documentElement,
       querySelectorAll: () => [
         visibility,
+        publishModeNav,
         submit,
         ...(publishRecordVisible ? [publishRecord] : [])
       ]
@@ -6722,7 +6727,11 @@ it("captures publish result identity from a current-page note link when creator 
     });
 
     expect(visibility.clicked).toBe(true);
+    expect(publishModeNav.clicked).toBe(false);
     expect(submit.clicked).toBe(true);
+    expect(result.live_write_evidence.submit_evidence).toMatchObject({
+      submit_locator: "button.publish-action"
+    });
     expect(result.live_write_evaluation).toMatchObject({
       decision: "GO",
       full_live_write_success: true,
