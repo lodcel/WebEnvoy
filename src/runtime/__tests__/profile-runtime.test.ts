@@ -1975,6 +1975,74 @@ describe("profile-runtime identity preflight", () => {
     expect(bridgeFactoryOptions).toEqual([{ waitForProfileSocketOnOpen: true }, undefined]);
   }, 15_000);
 
+  it("fails live-write runtime.start when a stale persistent socket path cannot handshake", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-stale-socket-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "identity_bound_live_bridge_stale_socket_profile"
+    });
+    const staleSocketPath = join(
+      baseDir,
+      ".webenvoy",
+      "profiles",
+      "identity_bound_live_bridge_stale_socket_profile",
+      "nm.sock"
+    );
+    const service = createTestService({
+      bridgeFactory: () => ({
+        runCommand: async () => {
+          throw new NativeMessagingTransportError(
+            "ERR_TRANSPORT_HANDSHAKE_FAILED",
+            "native bridge stale socket refused the admission handshake"
+          );
+        },
+        currentTransportProof: () => ({
+          surface: "profile_socket" as const,
+          spawned_host_configured: true,
+          attempted_socket_paths: [staleSocketPath, join(baseDir, ".webenvoy", "profiles", "nm.sock")],
+          socket_path: staleSocketPath,
+          socket_wait_ms: 0
+        })
+      })
+    });
+
+    await expect(
+      service.start({
+        cwd: baseDir,
+        profile: "identity_bound_live_bridge_stale_socket_profile",
+        runId: "run-runtime-live-bridge-stale-socket-001",
+        params: {
+          headless: false,
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "live_write",
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED",
+      details: {
+        reason: "PERSISTENT_EXTENSION_NATIVE_BRIDGE_SOCKET_NOT_OPENED",
+        transport_state: "not_connected",
+        transport_diagnostics: {
+          transport_proof: {
+            surface: "profile_socket",
+            socket_wait_ms: 0,
+            socket_path: staleSocketPath
+          }
+        }
+      }
+    });
+  }, 15_000);
+
   it("stops startup readiness retries after required persistent socket admission fails", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-retry-socket-"));
     tempDirs.push(baseDir);

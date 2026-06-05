@@ -204,9 +204,7 @@ const hasPersistentBootstrapMissingSocketProof = (readiness: RuntimeReadinessSna
       : {};
   return (
     Array.isArray(transportProof.attempted_socket_paths) &&
-    transportProof.attempted_socket_paths.length > 0 &&
-    typeof transportProof.socket_wait_ms === "number" &&
-    transportProof.socket_wait_ms > 0
+    transportProof.attempted_socket_paths.length > 0
   );
 };
 
