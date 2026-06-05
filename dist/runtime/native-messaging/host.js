@@ -424,8 +424,10 @@ export class NativeHostBridgeTransport {
             this.#drainPending(asTransportError(error, "ERR_TRANSPORT_DISCONNECTED"));
         });
         child.on("exit", () => {
-            this.#drainPending(withTransportCode(new Error("native host process exited"), "ERR_TRANSPORT_DISCONNECTED"));
             this.#child = null;
+        });
+        child.on("close", () => {
+            this.#drainPending(withTransportCode(new Error("native host process exited"), "ERR_TRANSPORT_DISCONNECTED"));
             this.#stdoutBuffer = Buffer.alloc(0);
         });
     }
