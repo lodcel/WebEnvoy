@@ -47,6 +47,14 @@ export interface CloseoutRuntimeReadinessPreflight {
     extension_service_worker_freshness_reason: string | null;
     extension_source_path: string | null;
     expected_extension_source_path: string | null;
+    extension_source_equivalence: {
+      decision: "not_checked" | "equivalent" | "mismatch";
+      reason_codes: string[];
+      active_extension_source_path: string | null;
+      expected_extension_source_path: string | null;
+      active_extension_digest: string | null;
+      expected_extension_digest: string | null;
+    };
     transport_state: string | null;
     bootstrap_state: string | null;
     runtime_readiness: string | null;
@@ -220,6 +228,14 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
   status: JsonObject;
   params?: JsonObject | null;
   expectedExtensionPath?: string | null;
+  extensionSourceEquivalence?: {
+    decision: "not_checked" | "equivalent" | "mismatch";
+    reason_codes: string[];
+    active_extension_source_path: string | null;
+    expected_extension_source_path: string | null;
+    active_extension_digest: string | null;
+    expected_extension_digest: string | null;
+  } | null;
 }): CloseoutRuntimeReadinessPreflight => {
   const params = input.params ?? {};
   const status = input.status;
@@ -245,6 +261,14 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
   const expectedExtensionSourcePath = input.expectedExtensionPath
     ? resolve(input.expectedExtensionPath)
     : null;
+  const extensionSourceEquivalence = input.extensionSourceEquivalence ?? {
+    decision: "not_checked" as const,
+    reason_codes: [] as string[],
+    active_extension_source_path: extensionSourcePath,
+    expected_extension_source_path: expectedExtensionSourcePath,
+    active_extension_digest: null,
+    expected_extension_digest: null
+  };
   const transportState = asString(status.transportState);
   const bootstrapState = asString(status.bootstrapState);
   const runtimeReadiness = asString(status.runtimeReadiness);
@@ -264,6 +288,7 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       extension_service_worker_freshness_reason: extensionServiceWorkerFreshnessReason,
       extension_source_path: extensionSourcePath,
       expected_extension_source_path: expectedExtensionSourcePath,
+      extension_source_equivalence: extensionSourceEquivalence,
       transport_state: transportState,
       bootstrap_state: bootstrapState,
       runtime_readiness: runtimeReadiness,
@@ -286,7 +311,8 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
   if (
     expectedExtensionSourcePath !== null &&
     extensionSourcePath !== null &&
-    resolve(extensionSourcePath) !== expectedExtensionSourcePath
+    resolve(extensionSourcePath) !== expectedExtensionSourcePath &&
+    extensionSourceEquivalence.decision !== "equivalent"
   ) {
     return {
       decision: "NO_GO",

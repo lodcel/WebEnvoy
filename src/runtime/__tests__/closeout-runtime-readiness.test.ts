@@ -142,6 +142,86 @@ describe("closeout runtime readiness preflight", () => {
     });
   });
 
+  it("accepts a ready runtime when the active extension source has equivalent latest-main contents", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: {
+          decision: "equivalent",
+          reason_codes: ["same_extension_tree_digest"],
+          active_extension_source_path: "/repo/old/extension",
+          expected_extension_source_path: "/repo/current/extension",
+          active_extension_digest: "digest-a",
+          expected_extension_digest: "digest-a"
+        },
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "unknown",
+              reason: "SERVICE_WORKER_CACHE_MISSING",
+              extensionPath: "/repo/old/extension"
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "GO",
+      runtime_state: "ready",
+      blocker: null,
+      runtime_status: {
+        extension_source_path: "/repo/old/extension",
+        expected_extension_source_path: "/repo/current/extension",
+        extension_source_equivalence: {
+          decision: "equivalent",
+          reason_codes: ["same_extension_tree_digest"],
+          active_extension_digest: "digest-a",
+          expected_extension_digest: "digest-a"
+        }
+      }
+    });
+  });
+
+  it("still blocks a ready runtime when extension source content differs", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: {
+          decision: "mismatch",
+          reason_codes: ["extension_tree_digest_mismatch"],
+          active_extension_source_path: "/repo/old/extension",
+          expected_extension_source_path: "/repo/current/extension",
+          active_extension_digest: "digest-a",
+          expected_extension_digest: "digest-b"
+        },
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "unknown",
+              reason: "SERVICE_WORKER_CACHE_MISSING",
+              extensionPath: "/repo/old/extension"
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      blocker: {
+        blocker_code: "extension_source_mismatch"
+      },
+      runtime_status: {
+        extension_source_equivalence: {
+          decision: "mismatch",
+          reason_codes: ["extension_tree_digest_mismatch"]
+        }
+      }
+    });
+  });
+
   it("returns RECOVERABLE for an attachable ready runtime without mutating ownership", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
