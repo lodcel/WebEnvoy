@@ -126,6 +126,14 @@ export const buildCloseoutRuntimeReadinessPreflight = (input) => {
     const expectedExtensionSourcePath = input.expectedExtensionPath
         ? resolve(input.expectedExtensionPath)
         : null;
+    const extensionSourceEquivalence = input.extensionSourceEquivalence ?? {
+        decision: "not_checked",
+        reason_codes: [],
+        active_extension_source_path: extensionSourcePath,
+        expected_extension_source_path: expectedExtensionSourcePath,
+        active_extension_digest: null,
+        expected_extension_digest: null
+    };
     const transportState = asString(status.transportState);
     const bootstrapState = asString(status.bootstrapState);
     const runtimeReadiness = asString(status.runtimeReadiness);
@@ -144,6 +152,7 @@ export const buildCloseoutRuntimeReadinessPreflight = (input) => {
             extension_service_worker_freshness_reason: extensionServiceWorkerFreshnessReason,
             extension_source_path: extensionSourcePath,
             expected_extension_source_path: expectedExtensionSourcePath,
+            extension_source_equivalence: extensionSourceEquivalence,
             transport_state: transportState,
             bootstrap_state: bootstrapState,
             runtime_readiness: runtimeReadiness,
@@ -163,7 +172,8 @@ export const buildCloseoutRuntimeReadinessPreflight = (input) => {
     }
     if (expectedExtensionSourcePath !== null &&
         extensionSourcePath !== null &&
-        resolve(extensionSourcePath) !== expectedExtensionSourcePath) {
+        resolve(extensionSourcePath) !== expectedExtensionSourcePath &&
+        extensionSourceEquivalence.decision !== "equivalent") {
         return {
             decision: "NO_GO",
             runtime_state: "blocked",

@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { lstat, readdir, readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { CliError } from "../core/errors.js";
 import { WRITE_INTERACTION_TIER, getWriteActionMatrixDecisions, isIssueScope } from "../../shared/risk-state.js";
 import { NativeMessagingBridge, NativeMessagingTransportError } from "../runtime/native-messaging/bridge.js";
@@ -21,6 +22,99 @@ import { XHS_CLOSEOUT_BASELINE_PROBE_BUNDLE_REF, XHS_CLOSEOUT_TARGET_DOMAIN, XHS
 const asBoolean = (value) => value === true;
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
+const resolveExtensionSourcePathFromStatus = (status) => {
+    const identityPreflight = asObject(status.identityPreflight);
+    const extensionServiceWorkerFreshness = asObject(identityPreflight?.extensionServiceWorkerFreshness);
+    return asString(extensionServiceWorkerFreshness?.extensionPath ??
+        identityPreflight?.extension_service_worker_extension_path);
+};
+const digestExtensionDirectory = async (extensionPath) => {
+    const root = resolve(extensionPath);
+    const rootStat = await lstat(root).catch(() => null);
+    if (!rootStat || !rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        return null;
+    }
+    const hash = createHash("sha256");
+    const pending = [root];
+    while (pending.length > 0) {
+        const current = pending.pop();
+        if (!current) {
+            continue;
+        }
+        const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
+        for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+            if (entry.name === "node_modules" || entry.name === ".git") {
+                continue;
+            }
+            const entryPath = join(current, entry.name);
+            const rel = relative(root, entryPath);
+            if (entry.isSymbolicLink()) {
+                return null;
+            }
+            if (entry.isDirectory()) {
+                pending.push(entryPath);
+                continue;
+            }
+            if (!entry.isFile()) {
+                continue;
+            }
+            hash.update(`file:${rel}\0`);
+            hash.update(await readFile(entryPath));
+            hash.update("\0");
+        }
+    }
+    return hash.digest("hex");
+};
+const resolveExtensionSourceEquivalence = async (input) => {
+    const activeExtensionSourcePath = resolveExtensionSourcePathFromStatus(input.status);
+    const expectedExtensionSourcePath = resolve(input.expectedExtensionPath);
+    const base = {
+        active_extension_source_path: activeExtensionSourcePath,
+        expected_extension_source_path: expectedExtensionSourcePath,
+        active_extension_digest: null,
+        expected_extension_digest: null
+    };
+    if (!activeExtensionSourcePath) {
+        return {
+            decision: "not_checked",
+            reason_codes: ["active_extension_source_missing"],
+            ...base
+        };
+    }
+    if (resolve(activeExtensionSourcePath) === expectedExtensionSourcePath) {
+        return {
+            decision: "equivalent",
+            reason_codes: ["same_path"],
+            ...base
+        };
+    }
+    const [activeDigest, expectedDigest] = await Promise.all([
+        digestExtensionDirectory(activeExtensionSourcePath),
+        digestExtensionDirectory(expectedExtensionSourcePath)
+    ]);
+    if (!activeDigest || !expectedDigest) {
+        return {
+            decision: "mismatch",
+            reason_codes: ["extension_source_digest_unavailable"],
+            active_extension_source_path: activeExtensionSourcePath,
+            expected_extension_source_path: expectedExtensionSourcePath,
+            active_extension_digest: activeDigest,
+            expected_extension_digest: expectedDigest
+        };
+    }
+    return {
+        decision: activeDigest === expectedDigest ? "equivalent" : "mismatch",
+        reason_codes: [
+            activeDigest === expectedDigest
+                ? "same_extension_tree_digest"
+                : "extension_tree_digest_mismatch"
+        ],
+        active_extension_source_path: activeExtensionSourcePath,
+        expected_extension_source_path: expectedExtensionSourcePath,
+        active_extension_digest: activeDigest,
+        expected_extension_digest: expectedDigest
+    };
+};
 const buildPersistedSessionRhythmStatusView = (persisted, profileHistory) => {
     const windowState = persisted.window_state;
     const event = persisted.event;
@@ -2467,11 +2561,17 @@ const runtimeCloseoutPreflight = async (context) => {
         runId: context.run_id,
         params: context.params
     });
+    const expectedExtensionPath = join(context.cwd, "extension");
+    const extensionSourceEquivalence = await resolveExtensionSourceEquivalence({
+        status,
+        expectedExtensionPath
+    });
     return {
         closeout_runtime_readiness_preflight: buildCloseoutRuntimeReadinessPreflight({
             status,
             params: context.params,
-            expectedExtensionPath: join(context.cwd, "extension")
+            expectedExtensionPath,
+            extensionSourceEquivalence
         }),
         runtime_status: status
     };
@@ -2524,22 +2624,33 @@ const prepareCloseoutGateRuntimeStatus = async (context, initialStatus, initialP
     }
 };
 const runtimeCloseoutGate = async (context) => {
+    const expectedExtensionPath = join(context.cwd, "extension");
     let status = await profileRuntime.status({
         cwd: context.cwd,
         profile: context.profile ?? "",
         runId: context.run_id,
         params: context.params
     });
+    let extensionSourceEquivalence = await resolveExtensionSourceEquivalence({
+        status,
+        expectedExtensionPath
+    });
     let closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
         status,
         params: context.params,
-        expectedExtensionPath: join(context.cwd, "extension")
+        expectedExtensionPath,
+        extensionSourceEquivalence
     });
     status = await prepareCloseoutGateRuntimeStatus(context, status, closeoutRuntimeReadinessPreflight);
+    extensionSourceEquivalence = await resolveExtensionSourceEquivalence({
+        status,
+        expectedExtensionPath
+    });
     closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
         status,
         params: context.params,
-        expectedExtensionPath: join(context.cwd, "extension")
+        expectedExtensionPath,
+        extensionSourceEquivalence
     });
     let store = null;
     try {
