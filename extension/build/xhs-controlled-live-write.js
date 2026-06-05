@@ -2275,7 +2275,6 @@ const isPublishModeNavigationSubmitControl = (element, signal) => {
     const semanticActionTarget = isNativeSubmitControl(element) ||
         tagName === "a" ||
         roleAttr === "button" ||
-        roleAttr === "menuitem" ||
         /\b(?:button|submit|confirm|btn)\b/iu.test(className);
     if (semanticActionTarget) {
         return false;

@@ -6650,7 +6650,7 @@ it("captures publish result identity from a current-page note link when creator 
     getBoundingClientRect = () => ({ width: 120, height: 32 });
   }
   const visibility = new TestElement("仅自己可见");
-  const publishModeNav = new TestElement("发布视频", { class: "publish-video" });
+  const publishModeNav = new TestElement("发布视频", { class: "publish-video", role: "menuitem" });
   const submit = new TestElement("发布", { class: "publish-action" });
   submit.tagName = "BUTTON";
   const publishRecord = new TestElement("发布成功 查看笔记", {
