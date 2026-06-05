@@ -163,6 +163,7 @@ export class NativeHostBridgeTransport implements NativeBridgeTransport {
   readonly #hostCommand: string | null;
   readonly #hostSpec: { file: string; args: string[] } | null;
   readonly #socketPath: string | null;
+  readonly #waitForProfileSocketOnOpen: boolean;
   #activeSocketPath: string | null = null;
   #lastTransportProof: NativeBridgeTransportProof = { surface: "unknown" };
   #child: ChildProcessWithoutNullStreams | null = null;
@@ -172,11 +173,12 @@ export class NativeHostBridgeTransport implements NativeBridgeTransport {
 
   constructor(
     hostCommand: string | null = readNativeHostCommand(),
-    options?: { socketPath?: string | null }
+    options?: { socketPath?: string | null; waitForProfileSocketOnOpen?: boolean }
   ) {
     this.#hostCommand = hostCommand;
     this.#hostSpec = parseNativeHostCommand(hostCommand);
     this.#socketPath = options?.socketPath ?? null;
+    this.#waitForProfileSocketOnOpen = options?.waitForProfileSocketOnOpen === true;
   }
 
   open(request: BridgeRequestEnvelope): Promise<BridgeResponseEnvelope> {
@@ -324,7 +326,11 @@ export class NativeHostBridgeTransport implements NativeBridgeTransport {
       return immediate;
     }
     const waitMs =
-      phase === "open" && requestedProfile !== null && !this.#socketPath
+      phase === "open" &&
+      requestedProfile !== null &&
+      !this.#socketPath &&
+      !this.#hostSpec &&
+      this.#waitForProfileSocketOnOpen
         ? Math.min(
             request.timeout_ms ?? PERSISTENT_BRIDGE_SOCKET_WAIT_MS,
             readPositiveIntegerEnv(

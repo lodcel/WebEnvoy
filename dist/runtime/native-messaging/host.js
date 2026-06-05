@@ -107,6 +107,7 @@ export class NativeHostBridgeTransport {
     #hostCommand;
     #hostSpec;
     #socketPath;
+    #waitForProfileSocketOnOpen;
     #activeSocketPath = null;
     #lastTransportProof = { surface: "unknown" };
     #child = null;
@@ -117,6 +118,7 @@ export class NativeHostBridgeTransport {
         this.#hostCommand = hostCommand;
         this.#hostSpec = parseNativeHostCommand(hostCommand);
         this.#socketPath = options?.socketPath ?? null;
+        this.#waitForProfileSocketOnOpen = options?.waitForProfileSocketOnOpen === true;
     }
     open(request) {
         return this.#send("open", request);
@@ -230,7 +232,11 @@ export class NativeHostBridgeTransport {
             };
             return immediate;
         }
-        const waitMs = phase === "open" && requestedProfile !== null && !this.#socketPath
+        const waitMs = phase === "open" &&
+            requestedProfile !== null &&
+            !this.#socketPath &&
+            !this.#hostSpec &&
+            this.#waitForProfileSocketOnOpen
             ? Math.min(request.timeout_ms ?? PERSISTENT_BRIDGE_SOCKET_WAIT_MS, readPositiveIntegerEnv("WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS", PERSISTENT_BRIDGE_SOCKET_WAIT_MS))
             : 0;
         const startedAt = Date.now();

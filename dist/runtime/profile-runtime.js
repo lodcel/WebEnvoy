@@ -81,9 +81,10 @@ const hasRuntimeBootstrapTargetHint = (params) => (typeof params.target_domain =
     (typeof params.target_page === "string" && params.target_page.length > 0) ||
     (typeof params.target_tab_id === "number" && Number.isInteger(params.target_tab_id)) ||
     params.requested_execution_mode === "live_write";
-const shouldFailPersistentBootstrapTransportAdmission = (input) => input.identityPreflight.mode === "official_chrome_persistent_extension" &&
+const requiresPersistentBootstrapSocketAdmission = (input) => input.identityPreflight.mode === "official_chrome_persistent_extension" &&
     input.identityPreflight.identityBindingState === "bound" &&
-    hasRuntimeBootstrapTargetHint(input.params) &&
+    hasRuntimeBootstrapTargetHint(input.params);
+const shouldFailPersistentBootstrapTransportAdmission = (input) => requiresPersistentBootstrapSocketAdmission(input) &&
     input.readiness.transportState === "not_connected";
 const hasCompleteStaleBootstrapRecoveryTarget = (params) => hasCompleteRuntimeTargetBinding(params) &&
     typeof params.requested_at === "string" &&
@@ -281,14 +282,16 @@ const buildRuntimeBootstrapEnvelope = (input) => ({
         : {},
     main_world_secret: input.mainWorldSecret
 });
-const resolveDefaultRuntimeBridge = () => {
+const resolveDefaultRuntimeBridge = (options) => {
     if (process.env.WEBENVOY_NATIVE_TRANSPORT === "loopback") {
         return new NativeMessagingBridge({
             transport: createLoopbackNativeBridgeTransport()
         });
     }
     return new NativeMessagingBridge({
-        transport: new NativeHostBridgeTransport()
+        transport: new NativeHostBridgeTransport(undefined, {
+            waitForProfileSocketOnOpen: options?.waitForProfileSocketOnOpen === true
+        })
     });
 };
 const isTransientBackfilledFingerprintBundle = (bundle) => {
@@ -731,7 +734,8 @@ export class ProfileRuntimeService {
                 ? await this.#deliverRuntimeBootstrap({
                     runtimeInput: input,
                     profile: input.profile,
-                    fingerprintRuntime
+                    fingerprintRuntime,
+                    identityPreflight
                 })
                 : await this.#readRuntimeReadiness({
                     runtimeInput: input,
@@ -1160,7 +1164,8 @@ export class ProfileRuntimeService {
             ? await this.#deliverRuntimeBootstrap({
                 runtimeInput: input,
                 profile: input.profile,
-                fingerprintRuntime
+                fingerprintRuntime,
+                identityPreflight
             })
             : await this.#readRuntimeReadiness({
                 runtimeInput: input,
@@ -1888,7 +1893,12 @@ export class ProfileRuntimeService {
         };
     }
     async #deliverRuntimeBootstrap(input) {
-        const bridge = this.#bridgeFactory();
+        const bridge = this.#bridgeFactory({
+            waitForProfileSocketOnOpen: requiresPersistentBootstrapSocketAdmission({
+                params: input.runtimeInput.params,
+                identityPreflight: input.identityPreflight
+            })
+        });
         const envelope = buildRuntimeBootstrapEnvelope({
             profile: input.profile,
             runId: input.runtimeInput.runId,
@@ -1996,7 +2006,8 @@ export class ProfileRuntimeService {
         let readiness = await this.#deliverRuntimeBootstrap({
             runtimeInput: input.runtimeInput,
             profile: input.profile,
-            fingerprintRuntime: input.fingerprintRuntime
+            fingerprintRuntime: input.fingerprintRuntime,
+            identityPreflight: input.identityPreflight
         });
         if (readiness.runtimeReadiness === "ready" ||
             !this.#shouldRetryStartupBootstrap({
@@ -2026,7 +2037,8 @@ export class ProfileRuntimeService {
             readiness = await this.#deliverRuntimeBootstrap({
                 runtimeInput: input.runtimeInput,
                 profile: input.profile,
-                fingerprintRuntime: input.fingerprintRuntime
+                fingerprintRuntime: input.fingerprintRuntime,
+                identityPreflight: input.identityPreflight
             });
             if (readiness.runtimeReadiness === "ready" ||
                 !this.#shouldRetryStartupBootstrap({

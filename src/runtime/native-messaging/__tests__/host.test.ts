@@ -32,6 +32,7 @@ describe("native host bridge transport classification", () => {
 
   it("classifies open without configured native host command as handshake failed", async () => {
     const transport = new NativeHostBridgeTransport(null);
+    const startedAt = Date.now();
     await expect(
       transport.open(
         createBridgeOpenRequest({
@@ -43,6 +44,7 @@ describe("native host bridge transport classification", () => {
     ).rejects.toMatchObject({
       transportCode: "ERR_TRANSPORT_HANDSHAKE_FAILED"
     });
+    expect(Date.now() - startedAt).toBeLessThan(250);
   });
 
   it("classifies forward without configured native host command as disconnected", async () => {
@@ -116,7 +118,9 @@ describe("native host bridge transport classification", () => {
       setTimeout(() => {
         server.listen(socketPath);
       }, 80);
-      const transport = new NativeHostBridgeTransport(null);
+      const transport = new NativeHostBridgeTransport(null, {
+        waitForProfileSocketOnOpen: true
+      });
 
       await expect(
         transport.open(
@@ -156,6 +160,53 @@ describe("native host bridge transport classification", () => {
         process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_POLL_MS = previousPoll;
       }
       server.close();
+      await rm(baseDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not wait for a missing profile socket when spawned host is configured", async () => {
+    const baseDir = await mkdtemp("/tmp/webenvoy-host-spawn-no-socket-wait-");
+    const mockNativeHostPath = path.resolve(
+      path.join(import.meta.dirname, "../../../../tests/fixtures/native-host-mock.mjs")
+    );
+    const hostCommand = `"${process.execPath}" "${mockNativeHostPath}"`;
+    const previousCwd = process.cwd();
+    const previousWait = process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+    const transport = new NativeHostBridgeTransport(hostCommand);
+
+    try {
+      process.chdir(baseDir);
+      process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = "1000";
+      const startedAt = Date.now();
+
+      await expect(
+        transport.open(
+          createBridgeOpenRequest({
+            id: "open-spawn-without-profile-socket-001",
+            profile: "xhs_spawn_without_socket",
+            timeoutMs: 1_500
+          })
+        )
+      ).resolves.toMatchObject({
+        status: "success",
+        summary: {
+          state: "ready"
+        }
+      });
+
+      expect(Date.now() - startedAt).toBeLessThan(900);
+      expect(transport.currentTransportProof()).toMatchObject({
+        surface: "spawned_host",
+        spawned_host_configured: true
+      });
+    } finally {
+      await transport.close();
+      process.chdir(previousCwd);
+      if (previousWait === undefined) {
+        delete process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS;
+      } else {
+        process.env.WEBENVOY_NATIVE_BRIDGE_SOCKET_WAIT_MS = previousWait;
+      }
       await rm(baseDir, { recursive: true, force: true });
     }
   });
