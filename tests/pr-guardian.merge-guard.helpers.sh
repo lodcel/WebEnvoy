@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GUARDIAN_SCRIPT="${REPO_ROOT}/scripts/pr-guardian.sh"
 TEST_REPO_ROOT="${REPO_ROOT}"
+TEST_BASE_PATH="${PATH}"
 
 TEST_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pr-guardian-merge-guard.test.XXXXXX")"
 cleanup_test_tmp() {
@@ -251,7 +252,8 @@ exit 64
 EOF
 
   chmod +x "${mock_bin}/gh"
-  export PATH="${mock_bin}:${PATH}"
+  export PATH="${mock_bin}:${TEST_BASE_PATH}"
+  hash -r
 }
 
 assert_pass() {

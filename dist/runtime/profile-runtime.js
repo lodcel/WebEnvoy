@@ -81,6 +81,25 @@ const hasRuntimeBootstrapTargetHint = (params) => (typeof params.target_domain =
     (typeof params.target_page === "string" && params.target_page.length > 0) ||
     (typeof params.target_tab_id === "number" && Number.isInteger(params.target_tab_id)) ||
     params.requested_execution_mode === "live_write";
+const requiresPersistentBootstrapSocketAdmission = (input) => input.identityPreflight.mode === "official_chrome_persistent_extension" &&
+    input.identityPreflight.identityBindingState === "bound" &&
+    hasRuntimeBootstrapTargetHint(input.params);
+const shouldFailPersistentBootstrapTransportAdmission = (input) => requiresPersistentBootstrapSocketAdmission(input) &&
+    (input.readiness.transportState === "not_connected" ||
+        input.readiness.transportState === "disconnected") &&
+    hasPersistentBootstrapMissingSocketProof(input.readiness);
+const hasPersistentBootstrapMissingSocketProof = (readiness) => {
+    const details = typeof readiness.details === "object" && readiness.details !== null && !Array.isArray(readiness.details)
+        ? readiness.details
+        : {};
+    const transportProof = typeof details.transport_proof === "object" &&
+        details.transport_proof !== null &&
+        !Array.isArray(details.transport_proof)
+        ? details.transport_proof
+        : {};
+    return (Array.isArray(transportProof.attempted_socket_paths) &&
+        transportProof.attempted_socket_paths.length > 0);
+};
 const hasCompleteStaleBootstrapRecoveryTarget = (params) => hasCompleteRuntimeTargetBinding(params) &&
     typeof params.requested_at === "string" &&
     params.requested_at.length > 0;
@@ -277,14 +296,16 @@ const buildRuntimeBootstrapEnvelope = (input) => ({
         : {},
     main_world_secret: input.mainWorldSecret
 });
-const resolveDefaultRuntimeBridge = () => {
+const resolveDefaultRuntimeBridge = (options) => {
     if (process.env.WEBENVOY_NATIVE_TRANSPORT === "loopback") {
         return new NativeMessagingBridge({
             transport: createLoopbackNativeBridgeTransport()
         });
     }
     return new NativeMessagingBridge({
-        transport: new NativeHostBridgeTransport()
+        transport: new NativeHostBridgeTransport(undefined, {
+            waitForProfileSocketOnOpen: options?.waitForProfileSocketOnOpen === true
+        })
     });
 };
 const isTransientBackfilledFingerprintBundle = (bundle) => {
@@ -394,7 +415,7 @@ export class ProfileRuntimeService {
             launch: launchBrowser,
             shutdown: shutdownBrowserSession
         };
-        this.#bridgeFactory = options?.bridgeFactory ?? (() => resolveDefaultRuntimeBridge());
+        this.#bridgeFactory = options?.bridgeFactory ?? ((bridgeOptions) => resolveDefaultRuntimeBridge(bridgeOptions));
     }
     async start(input) {
         const nowIso = isoNow();
@@ -497,6 +518,30 @@ export class ProfileRuntimeService {
                     identityPreflight,
                     profileState: session.profileState
                 });
+            if (shouldFailPersistentBootstrapTransportAdmission({
+                params: input.params,
+                identityPreflight,
+                readiness
+            })) {
+                throw new CliError("ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED", "official Chrome persistent extension native bridge socket was not opened", {
+                    details: {
+                        ability_id: "runtime.start",
+                        stage: "execution",
+                        reason: "PERSISTENT_EXTENSION_NATIVE_BRIDGE_SOCKET_NOT_OPENED",
+                        transport_state: readiness.transportState,
+                        bootstrap_state: readiness.bootstrapState,
+                        runtime_readiness: readiness.runtimeReadiness,
+                        profile: input.profile,
+                        target_domain: typeof input.params.target_domain === "string" ? input.params.target_domain : null,
+                        target_page: typeof input.params.target_page === "string" ? input.params.target_page : null,
+                        requested_execution_mode: typeof input.params.requested_execution_mode === "string"
+                            ? input.params.requested_execution_mode
+                            : null,
+                        transport_diagnostics: readiness.details ?? {}
+                    },
+                    retryable: true
+                });
+            }
             const nextMeta = this.#patchMeta(recoveredMeta, {
                 profileName: input.profile,
                 profileDir,
@@ -539,7 +584,11 @@ export class ProfileRuntimeService {
         }
         finally {
             if (!startSucceeded) {
-                await this.#terminateProcess(launchedControllerPid);
+                await this.#cleanupLaunchedBrowserOnStartFailure({
+                    profileDir,
+                    controllerPid: launchedControllerPid,
+                    runId: input.runId
+                });
                 if (!keepExistingLockOnFailure) {
                     await this.#rollbackLockOnStartFailure(lockPath, input.runId);
                 }
@@ -699,7 +748,8 @@ export class ProfileRuntimeService {
                 ? await this.#deliverRuntimeBootstrap({
                     runtimeInput: input,
                     profile: input.profile,
-                    fingerprintRuntime
+                    fingerprintRuntime,
+                    identityPreflight
                 })
                 : await this.#readRuntimeReadiness({
                     runtimeInput: input,
@@ -1128,7 +1178,8 @@ export class ProfileRuntimeService {
             ? await this.#deliverRuntimeBootstrap({
                 runtimeInput: input,
                 profile: input.profile,
-                fingerprintRuntime
+                fingerprintRuntime,
+                identityPreflight
             })
             : await this.#readRuntimeReadiness({
                 runtimeInput: input,
@@ -1593,6 +1644,28 @@ export class ProfileRuntimeService {
         }
         await this.#deleteLock(lockPath);
     }
+    async #cleanupLaunchedBrowserOnStartFailure(input) {
+        if (!Number.isInteger(input.controllerPid) || input.controllerPid === null) {
+            return;
+        }
+        const browserState = await this.#readBrowserInstanceState(input.profileDir);
+        try {
+            await this.#browserLauncher.shutdown({
+                profileDir: input.profileDir,
+                controllerPid: input.controllerPid,
+                runId: input.runId
+            });
+        }
+        catch {
+            await this.#terminateProcess(input.controllerPid);
+        }
+        if (browserState &&
+            browserState.runId === input.runId &&
+            this.#isProcessAlive(browserState.browserPid)) {
+            await this.#terminateProcess(browserState.browserPid);
+            await this.#deleteBrowserStateFiles(input.profileDir);
+        }
+    }
     async #terminateProcess(pid) {
         if (!Number.isInteger(pid) || pid === null || pid <= 0) {
             return;
@@ -1834,7 +1907,12 @@ export class ProfileRuntimeService {
         };
     }
     async #deliverRuntimeBootstrap(input) {
-        const bridge = this.#bridgeFactory();
+        const bridge = this.#bridgeFactory({
+            waitForProfileSocketOnOpen: requiresPersistentBootstrapSocketAdmission({
+                params: input.runtimeInput.params,
+                identityPreflight: input.identityPreflight
+            })
+        });
         const envelope = buildRuntimeBootstrapEnvelope({
             profile: input.profile,
             runId: input.runtimeInput.runId,
@@ -1902,9 +1980,14 @@ export class ProfileRuntimeService {
                 return mapBootstrapCliErrorToReadiness(error);
             }
             if (error instanceof NativeMessagingTransportError) {
+                const readiness = mapTransportErrorToReadiness(error);
                 return {
                     identityBindingState: "bound",
-                    ...mapTransportErrorToReadiness(error)
+                    ...readiness,
+                    details: {
+                        ...(readiness.details ?? {}),
+                        transport_proof: bridge.currentTransportProof?.() ?? { surface: "unknown" }
+                    }
                 };
             }
             throw error;
@@ -1937,8 +2020,18 @@ export class ProfileRuntimeService {
         let readiness = await this.#deliverRuntimeBootstrap({
             runtimeInput: input.runtimeInput,
             profile: input.profile,
-            fingerprintRuntime: input.fingerprintRuntime
+            fingerprintRuntime: input.fingerprintRuntime,
+            identityPreflight: input.identityPreflight
         });
+        if (requiresPersistentBootstrapSocketAdmission({
+            params: input.runtimeInput.params,
+            identityPreflight: input.identityPreflight
+        }) &&
+            (readiness.transportState === "not_connected" ||
+                readiness.transportState === "disconnected") &&
+            hasPersistentBootstrapMissingSocketProof(readiness)) {
+            return readiness;
+        }
         if (readiness.runtimeReadiness === "ready" ||
             !this.#shouldRetryStartupBootstrap({
                 runtimeInput: input.runtimeInput,
@@ -1967,7 +2060,8 @@ export class ProfileRuntimeService {
             readiness = await this.#deliverRuntimeBootstrap({
                 runtimeInput: input.runtimeInput,
                 profile: input.profile,
-                fingerprintRuntime: input.fingerprintRuntime
+                fingerprintRuntime: input.fingerprintRuntime,
+                identityPreflight: input.identityPreflight
             });
             if (readiness.runtimeReadiness === "ready" ||
                 !this.#shouldRetryStartupBootstrap({
@@ -2080,9 +2174,14 @@ export class ProfileRuntimeService {
         }
         catch (error) {
             if (error instanceof NativeMessagingTransportError) {
+                const readiness = mapTransportErrorToReadiness(error);
                 return {
                     identityBindingState: baseIdentity,
-                    ...mapTransportErrorToReadiness(error)
+                    ...readiness,
+                    details: {
+                        ...(readiness.details ?? {}),
+                        transport_proof: bridge.currentTransportProof?.() ?? { surface: "unknown" }
+                    }
                 };
             }
             if (error instanceof CliError) {
