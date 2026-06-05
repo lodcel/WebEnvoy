@@ -23,6 +23,7 @@ import {
   finalizeXhsControlledPublishResultIdentityCapture,
   isXhsControlledPublishIdentityAdjacentWriteRequestUrl,
   isXhsControlledPublishIdentityDiagnosticRequestUrl,
+  isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl,
   isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
   resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract,
@@ -543,6 +544,67 @@ it("records unclassified creator API requests as publish identity diagnostics on
     status: 200,
     capture_candidate: false,
     rejection_reason: "untrusted_publish_identity_endpoint",
+    body_values_recorded: false,
+    body_recording_policy: "shape_only"
+  });
+});
+
+it("classifies empty publish identity diagnostics by network event coverage", () => {
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract({
+      observedRequestCount: 0,
+      trustedEndpointObserved: false,
+      networkRequestEventCount: 0,
+      fallbackBlockerCode: "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT",
+      fallbackReason: "capture_timeout"
+    })
+  ).toEqual({
+    blocker_code: "PUBLISH_ACTION_NETWORK_NOT_OBSERVED",
+    reason: "post_submit_network_event_not_observed"
+  });
+
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract({
+      observedRequestCount: 0,
+      trustedEndpointObserved: false,
+      networkRequestEventCount: 3,
+      fallbackBlockerCode: "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT",
+      fallbackReason: "capture_timeout"
+    })
+  ).toEqual({
+    blocker_code: "PUBLISH_IDENTITY_CAPTURE_DIAGNOSTIC_EVENTS_NOT_RECORDED",
+    reason: "post_submit_network_events_filtered_without_diagnostics"
+  });
+});
+
+it("records XHS publish identity ignored diagnostics as bounded shape-only requests", () => {
+  const ignoredRequestUrl =
+    "https://edith.xiaohongshu.com/api/sns/web/v1/note/commit?trace_id=trace-ignored";
+
+  expect(isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl(ignoredRequestUrl, "POST")).toBe(
+    true
+  );
+  expect(isXhsControlledPublishIdentityDiagnosticRequestUrl(ignoredRequestUrl, "POST")).toBe(
+    false
+  );
+  expect(isXhsControlledPublishResultIdentityCaptureUrl(ignoredRequestUrl, "POST")).toBe(false);
+
+  expect(
+    summarizeXhsControlledPublishIdentityObservedRequest({
+      url: ignoredRequestUrl,
+      method: "POST",
+      status: null,
+      reason: "request_will_be_sent",
+      captureCandidate: false,
+      rejectionReason: "outside_publish_identity_diagnostic_scope"
+    })
+  ).toMatchObject({
+    host: "edith.xiaohongshu.com",
+    path: "/api/sns/web/v1/note/commit",
+    method: "POST",
+    status: null,
+    capture_candidate: false,
+    rejection_reason: "outside_publish_identity_diagnostic_scope",
     body_values_recorded: false,
     body_recording_policy: "shape_only"
   });

@@ -71,6 +71,8 @@ export type XhsControlledPublishResultIdentityCapture = {
 export type XhsControlledPublishResultIdentityCaptureFailureCode =
   | "PUBLISH_IDENTITY_CAPTURE_NOT_STARTED"
   | "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED"
+  | "PUBLISH_IDENTITY_CAPTURE_DIAGNOSTIC_EVENTS_NOT_RECORDED"
+  | "PUBLISH_ACTION_NETWORK_NOT_OBSERVED"
   | "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED"
   | "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE"
   | "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING"
@@ -83,6 +85,8 @@ export type XhsControlledPublishResultIdentityCaptureStatus = {
   blocker_code: XhsControlledPublishResultIdentityCaptureFailureCode | null;
   recorded_at: string;
   observed_requests?: JsonRecord[];
+  network_event_count?: number;
+  ignored_request_count?: number;
 };
 
 export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract = (input: {
@@ -92,6 +96,7 @@ export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForC
   trustedFailureReason?: string | null;
   adjacentFailureBlockerCode?: XhsControlledPublishResultIdentityCaptureFailureCode | null;
   adjacentFailureReason?: string | null;
+  networkRequestEventCount?: number;
   fallbackBlockerCode: XhsControlledPublishResultIdentityCaptureFailureCode | null;
   fallbackReason: string;
 }): {
@@ -99,6 +104,18 @@ export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForC
   reason: string;
 } => {
   if (input.observedRequestCount <= 0) {
+    if (typeof input.networkRequestEventCount === "number" && input.networkRequestEventCount <= 0) {
+      return {
+        blocker_code: "PUBLISH_ACTION_NETWORK_NOT_OBSERVED",
+        reason: "post_submit_network_event_not_observed"
+      };
+    }
+    if (typeof input.networkRequestEventCount === "number" && input.networkRequestEventCount > 0) {
+      return {
+        blocker_code: "PUBLISH_IDENTITY_CAPTURE_DIAGNOSTIC_EVENTS_NOT_RECORDED",
+        reason: "post_submit_network_events_filtered_without_diagnostics"
+      };
+    }
     return {
       blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED",
       reason: input.fallbackReason
@@ -770,6 +787,24 @@ export const isXhsControlledPublishIdentityDiagnosticRequestUrl = (
     return (
       parsed.hostname === "creator.xiaohongshu.com" &&
       /^\/(?:api|web_api)\//iu.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
+};
+
+export const isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl = (
+  url: string,
+  method: string
+): boolean => {
+  if (!/^(GET|POST|PUT|PATCH)$/iu.test(method)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return (
+      /(?:^|\.)xiaohongshu\.com$/iu.test(parsed.hostname) ||
+      /(?:^|\.)xhscdn\.com$/iu.test(parsed.hostname)
     );
   } catch {
     return false;
@@ -2637,6 +2672,10 @@ const publishIdentityCaptureStatusMessage = (
       return "Background publish identity capture did not start for the submit continuation.";
     case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED":
       return "Background publish identity capture did not observe a trusted publish/result endpoint after submit.";
+    case "PUBLISH_IDENTITY_CAPTURE_DIAGNOSTIC_EVENTS_NOT_RECORDED":
+      return "Background publish identity capture observed post-submit network activity, but diagnostics did not retain any publish identity candidate shape.";
+    case "PUBLISH_ACTION_NETWORK_NOT_OBSERVED":
+      return "Controlled publish action did not produce post-submit network activity during the identity capture window.";
     case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED":
       return "Background publish identity capture observed post-submit XHS write requests, but none matched the trusted publish/result endpoint taxonomy.";
     case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE":

@@ -6199,6 +6199,18 @@ return { buildLayer2InteractionEvidence, buildLayer2RhythmPlan, buildLayer2Sched
 const __webenvoy_module_xhs_controlled_live_write = (() => {
 const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract = (input) => {
     if (input.observedRequestCount <= 0) {
+        if (typeof input.networkRequestEventCount === "number" && input.networkRequestEventCount <= 0) {
+            return {
+                blocker_code: "PUBLISH_ACTION_NETWORK_NOT_OBSERVED",
+                reason: "post_submit_network_event_not_observed"
+            };
+        }
+        if (typeof input.networkRequestEventCount === "number" && input.networkRequestEventCount > 0) {
+            return {
+                blocker_code: "PUBLISH_IDENTITY_CAPTURE_DIAGNOSTIC_EVENTS_NOT_RECORDED",
+                reason: "post_submit_network_events_filtered_without_diagnostics"
+            };
+        }
         return {
             blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED",
             reason: input.fallbackReason
@@ -6663,6 +6675,19 @@ const isXhsControlledPublishIdentityDiagnosticRequestUrl = (url, method) => {
         const parsed = new URL(url);
         return (parsed.hostname === "creator.xiaohongshu.com" &&
             /^\/(?:api|web_api)\//iu.test(parsed.pathname));
+    }
+    catch {
+        return false;
+    }
+};
+const isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl = (url, method) => {
+    if (!/^(GET|POST|PUT|PATCH)$/iu.test(method)) {
+        return false;
+    }
+    try {
+        const parsed = new URL(url);
+        return (/(?:^|\.)xiaohongshu\.com$/iu.test(parsed.hostname) ||
+            /(?:^|\.)xhscdn\.com$/iu.test(parsed.hostname));
     }
     catch {
         return false;
@@ -8249,6 +8274,10 @@ const publishIdentityCaptureStatusMessage = (blockerCode) => {
             return "Background publish identity capture did not start for the submit continuation.";
         case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED":
             return "Background publish identity capture did not observe a trusted publish/result endpoint after submit.";
+        case "PUBLISH_IDENTITY_CAPTURE_DIAGNOSTIC_EVENTS_NOT_RECORDED":
+            return "Background publish identity capture observed post-submit network activity, but diagnostics did not retain any publish identity candidate shape.";
+        case "PUBLISH_ACTION_NETWORK_NOT_OBSERVED":
+            return "Controlled publish action did not produce post-submit network activity during the identity capture window.";
         case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED":
             return "Background publish identity capture observed post-submit XHS write requests, but none matched the trusted publish/result endpoint taxonomy.";
         case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE":
