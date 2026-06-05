@@ -11,6 +11,7 @@ import { resolveXhsControlledUploadPlatformCaptureTimeoutMs } from "../extension
 import {
   applyXhsControlledLiveWriteContinuationTimeout,
   applyXhsControlledPublishResultIdentityCapture,
+  applyXhsControlledPublishResultIdentityCaptureStatus,
   applyXhsControlledUploadPlatformCapture,
   applyXhsControlledUploadPlatformCaptureStatus,
   buildXhsControlledLiveWriteUploadBlockedResult,
@@ -629,6 +630,137 @@ it("records publish identity capture without advancing closeout state when debug
     }),
     residual_record: expect.objectContaining({
       reason: "identity_missing_after_publish"
+    })
+  });
+  expect(result.published).toBe(false);
+});
+
+it("classifies missing background publish identity capture with precise diagnostics", () => {
+  const baseResult = {
+    live_write_action: "controlled_upload_submit_publish",
+    target_page: "creator_publish_tab",
+    uploaded: true,
+    submitted: true,
+    published: false,
+    cleanup_attempted: true,
+    out_of_scope_actions: ["provider_abstraction", "syvert_adapter", "cloakbrowser_provider"],
+    live_write_evidence: {
+      schema_version: "fr-0032.live_write_evidence.v1",
+      live_write_attempt_id: "live-write-attempt/fr-0032/run-xhs-issue-1073-capture-status",
+      canonical_issue_ref: "#835",
+      execution_phase: "publish_identity",
+      scope: {
+        platform: "xhs",
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        browser_channel: "Google Chrome stable",
+        execution_surface: "real_browser",
+        requested_execution_mode: "live_write",
+        profile_ref: "profile-a",
+        target_tab_id: 32,
+        probe_bundle_ref: "probe-bundle/xhs-creator-live-write-admission-v1",
+        run_id: "run-xhs-issue-1073-capture-status",
+        artifact_identity: "upload-artifact/fr-0032/capture-status"
+      },
+      upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/capture-status",
+        accepted_by_platform: true
+      },
+      submit_evidence: {
+        submit_action_ref: "submit/fr-0032/live-write-attempt/fr-0032/run-xhs-issue-1073-capture-status",
+        submit_locator: "div.publish-video",
+        submitted_at: "2026-06-03T00:00:01.000Z",
+        submit_result_state: "accepted",
+        platform_message: null
+      },
+      publish_result_identity: null,
+      cleanup_result: {
+        cleanup_action: "no_safe_cleanup_action",
+        cleanup_outcome: "cleanup_blocked"
+      },
+      risk_signals: [
+        {
+          kind: "publish_identity_missing"
+        }
+      ],
+      stop_signal: {
+        stopped_step: "publish_identity",
+        blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      },
+      residual_record: {
+        reason: "identity_missing_after_publish"
+      },
+      created_at: "2026-06-03T00:00:02.000Z",
+      updated_at: "2026-06-03T00:00:02.000Z"
+    },
+    live_write_evaluation: {
+      schema_version: "fr-0032.live_write_evaluation.v1",
+      decision: "NO_GO",
+      full_live_write_success: false,
+      upload_success: true,
+      submit_success: true,
+      publish_success: false,
+      cleanup_success: false,
+      later_write_actions_blocked: true,
+      cleanup_required: true,
+      blockers: [
+        {
+          blocker_code: "PUBLISH_RESULT_IDENTITY_MISSING",
+          blocker_layer: "published_identity",
+          message: "background identity capture pending"
+        }
+      ]
+    }
+  } as const;
+
+  const result = applyXhsControlledPublishResultIdentityCaptureStatus(baseResult, {
+    attempted: true,
+    status: "timeout",
+    reason: "response_identity_missing",
+    blocker_code: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING",
+    recorded_at: "2026-06-03T00:00:04.000Z",
+    observed_requests: [
+      {
+        host: "creator.xiaohongshu.com",
+        path: "/api/creator/publish/result",
+        method: "POST",
+        status: 200,
+        reason: "response_identity_missing"
+      }
+    ]
+  });
+
+  expect(result.live_write_evaluation).toMatchObject({
+    decision: "NO_GO",
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING",
+        blocker_layer: "published_identity"
+      })
+    ]
+  });
+  expect(result.live_write_evidence).toMatchObject({
+    publish_result_identity: null,
+    publish_result_identity_capture_status: expect.objectContaining({
+      blocker_code: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING",
+      observed_requests: [
+        expect.objectContaining({
+          path: "/api/creator/publish/result",
+          reason: "response_identity_missing"
+        })
+      ]
+    }),
+    stop_classification: expect.objectContaining({
+      publish_identity_capture_blocker_code: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING"
+    }),
+    stop_signal: expect.objectContaining({
+      blocker_code: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING",
+      diagnostics: expect.objectContaining({
+        publish_result_identity_capture_status: expect.objectContaining({
+          reason: "response_identity_missing"
+        })
+      })
     })
   });
   expect(result.published).toBe(false);
