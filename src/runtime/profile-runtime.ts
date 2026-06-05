@@ -188,7 +188,8 @@ const shouldFailPersistentBootstrapTransportAdmission = (input: {
   readiness: RuntimeReadinessSnapshot;
 }): boolean =>
   requiresPersistentBootstrapSocketAdmission(input) &&
-  input.readiness.transportState === "not_connected";
+  input.readiness.transportState === "not_connected" &&
+  hasPersistentBootstrapMissingSocketProof(input.readiness);
 
 const hasPersistentBootstrapMissingSocketProof = (readiness: RuntimeReadinessSnapshot): boolean => {
   const details =

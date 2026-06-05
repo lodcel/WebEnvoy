@@ -85,7 +85,8 @@ const requiresPersistentBootstrapSocketAdmission = (input) => input.identityPref
     input.identityPreflight.identityBindingState === "bound" &&
     hasRuntimeBootstrapTargetHint(input.params);
 const shouldFailPersistentBootstrapTransportAdmission = (input) => requiresPersistentBootstrapSocketAdmission(input) &&
-    input.readiness.transportState === "not_connected";
+    input.readiness.transportState === "not_connected" &&
+    hasPersistentBootstrapMissingSocketProof(input.readiness);
 const hasPersistentBootstrapMissingSocketProof = (readiness) => {
     const details = typeof readiness.details === "object" && readiness.details !== null && !Array.isArray(readiness.details)
         ? readiness.details

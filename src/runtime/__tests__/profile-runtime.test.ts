@@ -1907,6 +1907,74 @@ describe("profile-runtime identity preflight", () => {
     });
   }, 15_000);
 
+  it("does not attribute generic not-connected bootstrap transport to a missing persistent socket", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-generic-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "identity_bound_live_bridge_generic_profile"
+    });
+    const bridgeFactoryOptions: Array<{ waitForProfileSocketOnOpen?: boolean } | undefined> = [];
+    const service = createTestService({
+      bridgeFactory: (options) => {
+        bridgeFactoryOptions.push(options);
+        return {
+          runCommand: async ({ command }) => {
+            if (command === "runtime.bootstrap") {
+              throw new NativeMessagingTransportError(
+                "ERR_TRANSPORT_HANDSHAKE_FAILED",
+                "native bridge returned a generic handshake failure"
+              );
+            }
+            if (command === "runtime.readiness") {
+              return {
+                ok: true as const,
+                payload: {
+                  bootstrap_state: "stale",
+                  transport_state: "ready"
+                },
+                relay_path: "host>background"
+              };
+            }
+            throw new Error(`unexpected bridge command: ${command}`);
+          },
+          currentTransportProof: () => ({
+            surface: "spawned_host" as const,
+            spawned_host_configured: true
+          })
+        };
+      }
+    });
+
+    const started = await service.start({
+      cwd: baseDir,
+      profile: "identity_bound_live_bridge_generic_profile",
+      runId: "run-runtime-live-bridge-generic-001",
+      params: {
+        headless: false,
+        target_domain: "creator.xiaohongshu.com",
+        target_page: "creator_publish_tab",
+        requested_execution_mode: "live_write",
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    expect(started).toMatchObject({
+      identityBindingState: "bound",
+      transportState: "ready",
+      bootstrapState: "stale",
+      runtimeReadiness: "blocked"
+    });
+    expect(bridgeFactoryOptions).toEqual([{ waitForProfileSocketOnOpen: true }, undefined]);
+  }, 15_000);
+
   it("stops startup readiness retries after required persistent socket admission fails", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-retry-socket-"));
     tempDirs.push(baseDir);
@@ -2046,7 +2114,22 @@ describe("profile-runtime identity preflight", () => {
             "ERR_TRANSPORT_HANDSHAKE_FAILED",
             "native host command is not configured or invalid"
           );
-        }
+        },
+        currentTransportProof: () => ({
+          surface: "spawned_host" as const,
+          spawned_host_configured: false,
+          attempted_socket_paths: [
+            join(
+              baseDir,
+              ".webenvoy",
+              "profiles",
+              "identity_bound_live_bridge_cleanup_profile",
+              "nm.sock"
+            ),
+            join(baseDir, ".webenvoy", "profiles", "nm.sock")
+          ],
+          socket_wait_ms: 5000
+        })
       })
     });
 
