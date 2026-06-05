@@ -866,6 +866,116 @@ describe("webenvoy cli contract / runtime install and identity", () => {
     expect(launcherRaw).toContain(' "$@"');
   });
 
+  it("rebinds a managed profile unpacked extension source when explicitly requested", async () => {
+    const runtimeCwd = await createRuntimeCwd();
+    const manifestDir = path.join(runtimeCwd, ".webenvoy", "native-host-install", "chrome", "manifests");
+    const profileDir = path.join(runtimeCwd, ".webenvoy", "profiles", "xhs_001");
+    const currentExtensionDir = path.join(runtimeCwd, "extension");
+    const oldExtensionDir = path.join(runtimeCwd, "old-worktree", "extension");
+    const preferencesPath = path.join(profileDir, "Default", "Preferences");
+    const securePreferencesPath = path.join(profileDir, "Default", "Secure Preferences");
+    const serviceWorkerCachePath = path.join(profileDir, "Default", "Service Worker", "ScriptCache", "worker.js");
+    await mkdir(currentExtensionDir, { recursive: true });
+    await mkdir(oldExtensionDir, { recursive: true });
+    await mkdir(path.dirname(preferencesPath), { recursive: true });
+    await mkdir(path.dirname(serviceWorkerCachePath), { recursive: true });
+    await writeFile(path.join(currentExtensionDir, "manifest.json"), "{\"manifest_version\":3}\n", "utf8");
+    await writeFile(path.join(oldExtensionDir, "manifest.json"), "{\"manifest_version\":3}\n", "utf8");
+    await writeFile(serviceWorkerCachePath, "self.addEventListener('install', () => undefined);\n", "utf8");
+    await writeFile(
+      preferencesPath,
+      `${JSON.stringify(
+        {
+          extensions: {
+            settings: {
+              aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {
+                state: 1,
+                location: 4,
+                path: oldExtensionDir
+              }
+            }
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(
+      securePreferencesPath,
+      `${JSON.stringify(
+        {
+          protection: {
+            macs: {
+              extensions: {
+                settings: {
+                  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: "old-mac"
+                },
+                settings_encrypted_hash: {
+                  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: "old-encrypted-mac"
+                }
+              }
+            },
+            super_mac: "old-super-mac"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = runCli(
+      [
+        "runtime.install",
+        "--run-id",
+        "run-contract-install-rebind-extension-source-001",
+        "--params",
+        JSON.stringify({
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          browser_channel: "chrome",
+          native_host_name: "com.webenvoy.host",
+          manifest_dir: manifestDir,
+          profile_dir: profileDir,
+          rebind_extension_source: true
+        })
+      ],
+      runtimeCwd
+    );
+
+    expect(result.status).toBe(0);
+    const body = parseSingleJsonLine(result.stdout);
+    expect(body).toMatchObject({
+      command: "runtime.install",
+      status: "success",
+      summary: {
+        extension_source_rebind: {
+          operation: "rebound",
+          profileDir,
+          preferencePath: preferencesPath,
+          previousExtensionPath: oldExtensionDir,
+          expectedExtensionPath: currentExtensionDir,
+          updatedExtensionPath: currentExtensionDir,
+          protectedMacsRemoved: [
+            "protection.macs.extensions.settings.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "protection.macs.extensions.settings_encrypted_hash.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "protection.super_mac"
+          ],
+          serviceWorkerCacheRemoved: true
+        }
+      }
+    });
+    const updatedPreferences = JSON.parse(await readFile(preferencesPath, "utf8"));
+    const updatedSecurePreferences = JSON.parse(await readFile(securePreferencesPath, "utf8"));
+    expect(updatedPreferences.extensions.settings.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.path).toBe(currentExtensionDir);
+    expect(updatedSecurePreferences.protection.macs.extensions.settings).toEqual({});
+    expect(updatedSecurePreferences.protection.macs.extensions.settings_encrypted_hash).toEqual({});
+    expect(updatedSecurePreferences.protection.super_mac).toBeUndefined();
+    await expect(readFile(serviceWorkerCachePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
   it("exports both profile-root and legacy profile-dir envs for fresh explicit host launchers", async () => {
     const runtimeCwd = await createRuntimeCwd();
     const manifestDir = path.join(runtimeCwd, ".webenvoy", "native-host-install", "chrome", "manifests");

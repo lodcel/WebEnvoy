@@ -56,6 +56,7 @@ const runtimeInstall = async (context: RuntimeContext) => {
   const launcherPath = asString(context.params.launcher_path) ?? undefined;
   const hostCommand = asString(context.params.host_command) ?? undefined;
   const profileDir = asString(context.params.profile_dir) ?? undefined;
+  const rebindExtensionSource = context.params.rebind_extension_source === true;
 
   return installNativeHost({
     cwd: context.cwd,
@@ -65,7 +66,8 @@ const runtimeInstall = async (context: RuntimeContext) => {
     hostCommand,
     manifestDir,
     launcherPath,
-    profileDir
+    profileDir,
+    rebindExtensionSource
   });
 };
 
