@@ -8246,6 +8246,7 @@ class ChromeBackgroundBridge {
             adjacentFailureBlockerCode: lastAdjacentFailureBlockerCode,
             adjacentFailureReason: lastAdjacentFailureReason,
             networkRequestEventCount,
+            ignoredRequestCount,
             fallbackBlockerCode,
             fallbackReason: reason
           });
@@ -8303,10 +8304,10 @@ class ChromeBackgroundBridge {
               ignoredRequestCount += 1;
               return;
             }
-            lastAdjacentFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED";
-            lastAdjacentFailureReason = recordIgnoredDiagnostic
-              ? "xhs_request_outside_publish_identity_diagnostic_scope"
-              : "publish_adjacent_request_not_trusted_identity_endpoint";
+            if (recordAdjacent) {
+              lastAdjacentFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED";
+              lastAdjacentFailureReason = "publish_adjacent_request_not_trusted_identity_endpoint";
+            }
             if (recordIgnoredDiagnostic) {
               ignoredRequestCount += 1;
             }

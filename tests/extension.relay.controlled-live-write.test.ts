@@ -577,6 +577,22 @@ it("classifies empty publish identity diagnostics by network event coverage", ()
   });
 });
 
+it("does not classify telemetry-only publish identity diagnostics as endpoint untrusted", () => {
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract({
+      observedRequestCount: 24,
+      trustedEndpointObserved: false,
+      networkRequestEventCount: 16,
+      ignoredRequestCount: 16,
+      fallbackBlockerCode: "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT",
+      fallbackReason: "capture_timeout"
+    })
+  ).toEqual({
+    blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED",
+    reason: "only_outside_publish_identity_diagnostic_scope"
+  });
+});
+
 it("records XHS publish identity ignored diagnostics as bounded shape-only requests", () => {
   const ignoredRequestUrl =
     "https://edith.xiaohongshu.com/api/sns/web/v1/note/commit?trace_id=trace-ignored";
@@ -608,6 +624,42 @@ it("records XHS publish identity ignored diagnostics as bounded shape-only reque
     body_values_recorded: false,
     body_recording_policy: "shape_only"
   });
+
+  const telemetryOnlyRequests = [
+    ["https://t2.xiaohongshu.com/api/v2/collect", "POST", "t2.xiaohongshu.com", "/api/v2/collect"],
+    ["https://apm-fe.xiaohongshu.com/api/data", "POST", "apm-fe.xiaohongshu.com", "/api/data"],
+    [
+      "https://picasso-static.xiaohongshu.com/fe-platform/879b789b01030ed45ce198de8229cab980bc176f.png",
+      "GET",
+      "picasso-static.xiaohongshu.com",
+      "/fe-platform/879b789b01030ed45ce198de8229cab980bc176f.png"
+    ]
+  ] as const;
+  for (const [url, method, host, path] of telemetryOnlyRequests) {
+    expect(isXhsControlledPublishIdentityIgnoredDiagnosticRequestUrl(url, method)).toBe(true);
+    expect(isXhsControlledPublishIdentityDiagnosticRequestUrl(url, method)).toBe(false);
+    expect(isXhsControlledPublishIdentityAdjacentWriteRequestUrl(url, method)).toBe(false);
+    expect(isXhsControlledPublishResultIdentityCaptureUrl(url, method)).toBe(false);
+    expect(
+      summarizeXhsControlledPublishIdentityObservedRequest({
+        url,
+        method,
+        status: null,
+        reason: "request_will_be_sent",
+        captureCandidate: false,
+        rejectionReason: "outside_publish_identity_diagnostic_scope"
+      })
+    ).toMatchObject({
+      host,
+      path,
+      method,
+      status: null,
+      capture_candidate: false,
+      rejection_reason: "outside_publish_identity_diagnostic_scope",
+      body_values_recorded: false,
+      body_recording_policy: "shape_only"
+    });
+  }
 });
 
 it("preserves trusted publish identity endpoint failures over later adjacent write observations", () => {
