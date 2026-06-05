@@ -4498,6 +4498,30 @@ describe("extension build contract", () => {
     expect(publishIdentityCaptureController).toContain("#dispatchEditorInputDebuggerClick");
   });
 
+  it("reuses active publish identity debugger capture for final publish clicks", () => {
+    const backgroundSource = fs.readFileSync(backgroundSourcePath, "utf8");
+    const publishClickDispatcher = backgroundSource.match(
+      /async #dispatchXhsControlledPublishDebuggerClick\([\s\S]*?async #dispatchXhsResultCardDomClick/
+    )?.[0];
+    const controlledLiveWriteSource = fs.readFileSync(
+      path.join(repoRoot, "extension", "xhs-controlled-live-write.ts"),
+      "utf8"
+    );
+
+    expect(publishClickDispatcher).toContain(
+      "this.#controlledPublishResultIdentityCapturesByTab.get(tabId)"
+    );
+    expect(publishClickDispatcher).toContain("existingCapture.dispatchMouseClick");
+    expect(publishClickDispatcher?.indexOf("existingCapture.dispatchMouseClick")).toBeLessThan(
+      publishClickDispatcher?.indexOf("debuggerApi.attach") ?? -1
+    );
+    expect(publishClickDispatcher).toContain("controlled_live_write_publish_click");
+    expect(controlledLiveWriteSource).toContain(
+      'kind: "xhs-controlled-live-write-publish-debugger-click"'
+    );
+    expect(controlledLiveWriteSource).toContain('input.profile_ref === "xhs_001"');
+  });
+
   it("records publish-adjacent XHS write requests before reporting endpoint taxonomy misses", () => {
     const backgroundSource = fs.readFileSync(backgroundSourcePath, "utf8");
     const publishIdentityCapture = backgroundSource.match(
