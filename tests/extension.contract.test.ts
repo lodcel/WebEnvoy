@@ -4503,6 +4503,9 @@ describe("extension build contract", () => {
     const publishClickDispatcher = backgroundSource.match(
       /async #dispatchXhsControlledPublishDebuggerClick\([\s\S]*?async #dispatchXhsResultCardDomClick/
     )?.[0];
+    const publishClickHandler = backgroundSource.match(
+      /async #handleXhsControlledPublishDebuggerClick\([\s\S]*?async #handleXhsMainWorldRequest/
+    )?.[0];
     const controlledLiveWriteSource = fs.readFileSync(
       path.join(repoRoot, "extension", "xhs-controlled-live-write.ts"),
       "utf8"
@@ -4518,6 +4521,19 @@ describe("extension build contract", () => {
     expect(publishClickDispatcher).toContain("controlled_live_write_publish_click");
     expect(controlledLiveWriteSource).toContain(
       'kind: "xhs-controlled-live-write-publish-debugger-click"'
+    );
+    expect(controlledLiveWriteSource).toContain(
+      "xhsControlledPublishDebuggerClickTimeoutMs = 12_000"
+    );
+    expect(controlledLiveWriteSource).toContain(
+      "timeoutMs: xhsControlledPublishDebuggerClickTimeoutMs"
+    );
+    expect(backgroundSource).toContain("xhsControlledPublishDebuggerClickTimeoutMs");
+    expect(publishClickHandler).toMatch(
+      /readTimeoutMs\(message\.timeout_ms\)\s*\?\?\s*xhsControlledPublishDebuggerClickTimeoutMs/
+    );
+    expect(publishClickHandler).not.toContain(
+      "readTimeoutMs(message.timeout_ms) ?? 3_000, 3_000"
     );
     expect(controlledLiveWriteSource).toContain('input.profile_ref === "xhs_001"');
   });

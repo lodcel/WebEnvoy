@@ -34,6 +34,8 @@ export type XhsControlledLiveWriteResult = {
   out_of_scope_actions: string[];
 };
 
+export const xhsControlledPublishDebuggerClickTimeoutMs = 12_000;
+
 export type XhsControlledUploadPlatformCapture = {
   source: "chrome_debugger_network";
   platform_staging_ref: string;
@@ -5420,7 +5422,7 @@ const performControlledSubmitPublishCleanup = async (
       target: submitControl,
       runId: input.run_id,
       actionRef: `fr-0032/${input.live_write_attempt_id}/publish-submit`,
-      timeoutMs: 3_000
+      timeoutMs: xhsControlledPublishDebuggerClickTimeoutMs
     });
     publishDebuggerClick = {
       ok: debuggerClick.ok,
