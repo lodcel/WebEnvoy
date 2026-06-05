@@ -6996,6 +6996,200 @@ it("promotes same-tab rendered publish identity during xhs_001 background contin
   }
 });
 
+it("waits for delayed same-tab publish identity during xhs_001 background continuation", async () => {
+  vi.useFakeTimers();
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalGetComputedStyle = globalThis.getComputedStyle;
+  const originalMouseEvent = globalThis.MouseEvent;
+  const originalLocation = globalThis.location;
+  const originalWindow = globalThis.window;
+  const originalChromeDescriptor = Object.getOwnPropertyDescriptor(globalThis, "chrome");
+
+  class TestMouseEvent extends Event {
+    constructor(type: string) {
+      super(type, { bubbles: true, cancelable: true });
+    }
+  }
+  class TestElement {
+    id = "";
+    tagName: string;
+    classList: string[] = [];
+    parentElement = null;
+    disabled = false;
+    textContent: string;
+    attributes: Record<string, string>;
+    clicked = false;
+    children: TestElement[];
+    constructor(text: string, attributes: Record<string, string> = {}, children: TestElement[] = []) {
+      this.textContent = text;
+      this.attributes = attributes;
+      this.children = children;
+      this.tagName = attributes.href ? "A" : "DIV";
+    }
+    getAttribute(name: string) {
+      return this.attributes[name] ?? null;
+    }
+    hasAttribute(name: string) {
+      return this.attributes[name] !== undefined;
+    }
+    dispatchEvent() {
+      return true;
+    }
+    click() {
+      this.clicked = true;
+    }
+    querySelectorAll() {
+      return this.children;
+    }
+    getBoundingClientRect = () => ({ width: 120, height: 32 });
+  }
+  const visibility = new TestElement("仅自己可见");
+  const submit = new TestElement("发布");
+  submit.tagName = "BUTTON";
+  const noteLink = new TestElement("查看笔记", {
+    href: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03982"
+  });
+  const success = new TestElement("发布成功", {}, [noteLink]);
+  let published = false;
+  const documentFixture = {
+    documentElement: new TestElement("发布"),
+    querySelectorAll: () => published ? [visibility, submit, success, noteLink] : [visibility, submit]
+  };
+
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: TestElement
+  });
+  Object.defineProperty(globalThis, "MouseEvent", {
+    configurable: true,
+    value: TestMouseEvent
+  });
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ display: "block", visibility: "visible", opacity: "1" })
+  });
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "https://creator.xiaohongshu.com/publish/publish" }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: globalThis.location }
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: documentFixture
+  });
+  Object.defineProperty(globalThis, "chrome", {
+    configurable: true,
+    value: {
+      runtime: {
+        sendMessage: (_message: unknown, callback?: (response: unknown) => void) => {
+          submit.click();
+          documentFixture.documentElement.textContent = "发布中";
+          setTimeout(() => {
+            published = true;
+            documentFixture.documentElement.textContent = "发布成功";
+          }, 4_000);
+          callback?.({ ok: true, result: { clicked: true } });
+        }
+      }
+    }
+  });
+
+  try {
+    const resultPromise = performXhsControlledLiveWriteWithApprovedSourceMedia({
+      live_write_attempt_id: "fr0032-attempt-background-continuation-delayed-page-identity",
+      source_media_ref: "media-ref/fr-0032/fixture-image-a",
+      source_media_digest:
+        "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+      source_media_kind: "image",
+      publish_visibility_scope: "private_or_self_visible",
+      cleanup_policy_ref: "fr0032-cleanup-policy/delete-or-residual",
+      run_id: "run-xhs-issue-1098-delayed-page-identity",
+      profile_ref: "xhs_001",
+      target_tab_id: 1230483368,
+      page_url: "https://creator.xiaohongshu.com/publish/publish",
+      latest_head_sha: "head-test",
+      background_upload_capture_continuation: true,
+      accepted_upload_artifact_identity: {
+        upload_artifact_id: "upload-artifact/fr-0032/background-delayed-page-identity",
+        source_media_ref: "media-ref/fr-0032/fixture-image-a",
+        source_media_digest:
+          "sha256:3ed47d9dd37eefd01bbd3521cfeef60c227c5f69676a470cf314e8e683407d18",
+        source_media_kind: "image",
+        platform_staging_ref:
+          "object_upload:ros-upload.xiaohongshu.com/spectrum/background-delayed-page-identity",
+        page_preview_locator: "div.publish-page-content-media",
+        accepted_by_platform: true,
+        visible_in_editor: true,
+        captured_at: "2026-06-05T18:40:00.000Z",
+        preview_diagnostics: null
+      }
+    });
+
+    await vi.advanceTimersByTimeAsync(4_500);
+    const result = await resultPromise;
+
+    expect(visibility.clicked).toBe(true);
+    expect(result).toMatchObject({
+      uploaded: true,
+      submitted: true,
+      published: true,
+      cleanup_attempted: true,
+      live_write_evaluation: {
+        decision: "GO",
+        publish_success: true,
+        cleanup_success: true,
+        blockers: []
+      }
+    });
+    expect(result.live_write_evidence.publish_result_identity).toMatchObject({
+      result_kind: "note_id",
+      note_id: "64b7d8ef000000001f03982",
+      published_url: "https://www.xiaohongshu.com/explore/64b7d8ef000000001f03982",
+      publish_visibility_scope: "private_or_self_visible",
+      success_signal: expect.objectContaining({
+        signal_source: "current_page_state",
+        platform_message: "publish success text observed"
+      }),
+      verification_state: "verified"
+    });
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument
+    });
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: originalHTMLElement
+    });
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: originalGetComputedStyle
+    });
+    Object.defineProperty(globalThis, "MouseEvent", {
+      configurable: true,
+      value: originalMouseEvent
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: originalLocation
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+    if (originalChromeDescriptor) {
+      Object.defineProperty(globalThis, "chrome", originalChromeDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "chrome");
+    }
+    vi.useRealTimers();
+  }
+});
+
 it("returns accepted-upload resume publish identity stop before extension navigation timeout", async () => {
   const originalDocument = globalThis.document;
   const originalHTMLElement = globalThis.HTMLElement;

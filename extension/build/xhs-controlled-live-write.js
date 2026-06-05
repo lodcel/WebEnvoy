@@ -4105,6 +4105,7 @@ const findPagePublishIdentityCandidate = (previousCandidateKeys) => {
     return collectPagePublishIdentityCandidates().find((candidate) => !previousCandidateKeys.has(candidate.key)) ?? null;
 };
 const publishActionPendingPattern = /发布中|正在发布|提交中|审核中|publishing|submitting|loading/iu;
+const xhsBackgroundContinuationPageIdentityWaitMs = 30_000;
 const readPublishActionActivation = (submitControl, initialHref, initialDocumentText, previousPageIdentityKeys) => {
     const href = currentHref();
     if (href && href !== initialHref) {
@@ -4305,6 +4306,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
         : "";
     const requiresPublishDebuggerClick = input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001";
     let publishDebuggerClick = null;
+    let publishActionActivation = null;
     if (requiresPublishDebuggerClick) {
         const debuggerClick = await requestPublishDebuggerClickViaExtension({
             target: submitControl,
@@ -4354,6 +4356,7 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
     const isExtensionBrowserSurface = typeof window !== "undefined" && "chrome" in globalThis;
     if (input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001") {
         const activation = await waitForPublishActionActivation(submitControl, initialHref, initialDocumentText, previousPageIdentityKeys, 3_000);
+        publishActionActivation = activation;
         if (!activation.activated) {
             const unknownSubmitEvidence = {
                 ...submitEvidence,
@@ -4380,7 +4383,9 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
     }
     let publishIdentity = null;
     if (input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001") {
-        const deadline = Date.now() + 3_000;
+        const pageLevelActivation = publishActionActivation?.signal !== "submit_control_busy" &&
+            publishActionActivation?.signal !== "submit_control_disabled";
+        const deadline = Date.now() + (pageLevelActivation ? xhsBackgroundContinuationPageIdentityWaitMs : 3_000);
         do {
             publishIdentity = buildPublishIdentity(input, artifact, submitEvidence, initialHref, locatorForElement(selectedVisibilityOption), previousPageIdentityKeys);
             if (publishIdentity || Date.now() >= deadline) {
