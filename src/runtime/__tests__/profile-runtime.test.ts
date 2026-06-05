@@ -1907,7 +1907,7 @@ describe("profile-runtime identity preflight", () => {
     });
   }, 15_000);
 
-  it("keeps startup readiness retries on required persistent socket admission", async () => {
+  it("stops startup readiness retries after required persistent socket admission fails", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-retry-socket-"));
     tempDirs.push(baseDir);
     process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
@@ -1944,7 +1944,18 @@ describe("profile-runtime identity preflight", () => {
           },
           currentTransportProof: () => ({
             surface: "spawned_host" as const,
-            spawned_host_configured: true
+            spawned_host_configured: true,
+            attempted_socket_paths: [
+              join(
+                baseDir,
+                ".webenvoy",
+                "profiles",
+                "identity_bound_live_bridge_retry_socket_profile",
+                "nm.sock"
+              ),
+              join(baseDir, ".webenvoy", "profiles", "nm.sock")
+            ],
+            socket_wait_ms: 5000
           })
         };
       }
@@ -1973,10 +1984,7 @@ describe("profile-runtime identity preflight", () => {
         transport_state: "not_connected"
       }
     });
-    expect(bridgeFactoryOptions.length).toBeGreaterThan(1);
-    expect(
-      bridgeFactoryOptions.every((options) => options?.waitForProfileSocketOnOpen === true)
-    ).toBe(true);
+    expect(bridgeFactoryOptions).toEqual([{ waitForProfileSocketOnOpen: true }]);
   }, 15_000);
 
   it("cleans launched external persistent browser state when live bridge admission fails", async () => {

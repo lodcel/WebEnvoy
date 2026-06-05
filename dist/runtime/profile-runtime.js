@@ -86,6 +86,20 @@ const requiresPersistentBootstrapSocketAdmission = (input) => input.identityPref
     hasRuntimeBootstrapTargetHint(input.params);
 const shouldFailPersistentBootstrapTransportAdmission = (input) => requiresPersistentBootstrapSocketAdmission(input) &&
     input.readiness.transportState === "not_connected";
+const hasPersistentBootstrapMissingSocketProof = (readiness) => {
+    const details = typeof readiness.details === "object" && readiness.details !== null && !Array.isArray(readiness.details)
+        ? readiness.details
+        : {};
+    const transportProof = typeof details.transport_proof === "object" &&
+        details.transport_proof !== null &&
+        !Array.isArray(details.transport_proof)
+        ? details.transport_proof
+        : {};
+    return (Array.isArray(transportProof.attempted_socket_paths) &&
+        transportProof.attempted_socket_paths.length > 0 &&
+        typeof transportProof.socket_wait_ms === "number" &&
+        transportProof.socket_wait_ms > 0);
+};
 const hasCompleteStaleBootstrapRecoveryTarget = (params) => hasCompleteRuntimeTargetBinding(params) &&
     typeof params.requested_at === "string" &&
     params.requested_at.length > 0;
@@ -2009,6 +2023,14 @@ export class ProfileRuntimeService {
             fingerprintRuntime: input.fingerprintRuntime,
             identityPreflight: input.identityPreflight
         });
+        if (requiresPersistentBootstrapSocketAdmission({
+            params: input.runtimeInput.params,
+            identityPreflight: input.identityPreflight
+        }) &&
+            readiness.transportState === "not_connected" &&
+            hasPersistentBootstrapMissingSocketProof(readiness)) {
+            return readiness;
+        }
         if (readiness.runtimeReadiness === "ready" ||
             !this.#shouldRetryStartupBootstrap({
                 runtimeInput: input.runtimeInput,
@@ -2022,8 +2044,7 @@ export class ProfileRuntimeService {
                 runtimeInput: input.runtimeInput,
                 lockHeld: true,
                 identityPreflight: input.identityPreflight,
-                profileState: input.profileState,
-                requirePersistentBootstrapSocketAdmission: true
+                profileState: input.profileState
             });
             if (observed.runtimeReadiness === "ready" || observed.bootstrapState === "stale") {
                 return observed;
@@ -2123,13 +2144,7 @@ export class ProfileRuntimeService {
     }
     async #readPersistentRuntimeReadiness(input) {
         const baseIdentity = input.identityPreflight.identityBindingState;
-        const bridge = this.#bridgeFactory({
-            waitForProfileSocketOnOpen: input.requirePersistentBootstrapSocketAdmission === true &&
-                requiresPersistentBootstrapSocketAdmission({
-                    params: input.runtimeInput.params,
-                    identityPreflight: input.identityPreflight
-                })
-        });
+        const bridge = this.#bridgeFactory();
         const runtimeContextId = buildRuntimeBootstrapContextId(input.runtimeInput.profile, input.runtimeInput.runId);
         try {
             const result = await bridge.runCommand({
