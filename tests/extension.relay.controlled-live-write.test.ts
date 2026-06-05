@@ -21,8 +21,11 @@ import {
   extractXhsControlledPublishResultIdentityCapture,
   extractXhsControlledUploadPlatformCapture,
   finalizeXhsControlledPublishResultIdentityCapture,
+  isXhsControlledPublishIdentityAdjacentWriteRequestUrl,
   isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
+  resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract,
+  summarizeXhsControlledPublishIdentityObservedRequest,
   performXhsControlledLiveWriteWithApprovedSourceMedia,
   summarizeXhsControlledUploadObservedRequest
 } from "../extension/xhs-controlled-live-write.js";
@@ -448,6 +451,79 @@ it("observes the creator sns note commit endpoint as a post-submit publish ident
   ).toBe(false);
 });
 
+it("records publish-adjacent XHS write requests without trusting them as identity endpoints", () => {
+  expect(
+    isXhsControlledPublishIdentityAdjacentWriteRequestUrl(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/note/save",
+      "POST"
+    )
+  ).toBe(true);
+  expect(
+    isXhsControlledPublishResultIdentityCaptureUrl(
+      "https://creator.xiaohongshu.com/api/sns/web/v1/note/save",
+      "POST"
+    )
+  ).toBe(false);
+  expect(
+    isXhsControlledPublishIdentityAdjacentWriteRequestUrl(
+      "https://www.xiaohongshu.com/api/sns/web/v1/note/save",
+      "POST"
+    )
+  ).toBe(false);
+
+  expect(
+    summarizeXhsControlledPublishIdentityObservedRequest({
+      url: "https://creator.xiaohongshu.com/api/sns/web/v1/note/save",
+      method: "POST",
+      status: 200,
+      reason: "response_received",
+      captureCandidate: false,
+      rejectionReason: "untrusted_publish_identity_endpoint"
+    })
+  ).toMatchObject({
+    host: "creator.xiaohongshu.com",
+    path: "/api/sns/web/v1/note/save",
+    method: "POST",
+    status: 200,
+    capture_candidate: false,
+    rejection_reason: "untrusted_publish_identity_endpoint",
+    body_values_recorded: false,
+    body_recording_policy: "shape_only"
+  });
+});
+
+it("preserves trusted publish identity endpoint failures over later adjacent write observations", () => {
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract({
+      observedRequestCount: 4,
+      trustedEndpointObserved: true,
+      trustedFailureBlockerCode: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING",
+      trustedFailureReason: "response_identity_missing",
+      adjacentFailureBlockerCode: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+      adjacentFailureReason: "publish_adjacent_request_not_trusted_identity_endpoint",
+      fallbackBlockerCode: "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT",
+      fallbackReason: "capture_timeout"
+    })
+  ).toEqual({
+    blocker_code: "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING",
+    reason: "response_identity_missing"
+  });
+
+  expect(
+    resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract({
+      observedRequestCount: 2,
+      trustedEndpointObserved: false,
+      adjacentFailureBlockerCode: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+      adjacentFailureReason: "publish_adjacent_request_not_trusted_identity_endpoint",
+      fallbackBlockerCode: "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT",
+      fallbackReason: "capture_timeout"
+    })
+  ).toEqual({
+    blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+    reason: "publish_adjacent_request_not_trusted_identity_endpoint"
+  });
+});
+
 it("extracts a trusted post-submit note id from the creator sns note commit response", () => {
   const capture = extractXhsControlledPublishResultIdentityCapture({
     url: "https://creator.xiaohongshu.com/api/sns/web/v1/note/commit",
@@ -858,6 +934,51 @@ it("classifies missing background publish identity capture with precise diagnost
     })
   });
   expect(result.published).toBe(false);
+
+  const untrustedEndpointResult = applyXhsControlledPublishResultIdentityCaptureStatus(baseResult, {
+    attempted: true,
+    status: "timeout",
+    reason: "publish_adjacent_request_not_trusted_identity_endpoint",
+    blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+    recorded_at: "2026-06-03T00:00:05.000Z",
+    observed_requests: [
+      {
+        host: "creator.xiaohongshu.com",
+        path: "/api/sns/web/v1/note/save",
+        method: "POST",
+        status: 200,
+        capture_candidate: false,
+        rejection_reason: "untrusted_publish_identity_endpoint",
+        body_values_recorded: false,
+        body_recording_policy: "shape_only"
+      }
+    ]
+  });
+
+  expect(untrustedEndpointResult.live_write_evaluation).toMatchObject({
+    blockers: [
+      expect.objectContaining({
+        blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+        blocker_layer: "published_identity"
+      })
+    ]
+  });
+  expect(untrustedEndpointResult.live_write_evidence).toMatchObject({
+    publish_result_identity_capture_status: expect.objectContaining({
+      blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED",
+      observed_requests: [
+        expect.objectContaining({
+          path: "/api/sns/web/v1/note/save",
+          rejection_reason: "untrusted_publish_identity_endpoint",
+          body_recording_policy: "shape_only"
+        })
+      ]
+    }),
+    stop_signal: expect.objectContaining({
+      blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED"
+    })
+  });
+  expect(untrustedEndpointResult.published).toBe(false);
 });
 
 it("promotes trusted publish result identity capture into formal closeout when pending identity blocker prerequisites are satisfied", () => {

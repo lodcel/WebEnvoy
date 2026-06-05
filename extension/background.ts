@@ -65,8 +65,10 @@ import {
   extractXhsControlledPublishResultIdentityCapture,
   extractXhsControlledUploadPlatformCapture,
   finalizeXhsControlledPublishResultIdentityCapture,
+  isXhsControlledPublishIdentityAdjacentWriteRequestUrl,
   isXhsControlledPublishResultIdentityCaptureUrl,
   isXhsControlledUploadPlatformCaptureUrl,
+  resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract,
   summarizeXhsControlledPublishIdentityObservedRequest,
   summarizeXhsControlledUploadObservedRequest,
   type XhsControlledPublishResultIdentityCapture,
@@ -8089,11 +8091,24 @@ class ChromeBackgroundBridge {
       capturedAt: number;
     };
     const pending = new Map<string, PendingRequest>();
+    const adjacentPending = new Map<string, PendingRequest>();
     const observedRequests: Record<string, unknown>[] = [];
-    let lastObservedFailureBlockerCode: XhsControlledPublishResultIdentityCaptureStatus["blocker_code"] = null;
-    let lastObservedFailureReason: string | null = null;
+    let lastTrustedFailureBlockerCode: XhsControlledPublishResultIdentityCaptureStatus["blocker_code"] = null;
+    let lastTrustedFailureReason: string | null = null;
+    let lastAdjacentFailureBlockerCode: XhsControlledPublishResultIdentityCaptureStatus["blocker_code"] = null;
+    let lastAdjacentFailureReason: string | null = null;
+    let trustedEndpointObserved = false;
+    const appendObservedRequest = (request: Record<string, unknown>) => {
+      if (observedRequests.length >= 24) {
+        return;
+      }
+      observedRequests.push(request);
+    };
     const shouldObserve = (url: string, method: string): boolean => {
       return isXhsControlledPublishResultIdentityCaptureUrl(url, method);
+    };
+    const shouldRecordAdjacent = (url: string, method: string): boolean => {
+      return isXhsControlledPublishIdentityAdjacentWriteRequestUrl(url, method);
     };
     return new Promise((resolve) => {
       let settled = false;
@@ -8117,22 +8132,31 @@ class ChromeBackgroundBridge {
       const unresolvedStatus = (
         reason: string,
         fallbackBlockerCode: XhsControlledPublishResultIdentityCaptureStatus["blocker_code"]
-      ) =>
-        statusAt({
+      ) => {
+        const classification =
+          resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract({
+            observedRequestCount: observedRequests.length,
+            trustedEndpointObserved,
+            trustedFailureBlockerCode: lastTrustedFailureBlockerCode,
+            trustedFailureReason: lastTrustedFailureReason,
+            adjacentFailureBlockerCode: lastAdjacentFailureBlockerCode,
+            adjacentFailureReason: lastAdjacentFailureReason,
+            fallbackBlockerCode,
+            fallbackReason: reason
+          });
+        return statusAt({
           status: "timeout",
-          reason,
-          blockerCode:
-            observedRequests.length === 0
-              ? "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED"
-              : (lastObservedFailureBlockerCode ?? fallbackBlockerCode),
+          reason: classification.reason,
+          blockerCode: classification.blocker_code,
           observedRequests
         });
+      };
       const timeout = setTimeout(
         () =>
           finish(
             null,
             unresolvedStatus(
-              lastObservedFailureReason ?? "capture_timeout",
+              "capture_timeout",
               "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT"
             )
           ),
@@ -8160,15 +8184,41 @@ class ChromeBackgroundBridge {
           const request = asRecord(params.request);
           const url = asNonEmptyString(request?.url);
           const requestMethod = asNonEmptyString(request?.method);
-          if (!url || !requestMethod || !shouldObserve(url, requestMethod)) {
+          if (!url || !requestMethod) {
             return;
           }
-          observedRequests.push(
+          if (!shouldObserve(url, requestMethod)) {
+            if (!shouldRecordAdjacent(url, requestMethod)) {
+              return;
+            }
+            lastAdjacentFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED";
+            lastAdjacentFailureReason = "publish_adjacent_request_not_trusted_identity_endpoint";
+            appendObservedRequest(
+              summarizeXhsControlledPublishIdentityObservedRequest({
+                url,
+                method: requestMethod,
+                status: null,
+                reason: "request_will_be_sent",
+                captureCandidate: false,
+                rejectionReason: "untrusted_publish_identity_endpoint"
+              })
+            );
+            adjacentPending.set(requestId, {
+              url,
+              method: requestMethod,
+              status: null,
+              capturedAt: Date.now()
+            });
+            return;
+          }
+          trustedEndpointObserved = true;
+          appendObservedRequest(
             summarizeXhsControlledPublishIdentityObservedRequest({
               url,
               method: requestMethod,
               status: null,
-              reason: "request_will_be_sent"
+              reason: "request_will_be_sent",
+              captureCandidate: true
             })
           );
           pending.set(requestId, {
@@ -8182,16 +8232,33 @@ class ChromeBackgroundBridge {
         if (method === "Network.responseReceived") {
           const entry = pending.get(requestId);
           if (!entry) {
+            const adjacentEntry = adjacentPending.get(requestId);
+            if (!adjacentEntry) {
+              return;
+            }
+            const response = asRecord(params.response);
+            adjacentEntry.status = typeof response?.status === "number" ? response.status : null;
+            appendObservedRequest(
+              summarizeXhsControlledPublishIdentityObservedRequest({
+                url: adjacentEntry.url,
+                method: adjacentEntry.method,
+                status: adjacentEntry.status,
+                reason: "response_received",
+                captureCandidate: false,
+                rejectionReason: "untrusted_publish_identity_endpoint"
+              })
+            );
             return;
           }
           const response = asRecord(params.response);
           entry.status = typeof response?.status === "number" ? response.status : null;
-          observedRequests.push(
+          appendObservedRequest(
             summarizeXhsControlledPublishIdentityObservedRequest({
               url: entry.url,
               method: entry.method,
               status: entry.status,
-              reason: "response_received"
+              reason: "response_received",
+              captureCandidate: true
             })
           );
           return;
@@ -8202,14 +8269,15 @@ class ChromeBackgroundBridge {
             return;
           }
           if (entry.status === null || entry.status < 200 || entry.status >= 300) {
-            lastObservedFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT";
-            lastObservedFailureReason = "non_2xx_or_missing_status";
-            observedRequests.push(
+            lastTrustedFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT";
+            lastTrustedFailureReason = "non_2xx_or_missing_status";
+            appendObservedRequest(
               summarizeXhsControlledPublishIdentityObservedRequest({
                 url: entry.url,
                 method: entry.method,
                 status: entry.status,
-                reason: "non_2xx_or_missing_status"
+                reason: "non_2xx_or_missing_status",
+                captureCandidate: true
               })
             );
             return;
@@ -8241,23 +8309,25 @@ class ChromeBackgroundBridge {
                 }));
                 return;
               }
-              lastObservedFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING";
-              lastObservedFailureReason = "response_identity_missing";
-              observedRequests.push(
+              lastTrustedFailureBlockerCode = "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING";
+              lastTrustedFailureReason = "response_identity_missing";
+              appendObservedRequest(
                 summarizeXhsControlledPublishIdentityObservedRequest({
                   url: entry.url,
                   method: entry.method,
                   status,
-                  reason: "response_identity_missing"
+                  reason: "response_identity_missing",
+                  captureCandidate: true
                 })
               );
             } catch {
-              observedRequests.push(
+              appendObservedRequest(
                 summarizeXhsControlledPublishIdentityObservedRequest({
                   url: entry.url,
                   method: entry.method,
                   status,
-                  reason: "response_body_unreadable"
+                  reason: "response_body_unreadable",
+                  captureCandidate: true
                 })
               );
               finish(null, statusAt({

@@ -71,6 +71,7 @@ export type XhsControlledPublishResultIdentityCapture = {
 export type XhsControlledPublishResultIdentityCaptureFailureCode =
   | "PUBLISH_IDENTITY_CAPTURE_NOT_STARTED"
   | "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED"
+  | "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED"
   | "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE"
   | "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING"
   | "PUBLISH_IDENTITY_CAPTURE_TIMED_OUT";
@@ -82,6 +83,37 @@ export type XhsControlledPublishResultIdentityCaptureStatus = {
   blocker_code: XhsControlledPublishResultIdentityCaptureFailureCode | null;
   recorded_at: string;
   observed_requests?: JsonRecord[];
+};
+
+export const resolveXhsControlledPublishIdentityCaptureTimeoutClassificationForContract = (input: {
+  observedRequestCount: number;
+  trustedEndpointObserved: boolean;
+  trustedFailureBlockerCode?: XhsControlledPublishResultIdentityCaptureFailureCode | null;
+  trustedFailureReason?: string | null;
+  adjacentFailureBlockerCode?: XhsControlledPublishResultIdentityCaptureFailureCode | null;
+  adjacentFailureReason?: string | null;
+  fallbackBlockerCode: XhsControlledPublishResultIdentityCaptureFailureCode | null;
+  fallbackReason: string;
+}): {
+  blocker_code: XhsControlledPublishResultIdentityCaptureFailureCode | null;
+  reason: string;
+} => {
+  if (input.observedRequestCount <= 0) {
+    return {
+      blocker_code: "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED",
+      reason: input.fallbackReason
+    };
+  }
+  return {
+    blocker_code:
+      input.trustedFailureBlockerCode ??
+      (!input.trustedEndpointObserved ? input.adjacentFailureBlockerCode : null) ??
+      input.fallbackBlockerCode,
+    reason:
+      input.trustedFailureReason ??
+      (!input.trustedEndpointObserved ? input.adjacentFailureReason : null) ??
+      input.fallbackReason
+  };
 };
 
 export type XhsControlledUploadNetworkResponseInput = {
@@ -705,6 +737,27 @@ export const isXhsControlledPublishResultIdentityCaptureUrl = (url: string, meth
   }
 };
 
+export const isXhsControlledPublishIdentityAdjacentWriteRequestUrl = (
+  url: string,
+  method: string
+): boolean => {
+  if (!/^(POST|PUT|PATCH)$/iu.test(method)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "creator.xiaohongshu.com") {
+      return false;
+    }
+    return (
+      /^\/(?:api|web_api)\//iu.test(parsed.pathname) &&
+      /(?:creator|publish|note|sns|galaxy)/iu.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
+};
+
 const isXhsControlledCreatorSubmitPublishCaptureUrl = (url: string, method: string): boolean => {
   if (!/^(GET|POST)$/iu.test(method)) {
     return false;
@@ -1132,6 +1185,8 @@ export const summarizeXhsControlledPublishIdentityObservedRequest = (
     method: string;
     status?: number | null;
     reason?: string | null;
+    captureCandidate?: boolean;
+    rejectionReason?: string | null;
   }
 ): JsonRecord => {
   const output: JsonRecord = {
@@ -1139,6 +1194,14 @@ export const summarizeXhsControlledPublishIdentityObservedRequest = (
     status: typeof input.status === "number" ? input.status : null,
     reason: input.reason ?? null
   };
+  if (typeof input.captureCandidate === "boolean") {
+    output.capture_candidate = input.captureCandidate;
+  }
+  if (input.rejectionReason) {
+    output.rejection_reason = input.rejectionReason;
+    output.body_values_recorded = false;
+    output.body_recording_policy = "shape_only";
+  }
   try {
     const parsed = new URL(input.url);
     output.host = parsed.hostname;
@@ -2556,6 +2619,8 @@ const publishIdentityCaptureStatusMessage = (
       return "Background publish identity capture did not start for the submit continuation.";
     case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_NOT_OBSERVED":
       return "Background publish identity capture did not observe a trusted publish/result endpoint after submit.";
+    case "PUBLISH_IDENTITY_CAPTURE_ENDPOINT_UNTRUSTED":
+      return "Background publish identity capture observed post-submit XHS write requests, but none matched the trusted publish/result endpoint taxonomy.";
     case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_BODY_UNREADABLE":
       return "Background publish identity capture observed a trusted publish/result endpoint but could not read its response body.";
     case "PUBLISH_IDENTITY_CAPTURE_RESPONSE_IDENTITY_MISSING":
