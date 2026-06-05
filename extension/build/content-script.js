@@ -10053,6 +10053,72 @@ const collectPagePublishIdentityCandidates = () => {
 const findPagePublishIdentityCandidate = (previousCandidateKeys) => {
     return collectPagePublishIdentityCandidates().find((candidate) => !previousCandidateKeys.has(candidate.key)) ?? null;
 };
+const publishActionPendingPattern = /发布中|正在发布|提交中|审核中|publishing|submitting|loading/iu;
+const readPublishActionActivation = (submitControl, initialHref, initialDocumentText, previousPageIdentityKeys) => {
+    const href = currentHref();
+    if (href && href !== initialHref) {
+        return {
+            activated: true,
+            signal: "url_changed",
+            href,
+            controlDisabled: false,
+            controlBusy: false
+        };
+    }
+    if (findPagePublishIdentityCandidate(previousPageIdentityKeys)) {
+        return {
+            activated: true,
+            signal: "page_publish_identity_candidate",
+            href,
+            controlDisabled: false,
+            controlBusy: false
+        };
+    }
+    const documentText = typeof document !== "undefined" && document.documentElement
+        ? textContentOf(document.documentElement)
+        : "";
+    const documentTextChanged = documentText !== initialDocumentText;
+    if (documentTextChanged && publishSuccessPattern.test(documentText)) {
+        return {
+            activated: true,
+            signal: "publish_success_text",
+            href,
+            controlDisabled: false,
+            controlBusy: false
+        };
+    }
+    if (documentTextChanged && publishActionPendingPattern.test(documentText)) {
+        return {
+            activated: true,
+            signal: "publish_pending_text",
+            href,
+            controlDisabled: false,
+            controlBusy: false
+        };
+    }
+    const controlDisabled = (typeof submitControl.hasAttribute === "function" && submitControl.hasAttribute("disabled")) ||
+        submitControl.getAttribute("aria-disabled") === "true" ||
+        submitControl.disabled === true;
+    const controlClassName = typeof submitControl.className === "string" ? submitControl.className : "";
+    const controlBusy = submitControl.getAttribute("aria-busy") === "true" ||
+        /loading|disabled|pending|submitting|publishing/iu.test(controlClassName);
+    return {
+        activated: controlDisabled || controlBusy,
+        signal: controlDisabled ? "submit_control_disabled" : controlBusy ? "submit_control_busy" : null,
+        href,
+        controlDisabled,
+        controlBusy
+    };
+};
+const waitForPublishActionActivation = async (submitControl, initialHref, initialDocumentText, previousPageIdentityKeys, timeoutMs) => {
+    const deadline = Date.now() + Math.max(1, timeoutMs);
+    let latest = readPublishActionActivation(submitControl, initialHref, initialDocumentText, previousPageIdentityKeys);
+    while (!latest.activated && Date.now() < deadline) {
+        await sleep(250);
+        latest = readPublishActionActivation(submitControl, initialHref, initialDocumentText, previousPageIdentityKeys);
+    }
+    return latest;
+};
 const buildPublishIdentity = (input, artifact, submitEvidence, initialHref, successLocator, previousPageIdentityKeys) => {
     const href = currentHref();
     if (!href) {
@@ -10183,6 +10249,9 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
     const initialHref = currentHref() ?? input.page_url;
     const previousPageIdentityKeys = new Set(collectPagePublishIdentityCandidates().map((candidate) => candidate.key));
     const submittedAt = nowIso();
+    const initialDocumentText = typeof document !== "undefined" && document.documentElement
+        ? textContentOf(document.documentElement)
+        : "";
     submitControl.click();
     const submitEvidence = {
         submit_action_ref: `submit/fr-0032/${input.live_write_attempt_id}`,
@@ -10192,6 +10261,31 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
         platform_message: null
     };
     const isExtensionBrowserSurface = typeof window !== "undefined" && "chrome" in globalThis;
+    if (input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001") {
+        const activation = await waitForPublishActionActivation(submitControl, initialHref, initialDocumentText, previousPageIdentityKeys, 3_000);
+        if (!activation.activated) {
+            const unknownSubmitEvidence = {
+                ...submitEvidence,
+                submit_result_state: "unknown",
+                platform_message: "publish action click did not produce a local activation signal"
+            };
+            return buildStepBlockedResult(input, artifact, {
+                blockerCode: "PUBLISH_ACTION_ENDPOINT_NOT_OBSERVED",
+                blockerMessage: "Controlled publish clicked the publish control, but no publish activation signal or endpoint was observed.",
+                detailsRef: "publish_action_endpoint_not_observed",
+                requiredRecoveryAction: "verify the final publish button locator/click activation and require a publish endpoint, URL transition, or pending/success signal before publish identity capture",
+                stoppedStep: "publish",
+                blockerLayer: "publish",
+                riskKind: "submit_failure",
+                cleanupRequired: true,
+                diagnostics: {
+                    publish_action_activation: activation,
+                    initial_href: initialHref,
+                    submit_locator: submitEvidence.submit_locator
+                }
+            }, unknownSubmitEvidence, uploadStageCleanupResult(input, nowIso(), "publish action not activated; unpublished upload abandoned"));
+        }
+    }
     if (input.background_upload_capture_continuation === true || (acceptedUploadResume && isExtensionBrowserSurface)) {
         const backgroundCapturePending = input.background_upload_capture_continuation === true;
         const residual = {
