@@ -567,7 +567,11 @@ export class ProfileRuntimeService {
         }
         finally {
             if (!startSucceeded) {
-                await this.#terminateProcess(launchedControllerPid);
+                await this.#cleanupLaunchedBrowserOnStartFailure({
+                    profileDir,
+                    controllerPid: launchedControllerPid,
+                    runId: input.runId
+                });
                 if (!keepExistingLockOnFailure) {
                     await this.#rollbackLockOnStartFailure(lockPath, input.runId);
                 }
@@ -1620,6 +1624,28 @@ export class ProfileRuntimeService {
             return;
         }
         await this.#deleteLock(lockPath);
+    }
+    async #cleanupLaunchedBrowserOnStartFailure(input) {
+        if (!Number.isInteger(input.controllerPid) || input.controllerPid === null) {
+            return;
+        }
+        const browserState = await this.#readBrowserInstanceState(input.profileDir);
+        try {
+            await this.#browserLauncher.shutdown({
+                profileDir: input.profileDir,
+                controllerPid: input.controllerPid,
+                runId: input.runId
+            });
+        }
+        catch {
+            await this.#terminateProcess(input.controllerPid);
+        }
+        if (browserState &&
+            browserState.runId === input.runId &&
+            this.#isProcessAlive(browserState.browserPid)) {
+            await this.#terminateProcess(browserState.browserPid);
+            await this.#deleteBrowserStateFiles(input.profileDir);
+        }
     }
     async #terminateProcess(pid) {
         if (!Number.isInteger(pid) || pid === null || pid <= 0) {

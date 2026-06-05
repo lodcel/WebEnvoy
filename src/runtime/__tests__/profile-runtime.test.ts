@@ -1907,6 +1907,124 @@ describe("profile-runtime identity preflight", () => {
     });
   }, 15_000);
 
+  it("cleans launched external persistent browser state when live bridge admission fails", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-live-bridge-cleanup-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "identity_bound_live_bridge_cleanup_profile"
+    });
+    const shutdown = vi.fn(async () => undefined);
+    const service = createTestService({
+      browserLauncher: {
+        launch: async (input) => {
+          const statePath = join(input.profileDir, BROWSER_STATE_FILENAME);
+          await writeFile(
+            statePath,
+            `${JSON.stringify(
+              {
+                schemaVersion: 1,
+                launchToken: "launch-token-live-bridge-cleanup",
+                profileDir: input.profileDir,
+                runId: input.runId,
+                browserPath: "/mock/chrome",
+                controllerPid: 999998,
+                browserPid: 999999,
+                launchArgs: ["about:blank"],
+                launchedAt: new Date().toISOString(),
+                headless: false,
+                executionSurface: "real_browser",
+                launchSurface: "macos_launchservices",
+                processOwnership: "external_persistent_app"
+              },
+              null,
+              2
+            )}\n`,
+            "utf8"
+          );
+          return {
+            browserPath: "/mock/chrome",
+            browserPid: 999999,
+            controllerPid: 999998,
+            launchArgs: ["about:blank"],
+            launchedAt: new Date().toISOString(),
+            headless: false,
+            executionSurface: "real_browser",
+            launchSurface: "macos_launchservices",
+            processOwnership: "external_persistent_app"
+          };
+        },
+        shutdown
+      },
+      bridgeFactory: () => ({
+        runCommand: async () => {
+          throw new NativeMessagingTransportError(
+            "ERR_TRANSPORT_HANDSHAKE_FAILED",
+            "native host command is not configured or invalid"
+          );
+        }
+      })
+    });
+
+    await expect(
+      service.start({
+        cwd: baseDir,
+        profile: "identity_bound_live_bridge_cleanup_profile",
+        runId: "run-runtime-live-bridge-cleanup-001",
+        params: {
+          headless: false,
+          target_domain: "creator.xiaohongshu.com",
+          target_page: "creator_publish_tab",
+          requested_execution_mode: "live_write",
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED"
+    });
+
+    expect(shutdown).toHaveBeenCalledWith({
+      profileDir: join(baseDir, ".webenvoy", "profiles", "identity_bound_live_bridge_cleanup_profile"),
+      controllerPid: 999998,
+      runId: "run-runtime-live-bridge-cleanup-001"
+    });
+    await expect(
+      readFile(
+        join(
+          baseDir,
+          ".webenvoy",
+          "profiles",
+          "identity_bound_live_bridge_cleanup_profile",
+          BROWSER_STATE_FILENAME
+        ),
+        "utf8"
+      )
+    ).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await expect(
+      readFile(
+        join(
+          baseDir,
+          ".webenvoy",
+          "profiles",
+          "identity_bound_live_bridge_cleanup_profile",
+          "__webenvoy_lock.json"
+        ),
+        "utf8"
+      )
+    ).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  }, 15_000);
+
   it("maps stale runtime.bootstrap ack to blocked readiness", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-bootstrap-stale-"));
     tempDirs.push(baseDir);

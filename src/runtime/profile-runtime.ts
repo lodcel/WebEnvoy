@@ -883,7 +883,11 @@ export class ProfileRuntimeService {
       throw mapRuntimeError(error);
     } finally {
       if (!startSucceeded) {
-        await this.#terminateProcess(launchedControllerPid);
+        await this.#cleanupLaunchedBrowserOnStartFailure({
+          profileDir,
+          controllerPid: launchedControllerPid,
+          runId: input.runId
+        });
         if (!keepExistingLockOnFailure) {
           await this.#rollbackLockOnStartFailure(lockPath, input.runId);
         }
@@ -2086,6 +2090,34 @@ export class ProfileRuntimeService {
       return;
     }
     await this.#deleteLock(lockPath);
+  }
+
+  async #cleanupLaunchedBrowserOnStartFailure(input: {
+    profileDir: string;
+    controllerPid: number | null;
+    runId: string;
+  }): Promise<void> {
+    if (!Number.isInteger(input.controllerPid) || input.controllerPid === null) {
+      return;
+    }
+    const browserState = await this.#readBrowserInstanceState(input.profileDir);
+    try {
+      await this.#browserLauncher.shutdown({
+        profileDir: input.profileDir,
+        controllerPid: input.controllerPid,
+        runId: input.runId
+      });
+    } catch {
+      await this.#terminateProcess(input.controllerPid);
+    }
+    if (
+      browserState &&
+      browserState.runId === input.runId &&
+      this.#isProcessAlive(browserState.browserPid)
+    ) {
+      await this.#terminateProcess(browserState.browserPid);
+      await this.#deleteBrowserStateFiles(input.profileDir);
+    }
   }
 
   async #terminateProcess(pid: number | null): Promise<void> {
