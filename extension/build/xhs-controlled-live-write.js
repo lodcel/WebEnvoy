@@ -4378,66 +4378,80 @@ const performControlledSubmitPublishCleanup = async (input, artifact) => {
             }, unknownSubmitEvidence, uploadStageCleanupResult(input, nowIso(), "publish action not activated; unpublished upload abandoned"));
         }
     }
+    let publishIdentity = null;
+    if (input.background_upload_capture_continuation === true && input.profile_ref === "xhs_001") {
+        const deadline = Date.now() + 3_000;
+        do {
+            publishIdentity = buildPublishIdentity(input, artifact, submitEvidence, initialHref, locatorForElement(selectedVisibilityOption), previousPageIdentityKeys);
+            if (publishIdentity || Date.now() >= deadline) {
+                break;
+            }
+            await sleep(500);
+        } while (true);
+    }
     if (input.background_upload_capture_continuation === true || (acceptedUploadResume && isExtensionBrowserSurface)) {
         const backgroundCapturePending = input.background_upload_capture_continuation === true;
-        const residual = {
-            residual_record_id: `residual/fr-0032/${input.live_write_attempt_id}/${backgroundCapturePending ? "background-identity-pending" : "resume-identity-pending"}`,
-            live_write_attempt_id: input.live_write_attempt_id,
-            publish_result_id: null,
-            visibility_scope: input.publish_visibility_scope,
-            external_visibility_may_remain: false,
-            residual_locator: null,
-            reason: "identity_missing_after_publish",
-            required_followup: backgroundCapturePending
-                ? "merge background publish identity capture before final closeout"
-                : "capture publish result identity after accepted-upload resume before final closeout",
-            recorded_at: nowIso()
-        };
-        const cleanup = {
-            schema_version: "fr-0032.cleanup_rollback_proof.v1",
-            cleanup_result_id: `cleanup/fr-0032/${input.live_write_attempt_id}/${backgroundCapturePending ? "identity-pending" : "resume-identity-pending"}`,
-            live_write_attempt_id: input.live_write_attempt_id,
-            run_id: input.run_id,
-            profile_ref: input.profile_ref ?? "unknown",
-            target_tab_id: input.target_tab_id ?? 0,
-            publish_result_identity: null,
-            cleanup_policy_ref: input.cleanup_policy_ref,
-            cleanup_action: "no_safe_cleanup_action",
-            cleanup_outcome: "cleanup_blocked",
-            proof_locator: locatorForElement(selectedVisibilityOption),
-            platform_message: backgroundCapturePending
-                ? "submit accepted; background publish identity capture remains authoritative"
-                : "submit accepted; accepted-upload resume returned before page navigation could exceed the native bridge deadline",
-            attempted_at: submittedAt,
-            completed_at: null,
-            residual_record: residual
-        };
-        return buildStepBlockedResult(input, artifact, {
-            blockerCode: "PUBLISH_RESULT_IDENTITY_MISSING",
-            blockerMessage: backgroundCapturePending
-                ? "Controlled publish submit was accepted; background identity capture is pending."
-                : "Controlled publish submit was accepted; publish result identity must be captured after accepted-upload resume.",
-            detailsRef: backgroundCapturePending
-                ? "background_publish_identity_capture_pending"
-                : "accepted_upload_resume_publish_identity_pending",
-            requiredRecoveryAction: backgroundCapturePending
-                ? "merge background publish identity capture before final closeout"
-                : "capture publish result identity after accepted-upload resume before final closeout",
-            stoppedStep: "publish_identity",
-            blockerLayer: "published_identity",
-            riskKind: "publish_identity_missing",
-            cleanupRequired: true
-        }, submitEvidence, cleanup, residual);
+        if (!publishIdentity) {
+            const residual = {
+                residual_record_id: `residual/fr-0032/${input.live_write_attempt_id}/${backgroundCapturePending ? "background-identity-pending" : "resume-identity-pending"}`,
+                live_write_attempt_id: input.live_write_attempt_id,
+                publish_result_id: null,
+                visibility_scope: input.publish_visibility_scope,
+                external_visibility_may_remain: false,
+                residual_locator: null,
+                reason: "identity_missing_after_publish",
+                required_followup: backgroundCapturePending
+                    ? "merge background publish identity capture before final closeout"
+                    : "capture publish result identity after accepted-upload resume before final closeout",
+                recorded_at: nowIso()
+            };
+            const cleanup = {
+                schema_version: "fr-0032.cleanup_rollback_proof.v1",
+                cleanup_result_id: `cleanup/fr-0032/${input.live_write_attempt_id}/${backgroundCapturePending ? "identity-pending" : "resume-identity-pending"}`,
+                live_write_attempt_id: input.live_write_attempt_id,
+                run_id: input.run_id,
+                profile_ref: input.profile_ref ?? "unknown",
+                target_tab_id: input.target_tab_id ?? 0,
+                publish_result_identity: null,
+                cleanup_policy_ref: input.cleanup_policy_ref,
+                cleanup_action: "no_safe_cleanup_action",
+                cleanup_outcome: "cleanup_blocked",
+                proof_locator: locatorForElement(selectedVisibilityOption),
+                platform_message: backgroundCapturePending
+                    ? "submit accepted; background publish identity capture remains authoritative"
+                    : "submit accepted; accepted-upload resume returned before page navigation could exceed the native bridge deadline",
+                attempted_at: submittedAt,
+                completed_at: null,
+                residual_record: residual
+            };
+            return buildStepBlockedResult(input, artifact, {
+                blockerCode: "PUBLISH_RESULT_IDENTITY_MISSING",
+                blockerMessage: backgroundCapturePending
+                    ? "Controlled publish submit was accepted; background identity capture is pending."
+                    : "Controlled publish submit was accepted; publish result identity must be captured after accepted-upload resume.",
+                detailsRef: backgroundCapturePending
+                    ? "background_publish_identity_capture_pending"
+                    : "accepted_upload_resume_publish_identity_pending",
+                requiredRecoveryAction: backgroundCapturePending
+                    ? "merge background publish identity capture before final closeout"
+                    : "capture publish result identity after accepted-upload resume before final closeout",
+                stoppedStep: "publish_identity",
+                blockerLayer: "published_identity",
+                riskKind: "publish_identity_missing",
+                cleanupRequired: true
+            }, submitEvidence, cleanup, residual);
+        }
     }
     const deadline = Date.now() + (isExtensionBrowserSurface ? 15_000 : 50);
-    let publishIdentity = null;
-    do {
-        publishIdentity = buildPublishIdentity(input, artifact, submitEvidence, initialHref, locatorForElement(selectedVisibilityOption), previousPageIdentityKeys);
-        if (publishIdentity || Date.now() >= deadline) {
-            break;
-        }
-        await sleep(isExtensionBrowserSurface ? 500 : 10);
-    } while (true);
+    if (!publishIdentity) {
+        do {
+            publishIdentity = buildPublishIdentity(input, artifact, submitEvidence, initialHref, locatorForElement(selectedVisibilityOption), previousPageIdentityKeys);
+            if (publishIdentity || Date.now() >= deadline) {
+                break;
+            }
+            await sleep(isExtensionBrowserSurface ? 500 : 10);
+        } while (true);
+    }
     if (!publishIdentity) {
         const residual = {
             residual_record_id: `residual/fr-0032/${input.live_write_attempt_id}/identity-missing`,
