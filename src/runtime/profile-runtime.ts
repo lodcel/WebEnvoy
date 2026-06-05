@@ -700,7 +700,9 @@ export class ProfileRuntimeService {
       launch: launchBrowser,
       shutdown: shutdownBrowserSession
     };
-    this.#bridgeFactory = options?.bridgeFactory ?? (() => resolveDefaultRuntimeBridge());
+    this.#bridgeFactory = options?.bridgeFactory ?? ((bridgeOptions) =>
+      resolveDefaultRuntimeBridge(bridgeOptions)
+    );
   }
 
   async start(input: RuntimeActionInput): Promise<JsonObject> {
