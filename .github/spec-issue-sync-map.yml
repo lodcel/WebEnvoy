@@ -85,6 +85,8 @@ mappings:
     canonical_issue_number: 1137
   - spec_path: docs/dev/specs/FR-0043-official-chrome-persistent-descriptor/spec.md
     canonical_issue_number: 1138
+  - spec_path: docs/dev/specs/FR-0044-official-chrome-capability-matrix/spec.md
+    canonical_issue_number: 1139
   - spec_path: docs/dev/specs/FR-0045-persistent-extension-identity-health/spec.md
     canonical_issue_number: 1140
   - spec_path: docs/dev/specs/FR-0046-native-messaging-health/spec.md
