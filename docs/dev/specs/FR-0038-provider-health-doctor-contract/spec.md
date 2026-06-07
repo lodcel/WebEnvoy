@@ -66,6 +66,22 @@ Canonical Issue: #1127
   - `capability`
 - `generated_at` 只能表达 doctor report 生成时间；不能被用作 runtime readiness 或 live evidence 采集时间。
 
+`provider_doctor_report.input_contract_ref` 必须至少冻结 `expected_binary_source`：
+
+- `source_id`
+- `source_kind`
+- `locator_ref`
+- `locator_sensitivity`
+- `expected_access`
+
+约束：
+
+- `expected_binary_source` 是 FR-0038 doctor/admission input 自己提供的 expected binary source，不来自 `FR-0033.provider_identity`。
+- `source_kind` 至少支持 `browser_executable`、`provider_launcher`、`adapter_binary`。
+- `expected_access` 至少支持 `exists`、`executable`、`launchable`。
+- `locator_ref` 必须是 redacted path、bundle id、well-known launcher id 或 report-local locator；不得包含 token、cookie、secret 或完整敏感路径原文。
+- `expected_binary_source` 缺失、locator 不可解析、`source_kind` 未知或 access 不满足 `expected_access` 时，provider-level `binary` required check 必须 fail-closed。
+
 ### 3. Health check categories
 
 `provider_doctor_report.checks[*].category` 必须至少支持：
@@ -133,9 +149,9 @@ Canonical Issue: #1127
 
 ### 5. Required checks 与 declared requirements 对齐
 
-doctor consumer 必须把 `FR-0033.browser_provider_contract` 中的声明映射为 required checks：
+doctor consumer 必须把 `FR-0033.browser_provider_contract` 中的声明与 FR-0038 doctor/admission input 映射为 required checks：
 
-- `provider_identity` 指向的 browser/provider executable、launcher entry 或 adapter binary 要求 `binary` 检查；该检查是 provider-level required check。
+- `provider_doctor_report.input_contract_ref.expected_binary_source` 要求 `binary` 检查；该检查是 provider-level required check，不从 `FR-0033.provider_identity` 推导。
 - `browser_engine.browser_version_range` 要求 `version` 检查。
 - `browser_engine.extension_binding_support=required` 或 capability runtime requirement 包含 `extension_binding` 时，要求 `extension_load` 检查。
 - `automation_transport.native_messaging_support=required` 或 capability runtime requirement 包含 `native_messaging` 时，要求 `native_messaging` 检查。
