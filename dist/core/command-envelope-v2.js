@@ -164,6 +164,44 @@ const limitsFromEvidence = (evidence) => evidence
     affected_path: "evidence[*].status",
     reason: `evidence ref ${item.ref} is partial`
 }));
+const retryableForLimit = (limit) => limit.kind === "partial_observation";
+const severityForLimit = (limit) => limit.kind === "partial_observation" ? "warning" : "info";
+const evidenceRefForLimit = (limit, evidence) => evidence.find((item) => limit.reason === `evidence ref ${item.ref} is partial`)?.ref;
+const warningCodeForLimit = (limit, relatedEvidenceRef) => relatedEvidenceRef && limit.kind === "partial_observation"
+    ? "WARN_EVIDENCE_PARTIAL"
+    : "WARN_OPERATIONAL_LIMIT";
+const warningMessageForLimit = (limit, relatedEvidenceRef) => {
+    if (relatedEvidenceRef && limit.kind === "partial_observation") {
+        return "Evidence is partial; command result remains usable because no blocking error was raised";
+    }
+    if (limit.kind === "redaction") {
+        return "Consumer-visible output was redacted";
+    }
+    if (limit.kind === "truncation") {
+        return "Consumer-visible output was truncated";
+    }
+    if (limit.kind === "budget_clip") {
+        return "Consumer-visible output was clipped by a budget limit";
+    }
+    return "Runtime diagnostics are partially observable";
+};
+const warningsFromLimits = (limits, evidence) => limits.map((limit) => {
+    const relatedEvidenceRef = evidenceRefForLimit(limit, evidence);
+    return {
+        code: warningCodeForLimit(limit, relatedEvidenceRef),
+        message: warningMessageForLimit(limit, relatedEvidenceRef),
+        severity: severityForLimit(limit),
+        retryable: retryableForLimit(limit),
+        redacted_details: {
+            limit_ref: limit.limit_ref,
+            kind: limit.kind,
+            affected_path: limit.affected_path,
+            ...(relatedEvidenceRef ? { evidence_ref: relatedEvidenceRef } : {})
+        },
+        related_limit_ref: limit.limit_ref,
+        ...(relatedEvidenceRef ? { related_evidence_ref: relatedEvidenceRef } : {})
+    };
+});
 const diagnosisIndexFromError = (response, evidenceRefs) => ({
     availability: "available",
     primary_error_index: 0,
@@ -189,6 +227,7 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (response) => {
             ...limitsFromObservability(response.observability),
             ...limitsFromEvidence(evidence)
         ];
+        const warnings = warningsFromLimits(limits, evidence);
         return {
             ok: true,
             command: response.command,
@@ -208,7 +247,7 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (response) => {
                 ...(limits.length > 0 ? { limits } : {})
             },
             evidence,
-            warnings: [],
+            warnings,
             errors: []
         };
     }
@@ -217,6 +256,7 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (response) => {
         ...limitsFromObservability(response.observability),
         ...limitsFromEvidence(evidence)
     ];
+    const warnings = warningsFromLimits(limits, evidence);
     const primaryError = errorFromResponse(response, evidence.map((item) => item.ref));
     return {
         ok: false,
@@ -242,7 +282,7 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (response) => {
             ...(limits.length > 0 ? { limits } : {})
         },
         evidence,
-        warnings: [],
+        warnings,
         errors: [primaryError]
     };
 };

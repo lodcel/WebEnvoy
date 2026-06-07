@@ -151,6 +151,39 @@ describe("Command Envelope v2 current CLI mapping", () => {
         reason: "evidence ref run:run-1134-partial:observability:key_request:2:unknown is partial"
       }
     ]);
+    expect(envelope.warnings).toEqual([
+      {
+        code: "WARN_EVIDENCE_PARTIAL",
+        message:
+          "Evidence is partial; command result remains usable because no blocking error was raised",
+        severity: "warning",
+        retryable: true,
+        redacted_details: {
+          limit_ref: "evidence.partial.run:run-1134-partial:observability:key_request:1:unknown",
+          kind: "partial_observation",
+          affected_path: "evidence[*].status",
+          evidence_ref: "run:run-1134-partial:observability:key_request:1:unknown"
+        },
+        related_limit_ref: "evidence.partial.run:run-1134-partial:observability:key_request:1:unknown",
+        related_evidence_ref: "run:run-1134-partial:observability:key_request:1:unknown"
+      },
+      {
+        code: "WARN_EVIDENCE_PARTIAL",
+        message:
+          "Evidence is partial; command result remains usable because no blocking error was raised",
+        severity: "warning",
+        retryable: true,
+        redacted_details: {
+          limit_ref: "evidence.partial.run:run-1134-partial:observability:key_request:2:unknown",
+          kind: "partial_observation",
+          affected_path: "evidence[*].status",
+          evidence_ref: "run:run-1134-partial:observability:key_request:2:unknown"
+        },
+        related_limit_ref: "evidence.partial.run:run-1134-partial:observability:key_request:2:unknown",
+        related_evidence_ref: "run:run-1134-partial:observability:key_request:2:unknown"
+      }
+    ]);
+    expect(JSON.stringify(envelope.warnings)).not.toContain("https://");
   });
 
   it("maps current v1 error diagnosis into operational diagnosis and primary errors", () => {
@@ -267,5 +300,35 @@ describe("Command Envelope v2 current CLI mapping", () => {
         summary: "host ping timed out"
       }
     ]);
+    expect(envelope.warnings).toEqual([
+      {
+        code: "WARN_OPERATIONAL_LIMIT",
+        message: "Consumer-visible output was truncated",
+        severity: "info",
+        retryable: false,
+        redacted_details: {
+          limit_ref: "observability.truncation.failure_site.summary",
+          kind: "truncation",
+          affected_path: "operational.observability.failure_site.summary"
+        },
+        related_limit_ref: "observability.truncation.failure_site.summary"
+      },
+      {
+        code: "WARN_OPERATIONAL_LIMIT",
+        message: "Runtime diagnostics are partially observable",
+        severity: "warning",
+        retryable: true,
+        redacted_details: {
+          limit_ref: "observability.coverage.partial",
+          kind: "partial_observation",
+          affected_path: "operational.observability"
+        },
+        related_limit_ref: "observability.coverage.partial"
+      }
+    ]);
+    expect(envelope.errors[0]).toMatchObject({
+      code: "ERR_RUNTIME_UNAVAILABLE",
+      retryable: true
+    });
   });
 });
