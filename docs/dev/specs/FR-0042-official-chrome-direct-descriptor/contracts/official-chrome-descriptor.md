@@ -6,7 +6,7 @@
 interface OfficialChromeDescriptor {
   descriptor_id: string
   descriptor_version: "v1"
-  common_shape_owner: "#1137" | "FR-0041"
+  common_shape_owner: "#1137" | "FR-0042"
   variant_kind: "direct"
   provider_identity: OfficialChromeProviderIdentity
   provider_mode: "core_managed" | "external_managed" | "adapter_only" | "diagnostic_only"
@@ -25,7 +25,7 @@ interface OfficialChromeDescriptor {
 
 - `descriptor_version` 当前只允许 `v1`。
 - `variant_kind=direct` 是本 FR 唯一落成的 variant。
-- common shape 由 `#1137` / `FR-0041` 持有；后续 variant 不得重写字段语义。
+- common shape 由 `#1137` / `FR-0042` 持有；后续 variant 不得重写字段语义。
 - descriptor 是 provider-specific carrier，不是 runtime status、health result、launch evidence、live evidence record 或 fixture。
 
 ## 2. Provider identity

@@ -1,4 +1,4 @@
-# FR-0041 风险与缓解
+# FR-0042 风险与缓解
 
 ## 风险 1：common shape 被后续 persistent descriptor 重写
 
@@ -40,4 +40,4 @@
 
 - 表现：本 PR 同时修改 src/tests/fixtures 或产生 launch artifact。
 - 影响：PR scope 从 descriptor contract 扩张到实现或证据 gate。
-- 缓解：PR 纯度只允许 FR-0041 suite 与 sync map；验证执行 docs guard、spec guard、map validation、diff check 和 purity check。
+- 缓解：PR 纯度只允许 FR-0042 suite 与 sync map；验证执行 docs guard、spec guard、map validation、diff check 和 purity check。

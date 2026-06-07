@@ -1,4 +1,4 @@
-# FR-0041 official-chrome.direct Descriptor
+# FR-0042 official-chrome.direct Descriptor
 
 Canonical Issue: #1137
 
@@ -45,7 +45,7 @@ Canonical Issue: #1137
 - `official_chrome_descriptor` 是 official Chrome provider-specific descriptor carrier。
 - 它必须可被后续 registry、selection、capability matrix、health、evidence 与 fixtures issue 引用。
 - 它不得被解释为 runtime status、health result、launch evidence、live evidence record、fixture、browser process snapshot 或 Syvert mapping。
-- `official_chrome_descriptor.common_shape_owner` 必须指向 `#1137` / `FR-0041`。
+- `official_chrome_descriptor.common_shape_owner` 必须指向 `#1137` / `FR-0042`。
 - 后续 `official-chrome.persistent` descriptor 只能增加 persistent-specific delta，不得重写 common shape。
 
 ### 2. 共享 descriptor shape
@@ -264,8 +264,8 @@ And 不得把 descriptor 存在本身解释为 runtime ready
 
 ## 验收标准
 
-1. `official_chrome_descriptor` common shape 已冻结，且 owner 明确为 `#1137` / `FR-0041`。
+1. `official_chrome_descriptor` common shape 已冻结，且 owner 明确为 `#1137` / `FR-0042`。
 2. `official-chrome.direct` 的 identity、mode、engine、transport、profile semantics、capability refs、limitation refs 与 evidence slots 已冻结。
 3. direct-specific limitations 只覆盖 direct launch 边界，不定义 persistent-specific delta。
 4. 本 suite 不定义 capability matrix、health schema、launch evidence、fresh live evidence 或 fixtures。
-5. spec map 已将 `FR-0041` 映射到 canonical issue `#1137`。
+5. spec map 已将 `FR-0042` 映射到 canonical issue `#1137`。

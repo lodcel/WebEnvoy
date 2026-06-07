@@ -1,4 +1,4 @@
-# FR-0041 Data Model
+# FR-0042 Data Model
 
 ## 1. `official_chrome_descriptor`
 
@@ -8,7 +8,7 @@
 
 - `descriptor_id`：当前 direct variant 固定为 `official-chrome.direct`。
 - `descriptor_version`：当前固定为 `v1`。
-- `common_shape_owner`：固定指向 `#1137` / `FR-0041`。
+- `common_shape_owner`：固定指向 `#1137` / `FR-0042`。
 - `variant_kind`：当前本 suite 只落成 `direct`。
 - `provider_identity`：映射到 `FR-0033.provider_identity`。
 - `provider_mode`：复用 `FR-0033.ProviderMode`。

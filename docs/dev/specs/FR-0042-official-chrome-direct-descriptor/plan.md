@@ -1,4 +1,4 @@
-# FR-0041 实施计划
+# FR-0042 实施计划
 
 ## 实施目标
 
@@ -26,7 +26,7 @@
 ### 阶段 4：PR 与验证准备
 
 - 产出：parser-friendly PR body、验证记录、纯度预检结果
-- 重点：确保 PR 只包含 FR-0041 suite 与 sync map，不混入 runtime、fixtures、health、capability matrix 或 launch evidence。
+- 重点：确保 PR 只包含 FR-0042 suite 与 sync map，不混入 runtime、fixtures、health、capability matrix 或 launch evidence。
 
 ## 实现约束
 
@@ -68,7 +68,7 @@
 ## 并行 / 串行关系
 
 - 可并行：
-  - 不触碰 FR-0041 suite 的普通本仓库文档整理。
+  - 不触碰 FR-0042 suite 的普通本仓库文档整理。
   - 不消费 official Chrome descriptor 的 runtime bugfix。
 - 串行 / 依赖：
   - 本 work item 依赖 closed #1123 / FR-0033 和 closed #1125 / FR-0036。
@@ -79,7 +79,7 @@
 
 ## 进入实现前条件
 
-- FR-0041 spec review 通过。
+- FR-0042 spec review 通过。
 - reviewer 确认 #1137 的关闭语义是 common descriptor shape + direct variant complete，不是 runtime behavior complete。
 - reviewer 确认 `official-chrome.direct` 不承诺 persistent profile、extension binding、native messaging 或 login state reuse。
 - reviewer 确认 capability refs、limitation refs 与 evidence slots 没有被写成 matrix、health schema、launch evidence 或 fixture。
