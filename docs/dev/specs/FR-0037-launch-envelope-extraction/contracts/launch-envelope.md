@@ -12,6 +12,7 @@ interface LaunchEnvelope {
   runtime_bindings: LaunchRuntimeBindings
   fingerprint: LaunchFingerprintPolicy
   evidence_requirements: LaunchEvidenceRequirements
+  admission_health_requirements: LaunchAdmissionHealthRequirement[]
   limitations: LaunchLimitation[]
 }
 ```
@@ -206,7 +207,48 @@ type LaunchEvidenceKind =
 - `artifact_policy=not_required` 不得满足需要 launch evidence 的 capability。
 - `freshness_policy=current_pr_head` 不能由历史 artifact 或旧 head run 满足。
 
-## 10. Limitations
+## 10. Admission health requirements
+
+```ts
+type LaunchAdmissionHealthTarget =
+  | "profile_lock"
+  | "login_state"
+  | "extension_identity"
+  | "native_messaging"
+  | "runtime_bootstrap"
+  | "proxy_regional"
+  | "fingerprint_policy"
+  | "evidence_requirements"
+
+type LaunchAdmissionHealthState =
+  | "healthy"
+  | "disconnected"
+  | "recoverable"
+  | "blocked"
+  | "unknown"
+
+interface LaunchAdmissionHealthRequirement {
+  target: LaunchAdmissionHealthTarget
+  required_state: "healthy"
+  recovery_allowed: boolean
+  recovery_outcomes: Array<
+    | "healthy_after_recovery"
+    | "still_disconnected"
+    | "blocked_after_recovery"
+    | "new_envelope_required"
+  >
+}
+```
+
+约束：
+
+- `admission_health_requirements` 表达后续 admission 必须判断的健康目标，不表达已通过事实。
+- `required_state` 当前只允许 `healthy`；其他 state 只能作为 admission 结果。
+- `disconnected` 与 `recoverable` 不得被当作 `healthy`。
+- `unknown` 命中目标 capability 时必须按 `blocked` 处理。
+- `new_envelope_required` 表示后续实现必须重新生成 envelope 并重新验证。
+
+## 11. Limitations
 
 ```ts
 type LaunchLimitation =
@@ -308,6 +350,20 @@ fail-closed 规则：
     "freshness_policy": "current_launch",
     "failure_disclosure_required": true
   },
+  "admission_health_requirements": [
+    {
+      "target": "profile_lock",
+      "required_state": "healthy",
+      "recovery_allowed": true,
+      "recovery_outcomes": ["healthy_after_recovery", "still_disconnected", "blocked_after_recovery", "new_envelope_required"]
+    },
+    {
+      "target": "runtime_bootstrap",
+      "required_state": "healthy",
+      "recovery_allowed": true,
+      "recovery_outcomes": ["healthy_after_recovery", "still_disconnected", "blocked_after_recovery", "new_envelope_required"]
+    }
+  ],
   "limitations": []
 }
 ```

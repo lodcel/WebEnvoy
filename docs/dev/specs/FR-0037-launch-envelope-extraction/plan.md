@@ -16,7 +16,12 @@
 ### 阶段 2：fail-closed 与 secret redaction 收口
 
 - 产出：`data-model.md`、`risks.md`
-- 重点：冻结 provider verification、profile lock、real-browser/headless、extension/native messaging、fingerprint seed、evidence freshness 与 secret locator 的阻断规则。
+- 重点：冻结 provider verification、profile lock、real-browser/headless、extension/native messaging、runtime bootstrap、fingerprint seed、evidence freshness 与 secret locator 的阻断规则。
+
+### 阶段 2.5：health matrix 与恢复边界收口
+
+- 产出：`spec.md`、`contracts/launch-envelope.md`
+- 重点：冻结 profile lock、login state、extension identity、Native Messaging、runtime bootstrap、proxy/fingerprint/evidence requirements 的 healthy / disconnected / recoverable / blocked 判定、恢复结果和最小验证矩阵。
 
 ### 阶段 3：ownership 与边界确认
 
@@ -64,6 +69,8 @@
   - `headed=true && headless=true` 阻断。
   - `real_browser_required=true` 且 headless/provider no-real-browser 时阻断。
   - extension/native messaging/profile binding requirement 缺失或 unknown 时阻断。
+  - profile lock disconnected / recoverable / blocked 三类状态不被误判为 healthy。
+  - runtime bootstrap recovery 不改变 envelope 输入、不污染 extension paths。
   - `freshness_policy=current_launch|current_pr_head` 不被历史 artifact 满足。
 
 ## 并行 / 串行关系
@@ -82,5 +89,6 @@
 - FR-0037 spec review 通过。
 - reviewer 确认 `#1126` 是 spec-only / contract-freeze FR，`Fixes #1126` 不会提前关闭 downstream implementation / consumer。
 - reviewer 确认 `launch_envelope` 的字段、枚举、secret redaction、freshness 与 fail-closed 规则足以支撑后续 launch admission。
+- reviewer 确认 health matrix、恢复路径与最小验证矩阵已覆盖 profile lock、login state、extension identity、Native Messaging、runtime bootstrap、proxy/fingerprint 与 evidence requirements。
 - reviewer 确认本 FR 与 `FR-0033`、`FR-0015`、`FR-0016`、`FR-0020`、`FR-0034` 的 ownership 不冲突。
 - 后续实现 issue 已明确拆分为 registry / doctor / evidence kernel / redaction / fixtures / adapter 或其他具体 ownership，而不是把所有 provider runtime 行为塞回本 spec PR。

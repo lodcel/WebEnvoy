@@ -93,6 +93,20 @@
 - `current_launch` 与 `current_pr_head` freshness 必须由后续 evidence kernel / PR gate 证明。
 - evidence redaction 由后续 `#1129` 或对应 policy 承接；本 FR 只保留 reference。
 
+### `launch_admission_health_requirement`
+
+职责：
+
+- 表达后续 launch admission 必须检查哪些状态型输入。
+- 将 profile lock、login state、extension identity、Native Messaging、runtime bootstrap、proxy / regional settings、fingerprint policy 与 evidence requirements 映射到统一 health state。
+
+约束：
+
+- health requirement 不是已通过事实；它只声明后续 admission 必须产生 health conclusion。
+- `healthy` 是唯一可满足 launch admission 的 required state。
+- `disconnected`、`recoverable`、`blocked`、`unknown` 都必须进入诊断或阻断路径，不能静默当作 ready。
+- `new_envelope_required` 代表当前 envelope 权威性结束，后续必须重新生成输入。
+
 ## 字段 ownership
 
 | 字段组 | Ownership | 不得替代 |
@@ -104,6 +118,7 @@
 | runtime bindings | FR-0037 launch requirement | extension install implementation、Native Host manifest generator |
 | fingerprint policy | FR-0037 launch requirement | FR-0020 anti-detection validation、provider private patch schema |
 | evidence requirements | FR-0037 requirement shape | #1128 evidence kernel、FR-0016 live evidence record |
+| admission health requirements | FR-0037 validation boundary | runtime status implementation、doctor report |
 
 ## 兼容策略
 

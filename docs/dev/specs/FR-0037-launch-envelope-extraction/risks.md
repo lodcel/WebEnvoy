@@ -62,3 +62,17 @@
 - 影响：`#1126` 的 `fr-complete` truth 无法被 spec review 消费。
 - 缓解：本 suite 显式记录 #1126 是 spec-only / contract-freeze FR；downstream issues 保持打开。
 - 回滚：若 issue truth 被调整为实现闭环事项，则将 PR closing 改为 `Refs #1126` 并拆出 implementation closeout。
+
+## 风险 10：状态型 launch admission 输入缺少健康矩阵
+
+- 表现：profile lock、登录态、extension identity、Native Messaging 或 runtime bootstrap 只被写成字段要求，没有 healthy / disconnected / recoverable / blocked 判定。
+- 影响：后续实现可能把断连、旧 ready 信号、stale lock 或 bootstrap retry 误判为可启动状态。
+- 缓解：本 FR 补齐 Launch admission health matrix、恢复路径与最小验证矩阵；`unknown` 和影响 capability 的 disconnected 不得默认为 healthy。
+- 回滚：若某类状态不应由 Launch Envelope 持有，将其 health requirement 移出本 FR，并在已存在的正式 runtime/readiness 套件中承接。
+
+## 风险 11：恢复动作改变 envelope 输入
+
+- 表现：为了恢复 profile lock、native messaging 或 bootstrap，后续实现切换 provider/profile/host、重写 extension paths、变更 fingerprint seed 或复用旧 artifact。
+- 影响：launch admission 与实际启动事实脱节，evidence kernel 无法证明同一 envelope。
+- 缓解：恢复结果必须落入 `healthy_after_recovery`、`still_disconnected`、`blocked_after_recovery` 或 `new_envelope_required`；需要改变输入时必须生成新 envelope。
+- 回滚：撤销恢复后的 admission 结论，重新生成 envelope 并重新验证。

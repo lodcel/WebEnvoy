@@ -262,6 +262,76 @@ Canonical Issue: #1126
 - 需要当前 launch evidence 时，`artifact_policy=not_required` 或 freshness 不能覆盖本次 launch。
 - 任一影响目标 capability 的 `unknown` 字段不得被静默当作允许。
 
+### 11. Launch admission health matrix
+
+Launch Envelope 冻结的状态型输入必须能被后续 admission 映射到统一健康矩阵。矩阵只表达判定口径，不实现检查器。
+
+`launch_admission_health.state` 至少支持：
+
+- `healthy`
+- `disconnected`
+- `recoverable`
+- `blocked`
+- `unknown`
+
+最小矩阵：
+
+| 输入 | healthy | disconnected | recoverable | blocked |
+|---|---|---|---|---|
+| profile lock | 独占锁已获取，且 lock owner 匹配本次 `run_id` | lock 文件存在但 owner 不可确认或通信断开 | stale lock 可被后续实现按正式规则回收 | 其他进程持有有效 lock 或 lock 状态 unknown |
+| login state | `login_state_requirement=ready` 且 profile 被后续 readiness 证明可用 | profile 可定位但登录态检查无法完成 | `login_allowed` 且允许进入人工登录流程 | 需要登录态但状态为失效、unknown 或不允许登录 |
+| extension identity | profile 内 stable `extension_id` 与 envelope 要求一致 | extension 状态暂不可读或 background 未响应 | extension 已安装但需要后续 bootstrap / reconnect | extension 缺失、id 不匹配或使用不允许的 staged extension |
+| native messaging | host name / manifest ref / allowed origins 与 extension identity 匹配 | native host 暂不可连接 | host 存在但需后续 reconnect / bootstrap | host 缺失、manifest 不匹配或 `unknown` |
+| runtime bootstrap | envelope 声明的 bootstrap requirement 可被后续 runtime admission 满足 | extension/native host 通道断开导致无法确认 | bootstrap 可重试且不改变 envelope 输入 | bootstrap requirement 缺失、过期、secret 进入静态资产或无法证明 |
+| proxy / regional settings | proxy policy、locale、timezone、accept language 满足本次 requirement | profile proxy locator 暂不可读 | profile-bound proxy 可重新读取或重新绑定到同一 profile | proxy policy unknown、credential 内联、或违反 profile 黏性 |
+| fingerprint policy | seed policy 与 profile consistency requirement 一致，且 refs 已脱敏 | seed locator 暂不可读 | provider-managed / profile seed 可在不泄露 seed 的情况下重查 | seed policy unknown、run-scoped 未被允许或 seed 明文进入 envelope |
+| evidence requirements | required kinds、freshness、artifact policy 与 redaction ref 完整 | artifact sink 或 evidence locator 暂不可访问 | evidence sink 可重试且保持 same launch / same head freshness | required evidence 不可产出、freshness 不满足或 redaction 缺失 |
+
+约束：
+
+- `unknown` state 在影响目标 capability 时必须按 `blocked` 处理。
+- `disconnected` 只表示暂时无法读取或连接，不能被当作 `healthy`。
+- `recoverable` 必须有后续正式实现冻结的恢复动作；本 FR 不授权实现自行清理 lock、重写 profile 或重发 secret。
+- 任何恢复动作不得改变 `launch_envelope` 的 provider、profile、fingerprint 或 evidence requirement；需要改变输入时必须生成新的 envelope。
+
+### 12. 恢复路径与断连边界
+
+Launch Envelope 的恢复语义必须按输入类型分栏：
+
+- `profile_lock_recovery`：只允许后续实现按正式 lock owner / stale-lock 规则恢复；不得在本 FR 中授权强制删除 lock。
+- `login_recovery`：仅当 `login_state_requirement=login_allowed` 时可进入人工登录引导；`ready` 失败不得静默降级。
+- `extension_recovery`：允许后续 runtime admission 重新连接已安装 persistent extension；不得把 per-run staged extension 作为 official Chrome 主路径恢复方式。
+- `native_messaging_recovery`：允许后续实现重连同一 native host binding；不得切换 host name 或 allowed origins 来绕过 mismatch。
+- `runtime_bootstrap_recovery`：允许后续实现重发 run/session bootstrap；不得把 run/session secret 写入 extension paths 或 profile 永久元数据。
+- `evidence_recovery`：允许后续 evidence kernel 重试 artifact sink；不得用旧 head、旧 run 或 same-head 历史 artifact 满足 `current_launch` freshness。
+
+恢复结论必须显式落在：
+
+- `healthy_after_recovery`
+- `still_disconnected`
+- `blocked_after_recovery`
+- `new_envelope_required`
+
+`new_envelope_required` 表示当前 envelope 不再是权威输入，后续实现必须重新生成并重新验证，不得复用旧 admission 结论。
+
+### 13. 最小验证矩阵
+
+后续实现进入 launch admission 前，至少需要覆盖以下验证点；本 FR 只冻结验证要求，不实现测试。
+
+| 验证点 | 最低验证方式 | 不通过时结论 |
+|---|---|---|
+| provider contract ref | 静态解析 `FR-0033` shape、provider id、contract version、capability refs | `provider_contract_missing` 或 `provider_verification_insufficient` |
+| profile lock | 校验 profile locator、lock policy、owner 与 same-run exclusivity | `profile_lock_unavailable` |
+| login requirement | 校验 login state requirement 与 allowed transition | blocked login state |
+| extension identity | 校验 extension binding mode、extension id、persistent profile binding | `extension_binding_missing` |
+| native messaging | 校验 host name、manifest ref、allowed origins 与 required mode | `native_messaging_binding_missing` |
+| browser mode | 校验 headed/headless、real browser、browser channel canonical label | `headless_conflict` 或 `no_real_browser_attestation` |
+| network / regional | 校验 proxy policy 不为 unknown，secret 不内联，locale/timezone 可审计 | `proxy_policy_unknown` 或 secret redaction failure |
+| fingerprint policy | 校验 seed policy、rotation policy、redacted refs 与 profile consistency | `fingerprint_policy_unknown` |
+| evidence requirements | 校验 required kinds、artifact policy、freshness 与 redaction policy ref | `evidence_requirement_unmet` |
+
+最小验证矩阵必须在后续 parser / admission tests 中覆盖 happy path、blocked path 与 recoverable path。任何只验证 happy path 的实现不得宣称满足本 FR 的进入实现前条件。
+
 ## GWT 验收场景
 
 ### 场景 1：Launch Envelope 引用 FR-0033 provider contract
@@ -311,10 +381,30 @@ When 后续 #1128 Provider Evidence Kernel 产出 artifact
 Then kernel 可以消费这些 requirements
 And Launch Envelope 本身不得被当作已采集的 live evidence record
 
+### 场景 7：profile lock 断连不能默认为健康
+
+Given Launch Envelope 要求 `profile_lock_policy=exclusive_required`
+And 后续 admission 无法确认 lock owner 或 runtime 通信断开
+When admission 生成 health matrix
+Then profile lock state 必须是 `disconnected` 或 `blocked`
+And 不得把该状态当作 `healthy`
+And 需要恢复时必须走正式 lock recovery 规则
+
+### 场景 8：runtime bootstrap 恢复不能污染静态资产
+
+Given Launch Envelope 要求 `runtime_bootstrap_required=true`
+And runtime bootstrap 需要重试
+When 后续实现执行 bootstrap recovery
+Then 只能重发 run/session 级 bootstrap 输入
+And 不得把 run/session secret 写入 `extension_paths`
+And 如果需要改变 envelope 输入，结论必须是 `new_envelope_required`
+
 ## 异常与边界场景
 
 - provider contract 存在但 `provider_id` 与 Launch Envelope 中声明不一致时，必须阻断。
 - profile lock 不可获取时，正式业务 launch 必须阻断；只读共享降级需要后续 FR 单独冻结。
+- profile lock owner 无法确认、Native Messaging 断连或 extension background 无响应时，只能进入 `disconnected` / `recoverable` / `blocked`，不得伪装成 ready。
+- runtime bootstrap 可重试不等于 launch admission 已通过；重试后仍需重新记录 health conclusion。
 - `proxy_policy=unknown` 且目标能力需要稳定出口、账号安全或 real-browser evidence 时，必须阻断。
 - `locale` / `timezone` / `accept_language` 缺失时，不能伪造 anti-detection validation；只能披露缺口或让对应 gate 阻断。
 - `extension_binding_mode=dev_unpacked_extension` 只能作为开发/诊断候选，不得被写成 official Chrome 主路径。
@@ -327,5 +417,6 @@ And Launch Envelope 本身不得被当作已采集的 live evidence record
 1. `launch_envelope` 的字段、枚举、ownership 与 fail-closed 规则已冻结。
 2. Launch Envelope 明确引用并消费 `FR-0033.browser_provider_contract`，不重定义 provider contract。
 3. provider、profile、browser mode、network/regional settings、runtime bindings、fingerprint seed policy 与 evidence requirements 均有明确边界。
-4. GWT 覆盖 provider verification、real-browser/headless、persistent extension、secret redaction 与 evidence kernel 边界。
-5. 套件不实现 provider registry、doctor、evidence kernel、CLI 或 browser launch runtime 行为。
+4. health matrix、恢复路径与最小验证矩阵已覆盖 profile lock、login state、extension identity、native messaging、runtime bootstrap、proxy/fingerprint 与 evidence requirements。
+5. GWT 覆盖 provider verification、real-browser/headless、persistent extension、secret redaction、evidence kernel、profile lock 断连与 runtime bootstrap recovery 边界。
+6. 套件不实现 provider registry、doctor、evidence kernel、CLI 或 browser launch runtime 行为。
