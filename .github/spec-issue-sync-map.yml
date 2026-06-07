@@ -67,3 +67,5 @@ mappings:
     canonical_issue_number: 1123
   - spec_path: docs/dev/specs/FR-0034-command-envelope-v2-design/spec.md
     canonical_issue_number: 1131
+  - spec_path: docs/dev/specs/FR-0039-error-exit-code-taxonomy/spec.md
+    canonical_issue_number: 1133
