@@ -19,7 +19,7 @@
 ### 阶段 3：ownership 与边界确认
 
 - 产出：`TODO.md` 与 PR metadata
-- 重点：确认本 FR 不承接 Syvert normalized mapping、CloakBrowser 私有 patch、WebEnvoy Agent brain、provider registry 或外部 runtime 行为。
+- 重点：确认本 FR 不承接 Syvert normalized mapping、CloakBrowser 私有 patch、WebEnvoy Agent brain、provider registry 或外部 runtime 行为；PR metadata 使用 provider/shared-contract gate，并锚定 `#1111`。
 
 ### 阶段 4：spec review 准备
 
@@ -43,9 +43,9 @@
 - PR 纯度检查：
   - `bash scripts/check-pr-purity.sh docs/m2-1123-browser-provider-contract main`
 - PR metadata parser 消费：
-  - 使用 `bash scripts/open-pr.sh` 创建/更新 PR，或等价地让 PR body 保持模板结构化字段可解析。
+  - PR body 必须使用裸字段格式提供 `integration_check`、`gate_applicability`、`live_evidence_record`、`closeout_control`，确保 merge-ready parser 可消费。
 - 语义自检：
-  - 对照 `docs/dev/architecture/system-design/boundary.md`，确认 local-only 与职责边界一致。
+  - 对照 `docs/dev/architecture/system-design/boundary.md` 与 `#1111`，确认本 FR 触发 provider/shared-contract gate，但不引入 Syvert external dependency。
   - 对照 `FR-0015`，确认不重写 runtime bootstrap/readiness。
   - 对照 `FR-0016`，确认不把 provider contract 当 live evidence。
   - 对照 `FR-0020`，确认不把 provider verification 当 anti-detection baseline。
@@ -67,7 +67,7 @@
   - 不依赖本 contract 的纯实现修复或非共享治理事项。
 - 串行 / 依赖：
   - provider registry、provider selection、runtime doctor、provider adapter implementation 必须等待本 FR spec review 通过。
-  - 若后续事项要改变 shared input/output、error semantics、diagnostics/observability、runtime mode 或 provider/shared-contract integration 口径，必须重新评估 integration gate。
+  - 本 FR 已冻结 provider/shared Browser Provider contract；后续事项若继续改变 shared input/output、error semantics、diagnostics/observability、runtime mode 或 provider/shared-contract integration 口径，必须沿用或重新评估 integration gate。
   - `#1124/#1125/#1130` 不应在本 PR 内提前实现或关闭。
 
 ## 进入实现前条件

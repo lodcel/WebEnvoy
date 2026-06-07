@@ -42,9 +42,9 @@
 - 缓解：本 FR 复用 `Google Chrome stable` canonical label。
 - 回滚：替换别名并补充静态检查或后续 parser 测试。
 
-## 风险 7：PR metadata 误判为 integration-gated
+## 风险 7：PR metadata 误判为 local-only
 
-- 表现：仅因 provider 字样或未来 Syvert 可能消费，就填写 `integration_applicable=yes`。
-- 影响：引入不必要的跨仓 gate，阻塞 local-only formal spec review。
-- 缓解：按 M1 boundary 与调度输入，本 PR 不改变跨仓 shared input/output，不实现 provider adapter，metadata 使用 local-only。
-- 回滚：修正 PR body integration fields，并重新跑 metadata / guardian 检查。
+- 表现：FR 冻结 Browser Provider Contract，却填写 `integration_applicable=no`、`shared_contract_changed=no`、`merge_gate=local_only` 或 `contract_surface=none`。
+- 影响：provider/shared-contract gate 无法消费正式契约，formal spec review 阻断。
+- 缓解：PR metadata 使用 provider/shared-contract gate，锚定 `#1111`，填写 `contract_surface=execution_provider`；同时保持 `external_dependency=none` 与 `joint_acceptance_needed=no`，避免误引入 Syvert 依赖。
+- 回滚：修正 PR body integration fields 与 spec acceptance language，并重新跑 metadata / guardian 检查。
