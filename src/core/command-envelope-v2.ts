@@ -87,8 +87,6 @@ export interface WarningV2 {
   code: "WARN_EVIDENCE_PARTIAL" | "WARN_OPERATIONAL_LIMIT";
   message: string;
   severity: "info" | "warning";
-  retryable: boolean;
-  redacted_details?: JsonObject;
   related_evidence_ref?: string;
   related_limit_ref?: string;
 }
@@ -303,9 +301,6 @@ const limitsFromEvidence = (evidence: EvidenceRefV2[]): LimitDisclosureV2[] =>
       reason: `evidence ref ${item.ref} is partial`
     }));
 
-const retryableForLimit = (limit: LimitDisclosureV2): boolean =>
-  limit.kind === "partial_observation";
-
 const severityForLimit = (limit: LimitDisclosureV2): WarningV2["severity"] =>
   limit.kind === "partial_observation" ? "warning" : "info";
 
@@ -328,7 +323,7 @@ const warningMessageForLimit = (
   relatedEvidenceRef: string | undefined
 ): string => {
   if (relatedEvidenceRef && limit.kind === "partial_observation") {
-    return "Evidence is partial; command result remains usable because no blocking error was raised";
+    return "Evidence is partial; retry may collect fuller diagnostics if the command context is still valid";
   }
 
   if (limit.kind === "redaction") {
@@ -357,13 +352,6 @@ const warningsFromLimits = (
       code: warningCodeForLimit(limit, relatedEvidenceRef),
       message: warningMessageForLimit(limit, relatedEvidenceRef),
       severity: severityForLimit(limit),
-      retryable: retryableForLimit(limit),
-      redacted_details: {
-        limit_ref: limit.limit_ref,
-        kind: limit.kind,
-        affected_path: limit.affected_path,
-        ...(relatedEvidenceRef ? { evidence_ref: relatedEvidenceRef } : {})
-      },
       related_limit_ref: limit.limit_ref,
       ...(relatedEvidenceRef ? { related_evidence_ref: relatedEvidenceRef } : {})
     };

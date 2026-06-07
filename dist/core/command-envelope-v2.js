@@ -164,7 +164,6 @@ const limitsFromEvidence = (evidence) => evidence
     affected_path: "evidence[*].status",
     reason: `evidence ref ${item.ref} is partial`
 }));
-const retryableForLimit = (limit) => limit.kind === "partial_observation";
 const severityForLimit = (limit) => limit.kind === "partial_observation" ? "warning" : "info";
 const evidenceRefForLimit = (limit, evidence) => evidence.find((item) => limit.reason === `evidence ref ${item.ref} is partial`)?.ref;
 const warningCodeForLimit = (limit, relatedEvidenceRef) => relatedEvidenceRef && limit.kind === "partial_observation"
@@ -172,7 +171,7 @@ const warningCodeForLimit = (limit, relatedEvidenceRef) => relatedEvidenceRef &&
     : "WARN_OPERATIONAL_LIMIT";
 const warningMessageForLimit = (limit, relatedEvidenceRef) => {
     if (relatedEvidenceRef && limit.kind === "partial_observation") {
-        return "Evidence is partial; command result remains usable because no blocking error was raised";
+        return "Evidence is partial; retry may collect fuller diagnostics if the command context is still valid";
     }
     if (limit.kind === "redaction") {
         return "Consumer-visible output was redacted";
@@ -191,13 +190,6 @@ const warningsFromLimits = (limits, evidence) => limits.map((limit) => {
         code: warningCodeForLimit(limit, relatedEvidenceRef),
         message: warningMessageForLimit(limit, relatedEvidenceRef),
         severity: severityForLimit(limit),
-        retryable: retryableForLimit(limit),
-        redacted_details: {
-            limit_ref: limit.limit_ref,
-            kind: limit.kind,
-            affected_path: limit.affected_path,
-            ...(relatedEvidenceRef ? { evidence_ref: relatedEvidenceRef } : {})
-        },
         related_limit_ref: limit.limit_ref,
         ...(relatedEvidenceRef ? { related_evidence_ref: relatedEvidenceRef } : {})
     };
