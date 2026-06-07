@@ -14,6 +14,8 @@ Canonical Issue: #1123
 
 本 FR 只冻结 Browser Provider contract 的最小 formal 输入。它不实现 provider registry，不选择具体 provider，也不把任何私有浏览器 patch 或上层 normalized mapping 写成 WebEnvoy core 默认契约。
 
+`#1123` 的 issue meta 已声明 `Close Semantics: fr-complete`，scope 是 “Define the stable Browser Provider contract”。因此本 PR 的 `Fixes #1123` 只关闭 Browser Provider Contract 的 contract-freeze FR；provider registry、doctor、selection、adapter implementation 与 runtime 行为由后续事项承接，不属于 `#1123` 自身关闭条件，也不关闭 `#1124/#1125/#1130`。
+
 ## 目标
 
 1. 冻结 `browser_provider_contract` 的最小对象边界。
@@ -24,7 +26,7 @@ Canonical Issue: #1123
 
 ## 非目标
 
-- 不实现 runtime/provider registry、provider selection、provider installation、doctor 命令或 CLI 行为。
+- 不实现 runtime/provider registry、provider selection、provider installation、doctor 命令或 CLI 行为；这些是 downstream implementation / consumer，不属于 `#1123` 的 `fr-complete` 关闭条件。
 - 不修改 extension、native host、Playwright、runtime bootstrap、runtime status、live evidence 或任何外部可见执行行为。
 - 不触碰 `#1124/#1125/#1130` 的实现范围。
 - 不冻结 Syvert normalized result、Syvert business schema、Syvert provider adapter 或任何跨仓业务映射。
@@ -313,7 +315,8 @@ And 不得使用 `stable`、`chrome-stable` 或其他别名
 2. 套件已明确它不是 Syvert normalized mapping、不是 WebEnvoy Agent brain、不是 CloakBrowser 私有 patch 细节、不是 provider registry 实现。
 3. 套件已明确与 `FR-0015`、`FR-0016`、`FR-0020` 和 M1 boundary document 的 ownership 关系。
 4. 当前 PR 只承载 formal spec review，不混入 runtime/provider registry、adapter implementation、external runtime behavior 或治理五文件修改。
-5. PR metadata 使用 `Fixes #1123`，并声明 provider/shared-contract integration gate：
+5. PR metadata 使用 `Fixes #1123`，且仅关闭 `#1123` 的 Browser Provider Contract contract-freeze FR；不关闭 `#1124/#1125/#1130` 等 downstream implementation / consumer。
+6. PR metadata 声明 provider/shared-contract integration gate：
   - `integration_applicable=yes`
   - `integration_ref=#1111`
   - `shared_contract_changed=yes`

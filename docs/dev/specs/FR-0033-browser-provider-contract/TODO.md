@@ -6,6 +6,7 @@
 - [ ] 确认 provider identity、mode、browser engine、automation transport、capability declarations、verification level、limitations 与 fail-closed 规则无歧义。
 - [ ] 确认本 FR 不包含 runtime/provider registry 实现、Syvert normalized mapping、CloakBrowser 私有 patch 细节或 WebEnvoy Agent brain 范围。
 - [ ] 确认与 M1 `boundary.md`、`FR-0015`、`FR-0016`、`FR-0020` 的 ownership 不冲突。
+- [ ] 确认 `#1123` 是 spec-only / contract-freeze FR，合入本 suite 后满足 `Close Semantics: fr-complete`。
 - [ ] 确认 PR metadata 使用 `Fixes #1123` 与 provider/shared-contract integration fields，并锚定 `#1111`。
 
 ## 实现前待办

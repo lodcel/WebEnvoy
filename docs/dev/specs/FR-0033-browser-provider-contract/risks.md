@@ -48,3 +48,10 @@
 - 影响：provider/shared-contract gate 无法消费正式契约，formal spec review 阻断。
 - 缓解：PR metadata 使用 provider/shared-contract gate，锚定 `#1111`，填写 `contract_surface=execution_provider`；同时保持 `external_dependency=none` 与 `joint_acceptance_needed=no`，避免误引入 Syvert 依赖。
 - 回滚：修正 PR body integration fields 与 spec acceptance language，并重新跑 metadata / guardian 检查。
+
+## 风险 8：`Fixes #1123` 被误读为关闭 downstream implementation
+
+- 表现：reviewer 将 formal spec PR 的 `Fixes #1123` 误判为提前关闭 provider registry、doctor、selection、adapter implementation 或 runtime 行为。
+- 影响：`#1123` 的 `fr-complete` truth 无法被 spec review 消费，导致错误阻断。
+- 缓解：本 suite 显式记录 `#1123` 是 spec-only / contract-freeze FR；`Fixes #1123` 只关闭 Browser Provider Contract 定义事项，不关闭 `#1124/#1125/#1130`。
+- 回滚：若 `#1123` issue truth 被调整为实现闭环事项，则将 PR closing 改为 `Refs #1123` 并拆出实现 closeout。

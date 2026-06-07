@@ -4,6 +4,8 @@
 
 把 `#1123` Browser Provider Contract 冻结成 formal suite，形成 provider runtime 后续事项可直接引用的最小契约输入，并保持当前 PR 只做 spec review，不进入 runtime/provider registry 实现。
 
+`#1123` 是 `fr-complete` 的 contract-freeze FR：合入本 formal suite 后满足 `#1123` 自身关闭条件；provider registry、doctor、selection、adapter implementation 与 runtime 行为是 downstream implementation / consumer，不属于 `#1123` closure。
+
 ## 分阶段拆分
 
 ### 阶段 1：contract shape 冻结
@@ -73,6 +75,7 @@
 ## 进入实现前条件
 
 - FR-0033 spec review 通过。
+- reviewer 确认 `#1123` 是 spec-only / contract-freeze FR，`Fixes #1123` 不会提前关闭 downstream implementation / consumer。
 - reviewer 确认 `browser_provider_contract` 的字段、枚举、verification level 与 limitations 已足以支撑实现。
 - reviewer 确认 `diagnostic_only`、`unknown`、private patch、real-browser evidence 等 fail-closed 规则无阻断歧义。
 - reviewer 确认本 FR 与 M1 boundary、`FR-0015`、`FR-0016`、`FR-0020` 的 ownership 不冲突。
