@@ -69,6 +69,16 @@ Conclusion:
 - `operational.timestamps.completed_at` is required for every v1-convertible v2 envelope.
 - v2 outputs that omit `completed_at` must not be treated as satisfying current v1 compatibility.
 
+### 7. Diagnosis index must be defined, not only referenced
+
+FR-0004 already gives v1 failures a stable `error.diagnosis` surface. If v2 adds `operational.diagnosis` as an index over that diagnostic surface, the index itself must be a defined output type.
+
+Conclusion:
+
+- `DiagnosisIndexV2` is defined as a command-level diagnosis index with `availability`, optional `primary_error_index`, optional classification / failure-site snapshot, evidence refs and sanitized summary.
+- v1 compatibility maps primary failure diagnosis through `errors[0].diagnosis`; `operational.diagnosis.primary_error_index=0` may index that same primary error.
+- missing v1 diagnosis must remain missing or unavailable; v2 must not fabricate diagnosis content for compatibility.
+
 ## Design Decision
 
 Freeze a v2 envelope that is additive and convertible:

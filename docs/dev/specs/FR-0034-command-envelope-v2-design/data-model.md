@@ -50,6 +50,26 @@ Lifecycle:
 - sanitized before output.
 - not used as business result.
 
+### DiagnosisIndexV2
+
+Command-level index for the primary diagnosis.
+
+Fields:
+
+- `availability`: `available`, `unavailable` or `not_applicable`.
+- `primary_error_index`: optional pointer to `errors[*]`.
+- `classification`: optional diagnosis classification.
+- `failure_site`: optional failure-site snapshot.
+- `evidence_refs`: optional references to `evidence[*].ref`.
+- `summary`: optional short sanitized diagnosis summary.
+
+Lifecycle:
+
+- omitted when a command does not expose a command-level diagnosis index.
+- present with `availability=available` when a primary diagnosis can be indexed.
+- present with `availability=unavailable` when diagnosis was expected but not collected.
+- present with `availability=not_applicable` when the command has no diagnosis surface for this run.
+
 ### EvidenceRefV2
 
 Reference to evidence produced or consumed by the command.
@@ -112,6 +132,7 @@ Lifecycle:
 - `data` is always an object.
 - `operational` is always an object.
 - `operational.timestamps.completed_at` is required whenever a v2 envelope claims v1 compatibility.
+- `operational.diagnosis.primary_error_index`, when present, points to an existing `errors[*]` entry.
 - `evidence`, `warnings` and `errors` are always arrays.
 - `run_id` is command-level only.
 - sensitive raw content is never a model field.

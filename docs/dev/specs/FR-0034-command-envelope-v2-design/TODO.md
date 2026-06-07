@@ -10,6 +10,7 @@
 - [x] 通过本地 docs/spec 静态检查。
 - [ ] 创建 / 更新 PR，补齐 metadata。
 - [x] 处理 guardian/spec review 阻断：补齐 v1 timestamp compatibility 对 `operational.timestamps.completed_at` 的必填约束。
+- [x] 处理 guardian/spec review 阻断：补齐 `DiagnosisIndexV2` 类型定义、空值语义和最小示例。
 - [ ] 完成 guardian / review / GitHub checks。
 
 ## 后续实现事项

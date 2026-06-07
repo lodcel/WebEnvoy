@@ -61,6 +61,41 @@ Constraints:
 - `limits` must disclose truncation, redaction, budget clipping or partial observation when they affect returned fields.
 - `runtime` fields are optional and command-dependent; absence must not be interpreted as runtime failure.
 
+## DiagnosisIndexV2
+
+```ts
+type DiagnosisIndexV2 = {
+  availability: "available" | "unavailable" | "not_applicable";
+  primary_error_index?: number;
+  classification?: string;
+  failure_site?: ErrorDiagnosisV2["failure_site"];
+  evidence_refs?: string[];
+  summary?: string;
+};
+```
+
+Constraints:
+
+- `diagnosis` is optional on `OperationalV2`; omitted means the command does not expose a command-level diagnosis index.
+- `availability=available` requires either `primary_error_index`, `classification`, `failure_site`, `evidence_refs` or `summary`.
+- `availability=unavailable` means diagnosis was expected but could not be collected; the reason should appear in `warnings` or the primary `errors[*].diagnosis`.
+- `availability=not_applicable` means the command has no diagnosis surface for this run.
+- `primary_error_index`, when present, must point to `errors[primary_error_index]`.
+- `evidence_refs` must reference `evidence[*].ref`; it must not inline raw evidence.
+- `summary` must be short and sanitized.
+
+Minimum example:
+
+```ts
+const diagnosisIndexExample: DiagnosisIndexV2 = {
+  availability: "available",
+  primary_error_index: 0,
+  classification: "request_failed",
+  evidence_refs: ["artifact://run-123/key-request-1"],
+  summary: "Primary request failed after runtime link was ready"
+};
+```
+
 ## CompatV2
 
 ```ts

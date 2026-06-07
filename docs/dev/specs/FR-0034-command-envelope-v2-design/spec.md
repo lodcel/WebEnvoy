@@ -125,6 +125,7 @@ v2 必须能从 current v1 shape 派生兼容视图：
 - `operational.compat` 可承载 v1 兼容信息，例如 `v1_status`、`v1_summary`、`v1_error` 的受控镜像。
 - `operational.observability` 承接 FR-0004 最小观察面。
 - `operational.diagnosis` 可承载主诊断索引，但错误专属诊断仍应跟随对应 `errors[*].diagnosis`。
+- `operational.diagnosis.primary_error_index` 可指向承载 v1 `error.diagnosis` 的 `errors[*]` 条目；当 v1 错误没有 diagnosis 时，`availability` 必须为 `unavailable` 或省略 `operational.diagnosis`，不得伪造诊断。
 - `operational.timestamps.completed_at` 对所有可转换回 v1 的 v2 输出都是必填字段，用于生成 v1 必填 `timestamp`；缺失时不得宣称该 v2 envelope 满足 v1 compatibility。
 - `operational.limits` 必须显式披露脱敏、截断、预算裁剪或 observation partial。
 
