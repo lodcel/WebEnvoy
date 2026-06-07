@@ -207,12 +207,13 @@ Canonical Issue: #1137
 后续 registry consumer 若登记 `official-chrome.direct`，必须：
 
 - 使用 `provider_id=official-chrome.direct`。
-- 使用 `provider_class=official_chrome`。
 - 使用 `contract_snapshot` 表达 `FR-0033.browser_provider_contract.v1` 可消费字段。
 - 保持 direct-specific descriptor fields 作为 provider-specific descriptor carrier，不在 registry 私有字段中复制第二套 shape。
 
 约束：
 
+- 本 FR 不冻结 `official-chrome.direct` 的 `provider_class`；registry class assignment 必须由后续 registry-scope owner 或 consuming issue 明确处理。
+- 后续 consumer 不得把 `FR-0036` 中用于 official branded Google Chrome persistent extension main path 的 registry class 自动套用到 direct variant。
 - registry entry 的 `default_eligibility` 不得被本 FR 预设为 runtime ready。
 - 本 FR 不创建 fixture，不登记实际 registry row，不实现 resolver。
 
