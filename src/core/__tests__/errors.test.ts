@@ -7,8 +7,12 @@ describe("errors", () => {
     expect(exitCodeForError("ERR_CLI_INVALID_ARGS")).toBe(2);
     expect(exitCodeForError("ERR_CLI_UNKNOWN_COMMAND")).toBe(3);
     expect(exitCodeForError("ERR_CLI_NOT_IMPLEMENTED")).toBe(4);
+    expect(exitCodeForError("ERR_PROVIDER_UNAVAILABLE")).toBe(5);
     expect(exitCodeForError("ERR_RUNTIME_UNAVAILABLE")).toBe(5);
     expect(exitCodeForError("ERR_EXECUTION_FAILED")).toBe(6);
+    expect(exitCodeForError("ERR_RISK_GATE_DENIED")).toBe(7);
+    expect(exitCodeForError("ERR_CLOSEOUT_FAILED")).toBe(8);
+    expect(exitCodeForError("ERR_SCHEMA_EVIDENCE_FAILED")).toBe(9);
   });
 
   it("normalizes unknown exceptions to ERR_EXECUTION_FAILED", () => {

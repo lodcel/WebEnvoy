@@ -204,6 +204,8 @@ describe("Command Envelope v2 current CLI mapping", () => {
         message: "runtime unavailable",
         retryable: true,
         category: "runtime",
+        family: "provider_unavailable",
+        exit_code: 5,
         diagnosis: response.error.diagnosis,
         related_evidence_refs: [
           "run:run-1134-error:observability:failure_site",

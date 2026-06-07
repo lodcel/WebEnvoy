@@ -5,7 +5,44 @@ const commandErrorCategoryByDiagnosis = {
     runtime_unavailable: "runtime",
     unknown: "unknown"
 };
+const EXIT_CODE_BY_ERROR = {
+    ERR_CLI_INVALID_ARGS: 2,
+    ERR_CLI_UNKNOWN_COMMAND: 3,
+    ERR_CLI_NOT_IMPLEMENTED: 4,
+    ERR_PROVIDER_UNAVAILABLE: 5,
+    ERR_RISK_GATE_DENIED: 7,
+    ERR_CLOSEOUT_FAILED: 8,
+    ERR_SCHEMA_EVIDENCE_FAILED: 9,
+    ERR_RUNTIME_UNAVAILABLE: 5,
+    ERR_RUNTIME_BOOTSTRAP_PENDING: 5,
+    ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED: 5,
+    ERR_RUNTIME_BOOTSTRAP_NOT_DELIVERED: 5,
+    ERR_RUNTIME_BOOTSTRAP_ACK_TIMEOUT: 5,
+    ERR_RUNTIME_BOOTSTRAP_ACK_STALE: 5,
+    ERR_RUNTIME_BOOTSTRAP_IDENTITY_MISMATCH: 5,
+    ERR_RUNTIME_READY_SIGNAL_CONFLICT: 5,
+    ERR_RUNTIME_IDENTITY_NOT_BOUND: 5,
+    ERR_RUNTIME_IDENTITY_MISMATCH: 5,
+    ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED: 5,
+    ERR_EXECUTION_FAILED: 6,
+    ERR_PROFILE_INVALID: 5,
+    ERR_PROFILE_LOCKED: 5,
+    ERR_PROFILE_OWNER_CONFLICT: 5,
+    ERR_PROFILE_META_CORRUPT: 5,
+    ERR_PROFILE_PROXY_CONFLICT: 5,
+    ERR_BROWSER_LAUNCH_FAILED: 5,
+    ERR_PROFILE_STATE_CONFLICT: 5
+};
 const categoryForError = (code, diagnosis) => {
+    if (code === "ERR_PROVIDER_UNAVAILABLE") {
+        return "environment";
+    }
+    if (code === "ERR_RISK_GATE_DENIED") {
+        return "risk";
+    }
+    if (code === "ERR_CLOSEOUT_FAILED" || code === "ERR_SCHEMA_EVIDENCE_FAILED") {
+        return "evidence";
+    }
     if (code.startsWith("ERR_CLI_")) {
         return "cli";
     }
@@ -19,6 +56,34 @@ const categoryForError = (code, diagnosis) => {
     }
     if (diagnosis) {
         return commandErrorCategoryByDiagnosis[diagnosis.category];
+    }
+    return "unknown";
+};
+const familyForError = (code) => {
+    if (code === "ERR_CLI_INVALID_ARGS") {
+        return "validation";
+    }
+    if (code === "ERR_RISK_GATE_DENIED") {
+        return "risk_gate_denied";
+    }
+    if (code === "ERR_PROVIDER_UNAVAILABLE" ||
+        code === "ERR_RUNTIME_UNAVAILABLE" ||
+        code.startsWith("ERR_RUNTIME_BOOTSTRAP_") ||
+        code.startsWith("ERR_RUNTIME_IDENTITY_") ||
+        code === "ERR_RUNTIME_READY_SIGNAL_CONFLICT" ||
+        code === "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED" ||
+        code.startsWith("ERR_PROFILE_") ||
+        code === "ERR_BROWSER_LAUNCH_FAILED") {
+        return "provider_unavailable";
+    }
+    if (code === "ERR_CLOSEOUT_FAILED") {
+        return "closeout_failure";
+    }
+    if (code === "ERR_SCHEMA_EVIDENCE_FAILED") {
+        return "schema_evidence_failure";
+    }
+    if (code === "ERR_EXECUTION_FAILED") {
+        return "runtime_failure";
     }
     return "unknown";
 };
@@ -110,6 +175,8 @@ const errorFromResponse = (response, relatedEvidenceRefs) => ({
     message: response.error.message,
     retryable: response.error.retryable,
     category: categoryForError(response.error.code, response.error.diagnosis),
+    family: familyForError(response.error.code),
+    exit_code: EXIT_CODE_BY_ERROR[response.error.code],
     diagnosis: response.error.diagnosis,
     ...(relatedEvidenceRefs.length > 0 ? { related_evidence_refs: relatedEvidenceRefs } : {})
 });
