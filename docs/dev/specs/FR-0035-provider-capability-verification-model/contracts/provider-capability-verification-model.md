@@ -109,7 +109,7 @@ type CapabilityVerificationDecision = "allow" | "deny" | "defer"
 - `required_actions` 与 `required_execution_layers` 是当前判定目标，不是 provider 全量能力。
 - `declared_capability_ref` 必须能定位到 `FR-0033 capabilities[*].capability_id`。
 - `decision=allow` 只对当前目标 capability 和最低要求有效。
-- `decision=defer` 不得被业务执行路径当作允许。
+- `decision=defer` 只用于尚未进入目标 admission 或 consumer 明确允许继续补证的预检状态，不得携带 `blocking_reasons`，也不得被业务执行路径当作允许。
 
 ## 5. Evidence ref
 
@@ -192,10 +192,10 @@ type CapabilityBlockingReason =
 
 fail-closed 规则：
 
-- 任一 blocking reason 命中时，最终 `support_state=blocked` 且 `decision=deny`，除非后续 FR 明确允许 `defer`。
+- 任一 blocking reason 命中时，最终 `support_state=blocked` 且 `decision=deny`。
 - `unknown_limitation` 影响目标 capability 时必须阻断。
 - `diagnostic_only` 阻断业务 `read/write/download`。
-- `verification_source_missing`、`verification_source_stale` 或 `evidence_ref_invalid` 命中最低要求时不得 `allow`。
+- `verification_source_missing`、`verification_source_stale` 或 `evidence_ref_invalid` 命中当前最低要求时必须进入 `blocking_reasons`，最终输出 `blocked/deny`；未进入目标 admission 时可以用 `defer` 等待补证，但不得写入 `blocking_reasons`。
 
 ## 8. 最小合法示例
 
@@ -222,8 +222,8 @@ fail-closed 规则：
       "evidence_ref": "schema-fixture:provider-contract-v1"
     }
   ],
-  "support_state": "statically_verified",
-  "decision": "defer",
+  "support_state": "blocked",
+  "decision": "deny",
   "blocking_reasons": ["verification_source_missing"],
   "evidence_refs": [
     {
@@ -238,5 +238,5 @@ fail-closed 规则：
 
 说明：
 
-- 该示例只到 `statically_verified`，不能作为业务执行放行证据。
+- 该示例已有 declaration 与 static check source，但因当前目标要求 runtime requirements 且缺少 runtime source，最终必须 `blocked/deny`，不能作为业务执行放行证据。
 - 后续实现若要求 runtime-ready read capability，必须补 `runtime_attestation` source。

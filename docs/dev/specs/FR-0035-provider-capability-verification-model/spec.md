@@ -122,8 +122,8 @@ Canonical Issue: #1124
 - `decision` 至少支持 `allow`, `deny`, `defer`。
 - `allow` 只表示满足当前目标 capability 的最低验证要求，不表示全局 provider 可用。
 - `deny` 表示存在明确阻断或 unsupported。
-- `defer` 表示当前证据不足，后续 doctor/runtime/evidence 流程可继续补证；业务执行不得把 `defer` 当作 `allow`。
-- `blocking_reasons` 必须可机器读取；不得只写自由文本。
+- `defer` 表示当前 record 尚未进入目标 admission，或 consumer 明确允许继续补证；业务执行不得把 `defer` 当作 `allow`。
+- `blocking_reasons` 必须可机器读取；不得只写自由文本；一旦非空，最终 `support_state` 必须为 `blocked` 且 `decision` 必须为 `deny`。
 - `evidence_refs` 只能引用证据载体，不内联敏感日志、完整页面内容、Cookie、Token 或 provider 私有 patch 细节。
 - `verified_at` 如存在，必须是该 verification decision 所消费证据的判定时间，不是 spec 文件写入时间。
 
@@ -143,9 +143,9 @@ support state 必须按以下最低规则提升：
 
 约束：
 
-- 任一 blocking reason 命中时，最终 `support_state` 必须为 `blocked`，即使存在更高等级 source。
+- 任一 blocking reason 命中时，最终 `support_state` 必须为 `blocked` 且 `decision` 必须为 `deny`，即使存在更高等级 source。
 - `manual_review_attestation` 不得单独提升 support state；它只能确认已有 source 与 decision 的一致性。
-- 同一 record 中若不同 source 对同一 capability 结论冲突，必须取更保守结论，并把冲突写入 `blocking_reasons` 或 `defer`。
+- 同一 record 中若不同 source 对同一 capability 结论冲突，必须取更保守结论；若已经进入目标 admission，必须写入 `blocking_reasons` 并输出 `blocked/deny`，否则可以用 `defer` 等待补证。
 - capability-level evidence 可以高于 provider-level evidence，但必须有 capability-specific evidence ref；否则不得超过 provider-level 可证明等级。
 - 历史 evidence 可以作为背景引用，但不能替代当前 latest-head gate 或 current runtime attestation。
 
@@ -201,7 +201,7 @@ fail-closed 规则：
 - `transport_kind=none`、`attach_model=not_attachable` 或等价不可连接事实命中业务 capability 时必须阻断。
 - 目标 capability 要求 extension / profile / native messaging 时，对应 support 为 `none|unknown` 必须阻断。
 - 目标 capability 要求 real browser / latest-head live evidence 时，不得用 `provider_health_check`、`runtime.ping`、stub/fake host 或 provider 自报替代。
-- evidence ref 缺失、不可追溯、过期或与当前 provider/capability/head 不匹配时，必须 `deny` 或 `defer`，不得 `allow`。
+- evidence ref 缺失、不可追溯、过期或与当前 provider/capability/head 不匹配时，若命中当前最低要求必须 `blocked/deny`；若尚未进入目标 admission，可以 `defer`，但不得 `allow`。
 
 ### 8. Freshness 与 provenance
 
@@ -261,7 +261,8 @@ And 不得把 provider 自报当作 runtime ready
 Given capability 的 contract shape、枚举和 build artifact 均检查通过
 And 没有 runtime attestation evidence
 When consumer 要求 profile、extension binding 与 native messaging 已满足
-Then support state 最高只能到 `statically_verified`
+Then 已证明 source 层级最高只能到 `statically_verified`
+And 若该 record 已进入目标 admission，最终 `support_state` 必须为 `blocked`
 And decision 不得为 `allow`
 And blocking reason 必须包含 `verification_source_missing` 或对应 runtime requirement 缺失
 
@@ -270,8 +271,8 @@ And blocking reason 必须包含 `verification_source_missing` 或对应 runtime
 Given provider health check 通过
 And capability 声明可产出 `live_evidence_ref`
 When consumer 要求 latest-head live evidence
-Then support state 不得超过 `health_checked`
-And decision 必须为 `deny` 或 `defer`
+Then 若该 record 已进入目标 admission，最终 support state 必须为 `blocked`
+And decision 必须为 `deny`
 And blocking reason 必须包含 `live_evidence_required`
 
 ### 场景 4：runtime observation 可以证明当前执行面行为但不能替代 live gate
@@ -314,12 +315,12 @@ And PR metadata 仍必须按 provider/shared-contract gate 标记 `contract_surf
 ## 异常与边界场景
 
 - capability 未声明但 consumer 要求该 capability：`support_state=unsupported`，`decision=deny`。
-- capability 声明了 action 但 execution layer 不匹配：必须 `deny` 或 `defer`，不得静默降级到其他 layer。
+- capability 声明了 action 但 execution layer 不匹配：若已进入目标 admission，必须 `blocked/deny`；若尚未进入目标 admission，可以 `defer`，但不得静默降级到其他 layer。
 - provider-level evidence 与 capability-level evidence 冲突：取保守结论，并记录 `source_conflict`。
 - capability-level evidence 缺少 evidence ref：不得把 state 提升到超过可追溯 source。
 - evidence ref 指向旧 head、旧 run 或不同 provider/capability：不得作为当前 latest-head gate 证据。
 - manual review 只确认已有 evidence 的一致性，不得单独提升到 `runtime_attested`、`runtime_observed` 或 `live_evidence_attested`。
-- `defer` 不得被 provider selection 当作 `allow`；业务执行路径必须 fail-closed。
+- `defer` 不得携带 `blocking_reasons`，也不得被 provider selection 当作 `allow`；业务执行路径必须 fail-closed。
 - verification model 出现 provider registry lifecycle、doctor command schema、runtime implementation、Syvert normalized 字段或 provider 私有 patch 参数：视为范围漂移。
 
 ## 验收标准

@@ -30,7 +30,7 @@
 4. `runtime_attested`：对应 runtime contract 的 readiness / attach / bootstrap / binding 事实通过。
 5. `runtime_observed`：当前 runtime 执行面观察到 capability 关键行为或 artifact。
 6. `live_evidence_attested`：适用 live evidence gate 接受 latest-head evidence。
-7. `blocked`：任一 fail-closed 条件命中。
+7. `blocked`：任一 fail-closed 条件命中；一旦 `blocking_reasons` 非空，最终 record 必须进入该状态。
 
 本 FR 只冻结对象与状态语义，不实现生命周期推进器。
 
@@ -45,7 +45,7 @@
 
 - source 必须有 kind、status、scope。
 - source 如参与状态提升，必须有可追溯 evidence ref 或明确说明 `not_applicable`。
-- failed、missing、stale 的 source 命中最低要求时必须导致 `deny` 或 `defer`。
+- failed、missing、stale 的 source 命中当前最低要求时必须导致 `blocked/deny`；未进入目标 admission 时可以 `defer`，但不得写入 `blocking_reasons`。
 
 ### `capability_verification_evidence_ref`
 
