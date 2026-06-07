@@ -118,7 +118,53 @@ Canonical Issue: #1142
 - stale、unknown、missing expected identity、missing observed identity 或 redaction invalid 命中 required extension binding 时必须 fail-closed。
 - `severity=fatal` 必须对应 `blocking=provider_blocking`。
 
-### 6. Evidence refs
+### 6. Stateful runtime health matrix
+
+本 FR 不实现 runtime recovery，但必须冻结 service worker freshness / code identity 在 runtime admission 中的最低状态矩阵。后续实现必须先采集当前 run 可追溯的 service worker lifecycle signal、code identity signal 与 evidence freshness，再映射到 FR-0038 check status。
+
+| Health state | Required signals | FR-0038 status | Blocking | Next path |
+|---|---|---|---|---|
+| `healthy` | active service worker 可观测；observed code digest 与 expected bundle digest 匹配；evidence freshness 满足当前 doctor / runtime admission；redaction valid | `pass` | `none` | 可进入后续 runtime / selection gate，但不等于 runtime_attested 或 live_evidence_attested |
+| `disconnected` | service worker target、extension runtime 或 observation channel 不可达；没有同 run recoverable evidence 可证明 worker 可恢复 | `unknown` | `provider_blocking` when extension binding is required | fail-closed，要求 runtime admission / doctor 重新建立观测或阻断 |
+| `recoverable` | lifecycle 暂不可用，但同 run evidence 证明 browser/profile/extension binding 仍一致，且允许 same-run retry 或 browser start-stop recovery | `warn` | `capability_blocking` or `provider_blocking` according to requested scope | 进入 recovery path；恢复后必须重新采集 observed identity，不能复用旧 ready signal |
+| `blocked` | expected identity missing、observed digest stale/mismatch、orphan/background process 冲突、stale ready signal expired、redaction invalid 或 source conflict | `fail` | `provider_blocking` when extension binding is required | deny / manual remediation；不得自动 pass |
+
+约束:
+
+- `healthy` 只能由当前 doctor / runtime admission 可追溯 evidence 满足；历史 artifact、旧 ready signal、bootstrap ack 或 native bridge ready 不得单独满足。
+- `disconnected` 与 `recoverable` 必须区分：没有同 run recovery evidence 时不得降级为 recoverable。
+- `blocked` 必须覆盖 stale code identity、expected identity missing、redaction invalid、source conflict 与 orphan/background process conflict。
+- 任一 state 的 evidence sensitivity / redaction 不满足 FR-0041 时，必须输出 `blocked` 或 fail-closed check。
+
+#### Recovery path
+
+后续实现的 recovery path 至少必须支持以下 spec-level steps；本 FR 不定义具体命令或代码:
+
+1. Same-run retry：在同一 doctor / runtime admission run 内重新观测 service worker lifecycle 与 code identity，生成新的 evidence refs。
+2. Browser start-stop recovery：当 same-run retry 无法恢复且 policy 允许时，重启或重新绑定 official Chrome persistent session 后重新采集 observed identity。
+3. Orphan/background process recovery：若发现旧 Chrome/background service worker process 仍持有 stale extension code identity，必须标记 source conflict 或 blocked，要求清理 / 重绑后重新采集，不得用旧进程 ready signal 通过。
+4. Stale ready signal expiry：任何 ready / fresh signal 必须有 current freshness boundary；超过当前 run / current launch / current PR head 要求时必须过期，不能继续作为 pass evidence。
+
+恢复约束:
+
+- recovery 成功后必须重新计算 expected / observed digest comparison；不得把 retry 成功或 browser started 直接写成 `service_worker_fresh`。
+- recovery 失败或 evidence 不完整时必须保持 `unknown|fail`，并按 FR-0038 blocking 输出。
+- recovery path 只影响 health state 归类，不提升到 `runtime_attested` 或 `live_evidence_attested`。
+
+#### Minimum regression matrix
+
+后续 implementation 进入前，至少应覆盖以下回归场景:
+
+- current active service worker digest matches expected bundle digest -> `healthy` / FR-0038 `pass`.
+- observed service worker digest is stale after extension bundle update -> `blocked` / FR-0038 `fail`.
+- service worker observation channel disconnected with no same-run recovery evidence -> `disconnected` / FR-0038 `unknown`.
+- service worker lifecycle temporarily unavailable with same-run retry evidence -> `recoverable` / FR-0038 `warn`, followed by fresh re-observation before pass.
+- orphan/background process serves stale code after browser restart boundary -> `blocked` / source conflict until cleaned and re-observed.
+- stale ready signal from prior run or prior launch is reused -> `blocked` or `unknown`, never `pass`.
+- expected bundle identity missing -> `blocked` / FR-0038 `fail` with `severity=fatal`.
+- required evidence redaction invalid or policy missing -> `blocked` / FR-0038 `fail`.
+
+### 7. Evidence refs
 
 该 health check 必须通过 FR-0038 `evidence_refs` 引用证据，并消费 FR-0040 / FR-0041:
 
@@ -134,7 +180,7 @@ Canonical Issue: #1142
 - `redaction_required|policy_missing|invalid` 命中 required evidence 时，health check 不得为 `pass`。
 - `historical_background` evidence 不得满足 current freshness requirement。
 
-### 7. Boundary relations
+### 8. Boundary relations
 
 本 FR 必须保持以下边界:
 

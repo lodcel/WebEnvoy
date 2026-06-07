@@ -14,8 +14,13 @@ It does not define a new health result schema. Implementations must emit `FR-003
 ```yaml
 provider_doctor_report:
   identity:
+    doctor_report_id: doctor-report:official-chrome-persistent-service-worker:example
     doctor_contract_version: v1
     provider_id: official-chrome.persistent
+    provider_contract_version: v1
+    provider_version: v1
+    generated_at: "2026-06-07T00:00:00Z"
+    scope: local_runtime
   checks:
     - check_id: official_chrome_persistent_service_worker_freshness
       category: extension_load

@@ -5,6 +5,10 @@
 - [ ] Confirm FR-0047 path and sync map use canonical issue #1142.
 - [ ] Confirm service worker freshness health consumes FR-0038 and does not define a new health result schema.
 - [ ] Confirm `extension_load` check mapping covers pass, warn, fail, unknown, severity and blocking.
+- [ ] Confirm stateful runtime health matrix covers `healthy`, `disconnected`, `recoverable`, and `blocked`.
+- [ ] Confirm recovery path covers same-run retry, browser start-stop recovery, orphan/background process recovery, and stale ready signal expiry.
+- [ ] Confirm minimum regression matrix covers stale worker, disconnected worker, recoverable retry, orphan process conflict, stale ready signal, missing expected identity, and redaction invalid.
+- [ ] Confirm contract examples include the full FR-0038 required `provider_doctor_report.identity` shape.
 - [ ] Confirm expected / observed service worker identity fields are diagnostic inputs only, not new schema.
 - [ ] Confirm evidence refs consume FR-0040 freshness / artifact identity and FR-0041 redaction policy.
 - [ ] Confirm #1140 persistent extension identity health is out of scope.
