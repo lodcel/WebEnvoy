@@ -8,7 +8,7 @@
 - [ ] 确认 evidence refs 消费 FR-0040，redaction policy 消费 FR-0041。
 - [ ] 确认 persistent descriptor refs 消费 FR-0043。
 - [ ] 确认未定义 #1140 persistent extension identity health、#1142 service worker freshness health、#1139 capability matrix、#1143 launch evidence 或 #1144 fixtures。
-- [ ] 确认 PR metadata 使用 formal spec review lane、local-only integration、`live_evidence_record: N/A`，并可被 parser 消费。
+- [ ] 确认 PR metadata 使用 formal spec review lane、provider health / diagnostics integration gate、`live_evidence_record: N/A`，并可被 parser 消费。
 - [ ] 确认 `Fixes #1141` 只关闭 Native Messaging health definition，不关闭 runtime/live behavior。
 
 ## 实现前待办

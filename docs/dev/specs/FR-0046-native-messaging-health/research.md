@@ -36,20 +36,22 @@ FR-0038 已冻结:
 
 ### Integration 判断
 
-Issue #1141 is WebEnvoy-local official Chrome provider health scope. This PR does not change Syvert normalized result, cross-repo shared result shape, task/run/request id semantics, or joint acceptance requirement.
+Issue #1141 is official Chrome provider health / diagnostics scope. Although this PR does not define Syvert normalized result, runtime implementation, task/run/request id semantics or joint acceptance behavior, it freezes a provider health / diagnostics contract surface consumed by later provider admission and fixtures. The PR metadata must therefore use the provider/shared-contract integration gate consistently.
 
 PR metadata should use:
 
-- `integration_applicable: no`
-- `integration_touchpoint: none`
-- `integration_ref: none`
-- `shared_contract_changed: no`
+- `integration_applicable: yes`
+- `integration_touchpoint: check_required`
+- `integration_ref: "#1113"`
+- `shared_contract_changed: yes`
 - `external_dependency: none`
-- `merge_gate: local_only`
-- `contract_surface: none`
+- `merge_gate: integration_check_required`
+- `contract_surface: diagnostics_observability`
 - `joint_acceptance_needed: no`
+- `integration_status_checked_before_pr: yes`
+- `integration_status_checked_before_merge: yes`
 
-Rationale: this FR consumes the already-shared FR-0038 doctor contract and specializes official Chrome native messaging readiness locally; it does not modify the shared provider health schema.
+Rationale: this FR consumes FR-0038 but specializes a provider health / diagnostics surface for `official-chrome.persistent`. The integration reference is the local parent #1113, and no Syvert-side action or joint acceptance is required.
 
 ### Live evidence 判断
 

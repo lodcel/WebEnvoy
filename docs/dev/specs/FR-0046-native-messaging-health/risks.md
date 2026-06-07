@@ -58,13 +58,13 @@ High。
 
 回滚：删除 raw values，改为 redacted locator / artifact id / secret handle。
 
-### 6. Integration metadata 过度升级或误降级
+### 6. Integration metadata 误判
 
-风险：本 FR 消费 shared FR-0038 但不修改 schema；若误报 integration gate 会引入不必要 cross-repo blocker，若误称 shared schema changed 会误导 review。
+风险：本 FR 冻结 provider health / diagnostics contract surface；若 PR body 或 checklist 仍申报非 integration-gated metadata，会与 provider/shared-contract gate 口径冲突。
 
-影响：merge gate metadata 与实际 scope 不一致。
+影响：merge gate metadata 与正式 FR suite 不一致，formal review 或 merge-ready parser 可能阻断。
 
-缓解：research 记录 local-only 判断；PR body 使用 `integration_applicable=no`、`merge_gate=local_only`、`contract_surface=none`。
+缓解：research、TODO 和 PR body 均使用 integration-gated metadata：`integration_applicable=yes`、`integration_ref="#1113"`、`merge_gate=integration_check_required`、`contract_surface=diagnostics_observability`。
 
 回滚：修正 PR metadata 并重新跑 parser/checks。
 
