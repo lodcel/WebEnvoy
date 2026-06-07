@@ -84,7 +84,7 @@ export interface ErrorV2 {
 }
 
 export interface WarningV2 {
-  code: "WARN_EVIDENCE_PARTIAL" | "WARN_OPERATIONAL_LIMIT";
+  code: string;
   message: string;
   severity: "info" | "warning";
   related_evidence_ref?: string;
@@ -310,10 +310,12 @@ const evidenceRefForLimit = (
 ): string | undefined =>
   evidence.find((item) => limit.reason === `evidence ref ${item.ref} is partial`)?.ref;
 
+type GeneratedWarningCode = "WARN_EVIDENCE_PARTIAL" | "WARN_OPERATIONAL_LIMIT";
+
 const warningCodeForLimit = (
   limit: LimitDisclosureV2,
   relatedEvidenceRef: string | undefined
-): WarningV2["code"] =>
+): GeneratedWarningCode =>
   relatedEvidenceRef && limit.kind === "partial_observation"
     ? "WARN_EVIDENCE_PARTIAL"
     : "WARN_OPERATIONAL_LIMIT";

@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import { mapCurrentCliResponseToCommandEnvelopeV2 } from "../command-envelope-v2.js";
+import type { WarningV2 } from "../command-envelope-v2.js";
 import type { ErrorResponse, SuccessResponse } from "../types.js";
 
 describe("Command Envelope v2 current CLI mapping", () => {
+  it("keeps exported warning codes open for command-specific warnings", () => {
+    const commandSpecificWarning: WarningV2 = {
+      code: "WARN_COMMAND_SPECIFIC",
+      message: "command-specific warning code remains contract-legal",
+      severity: "info"
+    };
+
+    expect(commandSpecificWarning.code).toBe("WARN_COMMAND_SPECIFIC");
+  });
+
   it("maps current v1 success summary into data and keeps operational compatibility fields", () => {
     const response: SuccessResponse = {
       run_id: "run-1134-success",
