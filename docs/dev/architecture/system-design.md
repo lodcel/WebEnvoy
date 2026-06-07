@@ -18,6 +18,7 @@
 | 账号与运行时 | [account.md](./system-design/account.md) | Named Profile 模型、配置空间状态机、浏览器生命周期状态机 |
 | 平台适配器规范 | [adapter.md](./system-design/adapter.md) | `rules.yaml` 结构、适配器代码职责、热更新、改版快速维护路径 |
 | 通信协议 | [communication.md](./system-design/communication.md) | JSON-RPC 消息格式、信息披露管控、Native Messaging 分片 |
+| WebEnvoy / Syvert / Provider 边界 | [boundary.md](./system-design/boundary.md) | WebEnvoy core、Syvert consuming layer、Provider 运行时/适配层的职责、依赖方向、integration 触发条件与禁止混用场景 |
 | 错误处理与降级 | [error-handling.md](./system-design/error-handling.md) | 错误分类、L3→L2 降级触发、断点续传 DDL |
 | 数据库结构 | [database.md](./system-design/database.md) | 核心表 DDL、索引设计、数据流向 |
 | 外部依赖与集成决策 | [dependencies.md](./system-design/dependencies.md) | 28 个参考项目的集成方式（npm 依赖 / 算法移植 / 子进程 / 概念借鉴）、依赖清单 |
