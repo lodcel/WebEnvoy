@@ -42,7 +42,7 @@
 
 - `check_id` 必须来自本 FR contract 的 required set。
 - `category` 固定为 `native_messaging`。
-- Required check 缺失、unknown、fail 或 evidence invalid 时必须 fail-closed。
+- Required check 缺失、not_applicable、unknown、fail、blocking、fatal evidence 或 evidence invalid 时必须 fail-closed。
 - Provider-level check 使用 `capability_id=N/A`；capability-specific consumption 由 FR-0038 `capability_readiness` 承接。
 
 ### `native_messaging_evidence_locator`
@@ -66,7 +66,8 @@
 
 约束：
 
-- `native_messaging` 只在所有 required provider-level checks 通过且无 blocking 时进入 `satisfied_runtime_requirements`。
+- `native_messaging` 只在所有 required provider-level checks 均为 `status=pass`、`blocking=none`、无 fatal evidence 且 required evidence current/redacted 时进入 `satisfied_runtime_requirements`。
+- `status=not_applicable` 不能满足 `official-chrome.persistent` 的 required/requested `native_messaging`；它只能表达非 required provider 或未请求 capability 的 N/A。
 - 任一缺口必须进入 `unsatisfied_runtime_requirements`，并阻断相应 capability。
 - 本 FR 不满足 `target_tab`、`runtime_bootstrap_ready`、`runtime_attested` 或 `live_evidence_attested`。
 

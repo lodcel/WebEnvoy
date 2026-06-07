@@ -69,13 +69,13 @@
 
 后续 implementation issue 应优先补：
 
-- FR-0038 doctor parser 对 required `native_messaging` checks 缺失、unknown、fail、fatal 和 invalid evidence 的 fail-closed tests。
+- FR-0038 doctor parser 对 required `native_messaging` checks 缺失、not_applicable、unknown、fail、blocking、fatal 和 invalid evidence 的 fail-closed tests。
 - Native host identity、manifest ref、allowed origins、registration、socket availability 与 bridge handshake fixture tests。
 - Stateful matrix tests for `ready`、`recoverable`、`disconnected`、`blocked` 与 `unknown` mapping into FR-0038 / FR-0040-compatible statuses。
 - Recovery path tests for same-run retry success/failure、idempotent start/stop、current-run orphan cleanup、unowned orphan rejection、stale ready signal rejection 与 concurrent contention。
 - Stub/fake host evidence rejection tests。
 - FR-0041 redaction policy enforcement tests for manifest/socket/bridge artifacts。
-- Capability readiness tests ensuring `native_messaging` remains unsatisfied when any required provider-level check fails。
+- Capability readiness tests ensuring `native_messaging` remains unsatisfied when any required provider-level check is non-pass, not_applicable, blocking, fatal or lacks current/redacted required evidence。
 
 ## 并行 / 串行关系
 

@@ -38,7 +38,7 @@ Constraints:
 - `status`, `severity`, `blocking`, `diagnostics` and `evidence_refs` are exactly the FR-0038 fields.
 - Provider-level checks use `capability_id="N/A"`.
 - Capability-level consumption happens through FR-0038 `capability_readiness`; this contract does not add a capability health object.
-- Unknown enum, missing required check, required evidence unavailable, secret leak or redaction invalid must fail closed.
+- Unknown enum, missing required check, required `not_applicable`, required evidence unavailable, secret leak or redaction invalid must fail closed.
 
 ## Required check ids
 
@@ -143,7 +143,7 @@ Future implementation must preserve these contract rules:
 
 ## Outcome consumption
 
-When any required Native Messaging provider-level check fails or is unknown:
+When any required Native Messaging provider-level check fails, is unknown, is not applicable, has blocking, has fatal evidence or lacks required current/redacted evidence:
 
 - `ProviderDoctorOutcome.overall_status` must be `fail` or `unknown`.
 - `provider_blocked` must be true when the selected provider requires Native Messaging.
@@ -151,5 +151,7 @@ When any required Native Messaging provider-level check fails or is unknown:
 
 When all required checks pass:
 
+- Every required provider-level Native Messaging check must have `status=pass`, `blocking=none`, no fatal evidence and current/redacted required evidence.
+- `status=not_applicable` cannot satisfy required/requested `native_messaging` for `official-chrome.persistent`; it is only valid for non-required providers or not-requested capability N/A.
 - The highest doctor layer remains `doctor_checked`.
 - Runtime attestation, target tab binding and live evidence remain future gates.
