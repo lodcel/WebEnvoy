@@ -133,7 +133,8 @@ interface ProviderDoctorDiagnostics {
 
 - `code` 必须稳定、机器可读，不得只写自然语言。
 - `required_runtime_requirements` 等字段只在 `capability_readiness` 必需。
-- `runtime_bootstrap_ready`、`runtime_attested`、`live_evidence_attested` 不得出现在 `satisfied_runtime_requirements` 中。
+- `provider_doctor_passed` 只有在该 capability 的 required doctor checks 全部通过且无 provider / capability blocking 时，才能出现在 `satisfied_runtime_requirements` 中。
+- `runtime_bootstrap_ready` 不得出现在 `satisfied_runtime_requirements` 中；`runtime_attested` 与 `live_evidence_attested` 是 verification level，不是 runtime requirement，也不得写入 runtime requirement arrays。
 - 若 `unsatisfied_runtime_requirements` 非空，check 不得为 `status=pass`。
 
 ## 7. Evidence refs
@@ -229,6 +230,75 @@ Required check 缺失时，受影响 provider 或 capability 必须 fail-closed�
   },
   "checks": [
     {
+      "check_id": "browser-version",
+      "category": "version",
+      "status": "pass",
+      "severity": "info",
+      "blocking": "none",
+      "capability_id": "N/A",
+      "summary": "Browser version satisfies declared range.",
+      "diagnostics": {
+        "code": "browser_version_ok",
+        "observed": "Google Chrome stable 137",
+        "expected": ">=137"
+      },
+      "evidence_refs": [
+        {
+          "kind": "command_output_ref",
+          "ref": "doctor://doctor-20260607-001/browser-version",
+          "status": "available",
+          "collected_at": "2026-06-07T00:00:00Z",
+          "sensitivity": "internal"
+        }
+      ]
+    },
+    {
+      "check_id": "extension-load",
+      "category": "extension_load",
+      "status": "pass",
+      "severity": "info",
+      "blocking": "none",
+      "capability_id": "N/A",
+      "summary": "Required extension binding is present.",
+      "diagnostics": {
+        "code": "extension_binding_ok",
+        "observed": "bound",
+        "expected": "required"
+      },
+      "evidence_refs": [
+        {
+          "kind": "extension_state_ref",
+          "ref": "doctor://doctor-20260607-001/extension-load",
+          "status": "available",
+          "collected_at": "2026-06-07T00:00:00Z",
+          "sensitivity": "internal"
+        }
+      ]
+    },
+    {
+      "check_id": "native-messaging",
+      "category": "native_messaging",
+      "status": "pass",
+      "severity": "info",
+      "blocking": "none",
+      "capability_id": "N/A",
+      "summary": "Required Native Messaging manifest and origin binding are present.",
+      "diagnostics": {
+        "code": "native_messaging_binding_ok",
+        "observed": "manifest_and_origin_bound",
+        "expected": "required"
+      },
+      "evidence_refs": [
+        {
+          "kind": "native_manifest_ref",
+          "ref": "doctor://doctor-20260607-001/native-messaging",
+          "status": "available",
+          "collected_at": "2026-06-07T00:00:00Z",
+          "sensitivity": "sensitive"
+        }
+      ]
+    },
+    {
       "check_id": "display-mode",
       "category": "display_mode",
       "status": "pass",
@@ -252,6 +322,29 @@ Required check 缺失时，受影响 provider 或 capability 必须 fail-closed�
       ]
     },
     {
+      "check_id": "profile-persistence",
+      "category": "profile_persistence",
+      "status": "pass",
+      "severity": "info",
+      "blocking": "none",
+      "capability_id": "N/A",
+      "summary": "Required profile binding and persistence are present.",
+      "diagnostics": {
+        "code": "profile_persistence_ok",
+        "observed": "persistent_profile_bound",
+        "expected": "required"
+      },
+      "evidence_refs": [
+        {
+          "kind": "profile_state_ref",
+          "ref": "doctor://doctor-20260607-001/profile-persistence",
+          "status": "available",
+          "collected_at": "2026-06-07T00:00:00Z",
+          "sensitivity": "sensitive"
+        }
+      ]
+    },
+    {
       "check_id": "runtime-page-automation-readiness",
       "category": "capability_readiness",
       "status": "warn",
@@ -261,8 +354,8 @@ Required check 缺失时，受影响 provider 或 capability 必须 fail-closed�
       "summary": "Doctor checks passed; runtime attestation is still required.",
       "diagnostics": {
         "code": "runtime_attestation_required",
-        "required_runtime_requirements": ["profile_binding", "extension_binding", "native_messaging", "target_tab", "real_browser", "headless_forbidden", "runtime_bootstrap_ready"],
-        "satisfied_runtime_requirements": ["profile_binding", "extension_binding", "native_messaging", "target_tab", "real_browser", "headless_forbidden"],
+        "required_runtime_requirements": ["profile_binding", "extension_binding", "native_messaging", "target_tab", "real_browser", "headless_forbidden", "provider_doctor_passed", "runtime_bootstrap_ready"],
+        "satisfied_runtime_requirements": ["profile_binding", "extension_binding", "native_messaging", "target_tab", "real_browser", "headless_forbidden", "provider_doctor_passed"],
         "unsatisfied_runtime_requirements": ["runtime_bootstrap_ready"],
         "minimum_next_verification_level": "runtime_attested"
       },

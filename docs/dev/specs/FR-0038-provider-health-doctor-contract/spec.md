@@ -162,7 +162,9 @@ doctor consumer 必须把 `FR-0033.browser_provider_contract` 中的声明映射
 
 - `required_runtime_requirements` 必须来自 `FR-0033.capabilities[*].runtime_requirements`。
 - `satisfied_runtime_requirements` 只能表达 doctor 层能证明的本地/attach 前置事实。
-- `runtime_bootstrap_ready`、`runtime_attested`、`live_evidence_attested` 不能由 doctor report 直接满足；只能标记为需要后续 runtime/evidence gate。
+- `provider_doctor_passed` 是 doctor 层可满足的 runtime requirement：只有当该 capability 的所有 required doctor checks 均为 `pass|not_applicable`、无 `capability_blocking`，且 provider-level required checks 无 `provider_blocking` 时，才能进入 `satisfied_runtime_requirements`。
+- 若 capability 声明了 `provider_doctor_passed`，但任一 required doctor check 缺失、`fail`、`unknown` 或 blocking，`provider_doctor_passed` 必须进入 `unsatisfied_runtime_requirements`，且该 capability 必须 fail-closed。
+- `runtime_bootstrap_ready` 不能由 doctor report 直接满足；只能标记为需要后续 runtime gate。`runtime_attested` 与 `live_evidence_attested` 是 verification level，不得被当作 runtime requirement 写入 `satisfied_runtime_requirements`。
 - `minimum_next_verification_level` 至少支持：
   - `runtime_attested`
   - `live_evidence_attested`
