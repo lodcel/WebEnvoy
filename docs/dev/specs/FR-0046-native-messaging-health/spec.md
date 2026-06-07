@@ -8,7 +8,7 @@ Canonical Issue: #1141
 
 本 FR 只定义 `official-chrome.persistent` 的 Native Messaging host / socket / bridge readiness 应如何映射到 `FR-0038.provider_doctor_report` 的 `native_messaging` check。它不定义新的 health result schema，不实现 Native Messaging host、socket、bridge、CLI、runtime、extension、Playwright 或 browser 行为。
 
-`#1141` 的 issue meta 已声明 `Close Semantics: work-item-complete`。本 suite 合入后关闭 #1141 的规约定义事项；runtime health implementation、fixtures、launch evidence、guardian/formal review 与 merge gate 由后续 owner 或 scheduler 承接。
+本 suite 只冻结 #1141 可消费的 formal spec carrier，供后续 runtime health implementation、fixtures、launch evidence、guardian/formal review 与 merge gate 承接。由于 #1141 是 `work-item-complete` 事项且 runtime implementation 仍在 downstream，本 PR 使用 `Refs #1141`，不得声明关闭 #1141 或 runtime/work item 完成。
 
 ## 目标
 

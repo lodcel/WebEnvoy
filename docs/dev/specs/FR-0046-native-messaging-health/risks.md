@@ -68,12 +68,12 @@ High。
 
 回滚：修正 PR metadata 并重新跑 parser/checks。
 
-### 7. `Fixes #1141` 被误解为 runtime complete
+### 7. Closing semantics 被误解为 runtime complete
 
-风险：formal spec PR 使用 `Fixes #1141` 后被误读为 Native Messaging runtime implementation 或 live readiness 完成。
+风险：formal spec PR 使用关闭语义后被误读为 Native Messaging runtime implementation、work item 或 live readiness 完成。
 
-影响：后续 implementation / fixtures gate 输入不清。
+影响：#1141 issue truth 被提前关闭，后续 implementation / fixtures gate 输入不清。
 
-缓解：spec、plan 和 PR body 明确 #1141 closure is health definition complete；runtime behavior, fixtures and live evidence are out of scope。
+缓解：spec、plan、TODO 和 PR body 明确本 PR 使用 `Refs #1141`，只冻结 formal spec carrier；runtime behavior、fixtures、live evidence 和 work item closeout 均保持 downstream。
 
-回滚：若 issue truth 被调整为 runtime implementation issue，则 PR closing 改为 `Refs #1141` 并拆出 spec-only issue。
+回滚：如 PR body 或文档出现关闭语义，改回 `Refs #1141` 并重新运行 metadata / spec checks。

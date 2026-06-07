@@ -4,7 +4,7 @@
 
 把 `#1141 Native Messaging Health` 冻结成 formal suite：只定义 `official-chrome.persistent` 的 Native Messaging host / socket / bridge readiness 如何消费 `FR-0038 Provider Health / Doctor Contract`，并引用 `FR-0040` evidence refs、`FR-0041` redaction policy 与 `FR-0043` persistent descriptor refs。
 
-`#1141` 是 `work-item-complete` 的规约定义事项。本 PR 合入后关闭 #1141 的 Native Messaging health definition；runtime implementation、fixtures、launch evidence、browser/live validation 和 merge gate 由后续 owner 或 scheduler 承接。
+本 PR 只冻结 #1141 可消费的 Native Messaging health formal spec carrier。由于 #1141 是 `work-item-complete` 事项，且 runtime implementation、fixtures、launch evidence、browser/live validation 和 merge gate 均仍由后续 owner 或 scheduler 承接，本 PR 使用 `Refs #1141`，不得声明关闭 #1141 或 runtime/work item 完成。
 
 ## 分阶段拆分
 
@@ -91,7 +91,7 @@
 ## 进入实现前条件
 
 - FR-0046 spec review 通过。
-- reviewer 确认 #1141 的关闭语义是 Native Messaging health definition complete，不是 runtime behavior complete。
+- reviewer 确认本 PR 仅引用 #1141 并冻结 Native Messaging health formal spec carrier，不声明关闭 #1141 或 runtime behavior complete。
 - reviewer 确认本 suite 没有新增 health result schema。
 - reviewer 确认本 suite 没有定义 #1140 persistent extension identity health 或 #1142 service worker freshness health。
 - reviewer 确认 evidence refs / redaction policy 与 FR-0040 / FR-0041 对齐。
