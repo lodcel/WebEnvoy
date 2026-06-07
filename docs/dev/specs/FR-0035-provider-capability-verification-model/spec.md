@@ -101,6 +101,7 @@ Canonical Issue: #1124
 - `provider_id`
 - `contract_version`
 - `capability_id`
+- `requested_capability_ref`
 - `required_actions`
 - `required_execution_layers`
 - `required_runtime_requirements`
@@ -114,7 +115,10 @@ Canonical Issue: #1124
 
 约束：
 
-- `provider_id`、`contract_version` 与 `capability_id` 必须与 `FR-0033` contract 中的 identity 和 capability 精确匹配。
+- `provider_id` 与 `contract_version` 必须与 `FR-0033` contract 中的 identity 精确匹配。
+- `capability_id` 表示当前 consumer / command / admission 请求的目标 capability id；当 provider 未声明该 capability 时，record 仍必须保留请求值。
+- `requested_capability_ref` 必须定位到 consumer / command / admission 的目标 capability 要求，供 unsupported / `capability_not_declared` 路径解释请求目标。
+- `declared_capability_ref` 仅在存在 matching `FR-0033 capabilities[*].capability_id` 时为必填非空 string；没有 matching declaration 时必须为 `null` 或等价 absent/null 表达，不得伪造相邻 capability locator。
 - `required_actions` 与 `required_execution_layers` 是本次判定的目标要求，不得被误写成 provider 全量能力。
 - `required_runtime_requirements` 必须来自目标 capability / command / admission 需求，且与 `FR-0033` 的 runtime requirements 交叉判定。
 - `verification_sources` 必须是结构化数组，记录 source type、status、scope、timestamp 与 evidence ref。
@@ -126,6 +130,7 @@ Canonical Issue: #1124
 - `blocking_reasons` 必须可机器读取；不得只写自由文本；一旦非空，最终 `support_state` 必须为 `blocked` 且 `decision` 必须为 `deny`。
 - `evidence_refs` 只能引用证据载体，不内联敏感日志、完整页面内容、Cookie、Token 或 provider 私有 patch 细节。
 - `verified_at` 如存在，必须是该 verification decision 所消费证据的判定时间，不是 spec 文件写入时间。
+- 同类 required ref 规则：source 或 evidence 不存在时不得为了满足 schema 伪造 locator；`CapabilityVerificationSource.evidence_ref` 只在存在可追溯 source evidence 时填写，`evidence_refs[*].ref` 只在该 evidence ref 对象存在时必填。
 
 ### 5. Source aggregation 与状态提升
 
@@ -341,9 +346,21 @@ Then 不应出现 Syvert normalized result、业务 schema 或 product workflow 
 And 不因“未来 Syvert 可能消费”引入 Syvert external dependency
 And PR metadata 仍必须按 provider/shared-contract gate 标记 `contract_surface=execution_provider`
 
+### 场景 8：未声明 capability 的 record 不得伪造 declaration ref
+
+Given consumer 请求 capability `download-current-page`
+And `FR-0033` provider contract 没有 matching `capabilities[*].capability_id`
+When verification model 生成 record
+Then `capability_id` 必须保留请求值 `download-current-page`
+And `requested_capability_ref` 必须定位到 consumer / command / admission 请求目标
+And `declared_capability_ref` 必须为 `null` 或等价 absent/null 表达
+And 若该 record 已进入目标 admission，最终 `support_state` 必须为 `blocked`
+And `decision` 必须为 `deny`
+And `blocking_reasons` 必须包含 `capability_not_declared`
+
 ## 异常与边界场景
 
-- capability 未声明但 consumer 要求该 capability：`support_state=unsupported`，`decision=deny`。
+- capability 未声明但 consumer 要求该 capability：必须保留 `requested_capability_ref` 并把 `declared_capability_ref` 置为 `null`；若已进入目标 admission，必须 `blocked/deny` 且记录 `capability_not_declared`，未进入目标 admission 时可以 `unsupported/deny` 但不得伪造 declaration ref 或进入业务执行。
 - capability 声明了 action 但 execution layer 不匹配：若已进入目标 admission，必须 `blocked/deny`；若尚未进入目标 admission，可以 `defer`，但不得静默降级到其他 layer。
 - provider-level evidence 与 capability-level evidence 冲突：取保守结论，并记录 `source_conflict`。
 - capability-level evidence 缺少 evidence ref：不得把 state 提升到超过可追溯 source。

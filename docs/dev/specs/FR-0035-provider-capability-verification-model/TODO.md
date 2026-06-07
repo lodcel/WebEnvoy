@@ -4,6 +4,7 @@
 
 - [x] 建立 Provider Capability Verification Model formal suite。
 - [x] 冻结 support state、verification source、verification record、blocking reason 与 fail-closed 规则。
+- [x] 明确 undeclared capability 的 `requested_capability_ref` / `declared_capability_ref=null` 语义，避免 unsupported / deny / defer 路径伪造 declaration locator。
 - [x] 明确本 FR 锚定 `FR-0033`，不实现 registry、doctor、selection、evidence kernel 或 runtime 行为。
 - [x] 更新 `.github/spec-issue-sync-map.yml`，将 `#1124` 绑定到本 spec。
 

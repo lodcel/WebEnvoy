@@ -11,7 +11,7 @@
 职责：
 
 - 表达某个 provider capability 在某次目标要求下的验证结论。
-- 聚合 `FR-0033` declaration、verification sources、support state、decision、blocking reasons 与 evidence refs。
+- 聚合 consumer 请求目标、`FR-0033` declaration（如存在）、verification sources、support state、decision、blocking reasons 与 evidence refs。
 
 非职责：
 
@@ -24,13 +24,14 @@
 
 生命周期：
 
-1. `declared`：从 `FR-0033` capability declaration 生成初始 record。
-2. `statically_verified`：字段、枚举、required arrays、canonical labels、limitation conflict 和本地引用通过静态或 build-time 检查。
-3. `health_checked`：后续 doctor / health check source 可提升到该状态。
-4. `runtime_attested`：对应 runtime contract 的 readiness / attach / bootstrap / binding 事实通过。
-5. `runtime_observed`：当前 runtime 执行面观察到 capability 关键行为或 artifact。
-6. `live_evidence_attested`：适用 live evidence gate 接受 latest-head evidence。
-7. `blocked`：任一 fail-closed 条件命中；一旦 `blocking_reasons` 非空，最终 record 必须进入该状态。
+1. `unsupported`：consumer 请求目标没有 matching `FR-0033` capability declaration；record 必须保留 requested capability locator，且 declaration locator 必须为空。
+2. `declared`：从 `FR-0033` capability declaration 生成初始 record。
+3. `statically_verified`：字段、枚举、required arrays、canonical labels、limitation conflict 和本地引用通过静态或 build-time 检查。
+4. `health_checked`：后续 doctor / health check source 可提升到该状态。
+5. `runtime_attested`：对应 runtime contract 的 readiness / attach / bootstrap / binding 事实通过。
+6. `runtime_observed`：当前 runtime 执行面观察到 capability 关键行为或 artifact。
+7. `live_evidence_attested`：适用 live evidence gate 接受 latest-head evidence。
+8. `blocked`：任一 fail-closed 条件命中；一旦 `blocking_reasons` 非空，最终 record 必须进入该状态。
 
 本 FR 只冻结对象与状态语义，不实现生命周期推进器。
 
@@ -91,7 +92,8 @@
 
 | 字段组 | Ownership | 不得替代 |
 |---|---|---|
-| provider / capability identity | FR-0033；本 FR 只引用 | provider registry、display name、profile name |
+| provider identity / declared capability locator | FR-0033；本 FR 只引用 | provider registry、display name、profile name |
+| requested capability locator | FR-0035 shape；请求事实由 consumer / command / admission 持有 | FR-0033 declaration locator、provider display name |
 | support state / decision | FR-0035 | provider self-report、selection policy |
 | decision policy | FR-0035 | provider 私有 policy、runtime selection implementation |
 | verification source kind | FR-0035 | doctor report schema、runtime status schema |

@@ -53,6 +53,7 @@
 - 语义自检：
   - 对照 `docs/dev/architecture/system-design/boundary.md` 与 `#1111`，确认本 FR 触发 provider/shared-contract gate，但不引入 Syvert external dependency。
   - 对照 `FR-0033`，确认本 FR 只定义 capability verification model，不修改 Browser Provider Contract shape。
+  - 对照 unsupported / deny / defer 路径，确认 required locator 字段不会要求实现者伪造不存在的 declaration、source 或 evidence ref。
   - 对照 `FR-0015`，确认不重写 runtime bootstrap/readiness。
   - 对照 `FR-0016`，确认不把 provider verification record 当 live evidence。
   - 对照 `FR-0020`，确认不把 provider verification 当 anti-detection baseline。
@@ -67,6 +68,7 @@
   - `unknown` limitation、`diagnostic_only`、transport not attachable、missing runtime requirement 必须 fail-closed。
   - stale / invalid evidence ref 不得提升 support state。
   - runtime observation 与 live evidence gate 的状态边界不漂移。
+  - undeclared capability 路径必须保留 `requested_capability_ref`，并将 `declared_capability_ref` 表达为 `null` / absent，不得伪造 declaration locator。
 
 ## 并行 / 串行关系
 

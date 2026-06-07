@@ -81,10 +81,11 @@ interface ProviderCapabilityVerificationRecord {
   provider_id: string
   contract_version: "v1"
   capability_id: string
+  requested_capability_ref: string
   required_actions: Array<"read" | "write" | "download" | "diagnose">
   required_execution_layers: Array<"L3" | "L2" | "L1">
   required_runtime_requirements: BrowserProviderRuntimeRequirement[]
-  declared_capability_ref: string
+  declared_capability_ref: string | null
   verification_sources: CapabilityVerificationSource[]
   support_state: CapabilitySupportState
   decision: CapabilityVerificationDecision
@@ -118,12 +119,16 @@ type CapabilityVerificationDecision = "allow" | "deny" | "defer"
 
 约束：
 
-- `provider_id`、`contract_version` 和 `capability_id` 必须精确匹配 `FR-0033` contract。
+- `provider_id` 和 `contract_version` 必须精确匹配 `FR-0033` contract。
+- `capability_id` 表示当前 consumer / command / admission 请求的目标 capability id；当目标未被 provider 声明时，它仍必须保留请求值，不得改写成 provider 已声明的其他 capability。
+- `requested_capability_ref` 是必填请求 locator，必须能定位到 consumer / command / admission 的目标 capability 要求；它不是 `FR-0033` declaration locator。
 - `BrowserProviderRuntimeRequirement` 的 enum ownership 仍属于 `FR-0033`；本 FR 只消费该类型并定义 verification policy 如何使用它。
 - `required_actions` 与 `required_execution_layers` 是当前判定目标，不是 provider 全量能力。
-- `declared_capability_ref` 必须能定位到 `FR-0033 capabilities[*].capability_id`。
+- `declared_capability_ref` 仅在存在 matching declaration 时必须为非空 string，并且必须能定位到 `FR-0033 capabilities[*].capability_id`。
+- 当 `capability_not_declared` 或 `unsupported` 路径没有 matching declaration 时，`declared_capability_ref` 必须为 `null`，不得伪造或指向相邻 capability；此时实现必须使用 `requested_capability_ref` 解释请求目标。
 - `decision=allow` 只对当前目标 capability 和最低要求有效。
 - `decision=defer` 只用于尚未进入目标 admission 或 consumer 明确允许继续补证的预检状态，不得携带 `blocking_reasons`，也不得被业务执行路径当作允许。
+- 同类 required ref 规则：`evidence_refs[*].ref` 仅在对应 evidence ref 存在时必填；`CapabilityVerificationSource.evidence_ref` 是可选字段，source status 为 `missing`、`not_applicable` 或未进入目标 admission 的 `defer` 路径不得要求伪造 evidence locator。
 
 ## 5. Decision policy
 
@@ -294,6 +299,7 @@ fail-closed 规则：
   "provider_id": "official-chrome-stable",
   "contract_version": "v1",
   "capability_id": "runtime-page-automation",
+  "requested_capability_ref": "consumer:read-page:runtime-page-automation",
   "required_actions": ["read"],
   "required_execution_layers": ["L3"],
   "required_runtime_requirements": ["profile_binding", "extension_binding", "native_messaging", "runtime_bootstrap_ready"],
@@ -330,3 +336,42 @@ fail-closed 规则：
 
 - 该示例已有 declaration 与 static check source，但因当前目标要求 runtime requirements 且缺少 runtime source，最终必须 `blocked/deny`，不能作为业务执行放行证据。
 - 后续实现若要求 runtime-ready read capability，必须补 `runtime_attestation` source。
+
+### 9.3 未声明 capability 的最小合法 record 示例
+
+```json
+{
+  "provider_id": "official-chrome-stable",
+  "contract_version": "v1",
+  "capability_id": "download-current-page",
+  "requested_capability_ref": "consumer:download-page:download-current-page",
+  "required_actions": ["download"],
+  "required_execution_layers": ["L3"],
+  "required_runtime_requirements": ["profile_binding", "extension_binding"],
+  "declared_capability_ref": null,
+  "verification_sources": [
+    {
+      "kind": "provider_declaration",
+      "status": "missing",
+      "scope": "capability"
+    }
+  ],
+  "support_state": "blocked",
+  "decision": "deny",
+  "blocking_reasons": ["capability_not_declared"],
+  "evidence_refs": [
+    {
+      "kind": "contract_ref",
+      "ref": "docs/dev/specs/FR-0033-browser-provider-contract/contracts/browser-provider-contract.md",
+      "source": "provider_declaration",
+      "scope": "provider"
+    }
+  ]
+}
+```
+
+说明：
+
+- 该示例没有 matching `FR-0033 capabilities[*].capability_id`，因此 `declared_capability_ref` 必须为 `null`。
+- `requested_capability_ref` 保留 consumer 请求目标，保证 unsupported / `capability_not_declared` 路径可构造、可审查。
+- 因该 record 已进入目标 admission 且命中 `capability_not_declared`，最终必须按 fail-closed 输出 `blocked/deny`；若尚未进入目标 admission，consumer 可以输出 `support_state=unsupported` 与 `decision=deny`，但不得携带 `blocking_reasons` 或进入业务执行。
