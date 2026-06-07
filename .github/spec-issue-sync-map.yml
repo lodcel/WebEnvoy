@@ -77,3 +77,5 @@ mappings:
     canonical_issue_number: 1127
   - spec_path: docs/dev/specs/FR-0039-error-exit-code-taxonomy/spec.md
     canonical_issue_number: 1133
+  - spec_path: docs/dev/specs/FR-0040-provider-evidence-kernel/spec.md
+    canonical_issue_number: 1128
