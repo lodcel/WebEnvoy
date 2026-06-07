@@ -79,3 +79,5 @@ mappings:
     canonical_issue_number: 1133
   - spec_path: docs/dev/specs/FR-0040-provider-evidence-kernel/spec.md
     canonical_issue_number: 1128
+  - spec_path: docs/dev/specs/FR-0041-evidence-redaction-policy/spec.md
+    canonical_issue_number: 1129
