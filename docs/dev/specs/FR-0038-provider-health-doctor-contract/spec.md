@@ -135,6 +135,7 @@ Canonical Issue: #1127
 
 doctor consumer 必须把 `FR-0033.browser_provider_contract` 中的声明映射为 required checks：
 
+- `provider_identity` 指向的 browser/provider executable、launcher entry 或 adapter binary 要求 `binary` 检查；该检查是 provider-level required check。
 - `browser_engine.browser_version_range` 要求 `version` 检查。
 - `browser_engine.extension_binding_support=required` 或 capability runtime requirement 包含 `extension_binding` 时，要求 `extension_load` 检查。
 - `automation_transport.native_messaging_support=required` 或 capability runtime requirement 包含 `native_messaging` 时，要求 `native_messaging` 检查。
@@ -164,6 +165,7 @@ doctor consumer 必须把 `FR-0033.browser_provider_contract` 中的声明映射
 - `satisfied_runtime_requirements` 只能表达 doctor 层能证明的本地/attach 前置事实。
 - `provider_doctor_passed` 是 doctor 层可满足的 runtime requirement：只有当该 capability 的所有 required doctor checks 均为 `pass|not_applicable`、无 `capability_blocking`，且 provider-level required checks 无 `provider_blocking` 时，才能进入 `satisfied_runtime_requirements`。
 - 若 capability 声明了 `provider_doctor_passed`，但任一 required doctor check 缺失、`fail`、`unknown` 或 blocking，`provider_doctor_passed` 必须进入 `unsatisfied_runtime_requirements`，且该 capability 必须 fail-closed。
+- `target_tab` 不能由 doctor report 直接满足；doctor report 不拥有目标 tab 绑定、tab id 或页面上下文的新鲜 runtime evidence。声明了 `target_tab` 的 capability 必须把它保留在 `unsatisfied_runtime_requirements`，并通过后续 `runtime_attestation` gate fail-closed。
 - `runtime_bootstrap_ready` 不能由 doctor report 直接满足；只能标记为需要后续 runtime gate。`runtime_attested` 与 `live_evidence_attested` 是 verification level，不得被当作 runtime requirement 写入 `satisfied_runtime_requirements`。
 - `minimum_next_verification_level` 至少支持：
   - `runtime_attested`
