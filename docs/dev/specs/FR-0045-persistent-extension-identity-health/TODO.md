@@ -7,7 +7,7 @@
 - [ ] 确认 expected/observed extension identity、source/profile binding 与 fail-closed 条件覆盖 #1140 scope。
 - [ ] 确认 evidence refs 消费 FR-0040，redaction 消费 FR-0041，没有重定义 evidence/redaction shape。
 - [ ] 确认本 suite 没有 native messaging health、service worker freshness、capability matrix、launch evidence、fixtures、runtime implementation 或 live evidence。
-- [ ] 确认 PR metadata 使用 formal spec review lane、`Fixes #1140`、integration local-only 与 `live_evidence_record: N/A`。
+- [ ] 确认 PR metadata 使用 formal spec review lane、`Fixes #1140`、`integration_check_required` / `integration_ref=#1113` / `contract_surface=diagnostics_observability` 与 `live_evidence_record: N/A`。
 
 ## 实现前待办
 
