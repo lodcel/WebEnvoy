@@ -32,6 +32,6 @@
 
 ## 风险 6：spec-only PR 被误读为 runtime 完成
 
-- 风险：#1142 合入后被误解为已实现 service worker freshness health。
-- 缓解：plan 与 TODO 明确本 PR 是 formal spec carrier，不实现 runtime；PR body使用 formal spec review lane。
-- 回滚：在 PR / issue follow-up 中补充 implementation pending 说明。
+- 风险：本 formal spec PR 合入后被误解为 #1142 runtime health implementation 已完成。
+- 缓解：plan 与 TODO 明确本 PR 是 formal spec carrier，不实现 runtime；PR body 使用 `Refs #1142` 与 formal spec review lane，不使用 implementation closeout semantics。
+- 回滚：在 PR / issue follow-up 中补充 implementation pending 说明，并保持 #1142 打开。

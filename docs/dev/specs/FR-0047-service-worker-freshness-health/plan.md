@@ -2,9 +2,9 @@
 
 ## 实施目标
 
-冻结 `#1142 Extension Service Worker Freshness Health` 的 formal spec suite，定义 official Chrome persistent active extension bundle freshness / service worker code identity health 如何消费 `FR-0038 Provider Health / Doctor Contract`。
+冻结 `#1142 Extension Service Worker Freshness Health` 的 formal spec suite，定义 official Chrome persistent active extension bundle freshness / service worker code identity health 如何消费 `FR-0038 Provider Health / Doctor Contract`。本目标只交付 spec-only 输入，不声明 runtime health implementation 完成。
 
-本 PR 是 formal spec review carrier。合入后满足 #1142 的规约冻结输入；runtime implementation、doctor command、fixture、launch evidence 与 adjacent health issues 由后续事项承接。
+本 PR 是 formal spec review carrier。合入后仅提供 #1142 后续实现可消费的规约冻结输入，不关闭 #1142 的 runtime health work item；runtime implementation、doctor command、fixture、launch evidence 与 adjacent health issues 由后续事项承接。
 
 ## 分阶段拆分
 

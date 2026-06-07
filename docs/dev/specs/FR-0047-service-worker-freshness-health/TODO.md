@@ -11,6 +11,7 @@
 - [ ] Confirm #1141 native messaging health is out of scope.
 - [ ] Confirm #1139 capability matrix, #1143 launch evidence and #1144 fixtures are out of scope.
 - [ ] Confirm no runtime/code/live/browser behavior is included.
+- [ ] Confirm PR closing semantics use `Refs #1142`, because this formal spec carrier does not complete the runtime health work item.
 
 ## Post-review implementation candidates
 
