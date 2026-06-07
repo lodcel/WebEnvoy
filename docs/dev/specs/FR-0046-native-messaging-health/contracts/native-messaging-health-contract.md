@@ -67,8 +67,13 @@ type NativeMessagingHealthDiagnosticCode =
   | "native_messaging.registration_channel_mismatch"
   | "native_messaging.socket_unavailable"
   | "native_messaging.socket_stale_or_disconnected"
+  | "native_messaging.socket_recovery_failed"
+  | "native_messaging.socket_contention_detected"
+  | "native_messaging.orphan_host_detected"
+  | "native_messaging.stale_ready_signal"
   | "native_messaging.bridge_handshake_missing"
   | "native_messaging.bridge_handshake_mismatch"
+  | "native_messaging.bridge_recovery_failed"
   | "native_messaging.stub_or_fake_host_evidence"
   | "native_messaging.evidence_redaction_invalid"
   | "native_messaging.required_evidence_unavailable";
@@ -79,6 +84,25 @@ Constraints:
 - Diagnostic codes are stable machine-readable strings.
 - Human summaries may describe the failure, but parsers must consume `diagnostics.code`.
 - Observed/expected/remediation fields must not contain raw private paths, profile locators, manifest body, cookies, tokens or bootstrap secrets.
+
+## Stateful runtime readiness mapping
+
+Native Messaging host/socket/bridge signals must map to FR-0038 and FR-0040-compatible states:
+
+| Contract state | FR-0038 mapping | FR-0040-compatible mapping | Admission |
+|---|---|---|---|
+| `ready` | `status=pass`, `blocking=none` | `native_messaging_runtime_status=ready` | Native Messaging doctor-layer requirement may be satisfied |
+| `degraded_recoverable` | `status=warn|fail`; blocking follows required capability/provider scope | `native_messaging_runtime_status=recoverable` | Not admitted until recovered to current `ready` evidence |
+| `disconnected` | `status=fail`; blocking for required provider/capability | `native_messaging_runtime_status=disconnected` | Fail closed |
+| `blocked` | `status=fail`; `blocking=provider_blocking` for persistent provider | `native_messaging_runtime_status=blocked` | Fail closed |
+| `unknown` | `status=unknown|fail`; blocking for required provider/capability | `native_messaging_runtime_status=unknown` | Fail closed |
+
+Constraints:
+
+- This table is a mapping contract, not a new serialized health result.
+- Implementation-specific retry count, socket name, pipe path, process lifecycle and timing remain out of scope.
+- Recoverable states must not be converted to pass without fresh current evidence.
+- Stub/fake host evidence, redaction invalid evidence, source mismatch, unowned orphan process or unsafe contention must remain non-pass.
 
 ## Evidence ref contract
 
@@ -106,6 +130,16 @@ FR-0041 redaction requirements:
 - Native host manifest locator, allowed origin source, socket locator, command output excerpt and bridge artifact are at least `sensitive`.
 - Bootstrap secret, extension private payload, provider private patch secret, token, Cookie, auth header, profile path or account id are `secret` when raw or replayable.
 - Required evidence with `redaction_required`, `policy_missing`, `invalid`, raw private path or raw secret must make the related FR-0038 check non-pass.
+
+## Recovery semantics
+
+Future implementation must preserve these contract rules:
+
+- Same-run retry may be attempted for recoverable stale socket, disconnected bridge, transient no-ack or current-run orphan host.
+- Start/stop must be idempotent for selected provider/profile and must not create duplicate active hosts for one run.
+- Current-run orphan host/socket cleanup may be attempted before retry; unowned or cross-run resources must not be killed and must report contention or unknown.
+- Stale ready signals and historical artifacts cannot satisfy current readiness.
+- Capability admission remains blocked while recovery is pending, failed or unproven.
 
 ## Outcome consumption
 

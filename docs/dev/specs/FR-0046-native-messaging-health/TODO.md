@@ -5,6 +5,9 @@
 - [ ] 确认本 suite 只定义 `official-chrome.persistent` Native Messaging health mapping。
 - [ ] 确认所有 health output 消费 `FR-0038.provider_doctor_report`，未定义新 health result schema。
 - [ ] 确认 host identity、manifest、allowed origins、registration、socket availability 与 bridge handshake readiness 已覆盖 #1141 scope。
+- [ ] 确认 stateful health matrix 覆盖 `ready|recoverable|disconnected|blocked|unknown` 并映射到 FR-0038 / FR-0040-compatible statuses。
+- [ ] 确认 recovery path semantics 覆盖 same-run retry、idempotent start/stop、current-run orphan cleanup、stale ready signal handling 与 concurrent contention。
+- [ ] 确认 minimum validation matrix 覆盖 missing/unknown/fail、stale/disconnected、no-ack、retry/recovery、stub/fake evidence rejection、redaction 与 capability/admission blocking。
 - [ ] 确认 evidence refs 消费 FR-0040，redaction policy 消费 FR-0041。
 - [ ] 确认 persistent descriptor refs 消费 FR-0043。
 - [ ] 确认未定义 #1140 persistent extension identity health、#1142 service worker freshness health、#1139 capability matrix、#1143 launch evidence 或 #1144 fixtures。

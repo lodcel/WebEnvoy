@@ -70,6 +70,34 @@
 - 任一缺口必须进入 `unsatisfied_runtime_requirements`，并阻断相应 capability。
 - 本 FR 不满足 `target_tab`、`runtime_bootstrap_ready`、`runtime_attested` 或 `live_evidence_attested`。
 
+### `native_messaging_stateful_readiness`
+
+职责：
+
+- 将 host/socket/bridge runtime-like signals 归一为 FR-0038 / FR-0040 可消费状态。
+- 区分 current `ready`、same-run `recoverable`、`disconnected`、`blocked` 与 `unknown`。
+- 为后续 implementation 的 retry、cleanup、contention 和 stale evidence handling 提供 formal constraints。
+
+约束：
+
+- 该对象是 data model 说明，不是新增 health result payload。
+- State 必须通过 FR-0038 checks 与 FR-0040 `native_messaging_runtime_status` 表达。
+- `recoverable` 不满足 admission；只有 fresh current evidence 可把状态推进为 `ready`。
+- Unowned orphan process/socket、concurrent contention、stub/fake source、secret leak 或 redaction invalid 必须保持 non-pass。
+
+### `native_messaging_recovery_path`
+
+职责：
+
+- 规定 same-run retry、idempotent start/stop、current-run orphan cleanup、stale ready signal rejection 与 contention handling 的最小 contract。
+
+约束：
+
+- 不定义 retry count、timeout、socket path、pipe name、process supervisor 或 cleanup implementation。
+- Cleanup 只能用于可证明属于 current run 的 host/socket/pipe。
+- Historical ready evidence 只能作为 background，不得满足 current readiness。
+- Pending 或 failed recovery 必须让 capability requirement 保持 unsatisfied。
+
 ## 字段 ownership
 
 | 字段组 | Ownership | 不得替代 |
@@ -79,6 +107,8 @@
 | Persistent descriptor refs | FR-0043 consumed by FR-0046 | Health pass、runtime ready |
 | Evidence refs | FR-0038 / FR-0040 consumed by FR-0046 | Artifact store、live evidence record |
 | Redaction policy | FR-0041 consumed by FR-0046 | Secret store、redaction engine |
+| Stateful readiness mapping | FR-0046 consumes FR-0038 / FR-0040 | Runtime status schema、process lifecycle implementation |
+| Recovery path semantics | FR-0046 contract only | Retry algorithm、socket lifecycle implementation |
 | Persistent extension identity | #1140 | Allowed origins owner replacement |
 | Service worker freshness | #1142 | Bridge readiness replacement |
 | Capability matrix | #1139 | Health check result |
