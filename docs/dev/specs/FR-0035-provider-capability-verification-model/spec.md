@@ -15,7 +15,7 @@ Canonical Issue: #1124
 1. 冻结 capability support state 的最小枚举与语义。
 2. 冻结 declared、build-time/static、health-check/doctor、runtime-attested、runtime-observed 与 live-evidence-attested 的 verification source 语义。
 3. 冻结 capability verification evidence record 的最小对象边界，供后续实现引用。
-4. 冻结 verification source 到 support decision 的 fail-closed 判定规则。
+4. 冻结 verification source 到 support decision 的 decision policy 与 fail-closed 判定规则。
 5. 明确本模型与 `FR-0033 Browser Provider Contract`、provider registry、doctor、runtime evidence kernel、FR-0016 live evidence gate 和 Syvert consuming layer 的 ownership。
 
 ## 非目标
@@ -203,7 +203,36 @@ fail-closed 规则：
 - 目标 capability 要求 real browser / latest-head live evidence 时，不得用 `provider_health_check`、`runtime.ping`、stub/fake host 或 provider 自报替代。
 - evidence ref 缺失、不可追溯、过期或与当前 provider/capability/head 不匹配时，若命中当前最低要求必须 `blocked/deny`；若尚未进入目标 admission，可以 `defer`，但不得 `allow`。
 
-### 8. Freshness 与 provenance
+### 8. Decision policy
+
+`provider_capability_verification_model.decision_policy` 必须冻结最小机器契约：
+
+- `default_business_minimum_support_state`
+- `diagnostic_minimum_support_state`
+- `runtime_requirement_minimum_support_state`
+- `runtime_observation_minimum_support_state`
+- `live_evidence_minimum_support_state`
+- `allow_declared_only_for_business`
+- `allow_defer_for_business`
+- `fail_closed_on_blocking_reasons`
+- `fail_closed_on_unknown_limitation`
+- `fail_closed_on_invalid_or_stale_evidence_ref`
+- `degraded_state_policy`
+- `manual_review_policy`
+
+约束：
+
+- business `read/write/download` 的默认最低状态不得为 `declared`。
+- runtime requirements 命中时最低必须为 `runtime_attested`。
+- runtime observation 命中时最低必须为 `runtime_observed`。
+- live evidence gate 命中时最低必须为 `live_evidence_attested`。
+- `allow_declared_only_for_business=false` 与 `allow_defer_for_business=false` 是当前固定值。
+- `fail_closed_on_blocking_reasons=true`、`fail_closed_on_unknown_limitation=true`、`fail_closed_on_invalid_or_stale_evidence_ref=true` 是当前固定值。
+- `degraded_state_policy=explicit_only`；没有显式 `allowed_degraded_states` 时不得自动降级。
+- `manual_review_policy=confirm_existing_evidence_only`；manual review 不得单独提升 support state。
+- provider 私有 policy 不得放宽本 FR 的默认 decision policy。
+
+### 9. Freshness 与 provenance
 
 verification record 必须表达证据来源与新鲜度：
 
@@ -223,7 +252,7 @@ verification record 必须表达证据来源与新鲜度：
 - `live_evidence_gate` 必须能追溯到当前 latest head 的 fresh rerun；历史 artifact 不得直接作为当前放行证据。
 - provenance 缺失时，consumer 必须降低 support state 或阻断，而不是猜测通过。
 
-### 9. 与 FR-0033 的关系
+### 10. 与 FR-0033 的关系
 
 本 FR 必须明确：
 
@@ -232,7 +261,7 @@ verification record 必须表达证据来源与新鲜度：
 - 本 FR 不修改 `FR-0033` 的枚举；如后续发现 `FR-0033` 字段不足，必须另开修订 PR。
 - `FR-0033 verification_level` 可作为本 FR source aggregation 的输入，但不能替代本 FR 的 evidence provenance、minimum requirement 和 support decision。
 
-### 10. 与其他边界的关系
+### 11. 与其他边界的关系
 
 本 FR 必须明确：
 
@@ -325,7 +354,7 @@ And PR metadata 仍必须按 provider/shared-contract gate 标记 `contract_surf
 
 ## 验收标准
 
-1. support state、verification source、verification record、decision 与 blocking reason 已冻结。
+1. support state、verification source、verification record、decision policy、decision 与 blocking reason 已冻结。
 2. source aggregation、minimum requirement、freshness / provenance 与 fail-closed 规则已明确。
 3. 套件已明确它锚定 `FR-0033`，但不修改 `FR-0033` contract shape，也不实现 registry、doctor、selection、evidence kernel 或 runtime 行为。
 4. 套件已明确与 `FR-0015`、`FR-0016`、`FR-0020` 和 M1 boundary document 的 ownership 关系。

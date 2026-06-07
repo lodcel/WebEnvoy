@@ -15,6 +15,7 @@ interface ProviderCapabilityVerificationModel {
 
 - 本 model 是 `FR-0033 browser_provider_contract` 的消费与判定模型，不是 provider registry、doctor report、runtime status 或 live evidence record。
 - contract consumer 必须先校验 `FR-0033` provider contract，再生成 capability verification record。
+- `decision_policy` 必须使用本 FR 定义的 `CapabilityVerificationDecisionPolicy`，不得由 provider 私有 policy 字段替代。
 - consumer 遇到未知必填字段、未知枚举、失效 evidence ref、影响目标 capability 的 unknown limitation 或 source conflict 时，必须 fail-closed。
 
 ## 2. Support state
@@ -92,6 +93,18 @@ interface ProviderCapabilityVerificationRecord {
   verified_at?: string
 }
 
+// Re-exported alias from FR-0033 Browser Provider Contract.
+// FR-0035 consumes this enum and does not own changes to its values.
+type BrowserProviderRuntimeRequirement =
+  | "profile_binding"
+  | "extension_binding"
+  | "native_messaging"
+  | "target_tab"
+  | "real_browser"
+  | "headless_forbidden"
+  | "runtime_bootstrap_ready"
+  | "provider_doctor_passed"
+
 interface CapabilityVerificationSource {
   kind: CapabilityVerificationSourceKind
   status: CapabilityVerificationSourceStatus
@@ -106,12 +119,63 @@ type CapabilityVerificationDecision = "allow" | "deny" | "defer"
 约束：
 
 - `provider_id`、`contract_version` 和 `capability_id` 必须精确匹配 `FR-0033` contract。
+- `BrowserProviderRuntimeRequirement` 的 enum ownership 仍属于 `FR-0033`；本 FR 只消费该类型并定义 verification policy 如何使用它。
 - `required_actions` 与 `required_execution_layers` 是当前判定目标，不是 provider 全量能力。
 - `declared_capability_ref` 必须能定位到 `FR-0033 capabilities[*].capability_id`。
 - `decision=allow` 只对当前目标 capability 和最低要求有效。
 - `decision=defer` 只用于尚未进入目标 admission 或 consumer 明确允许继续补证的预检状态，不得携带 `blocking_reasons`，也不得被业务执行路径当作允许。
 
-## 5. Evidence ref
+## 5. Decision policy
+
+```ts
+interface CapabilityVerificationDecisionPolicy {
+  default_business_minimum_support_state: CapabilitySupportState
+  diagnostic_minimum_support_state: CapabilitySupportState
+  runtime_requirement_minimum_support_state: CapabilitySupportState
+  runtime_observation_minimum_support_state: CapabilitySupportState
+  live_evidence_minimum_support_state: CapabilitySupportState
+  allow_declared_only_for_business: false
+  allow_defer_for_business: false
+  fail_closed_on_blocking_reasons: true
+  fail_closed_on_unknown_limitation: true
+  fail_closed_on_invalid_or_stale_evidence_ref: true
+  degraded_state_policy: "explicit_only"
+  manual_review_policy: "confirm_existing_evidence_only"
+}
+```
+
+必填字段：
+
+- `default_business_minimum_support_state`
+- `diagnostic_minimum_support_state`
+- `runtime_requirement_minimum_support_state`
+- `runtime_observation_minimum_support_state`
+- `live_evidence_minimum_support_state`
+- `allow_declared_only_for_business`
+- `allow_defer_for_business`
+- `fail_closed_on_blocking_reasons`
+- `fail_closed_on_unknown_limitation`
+- `fail_closed_on_invalid_or_stale_evidence_ref`
+- `degraded_state_policy`
+- `manual_review_policy`
+
+约束：
+
+- `default_business_minimum_support_state` 当前必须不低于 `statically_verified`，且不得为 `declared`。
+- `diagnostic_minimum_support_state` 可以低于业务 read/write/download，但不得把 `diagnose` 扩展成业务能力。
+- `runtime_requirement_minimum_support_state` 当前必须为 `runtime_attested`。
+- `runtime_observation_minimum_support_state` 当前必须为 `runtime_observed`。
+- `live_evidence_minimum_support_state` 当前必须为 `live_evidence_attested`。
+- `allow_declared_only_for_business` 当前固定为 `false`。
+- `allow_defer_for_business` 当前固定为 `false`；`defer` 只能用于未进入目标 admission 或明确允许继续补证的预检。
+- `fail_closed_on_blocking_reasons` 当前固定为 `true`；任一 `blocking_reasons` 非空时必须输出 `support_state=blocked` 且 `decision=deny`。
+- `fail_closed_on_unknown_limitation` 当前固定为 `true`。
+- `fail_closed_on_invalid_or_stale_evidence_ref` 当前固定为 `true`。
+- `degraded_state_policy` 当前固定为 `explicit_only`；没有 `CapabilityMinimumRequirement.allowed_degraded_states` 时不得自动降级。
+- `manual_review_policy` 当前固定为 `confirm_existing_evidence_only`；manual review 不得单独提升 support state。
+- 后续实现不得通过 provider 私有 decision policy 放宽上述固定值；放宽必须另走 formal spec review。
+
+## 6. Evidence ref
 
 ```ts
 interface CapabilityVerificationEvidenceRef {
@@ -139,7 +203,7 @@ interface CapabilityVerificationEvidenceRef {
 - `runtime_attestation` 和 `runtime_observation` 必须能追溯到 run/session 或等价 runtime evidence。
 - provenance 缺失时不得提升到需要该 provenance 的 support state。
 
-## 6. Minimum requirement
+## 7. Minimum requirement
 
 ```ts
 interface CapabilityMinimumRequirement {
@@ -164,7 +228,7 @@ interface CapabilityMinimumRequirement {
 - 需要真实 live closeout 时，最低必须为 `live_evidence_attested`。
 - 降级必须显式声明；未声明时必须 fail-closed。
 
-## 7. Blocking reason
+## 8. Blocking reason
 
 ```ts
 type CapabilityBlockingReason =
@@ -197,7 +261,33 @@ fail-closed 规则：
 - `diagnostic_only` 阻断业务 `read/write/download`。
 - `verification_source_missing`、`verification_source_stale` 或 `evidence_ref_invalid` 命中当前最低要求时必须进入 `blocking_reasons`，最终输出 `blocked/deny`；未进入目标 admission 时可以用 `defer` 等待补证，但不得写入 `blocking_reasons`。
 
-## 8. 最小合法示例
+## 9. 最小合法示例
+
+### 9.1 Decision policy 示例
+
+```json
+{
+  "default_business_minimum_support_state": "statically_verified",
+  "diagnostic_minimum_support_state": "health_checked",
+  "runtime_requirement_minimum_support_state": "runtime_attested",
+  "runtime_observation_minimum_support_state": "runtime_observed",
+  "live_evidence_minimum_support_state": "live_evidence_attested",
+  "allow_declared_only_for_business": false,
+  "allow_defer_for_business": false,
+  "fail_closed_on_blocking_reasons": true,
+  "fail_closed_on_unknown_limitation": true,
+  "fail_closed_on_invalid_or_stale_evidence_ref": true,
+  "degraded_state_policy": "explicit_only",
+  "manual_review_policy": "confirm_existing_evidence_only"
+}
+```
+
+说明：
+
+- 该示例表达 FR-0035 当前唯一合法的默认 decision policy。
+- 它不能作为 provider 自定义 policy 扩展点；后续实现只能消费该 policy，不能放宽固定 fail-closed 规则。
+
+### 9.2 Verification record 示例
 
 ```json
 {

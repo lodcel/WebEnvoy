@@ -72,12 +72,28 @@
 - 默认业务 `read/write/download` 不接受 `declared`。
 - real-browser / latest-head 要求必须继续交给对应 gate 判定。
 
+### `capability_verification_decision_policy`
+
+职责：
+
+- 表达 provider capability verification 的默认判定策略。
+- 固定业务 capability、diagnostic capability、runtime requirement、runtime observation 与 live evidence gate 的最低 support state。
+- 固定 blocking reason、unknown limitation、invalid/stale evidence ref、degraded state 与 manual review 的 fail-closed 规则。
+
+约束：
+
+- policy 是 WebEnvoy core formal model 的一部分，不是 provider 私有可配置字段。
+- `allow_declared_only_for_business=false` 与 `allow_defer_for_business=false` 是当前固定值。
+- `fail_closed_on_blocking_reasons=true`、`fail_closed_on_unknown_limitation=true`、`fail_closed_on_invalid_or_stale_evidence_ref=true` 是当前固定值。
+- 修改 policy 必填字段、固定值或降级规则必须重新进入 formal spec review。
+
 ## 字段 ownership
 
 | 字段组 | Ownership | 不得替代 |
 |---|---|---|
 | provider / capability identity | FR-0033；本 FR 只引用 | provider registry、display name、profile name |
 | support state / decision | FR-0035 | provider self-report、selection policy |
+| decision policy | FR-0035 | provider 私有 policy、runtime selection implementation |
 | verification source kind | FR-0035 | doctor report schema、runtime status schema |
 | evidence refs locator | FR-0035 shape；证据事实由对应 runtime/evidence FR 持有 | live evidence record、anti-detection validation record |
 | minimum requirement expression | FR-0035 | command-specific policy、selection implementation |
@@ -87,5 +103,5 @@
 
 - 当前 model version 随 `FR-0033 contract_version=v1` 消费。
 - 同一主版本内只能新增向后兼容的可选字段或新的非阻断 source metadata。
-- 修改 support state、verification source、blocking reason、decision 语义或 fail-closed 规则，必须重新进入 formal spec review。
+- 修改 support state、verification source、blocking reason、decision policy、decision 语义或 fail-closed 规则，必须重新进入 formal spec review。
 - 后续 registry / doctor / selection 实现不得通过私有字段绕过本 FR 的 fail-closed 规则。
