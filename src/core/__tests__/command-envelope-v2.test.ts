@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import { mapCurrentCliResponseToCommandEnvelopeV2 } from "../command-envelope-v2.js";
+import type { WarningV2 } from "../command-envelope-v2.js";
 import type { ErrorResponse, SuccessResponse } from "../types.js";
 
 describe("Command Envelope v2 current CLI mapping", () => {
+  it("keeps exported warning codes open for command-specific warnings", () => {
+    const commandSpecificWarning: WarningV2 = {
+      code: "WARN_COMMAND_SPECIFIC",
+      message: "command-specific warning code remains contract-legal",
+      severity: "info"
+    };
+
+    expect(commandSpecificWarning.code).toBe("WARN_COMMAND_SPECIFIC");
+  });
+
   it("maps current v1 success summary into data and keeps operational compatibility fields", () => {
     const response: SuccessResponse = {
       run_id: "run-1134-success",
@@ -151,6 +162,27 @@ describe("Command Envelope v2 current CLI mapping", () => {
         reason: "evidence ref run:run-1134-partial:observability:key_request:2:unknown is partial"
       }
     ]);
+    expect(envelope.warnings).toEqual([
+      {
+        code: "WARN_EVIDENCE_PARTIAL",
+        message:
+          "Evidence is partial; retry may collect fuller diagnostics if the command context is still valid",
+        severity: "warning",
+        related_limit_ref: "evidence.partial.run:run-1134-partial:observability:key_request:1:unknown",
+        related_evidence_ref: "run:run-1134-partial:observability:key_request:1:unknown"
+      },
+      {
+        code: "WARN_EVIDENCE_PARTIAL",
+        message:
+          "Evidence is partial; retry may collect fuller diagnostics if the command context is still valid",
+        severity: "warning",
+        related_limit_ref: "evidence.partial.run:run-1134-partial:observability:key_request:2:unknown",
+        related_evidence_ref: "run:run-1134-partial:observability:key_request:2:unknown"
+      }
+    ]);
+    expect(JSON.stringify(envelope.warnings)).not.toContain("https://");
+    expect(envelope.warnings[0]).not.toHaveProperty("retryable");
+    expect(envelope.warnings[0]).not.toHaveProperty("redacted_details");
   });
 
   it("maps current v1 error diagnosis into operational diagnosis and primary errors", () => {
@@ -267,5 +299,10 @@ describe("Command Envelope v2 current CLI mapping", () => {
         summary: "host ping timed out"
       }
     ]);
+    expect(envelope.warnings).toEqual([]);
+    expect(envelope.errors[0]).toMatchObject({
+      code: "ERR_RUNTIME_UNAVAILABLE",
+      retryable: true
+    });
   });
 });

@@ -301,6 +301,64 @@ const limitsFromEvidence = (evidence: EvidenceRefV2[]): LimitDisclosureV2[] =>
       reason: `evidence ref ${item.ref} is partial`
     }));
 
+const severityForLimit = (limit: LimitDisclosureV2): WarningV2["severity"] =>
+  limit.kind === "partial_observation" ? "warning" : "info";
+
+const evidenceRefForLimit = (
+  limit: LimitDisclosureV2,
+  evidence: EvidenceRefV2[]
+): string | undefined =>
+  evidence.find((item) => limit.reason === `evidence ref ${item.ref} is partial`)?.ref;
+
+type GeneratedWarningCode = "WARN_EVIDENCE_PARTIAL" | "WARN_OPERATIONAL_LIMIT";
+
+const warningCodeForLimit = (
+  limit: LimitDisclosureV2,
+  relatedEvidenceRef: string | undefined
+): GeneratedWarningCode =>
+  relatedEvidenceRef && limit.kind === "partial_observation"
+    ? "WARN_EVIDENCE_PARTIAL"
+    : "WARN_OPERATIONAL_LIMIT";
+
+const warningMessageForLimit = (
+  limit: LimitDisclosureV2,
+  relatedEvidenceRef: string | undefined
+): string => {
+  if (relatedEvidenceRef && limit.kind === "partial_observation") {
+    return "Evidence is partial; retry may collect fuller diagnostics if the command context is still valid";
+  }
+
+  if (limit.kind === "redaction") {
+    return "Consumer-visible output was redacted";
+  }
+
+  if (limit.kind === "truncation") {
+    return "Consumer-visible output was truncated";
+  }
+
+  if (limit.kind === "budget_clip") {
+    return "Consumer-visible output was clipped by a budget limit";
+  }
+
+  return "Runtime diagnostics are partially observable";
+};
+
+const warningsFromLimits = (
+  limits: LimitDisclosureV2[],
+  evidence: EvidenceRefV2[]
+): WarningV2[] =>
+  limits.map((limit) => {
+    const relatedEvidenceRef = evidenceRefForLimit(limit, evidence);
+
+    return {
+      code: warningCodeForLimit(limit, relatedEvidenceRef),
+      message: warningMessageForLimit(limit, relatedEvidenceRef),
+      severity: severityForLimit(limit),
+      related_limit_ref: limit.limit_ref,
+      ...(relatedEvidenceRef ? { related_evidence_ref: relatedEvidenceRef } : {})
+    };
+  });
+
 const diagnosisIndexFromError = (
   response: ErrorResponse,
   evidenceRefs: string[]
@@ -337,6 +395,7 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (
       ...limitsFromObservability(response.observability),
       ...limitsFromEvidence(evidence)
     ];
+    const warnings = warningsFromLimits(limits, evidence);
 
     return {
       ok: true,
@@ -357,7 +416,7 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (
         ...(limits.length > 0 ? { limits } : {})
       },
       evidence,
-      warnings: [],
+      warnings,
       errors: []
     };
   }
