@@ -424,7 +424,6 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (
     ...limitsFromObservability(response.observability),
     ...limitsFromEvidence(evidence)
   ];
-  const warnings = warningsFromLimits(limits, evidence);
   const primaryError = errorFromResponse(
     response,
     evidence.map((item) => item.ref)
@@ -454,7 +453,7 @@ export const mapCurrentCliResponseToCommandEnvelopeV2 = (
       ...(limits.length > 0 ? { limits } : {})
     },
     evidence,
-    warnings,
+    warnings: [],
     errors: [primaryError]
   };
 };

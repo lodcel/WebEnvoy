@@ -288,22 +288,7 @@ describe("Command Envelope v2 current CLI mapping", () => {
         summary: "host ping timed out"
       }
     ]);
-    expect(envelope.warnings).toEqual([
-      {
-        code: "WARN_OPERATIONAL_LIMIT",
-        message: "Consumer-visible output was truncated",
-        severity: "info",
-        related_limit_ref: "observability.truncation.failure_site.summary"
-      },
-      {
-        code: "WARN_OPERATIONAL_LIMIT",
-        message: "Runtime diagnostics are partially observable",
-        severity: "warning",
-        related_limit_ref: "observability.coverage.partial"
-      }
-    ]);
-    expect(envelope.warnings[0]).not.toHaveProperty("retryable");
-    expect(envelope.warnings[0]).not.toHaveProperty("redacted_details");
+    expect(envelope.warnings).toEqual([]);
     expect(envelope.errors[0]).toMatchObject({
       code: "ERR_RUNTIME_UNAVAILABLE",
       retryable: true
