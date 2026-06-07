@@ -83,3 +83,5 @@ mappings:
     canonical_issue_number: 1129
   - spec_path: docs/dev/specs/FR-0042-official-chrome-direct-descriptor/spec.md
     canonical_issue_number: 1137
+  - spec_path: docs/dev/specs/FR-0043-official-chrome-persistent-descriptor/spec.md
+    canonical_issue_number: 1138
