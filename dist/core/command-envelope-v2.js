@@ -60,7 +60,9 @@ const categoryForError = (code, diagnosis) => {
     return "unknown";
 };
 const familyForError = (code) => {
-    if (code === "ERR_CLI_INVALID_ARGS") {
+    if (code === "ERR_CLI_INVALID_ARGS" ||
+        code === "ERR_CLI_UNKNOWN_COMMAND" ||
+        code === "ERR_CLI_NOT_IMPLEMENTED") {
         return "validation";
     }
     if (code === "ERR_RISK_GATE_DENIED") {
@@ -85,7 +87,7 @@ const familyForError = (code) => {
     if (code === "ERR_EXECUTION_FAILED") {
         return "runtime_failure";
     }
-    return "unknown";
+    return "provider_unavailable";
 };
 const sanitizeRefToken = (value) => value
     .trim()

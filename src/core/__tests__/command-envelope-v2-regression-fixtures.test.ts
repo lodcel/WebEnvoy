@@ -5,6 +5,14 @@ import type { ErrorCode } from "../errors.js";
 import type { ErrorResponse, SuccessResponse } from "../types.js";
 
 const completedAt = "2026-06-07T01:13:36.000Z";
+const fr0039Families = [
+  "validation",
+  "risk_gate_denied",
+  "provider_unavailable",
+  "runtime_failure",
+  "closeout_failure",
+  "schema_evidence_failure"
+];
 
 const completeObservability = {
   coverage: "complete",
@@ -170,6 +178,41 @@ describe("Command Envelope v2 regression fixtures for #1136", () => {
         })
       ]
     });
+  });
+
+  it("maps CLI routing errors to FR-0039 validation family while preserving v1 exit classes", () => {
+    const routingFixtures = [
+      {
+        code: "ERR_CLI_UNKNOWN_COMMAND" as const,
+        exitCode: 3
+      },
+      {
+        code: "ERR_CLI_NOT_IMPLEMENTED" as const,
+        exitCode: 4
+      }
+    ];
+
+    for (const fixture of routingFixtures) {
+      const envelope = mapCurrentCliResponseToCommandEnvelopeV2(
+        errorResponse({
+          runId: `run-1136-${fixture.code.toLowerCase()}`,
+          command: "runtime.unknown",
+          code: fixture.code,
+          message: `${fixture.code} fixture`,
+          retryable: false
+        })
+      );
+
+      expect(envelope.errors).toEqual([
+        expect.objectContaining({
+          code: fixture.code,
+          category: "cli",
+          family: "validation",
+          exit_code: fixture.exitCode
+        })
+      ]);
+      expect(fr0039Families).toContain(envelope.errors[0]?.family);
+    }
   });
 
   it("locks provider unavailable compatibility before runtime execution starts", () => {

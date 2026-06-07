@@ -77,8 +77,7 @@ export interface ErrorV2 {
     | "provider_unavailable"
     | "runtime_failure"
     | "closeout_failure"
-    | "schema_evidence_failure"
-    | "unknown";
+    | "schema_evidence_failure";
   exit_code: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   diagnosis?: Diagnosis;
   related_evidence_refs?: string[];
@@ -172,7 +171,11 @@ const categoryForError = (code: ErrorCode, diagnosis?: Diagnosis): ErrorV2["cate
 };
 
 const familyForError = (code: ErrorCode): ErrorV2["family"] => {
-  if (code === "ERR_CLI_INVALID_ARGS") {
+  if (
+    code === "ERR_CLI_INVALID_ARGS" ||
+    code === "ERR_CLI_UNKNOWN_COMMAND" ||
+    code === "ERR_CLI_NOT_IMPLEMENTED"
+  ) {
     return "validation";
   }
   if (code === "ERR_RISK_GATE_DENIED") {
@@ -199,7 +202,7 @@ const familyForError = (code: ErrorCode): ErrorV2["family"] => {
   if (code === "ERR_EXECUTION_FAILED") {
     return "runtime_failure";
   }
-  return "unknown";
+  return "provider_unavailable";
 };
 
 const sanitizeRefToken = (value: string): string =>
