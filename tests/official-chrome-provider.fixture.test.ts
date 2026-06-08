@@ -16,9 +16,11 @@ describe("official Chrome provider fixtures for #1144", () => {
     expect(contract.provider_identity).toMatchObject({
       provider_id: officialChromeProviderFixtureIds.providerId,
       provider_family: "official_chrome",
+      provider_version: "v1",
       contract_version: "v1",
       distribution_channel: "builtin"
     });
+    expect(contract.provider_identity.provider_version).not.toBe("fixture-v1");
     expect(contract.provider_identity.distribution_channel).not.toBe("official_chrome_profile");
     expect(contract.browser_engine).toMatchObject({
       engine_family: "chrome",
@@ -178,6 +180,10 @@ describe("official Chrome provider fixtures for #1144", () => {
     ];
 
     expect(supported.identity.provider_id).toBe(officialChromeProviderFixtureIds.providerId);
+    expect(supported.identity.provider_version).toBe("v1");
+    expect(partial.identity.provider_version).toBe("v1");
+    expect(failClosed.identity.provider_version).toBe("v1");
+    expect(supported.identity.provider_version).not.toBe("fixture-v1");
     expect(supported.outcome).toMatchObject({
       overall_status: "warn",
       provider_blocked: false,
@@ -285,9 +291,11 @@ describe("official Chrome provider fixtures for #1144", () => {
     expect(supported.closeout_plan.minimum_attestation_level).toBe("runtime_attested");
     expect(supported.launch_arguments.launch_envelope_ref).toBe(officialChromeProviderFixtureIds.launchEnvelopeRef);
     expect(supported.version_evidence).toMatchObject({
+      provider_version: "v1",
       browser_channel: "Google Chrome stable",
       browser_version: "Google Chrome 137.0.0.0"
     });
+    expect(supported.version_evidence.provider_version).not.toBe("fixture-v1");
     expect(supported.version_evidence.browser_version).not.toContain("125");
     expect(supported.closeout_plan.required_evidence_kinds).toContain("launch_envelope_ref");
     expect(supported.evidence_refs).toContainEqual(
@@ -311,9 +319,11 @@ describe("official Chrome provider fixtures for #1144", () => {
       })
     );
     expect(partial.version_evidence).toMatchObject({
+      provider_version: "v1",
       browser_channel: "Google Chrome stable",
       browser_version: "Google Chrome 137.0.0.0"
     });
+    expect(partial.version_evidence.provider_version).not.toBe("fixture-v1");
     expect(partial.version_evidence.browser_version).not.toContain("125");
     expect(partial.closeout_plan.closeout_decision).not.toBe("defer");
 
@@ -321,6 +331,8 @@ describe("official Chrome provider fixtures for #1144", () => {
       coverage_status: "blocked",
       closeout_decision: "deny"
     });
+    expect(failClosed.version_evidence.provider_version).toBe("v1");
+    expect(failClosed.version_evidence.provider_version).not.toBe("fixture-v1");
     expect(failClosed.closeout_plan.blocking_reasons).toEqual(
       expect.arrayContaining([
         "provider_limitation_conflict",

@@ -859,7 +859,7 @@ export const officialChromeProviderFixtures = {
     provider_identity: {
       provider_id: officialChromeProviderId,
       provider_family: "official_chrome",
-      provider_version: "fixture-v1",
+      provider_version: "v1",
       contract_version: "v1",
       distribution_channel: "builtin",
       implementation_owner: "webenvoy_core"
@@ -1185,7 +1185,7 @@ export const officialChromeProviderFixtures = {
         doctor_contract_version: "v1",
         provider_id: officialChromeProviderId,
         provider_contract_version: "v1",
-        provider_version: "fixture-v1",
+        provider_version: "v1",
         generated_at: fixtureTimestamp,
         scope: "capability"
       },
@@ -1421,7 +1421,7 @@ export const officialChromeProviderFixtures = {
         doctor_contract_version: "v1",
         provider_id: officialChromeProviderId,
         provider_contract_version: "v1",
-        provider_version: "fixture-v1",
+        provider_version: "v1",
         generated_at: fixtureTimestamp,
         scope: "capability"
       },
@@ -1537,7 +1537,7 @@ export const officialChromeProviderFixtures = {
         doctor_contract_version: "v1",
         provider_id: officialChromeProviderId,
         provider_contract_version: "v1",
-        provider_version: "fixture-v1",
+        provider_version: "v1",
         generated_at: fixtureTimestamp,
         scope: "capability"
       },
@@ -1696,7 +1696,7 @@ export const officialChromeProviderFixtures = {
           selection_evidence_refs: ["ev-provider-contract", "ev-provider-health"]
         },
         version_evidence: {
-          provider_version: "fixture-v1",
+          provider_version: "v1",
           browser_channel: "Google Chrome stable",
           browser_version: "Google Chrome 137.0.0.0",
           extension_version: "1.0.0",
@@ -1915,7 +1915,7 @@ export const officialChromeProviderFixtures = {
           selection_evidence_refs: ["ev-provider-contract"]
         },
         version_evidence: {
-          provider_version: "fixture-v1",
+          provider_version: "v1",
           browser_channel: "Google Chrome stable",
           browser_version: "Google Chrome 137.0.0.0",
           extension_version: "1.0.0",
@@ -2085,7 +2085,7 @@ export const officialChromeProviderFixtures = {
           selection_evidence_refs: ["ev-provider-contract"]
         },
         version_evidence: {
-          provider_version: "fixture-v1",
+          provider_version: "v1",
           browser_channel: "unknown",
           browser_version: "unknown",
           extension_version: "unknown",
