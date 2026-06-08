@@ -458,6 +458,39 @@ const hasRealBrowserLaunchAttestation = (
   return launchResult.headless === false && launchResult.executionSurface === "real_browser";
 };
 
+const COVERAGE_BLOCKED_REASONS = new Set<ProviderEvidenceBlockingReason>([
+  "provider_contract_version_mismatch",
+  "provider_limitation_conflict",
+  "profile_lock_unavailable",
+  "extension_status_unready",
+  "native_messaging_status_unready",
+  "redaction_policy_missing",
+  "redaction_invalid",
+  "secret_leak_detected",
+  "runtime_attestation_required",
+  "manual_review_required",
+  "source_conflict"
+]);
+
+const coverageStatusFor = (input: {
+  blockingReasons: Set<ProviderEvidenceBlockingReason>;
+  missingEvidence: Set<string>;
+  redactionGaps: Set<string>;
+}): OfficialChromeLaunchEvidenceRecord["closeout_plan"]["coverage_status"] => {
+  if (input.blockingReasons.size === 0) {
+    return "complete";
+  }
+  for (const reason of input.blockingReasons) {
+    if (COVERAGE_BLOCKED_REASONS.has(reason)) {
+      return "blocked";
+    }
+  }
+  if (input.missingEvidence.size > 0 || input.redactionGaps.size > 0) {
+    return "missing_required";
+  }
+  return "partial";
+};
+
 const buildCloseoutPlan = (input: {
   providerId: OfficialChromeLaunchEvidenceProviderId;
   evidenceRefs: ProviderEvidenceRef[];
@@ -577,7 +610,11 @@ const buildCloseoutPlan = (input: {
     }
   }
 
-  const coverageStatus = blockingReasons.size === 0 ? "complete" : "partial";
+  const coverageStatus = coverageStatusFor({
+    blockingReasons,
+    missingEvidence,
+    redactionGaps
+  });
 
   return {
     required_evidence_kinds: requiredEvidenceKinds,
@@ -598,7 +635,7 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
   const now = input.createdAt ?? new Date().toISOString();
   const collectedAt = input.collectedAt ?? now;
   const persistent = input.providerId === "official-chrome.persistent";
-  const browserChannel = input.browserChannel ?? "Google Chrome stable";
+  const browserChannel = input.browserChannel ?? "unknown";
   const browserVersion = input.browserVersion ?? "unknown";
   const browserChannelAttested = isGoogleChromeStableAttested({
     browserChannel,

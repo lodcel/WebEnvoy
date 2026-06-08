@@ -57,6 +57,7 @@ const buildPersistentRecord = (
     browserChannelVerified: true,
     launchEnvelopeRef: `launch-envelope:${runId}:v1`,
     profileRef: "profile:private-profile",
+    browserChannel: "Google Chrome stable",
     browserVersion: "Google Chrome 125.0.0.0",
     launchResult: buildLaunchResult(),
     runtimeStatus: buildReadyStatus(runId),
@@ -83,6 +84,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-001:v1",
       profileRef: "/Users/example/Library/Application Support/WebEnvoy/private-profile",
+      browserChannel: "Google Chrome stable",
       browserVersion: "Google Chrome 125.0.0.0",
       createdAt: "2026-06-08T00:00:00.000Z",
       collectedAt: "2026-06-08T00:00:01.000Z",
@@ -162,6 +164,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
     });
 
     expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.coverage_status).toBe("blocked");
     expect(record.closeout_plan.blocking_reasons).toEqual(
       expect.arrayContaining([
         "launch_argument_snapshot_missing",
@@ -180,6 +183,27 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
         "browser_version"
       ])
     );
+  });
+
+  it("marks missing required evidence without conflict as missing_required", () => {
+    const record = buildOfficialChromeLaunchEvidenceRecord({
+      runId: "run-official-launch-missing-required-001",
+      commandRef: "command-envelope:run-official-launch-missing-required-001",
+      providerId: "official-chrome.direct",
+      providerContractRef: "provider-contract:official-chrome.direct:v1",
+      providerContractVerified: true,
+      browserChannelVerified: true,
+      launchEnvelopeRef: null,
+      profileRef: "profile:not-required",
+      browserChannel: "Google Chrome stable",
+      browserVersion: "Google Chrome 125.0.0.0",
+      launchResult: buildLaunchResult()
+    });
+
+    expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.coverage_status).toBe("missing_required");
+    expect(record.closeout_plan.blocking_reasons).toContain("launch_envelope_missing");
+    expect(record.closeout_plan.missing_evidence).toContain("launch_envelope_ref");
   });
 
   it("keeps private locators and raw launch arguments out of the evidence record", () => {
@@ -231,10 +255,39 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       headless: true
     });
     expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.coverage_status).toBe("blocked");
     expect(record.closeout_plan.blocking_reasons).toEqual(
       expect.arrayContaining(["provider_limitation_conflict", "runtime_attestation_required"])
     );
     expect(record.closeout_plan.missing_evidence).toContain("real_browser_launch_evidence");
+  });
+
+  it("fails closed when browser channel evidence is absent", () => {
+    const record = buildPersistentRecord({
+      runId: "run-official-launch-channel-missing-001",
+      commandRef: "command-envelope:run-official-launch-channel-missing-001",
+      browserChannel: null,
+      browserChannelVerified: true,
+      browserVersion: "Google Chrome 125.0.0.0"
+    });
+
+    expect(record.version_evidence.browser_channel).toBe("unknown");
+    expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.coverage_status).toBe("blocked");
+    expect(record.closeout_plan.blocking_reasons).toEqual(
+      expect.arrayContaining(["provider_limitation_conflict", "runtime_attestation_required"])
+    );
+    expect(record.closeout_plan.missing_evidence).toContain("google_chrome_stable_attestation");
+    expect(record.closeout_plan.next_required_gates).toContain("browser_channel_attestation");
+    expect(record.evidence_refs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "browser_channel_attestation",
+          ref: "browser-channel:unknown",
+          status: "partial"
+        })
+      ])
+    );
   });
 
   it("fails closed when launch evidence lacks explicit headed attestation", () => {
@@ -383,6 +436,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       });
 
       expect(record.closeout_plan.closeout_decision).toBe("deny");
+      expect(record.closeout_plan.coverage_status).toBe("blocked");
       expect(record.closeout_plan.blocking_reasons).toEqual(
         expect.arrayContaining(["provider_contract_version_mismatch", "source_conflict"])
       );
