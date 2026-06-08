@@ -897,10 +897,9 @@ export const officialChromeProviderFixtures = {
         ],
         evidence_outputs: [
           "doctor_report",
-          "runtime_attestation",
-          "live_evidence_ref"
+          "runtime_attestation"
         ],
-        risk_constraints: ["requires_latest_head_evidence", "requires_manual_confirmation"],
+        risk_constraints: ["requires_manual_confirmation"],
         verification_level: "static_checked",
         limitations: ["diagnostic_only"]
       }
@@ -1015,11 +1014,10 @@ export const officialChromeProviderFixtures = {
       supported_actions: ["launch"],
       supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       required_runtime_requirements: [
-        "profile_binding",
+        "chrome_binary",
+        "persistent_profile",
         "extension_binding",
-        "native_messaging",
-        "runtime_bootstrap_ready",
-        "real_browser"
+        "native_messaging"
       ],
       support_level: "statically_verified",
       limitations: ["diagnostic_only"],
@@ -1050,8 +1048,8 @@ export const officialChromeProviderFixtures = {
         launch_evidence_ref: "launch-evidence://official-chrome/run-complete",
         fixture_ref: "tests/official-chrome-provider.fixture.test.ts"
       },
-      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_live_evidence",
-      downstream_owner: "#1144",
+      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_launch_evidence",
+      downstream_owner: "#1140/#1141/#1142/#1143",
       decision: "defer",
       blocking_reasons: [],
       evidence_refs: [
@@ -1072,11 +1070,10 @@ export const officialChromeProviderFixtures = {
       supported_actions: ["launch"],
       supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       required_runtime_requirements: [
-        "profile_binding",
+        "chrome_binary",
+        "persistent_profile",
         "extension_binding",
-        "native_messaging",
-        "runtime_bootstrap_ready",
-        "real_browser"
+        "native_messaging"
       ],
       support_level: "declared",
       limitations: ["diagnostic_only"],
@@ -1107,7 +1104,8 @@ export const officialChromeProviderFixtures = {
         launch_evidence_ref: "launch-evidence://official-chrome/run-partial",
         fixture_ref: "tests/official-chrome-provider.fixture.test.ts"
       },
-      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_live_evidence",
+      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_launch_evidence",
+      downstream_owner: "#1140/#1141/#1142/#1143",
       support_state: "blocked",
       decision: "deny",
       blocking_reasons: ["verification_source_missing"],
@@ -1129,11 +1127,10 @@ export const officialChromeProviderFixtures = {
       supported_actions: ["launch"],
       supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       required_runtime_requirements: [
-        "profile_binding",
+        "chrome_binary",
+        "persistent_profile",
         "extension_binding",
-        "native_messaging",
-        "runtime_bootstrap_ready",
-        "real_browser"
+        "native_messaging"
       ],
       support_level: "statically_verified",
       limitations: ["diagnostic_only"],
@@ -1164,8 +1161,8 @@ export const officialChromeProviderFixtures = {
         launch_evidence_ref: "launch-evidence://official-chrome/run-blocked",
         fixture_ref: "tests/official-chrome-provider.fixture.test.ts"
       },
-      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_live_evidence",
-      downstream_owner: "#1144",
+      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_launch_evidence",
+      downstream_owner: "#1140/#1141/#1142/#1143",
       decision: "deny",
       blocking_reasons: ["runtime_requirement_missing", "verification_source_missing"],
       evidence_refs: [
@@ -1524,11 +1521,11 @@ export const officialChromeProviderFixtures = {
         }
       ],
       outcome: {
-        overall_status: "warn",
-        provider_blocked: false,
+        overall_status: "fail",
+        provider_blocked: true,
         blocked_capabilities: [officialChromeCapabilityId],
         doctor_verification_level: "doctor_checked",
-        next_required_gates: ["runtime_attestation"]
+        next_required_gates: ["manual_review", "runtime_attestation"]
       }
     },
     failClosed: {

@@ -44,19 +44,20 @@ describe("official Chrome provider fixtures for #1144", () => {
     });
     expect(capability.evidence_outputs).toEqual([
       "doctor_report",
-      "runtime_attestation",
-      "live_evidence_ref"
+      "runtime_attestation"
     ]);
     expect(capability.evidence_outputs).not.toEqual(
-      expect.arrayContaining(["provider_health_ref", "launch_admission_evidence"])
+      expect.arrayContaining(["provider_health_ref", "launch_admission_evidence", "live_evidence_ref"])
     );
-    expect(capability.risk_constraints).toEqual([
-      "requires_latest_head_evidence",
-      "requires_manual_confirmation"
-    ]);
+    expect(capability.risk_constraints).toEqual(["requires_manual_confirmation"]);
     expect(capability.limitations).toEqual(["diagnostic_only"]);
     expect(capability.risk_constraints).not.toEqual(
-      expect.arrayContaining(["official_chrome_only", "persistent_profile_required", "headful_only"])
+      expect.arrayContaining([
+        "requires_latest_head_evidence",
+        "official_chrome_only",
+        "persistent_profile_required",
+        "headful_only"
+      ])
     );
     expect(capability.limitations).not.toEqual(expect.arrayContaining(["live_evidence_not_included"]));
     expect(capability.capability_kind).not.toBe("runtime_control");
@@ -110,7 +111,14 @@ describe("official Chrome provider fixtures for #1144", () => {
       capability_kind: "runtime",
       supported_actions: ["launch"],
       supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
+      required_runtime_requirements: [
+        "chrome_binary",
+        "persistent_profile",
+        "extension_binding",
+        "native_messaging"
+      ],
       support_level: "statically_verified",
+      downstream_owner: "#1140/#1141/#1142/#1143",
       decision: "defer",
       blocking_reasons: []
     });
@@ -133,7 +141,14 @@ describe("official Chrome provider fixtures for #1144", () => {
       capability_kind: "runtime",
       supported_actions: ["launch"],
       supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
+      required_runtime_requirements: [
+        "chrome_binary",
+        "persistent_profile",
+        "extension_binding",
+        "native_messaging"
+      ],
       support_level: "declared",
+      downstream_owner: "#1140/#1141/#1142/#1143",
       support_state: "blocked",
       decision: "deny",
       blocking_reasons: ["verification_source_missing"]
@@ -156,7 +171,14 @@ describe("official Chrome provider fixtures for #1144", () => {
       capability_kind: "runtime",
       supported_actions: ["launch"],
       supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
+      required_runtime_requirements: [
+        "chrome_binary",
+        "persistent_profile",
+        "extension_binding",
+        "native_messaging"
+      ],
       support_level: "statically_verified",
+      downstream_owner: "#1140/#1141/#1142/#1143",
       decision: "deny",
       blocking_reasons: ["runtime_requirement_missing", "verification_source_missing"]
     });
@@ -237,16 +259,19 @@ describe("official Chrome provider fixtures for #1144", () => {
     );
 
     expect(partial.outcome).toMatchObject({
-      overall_status: "warn",
-      provider_blocked: false,
+      overall_status: "fail",
+      provider_blocked: true,
       blocked_capabilities: [officialChromeProviderFixtureIds.capabilityId],
       doctor_verification_level: "doctor_checked",
-      next_required_gates: ["runtime_attestation"]
+      next_required_gates: ["manual_review", "runtime_attestation"]
     });
     expect(partial.outcome.overall_status).not.toBe("pass");
-    expect(new Set(partial.checks.map((check) => check.category))).not.toEqual(
-      new Set(requiredDoctorCategories)
+    const partialDoctorCategoryList = partial.checks.map((check) => check.category);
+    expect(new Set(partialDoctorCategoryList)).not.toEqual(new Set(requiredDoctorCategories));
+    expect(partialDoctorCategoryList).not.toEqual(
+      expect.arrayContaining(["binary", "version", "display_mode", "profile_persistence"])
     );
+    expect(partial.outcome.provider_blocked).toBe(true);
 
     expect(failClosed.outcome).toMatchObject({
       overall_status: "fail",
