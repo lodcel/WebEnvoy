@@ -34,10 +34,13 @@ describe("official Chrome provider fixtures for #1144", () => {
     });
     expect(capability).toMatchObject({
       capability_id: officialChromeProviderFixtureIds.capabilityId,
+      capability_kind: "browser_runtime",
       supported_execution_layers: ["L3"],
-      supported_actions: ["launch", "attach"],
+      supported_actions: ["read", "diagnose"],
       verification_level: "static_checked"
     });
+    expect(capability.capability_kind).not.toBe("runtime_control");
+    expect(capability.supported_actions).not.toEqual(expect.arrayContaining(["launch", "attach"]));
     expect(capability.runtime_requirements).toEqual([
       "profile_binding",
       "extension_binding",
@@ -82,10 +85,15 @@ describe("official Chrome provider fixtures for #1144", () => {
     expect(supported).toMatchObject({
       provider_id: officialChromeProviderFixtureIds.providerId,
       capability_id: officialChromeProviderFixtureIds.capabilityId,
+      capability_kind: "runtime",
+      supported_actions: ["launch"],
+      supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       support_level: "statically_verified",
       decision: "defer",
       blocking_reasons: []
     });
+    expect(supported.capability_kind).not.toBe("runtime_control");
+    expect(supported.supported_execution_layers).not.toEqual(["L3"]);
     expect(supported.verification_sources.map((source) => source.kind)).toEqual([
       "provider_declaration",
       "static_contract_check",
@@ -100,6 +108,9 @@ describe("official Chrome provider fixtures for #1144", () => {
     );
 
     expect(partial).toMatchObject({
+      capability_kind: "runtime",
+      supported_actions: ["launch"],
+      supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       support_level: "declared",
       decision: "defer",
       blocking_reasons: ["verification_source_missing"]
@@ -117,6 +128,9 @@ describe("official Chrome provider fixtures for #1144", () => {
     );
 
     expect(failClosed).toMatchObject({
+      capability_kind: "runtime",
+      supported_actions: ["launch"],
+      supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       support_level: "statically_verified",
       decision: "deny",
       blocking_reasons: ["runtime_requirement_missing", "verification_source_missing"]

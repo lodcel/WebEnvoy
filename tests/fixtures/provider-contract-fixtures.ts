@@ -885,9 +885,9 @@ export const officialChromeProviderFixtures = {
     capabilities: [
       {
         capability_id: officialChromeCapabilityId,
-        capability_kind: "runtime_control",
+        capability_kind: "browser_runtime",
         supported_execution_layers: ["L3"],
-        supported_actions: ["launch", "attach"],
+        supported_actions: ["read", "diagnose"],
         runtime_requirements: [
           "profile_binding",
           "extension_binding",
@@ -1011,9 +1011,9 @@ export const officialChromeProviderFixtures = {
       contract_version: "v1",
       capability_id: officialChromeCapabilityId,
       requested_capability_ref: `consumer:official-chrome:${officialChromeCapabilityId}`,
-      capability_kind: "runtime_control",
-      supported_actions: ["launch", "attach"],
-      supported_execution_layers: ["L3"],
+      capability_kind: "runtime",
+      supported_actions: ["launch"],
+      supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       required_runtime_requirements: [
         "profile_binding",
         "extension_binding",
@@ -1068,9 +1068,9 @@ export const officialChromeProviderFixtures = {
       contract_version: "v1",
       capability_id: officialChromeCapabilityId,
       requested_capability_ref: `consumer:official-chrome-partial:${officialChromeCapabilityId}`,
-      capability_kind: "runtime_control",
-      supported_actions: ["launch", "attach"],
-      supported_execution_layers: ["L3"],
+      capability_kind: "runtime",
+      supported_actions: ["launch"],
+      supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       required_runtime_requirements: [
         "profile_binding",
         "extension_binding",
@@ -1124,9 +1124,9 @@ export const officialChromeProviderFixtures = {
       contract_version: "v1",
       capability_id: officialChromeCapabilityId,
       requested_capability_ref: `consumer:official-chrome-blocked:${officialChromeCapabilityId}`,
-      capability_kind: "runtime_control",
-      supported_actions: ["launch", "attach"],
-      supported_execution_layers: ["L3"],
+      capability_kind: "runtime",
+      supported_actions: ["launch"],
+      supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       required_runtime_requirements: [
         "profile_binding",
         "extension_binding",
