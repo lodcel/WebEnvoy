@@ -73,8 +73,10 @@ describe("official Chrome provider fixtures for #1144", () => {
       headed: true,
       headless: false,
       real_browser_required: true,
-      browser_channel: "Google Chrome stable"
+      browser_channel: "Google Chrome stable",
+      browser_version_requirement: "Google Chrome stable >=137"
     });
+    expect(envelope.browser_mode.browser_version_requirement).not.toContain(">=125");
     expect(envelope.runtime_bindings).toMatchObject({
       extension_binding_mode: "persistent_profile_extension",
       native_messaging_mode: "required",
@@ -186,6 +188,15 @@ describe("official Chrome provider fixtures for #1144", () => {
       new Set(requiredDoctorCategories)
     );
     expect(supported.checks.every((check) => check.status === "pass")).toBe(true);
+    expect(
+      supported.checks.find((check) => check.category === "version")?.diagnostics
+    ).toMatchObject({
+      observed: "Google Chrome stable 137.0.0.0",
+      expected: "system_installed"
+    });
+    expect(
+      supported.checks.find((check) => check.category === "version")?.diagnostics.observed
+    ).not.toContain("125");
 
     expect(partial.outcome).toMatchObject({
       overall_status: "warn",
@@ -246,6 +257,11 @@ describe("official Chrome provider fixtures for #1144", () => {
       closeout_decision: "allow"
     });
     expect(supported.launch_arguments.launch_envelope_ref).toBe(officialChromeProviderFixtureIds.launchEnvelopeRef);
+    expect(supported.version_evidence).toMatchObject({
+      browser_channel: "Google Chrome stable",
+      browser_version: "Google Chrome 137.0.0.0"
+    });
+    expect(supported.version_evidence.browser_version).not.toContain("125");
     expect(supported.closeout_plan.required_evidence_kinds).toContain("launch_envelope_ref");
     expect(supported.evidence_refs).toContainEqual(
       expect.objectContaining({
@@ -267,6 +283,11 @@ describe("official Chrome provider fixtures for #1144", () => {
         status: "partial"
       })
     );
+    expect(partial.version_evidence).toMatchObject({
+      browser_channel: "Google Chrome stable",
+      browser_version: "Google Chrome 137.0.0.0"
+    });
+    expect(partial.version_evidence.browser_version).not.toContain("125");
     expect(partial.closeout_plan.closeout_decision).not.toBe("defer");
 
     expect(failClosed.closeout_plan).toMatchObject({

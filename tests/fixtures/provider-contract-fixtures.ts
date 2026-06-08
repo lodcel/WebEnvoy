@@ -949,7 +949,7 @@ export const officialChromeProviderFixtures = {
       headless: false,
       execution_safety_mode: "default",
       browser_channel: "Google Chrome stable",
-      browser_version_requirement: "Google Chrome stable >=125",
+      browser_version_requirement: "Google Chrome stable >=137",
       real_browser_required: true
     },
     network: {
@@ -1235,7 +1235,7 @@ export const officialChromeProviderFixtures = {
           summary: "Official Chrome stable version satisfies the declared system-installed requirement.",
           diagnostics: {
             code: "browser_version_ok",
-            observed: "Google Chrome stable 125.0.0.0",
+            observed: "Google Chrome stable 137.0.0.0",
             expected: "system_installed",
             remediation_hint: "N/A"
           },
@@ -1698,7 +1698,7 @@ export const officialChromeProviderFixtures = {
         version_evidence: {
           provider_version: "fixture-v1",
           browser_channel: "Google Chrome stable",
-          browser_version: "Google Chrome 125.0.0.0",
+          browser_version: "Google Chrome 137.0.0.0",
           extension_version: "1.0.0",
           native_host_version: "1.0.0",
           contract_version: "v1",
@@ -1917,7 +1917,7 @@ export const officialChromeProviderFixtures = {
         version_evidence: {
           provider_version: "fixture-v1",
           browser_channel: "Google Chrome stable",
-          browser_version: "Google Chrome 125.0.0.0",
+          browser_version: "Google Chrome 137.0.0.0",
           extension_version: "1.0.0",
           native_host_version: "1.0.0",
           contract_version: "v1",
