@@ -15,6 +15,9 @@ import {
   type ServiceWorkerLifecycleState
 } from "./service-worker-code-identity.js";
 
+export const ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME =
+  "WebEnvoyActiveServiceWorkerCodeIdentity.json";
+
 export type ManifestSource = "binding" | "browser_default" | "windows_registry";
 
 export interface NativeHostManifest {
@@ -54,6 +57,7 @@ export interface ExtensionServiceWorkerFreshnessDiagnostics {
     | "PROFILE_EXTENSION_NOT_UNPACKED"
     | "EXTENSION_SOURCE_MTIME_UNAVAILABLE"
     | "EXTENSION_SERVICE_WORKER_SCRIPT_DIGEST_UNAVAILABLE"
+    | "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING"
     | "SERVICE_WORKER_CACHE_MISSING"
     | "SERVICE_WORKER_CACHE_CURRENT"
     | "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD"
@@ -776,6 +780,12 @@ type ResolvedServiceWorkerCacheMtime = {
   digest: string | null;
 };
 
+type ActiveServiceWorkerCodeIdentityEvidence = {
+  observedActiveServiceWorkerScriptIdentityLocator: string;
+  observedServiceWorkerCodeDigestLocator: string;
+  observedAt: string | null;
+};
+
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   serviceWorkerPath: string,
   extensionId: string
@@ -857,6 +867,54 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
 const digestLocator = (digest: string | null): string | null =>
   digest ? `sha256:${digest}` : null;
 
+const resolveActiveServiceWorkerCodeIdentityEvidence = async (
+  serviceWorkerPath: string,
+  extensionId: string
+): Promise<ActiveServiceWorkerCodeIdentityEvidence | null> => {
+  const artifactPath = join(
+    serviceWorkerPath,
+    ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+  );
+  let raw: string;
+  try {
+    raw = await readFile(artifactPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const record = asRecord(parsed);
+  if (!record) {
+    return null;
+  }
+  if (record.extension_id !== extensionId || record.lifecycle_state !== "active_worker_observed") {
+    return null;
+  }
+  const observedScriptLocator = asNonEmptyString(
+    record.observed_active_service_worker_script_identity_locator
+  );
+  const observedDigestLocator = asNonEmptyString(
+    record.observed_service_worker_code_digest_locator
+  );
+  if (!observedScriptLocator || !observedDigestLocator) {
+    return null;
+  }
+
+  return {
+    observedActiveServiceWorkerScriptIdentityLocator: observedScriptLocator,
+    observedServiceWorkerCodeDigestLocator: observedDigestLocator,
+    observedAt: asNonEmptyString(record.observed_at)
+  };
+};
+
 const buildCodeIdentityObservation = (input: {
   extensionId: string;
   extensionPath: string | null;
@@ -865,6 +923,7 @@ const buildCodeIdentityObservation = (input: {
   expectedScriptDigest: string | null;
   serviceWorkerCacheDigest: string | null;
   lifecycleState: ServiceWorkerLifecycleState;
+  activeEvidence: ActiveServiceWorkerCodeIdentityEvidence | null;
   recoveryHint: string | null;
 }): ServiceWorkerCodeIdentityObservation =>
   evaluateServiceWorkerCodeIdentityObservation({
@@ -872,12 +931,17 @@ const buildCodeIdentityObservation = (input: {
     expectedExtensionBundleIdentityLocator: input.expectedScriptRef
       ? `extension-bundle/official-chrome.persistent/${input.extensionId}/service-worker/${input.expectedScriptRef}`
       : null,
-    observedActiveServiceWorkerScriptIdentityLocator: input.serviceWorkerCacheDigest
-      ? `extension-service-worker/official-chrome.persistent/${input.extensionId}/script-cache/current`
-      : null,
+    observedActiveServiceWorkerScriptIdentityLocator:
+      input.activeEvidence?.observedActiveServiceWorkerScriptIdentityLocator ?? null,
     expectedBundleDigestLocator: digestLocator(input.expectedScriptDigest),
-    observedServiceWorkerCodeDigestLocator: digestLocator(input.serviceWorkerCacheDigest),
-    activeWorkerLifecycleState: input.lifecycleState,
+    observedServiceWorkerCodeDigestLocator:
+      input.activeEvidence?.observedServiceWorkerCodeDigestLocator ?? null,
+    backgroundServiceWorkerCacheIdentityLocator: input.serviceWorkerCacheDigest
+      ? `extension-service-worker-cache/official-chrome.persistent/${input.extensionId}/script-cache/background`
+      : null,
+    backgroundServiceWorkerCacheDigestLocator: digestLocator(input.serviceWorkerCacheDigest),
+    activeWorkerLifecycleState: input.activeEvidence ? "active_worker_observed" : input.lifecycleState,
+    observedAt: input.activeEvidence?.observedAt ?? null,
     remediationHint: input.recoveryHint,
     rawPathDenylist: [input.extensionPath, input.serviceWorkerPath]
   });
@@ -1003,6 +1067,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
         expectedScriptDigest: null,
         serviceWorkerCacheDigest: null,
         lifecycleState: "source_missing",
+        activeEvidence: null,
         recoveryHint: null
       }),
       recoveryHint: null
@@ -1027,6 +1092,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
         expectedScriptDigest: null,
         serviceWorkerCacheDigest: null,
         lifecycleState: "source_missing",
+        activeEvidence: null,
         recoveryHint: null
       }),
       recoveryHint: null
@@ -1042,11 +1108,15 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
   const serviceWorkerLatestMtimeMs = serviceWorkerCacheMtime?.mtimeMs ?? null;
   const lifecycleState: ServiceWorkerLifecycleState =
     serviceWorkerCacheMtime?.source === "script_cache"
-      ? "script_cache_observed"
+      ? "disk_script_cache_observed"
       : serviceWorkerCacheMtime?.source === "registration_database" ||
           serviceWorkerCacheMtime?.source === "registration_database_with_opaque_script_cache"
         ? "registration_only"
         : "unavailable";
+  const activeEvidence = await resolveActiveServiceWorkerCodeIdentityEvidence(
+    serviceWorkerPath,
+    extensionId
+  );
   const codeIdentityObservation = buildCodeIdentityObservation({
     extensionId,
     extensionPath,
@@ -1055,6 +1125,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     expectedScriptDigest: expectedScript.digest,
     serviceWorkerCacheDigest: serviceWorkerCacheMtime?.digest ?? null,
     lifecycleState,
+    activeEvidence,
     recoveryHint
   });
   if (codeIdentityObservation.freshness_comparison_result === "redaction_invalid") {
@@ -1081,6 +1152,32 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       serviceWorkerLatestMtimeMs,
       codeIdentityObservation,
       recoveryHint: null
+    };
+  }
+  if (codeIdentityObservation.freshness_comparison_result === "match") {
+    return {
+      state: "fresh",
+      reason: "SERVICE_WORKER_CACHE_CURRENT",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs,
+      codeIdentityObservation,
+      recoveryHint: null
+    };
+  }
+  if (codeIdentityObservation.freshness_comparison_result === "observed_stale") {
+    return {
+      state: "stale",
+      reason: "SERVICE_WORKER_CODE_IDENTITY_MISMATCH",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs,
+      codeIdentityObservation,
+      recoveryHint
     };
   }
   if (serviceWorkerLatestMtimeMs === null) {
@@ -1113,7 +1210,10 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
 
   if (
     extensionLatestMtimeMs > serviceWorkerLatestMtimeMs ||
-    codeIdentityObservation.freshness_comparison_result === "observed_stale"
+    (serviceWorkerCacheMtime?.source === "script_cache" &&
+      expectedScript.digest !== null &&
+      serviceWorkerCacheMtime.digest !== null &&
+      expectedScript.digest !== serviceWorkerCacheMtime.digest)
   ) {
     return {
       state: "stale",
@@ -1146,15 +1246,15 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
   }
 
   return {
-    state: "fresh",
-    reason: "SERVICE_WORKER_CACHE_CURRENT",
+    state: "unknown",
+    reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
     extensionId,
     extensionPath,
     extensionLatestMtimeMs,
     serviceWorkerPath,
     serviceWorkerLatestMtimeMs,
     codeIdentityObservation,
-    recoveryHint: null
+    recoveryHint
   };
 };
 

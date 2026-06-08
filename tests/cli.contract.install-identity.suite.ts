@@ -111,11 +111,10 @@ describe("webenvoy cli contract / install and identity", () => {
           extension_service_worker_cache_path: null,
           extension_service_worker_expected_bundle_identity_locator:
             `extension-bundle/official-chrome.persistent/${extensionId}/service-worker/build/background.js`,
-          extension_service_worker_observed_script_identity_locator:
-            `extension-service-worker/official-chrome.persistent/${extensionId}/script-cache/current`,
+          extension_service_worker_observed_script_identity_locator: null,
           provider_doctor_extension_load_check: {
             category: "extension_load",
-            status: "fail",
+            status: "unknown",
             blocking: "provider_blocking"
           },
           recovery_hint: expect.stringContaining("Default/Service Worker")

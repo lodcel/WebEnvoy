@@ -7,10 +7,10 @@ const baseInput = () => ({
   expectedExtensionBundleIdentityLocator:
     "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
   observedActiveServiceWorkerScriptIdentityLocator:
-    "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/script-cache/current",
+    "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/background",
   expectedBundleDigestLocator: "sha256:expected",
   observedServiceWorkerCodeDigestLocator: "sha256:expected",
-  activeWorkerLifecycleState: "script_cache_observed" as const,
+  activeWorkerLifecycleState: "active_worker_observed" as const,
   observedAt: "2026-06-08T16:10:00.000Z",
   remediationHint: "refresh managed profile Service Worker cache",
   rawPathDenylist: [
@@ -25,7 +25,7 @@ describe("service worker code identity observation", () => {
 
     expect(observation).toMatchObject({
       freshness_comparison_result: "match",
-      active_worker_lifecycle_state: "script_cache_observed",
+      active_worker_lifecycle_state: "active_worker_observed",
       provider_doctor_extension_load_check: {
         category: "extension_load",
         status: "pass",
@@ -50,6 +50,35 @@ describe("service worker code identity observation", () => {
     expect(JSON.stringify(observation.provider_doctor_extension_load_check.diagnostics)).not.toContain(
       legacyExpectedKey
     );
+  });
+
+  it("keeps disk ScriptCache digest as background evidence and does not pass without active worker observation", () => {
+    const observation = evaluateServiceWorkerCodeIdentityObservation({
+      ...baseInput(),
+      observedActiveServiceWorkerScriptIdentityLocator: null,
+      observedServiceWorkerCodeDigestLocator: null,
+      backgroundServiceWorkerCacheIdentityLocator:
+        "extension-service-worker-cache/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/script-cache/background",
+      backgroundServiceWorkerCacheDigestLocator: "sha256:expected",
+      activeWorkerLifecycleState: "disk_script_cache_observed"
+    });
+
+    expect(observation).toMatchObject({
+      freshness_comparison_result: "observed_identity_missing",
+      active_worker_lifecycle_state: "disk_script_cache_observed",
+      observed_active_service_worker_script_identity_locator: null,
+      observed_service_worker_code_digest_locator: null,
+      background_service_worker_cache_digest_locator: "sha256:expected",
+      provider_doctor_extension_load_check: {
+        status: "unknown",
+        blocking: "provider_blocking",
+        diagnostics: {
+          code: "service_worker_observed_identity_missing",
+          observed: null,
+          expected: "sha256:expected"
+        }
+      }
+    });
   });
 
   it("fails closed when the observed service worker digest is stale", () => {

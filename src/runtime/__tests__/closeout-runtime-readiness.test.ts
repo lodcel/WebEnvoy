@@ -166,10 +166,10 @@ describe("closeout runtime readiness preflight", () => {
                 expected_extension_bundle_identity_locator:
                   "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
                 observed_active_service_worker_script_identity_locator:
-                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/script-cache/current",
+                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/background",
                 expected_bundle_digest_locator: "sha256:digest-a",
                 observed_service_worker_code_digest_locator: "sha256:digest-a",
-                active_worker_lifecycle_state: "script_cache_observed",
+                active_worker_lifecycle_state: "active_worker_observed",
                 freshness_comparison_result: "match",
                 provider_doctor_extension_load_check: {
                   category: "extension_load",
@@ -274,10 +274,10 @@ describe("closeout runtime readiness preflight", () => {
                 expected_extension_bundle_identity_locator:
                   "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
                 observed_active_service_worker_script_identity_locator:
-                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/script-cache/current",
+                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/background",
                 expected_bundle_digest_locator: "sha256:expected",
                 observed_service_worker_code_digest_locator: "sha256:expected",
-                active_worker_lifecycle_state: "script_cache_observed",
+                active_worker_lifecycle_state: "active_worker_observed",
                 freshness_comparison_result: "match",
                 provider_doctor_extension_load_check: {
                   category: "extension_load",
@@ -294,7 +294,7 @@ describe("closeout runtime readiness preflight", () => {
       runtime_status: {
         extension_service_worker_code_identity: {
           freshness_comparison_result: "match",
-          active_worker_lifecycle_state: "script_cache_observed"
+          active_worker_lifecycle_state: "active_worker_observed"
         },
         provider_doctor_extension_load_check: {
           category: "extension_load",

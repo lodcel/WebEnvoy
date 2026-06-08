@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   chmod,
   mkdtemp,
@@ -16,6 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { ProfileRuntimeService } from "../profile-runtime.js";
 import { BROWSER_STATE_FILENAME } from "../browser-launcher.js";
 import type { BrowserLaunchInput } from "../browser-launcher.js";
+import { ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME } from "../persistent-extension-identity-install.js";
 import { NativeMessagingTransportError } from "../native-messaging/bridge.js";
 import type { ProfileLock } from "../profile-lock.js";
 import { ProfileStore, type ProfileMeta } from "../profile-store.js";
@@ -377,6 +379,7 @@ const seedInstalledPersistentExtension = async (input: {
     await mkdir(join(unpackedDir, "build"), { recursive: true });
     await writeFile(join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
     await writeFile(join(unpackedDir, "build", "background.js"), scriptContent, "utf8");
+    const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
     await utimes(join(unpackedDir, "manifest.json"), evidenceMtime, evidenceMtime);
     await utimes(join(unpackedDir, "build", "background.js"), evidenceMtime, evidenceMtime);
     await utimes(join(unpackedDir, "build"), evidenceMtime, evidenceMtime);
@@ -386,6 +389,22 @@ const seedInstalledPersistentExtension = async (input: {
     await mkdir(serviceWorkerDir, { recursive: true });
     await writeFile(serviceWorkerScript, scriptContent, "utf8");
     await utimes(serviceWorkerScript, evidenceMtime, evidenceMtime);
+    await writeFile(
+      join(profileDir, "Service Worker", ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME),
+      `${JSON.stringify(
+        {
+          extension_id: extensionId,
+          lifecycle_state: "active_worker_observed",
+          observed_active_service_worker_script_identity_locator:
+            `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,
+          observed_service_worker_code_digest_locator: `sha256:${scriptDigest}`,
+          observed_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
     await utimes(serviceWorkerDir, evidenceMtime, evidenceMtime);
     await utimes(join(profileDir, "Service Worker"), evidenceMtime, evidenceMtime);
   }

@@ -8,7 +8,8 @@ export type ServiceWorkerCodeIdentityComparisonResult =
   | "source_conflict";
 
 export type ServiceWorkerLifecycleState =
-  | "script_cache_observed"
+  | "active_worker_observed"
+  | "disk_script_cache_observed"
   | "registration_only"
   | "unavailable"
   | "source_missing"
@@ -50,6 +51,8 @@ export interface ServiceWorkerCodeIdentityObservation {
   observed_active_service_worker_script_identity_locator: string | null;
   expected_bundle_digest_locator: string | null;
   observed_service_worker_code_digest_locator: string | null;
+  background_service_worker_cache_identity_locator: string | null;
+  background_service_worker_cache_digest_locator: string | null;
   active_worker_lifecycle_state: ServiceWorkerLifecycleState;
   freshness_comparison_result: ServiceWorkerCodeIdentityComparisonResult;
   remediation_hint: string | null;
@@ -63,6 +66,8 @@ export interface ServiceWorkerCodeIdentityObservationInput {
   observedActiveServiceWorkerScriptIdentityLocator: string | null;
   expectedBundleDigestLocator: string | null;
   observedServiceWorkerCodeDigestLocator: string | null;
+  backgroundServiceWorkerCacheIdentityLocator?: string | null;
+  backgroundServiceWorkerCacheDigestLocator?: string | null;
   activeWorkerLifecycleState: ServiceWorkerLifecycleState;
   observedAt?: string | null;
   remediationHint?: string | null;
@@ -184,7 +189,9 @@ export const evaluateServiceWorkerCodeIdentityObservation = (
     input.expectedExtensionBundleIdentityLocator,
     input.observedActiveServiceWorkerScriptIdentityLocator,
     input.expectedBundleDigestLocator,
-    input.observedServiceWorkerCodeDigestLocator
+    input.observedServiceWorkerCodeDigestLocator,
+    input.backgroundServiceWorkerCacheIdentityLocator,
+    input.backgroundServiceWorkerCacheDigestLocator
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
   const redactionInvalid = locators.some((locator) =>
     locatorHasRawPath(locator, rawPathDenylist)
@@ -203,12 +210,10 @@ export const evaluateServiceWorkerCodeIdentityObservation = (
     !input.observedServiceWorkerCodeDigestLocator
   ) {
     comparison = "observed_identity_missing";
+  } else if (input.activeWorkerLifecycleState !== "active_worker_observed") {
+    comparison = "observed_unknown";
   } else if (input.sourceConflict === true) {
     comparison = "source_conflict";
-  } else if (input.activeWorkerLifecycleState === "registration_only") {
-    comparison = "observed_unknown";
-  } else if (input.activeWorkerLifecycleState === "unavailable") {
-    comparison = "observed_unknown";
   } else {
     comparison =
       input.expectedBundleDigestLocator === input.observedServiceWorkerCodeDigestLocator
@@ -237,6 +242,10 @@ export const evaluateServiceWorkerCodeIdentityObservation = (
       input.observedActiveServiceWorkerScriptIdentityLocator,
     expected_bundle_digest_locator: input.expectedBundleDigestLocator,
     observed_service_worker_code_digest_locator: input.observedServiceWorkerCodeDigestLocator,
+    background_service_worker_cache_identity_locator:
+      input.backgroundServiceWorkerCacheIdentityLocator ?? null,
+    background_service_worker_cache_digest_locator:
+      input.backgroundServiceWorkerCacheDigestLocator ?? null,
     active_worker_lifecycle_state: lifecycleState,
     freshness_comparison_result: comparison,
     remediation_hint: input.remediationHint ?? null,

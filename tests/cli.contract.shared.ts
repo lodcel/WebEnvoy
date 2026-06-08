@@ -21,6 +21,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildRuntimeBootstrapContextId } from "../src/runtime/runtime-bootstrap.js";
+import { ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME } from "../src/runtime/persistent-extension-identity-install.js";
 import { resolveRuntimeStorePath } from "../src/runtime/store/sqlite-runtime-store.js";
 
 const repoRoot = path.resolve(path.join(import.meta.dirname, ".."));
@@ -113,6 +114,7 @@ const seedInstalledPersistentExtension = async (input: {
     await mkdir(path.join(unpackedDir, "build"), { recursive: true });
     await writeFile(path.join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
     await writeFile(path.join(unpackedDir, "build", "background.js"), scriptContent);
+    const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
     await utimes(path.join(unpackedDir, "manifest.json"), evidenceMtime, evidenceMtime);
     await utimes(path.join(unpackedDir, "build", "background.js"), evidenceMtime, evidenceMtime);
     await utimes(path.join(unpackedDir, "build"), evidenceMtime, evidenceMtime);
@@ -122,6 +124,25 @@ const seedInstalledPersistentExtension = async (input: {
     await mkdir(serviceWorkerDir, { recursive: true });
     await writeFile(serviceWorkerScript, scriptContent);
     await utimes(serviceWorkerScript, evidenceMtime, evidenceMtime);
+    await writeFile(
+      path.join(
+        profileDir,
+        "Service Worker",
+        ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+      ),
+      `${JSON.stringify(
+        {
+          extension_id: extensionId,
+          lifecycle_state: "active_worker_observed",
+          observed_active_service_worker_script_identity_locator:
+            `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,
+          observed_service_worker_code_digest_locator: `sha256:${scriptDigest}`,
+          observed_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`
+    );
     await utimes(serviceWorkerDir, evidenceMtime, evidenceMtime);
     await utimes(path.join(profileDir, "Service Worker"), evidenceMtime, evidenceMtime);
   }

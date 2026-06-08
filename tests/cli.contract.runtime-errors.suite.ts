@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { repoRoot, binPath, mockBrowserPath, nativeHostMockPath, repoOwnedNativeHostEntryPath, browserStateFilename, tempDirs, resolveDatabaseSync, DatabaseSync, itWithSqlite, createRuntimeCwd, createNativeHostManifest, seedInstalledPersistentExtension, defaultRuntimeEnv, runCli, expectBundledNativeHostStarts, createNativeHostCommand, createShellWrappedNativeHostCommand, PROFILE_MODE_ROOT_PREFERRED, quoteLauncherExportValue, resolveCanonicalExpectedProfileDir, expectProfileRootOnlyLauncherContract, expectDualEnvRootPreferredLauncherContract, runGit, createGitWorktreePair, runCliAsync, parseSingleJsonLine, encodeNativeBridgeEnvelope, readSingleNativeBridgeEnvelope, asRecord, resolveCliGateEnvelope, resolveWriteInteractionTier, scopedXhsGateOptions, assertLockMissing, detectSystemChromePath, wait, runHeadlessDomProbe, realBrowserContractsEnabled, BROWSER_STATE_FILENAME, BROWSER_CONTROL_FILENAME, isPidAlive, scopedReadGateOptions, path, readFile, writeFile, mkdir, realpath, rm, stat, chmod, symlink, spawn, spawnSync, createServer, createRequire, tmpdir, resolveRuntimeStorePath, type DatabaseSyncCtor } from "./cli.contract.shared.js";
 import { SQLiteRuntimeStore } from "../src/runtime/store/sqlite-runtime-store.js";
+import { ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME } from "../src/runtime/persistent-extension-identity-install.js";
 
 const startOfficialReadyRuntime = async (
   runtimeCwd: string,
@@ -21,17 +23,34 @@ const startOfficialReadyRuntime = async (
     const defaultDir = path.join(profileDir, "Default");
     const extensionDir = path.join(runtimeCwd, "extension");
     const extensionBuildFile = path.join(extensionDir, "build", "background.js");
+    const serviceWorkerRoot = path.join(defaultDir, "Service Worker");
     const serviceWorkerFile = path.join(
-      defaultDir,
-      "Service Worker",
+      serviceWorkerRoot,
       "ScriptCache",
       `${extensionId}-service-worker.js`
     );
+    const serviceWorkerScript = "globalThis.__webenvoyBuild = 'ready';\n";
     await mkdir(path.dirname(extensionBuildFile), { recursive: true });
     await mkdir(path.dirname(serviceWorkerFile), { recursive: true });
     await writeFile(path.join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
-    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'ready';\n");
-    await writeFile(serviceWorkerFile, "globalThis.__webenvoyBuild = 'ready';\n");
+    await writeFile(extensionBuildFile, serviceWorkerScript);
+    await writeFile(serviceWorkerFile, serviceWorkerScript);
+    await writeFile(
+      path.join(serviceWorkerRoot, ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME),
+      `${JSON.stringify(
+        {
+          extension_id: extensionId,
+          lifecycle_state: "active_worker_observed",
+          observed_active_service_worker_script_identity_locator:
+            `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,
+          observed_service_worker_code_digest_locator:
+            `sha256:${createHash("sha256").update(serviceWorkerScript).digest("hex")}`,
+          observed_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`
+    );
     await writeFile(
       path.join(defaultDir, "Preferences"),
       `${JSON.stringify(
