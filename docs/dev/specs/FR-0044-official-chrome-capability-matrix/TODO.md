@@ -13,7 +13,7 @@
 ## 实现前待办
 
 - [ ] #1140 消费本 matrix 和 `FR-0038`，验证 persistent extension identity / runtime health。
-- [ ] #1141 消费本 matrix 和 `FR-0038`，验证 MV3 service worker freshness。
-- [ ] #1142 消费本 matrix 和 `FR-0038`，验证 native messaging readiness。
+- [ ] #1141 消费本 matrix 和 `FR-0038`，验证 native messaging readiness。
+- [ ] #1142 消费本 matrix 和 `FR-0038`，验证 MV3 service worker freshness。
 - [ ] #1143 消费本 matrix、`FR-0040` 与 `FR-0041`，定义 launch evidence 引用与产物。
 - [ ] #1144 消费 descriptor、matrix、health 和 launch evidence，补 official Chrome fixtures。

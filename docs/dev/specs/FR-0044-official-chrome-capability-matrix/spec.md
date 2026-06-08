@@ -129,8 +129,8 @@ Fail-closed constraints:
 | `page-automation.write` | `statically_verified` | partial until runtime attestation, risk gates and applicable live evidence are present | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; future runtime/live owner supplies runtime_observation or live_evidence_gate ref |
 | `page-automation.download` | `statically_verified` | artifact passthrough requires launch/evidence owner and download policy evidence; none exists in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; future artifact/evidence owner supplies artifact ref |
 | `provider.diagnose` | `statically_verified` | diagnostic surface declared; health schema and result payload remain out of scope | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; #1140/#1141/#1142 own health result refs |
-| `extension-runtime.bridge` | `statically_verified` | required refs exist only as descriptor refs; extension installation/runtime/service worker readiness not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; #1140/#1141 health owners fill extension readiness refs |
-| `native-bridge.messaging` | `statically_verified` | required refs exist only as descriptor refs; native host registration and bridge readiness not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; #1142 health owner fills native messaging readiness refs |
+| `extension-runtime.bridge` | `statically_verified` | required refs exist only as descriptor refs; extension installation/runtime/service worker readiness not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; #1140/#1142 health owners fill extension readiness refs |
+| `native-bridge.messaging` | `statically_verified` | required refs exist only as descriptor refs; native host registration and bridge readiness not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; #1141 health owner fills native messaging readiness refs |
 | `artifact-passthrough.launch-evidence` | `declared` | evidence slot exists but no launch evidence record, redaction record or artifact exists in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0043`; #1143 must fill `launch_evidence_ref` before business admission can rely on it |
 
 Persistent rows must be interpreted with this required-field expansion; together with the matrix table above, each row fully instantiates `OfficialChromeCapabilityRow`:
@@ -142,8 +142,8 @@ Persistent rows must be interpreted with this required-field expansion; together
 | `page-automation.write` | `page_automation` | `write` | `playwright_cdp`, `extension_bridge` | `chrome_binary`, `persistent_profile`, `page_context`, `extension_binding`, `risk_gate` | `FR-0035 default`; deny live/write admission without accepted runtime/live evidence | future runtime/live owner |
 | `page-automation.download` | `page_automation` | `download` | `playwright_cdp`, `extension_bridge`, `artifact_passthrough` | `chrome_binary`, `persistent_profile`, `download_policy`, `artifact_policy` | `FR-0035 default`; deny without accepted artifact/download evidence | future artifact/evidence owner |
 | `provider.diagnose` | `diagnostics` | `diagnose` | `provider_doctor` | `descriptor_ref`, `persistent_profile_ref`, `extension_ref`, `native_messaging_ref` | `FR-0035 default`; diagnostics cannot satisfy business capability minimum | #1140/#1141/#1142 |
-| `extension-runtime.bridge` | `extension_runtime` | `bridge` | `extension_bridge` | `persistent_profile`, `extension_binding`, `service_worker_freshness` | `FR-0035 default`; deny until accepted extension/service-worker health refs exist | #1140/#1141 |
-| `native-bridge.messaging` | `native_bridge` | `message` | `native_messaging` | `persistent_profile`, `native_host_registration`, `native_messaging_health` | `FR-0035 default`; deny until accepted native messaging health ref exists | #1142 |
+| `extension-runtime.bridge` | `extension_runtime` | `bridge` | `extension_bridge` | `persistent_profile`, `extension_binding`, `service_worker_freshness` | `FR-0035 default`; deny until accepted extension/service-worker health refs exist | #1140/#1142 |
+| `native-bridge.messaging` | `native_bridge` | `message` | `native_messaging` | `persistent_profile`, `native_host_registration`, `native_messaging_health` | `FR-0035 default`; deny until accepted native messaging health ref exists | #1141 |
 | `artifact-passthrough.launch-evidence` | `artifact_passthrough` | `pass_through` | `artifact_ref`, `redaction_policy` | `launch_evidence_record`, `redaction_record` | `FR-0035 default`; declared slot cannot satisfy evidence minimum | #1143 |
 
 Fail-closed constraints:
@@ -183,8 +183,8 @@ Matrix rows must use these evidence ref strategies:
 ### 8. Downstream owner boundaries
 
 - #1140 owns persistent extension identity / runtime health checks and consumes `FR-0038`.
-- #1141 owns service worker freshness health checks and consumes `FR-0038`.
-- #1142 owns native messaging health checks and consumes `FR-0038`.
+- #1141 owns native messaging health checks and consumes `FR-0038`.
+- #1142 owns service worker freshness health checks and consumes `FR-0038`.
 - #1143 owns official Chrome launch evidence and consumes `FR-0040` / `FR-0041`.
 - #1144 owns official Chrome provider fixtures after descriptor, matrix, health and launch evidence inputs exist.
 
