@@ -56,6 +56,10 @@ import {
   buildFingerprintContextForMeta
 } from "./fingerprint-runtime.js";
 import {
+  buildOfficialChromeLaunchEvidenceRecord,
+  type OfficialChromeLaunchEvidenceRecord
+} from "./official-chrome-launch-evidence.js";
+import {
   NativeMessagingBridge,
   NativeMessagingTransportError,
   type BridgeCommandResult
@@ -214,6 +218,9 @@ const hasCompleteStaleBootstrapRecoveryTarget = (params: JsonObject): boolean =>
   typeof params.requested_at === "string" &&
   params.requested_at.length > 0;
 
+const OFFICIAL_CHROME_PERSISTENT_PROVIDER_CONTRACT_REF =
+  "provider-contract:official-chrome.persistent:v1";
+
 interface RuntimeActionInput {
   cwd: string;
   profile: string;
@@ -335,6 +342,77 @@ const readFingerprintMetaMode = (params: JsonObject): ReadMetaMode | undefined =
 
 const asObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const mapOfficialChromeStableChannel = (
+  identityPreflight: IdentityPreflightResult
+): { browserChannel: string | null; browserChannelVerified: boolean } => {
+  if (
+    identityPreflight.mode !== "official_chrome_persistent_extension" ||
+    identityPreflight.binding?.browserChannel !== "chrome" ||
+    typeof identityPreflight.browserVersion !== "string" ||
+    identityPreflight.browserVersion.trim().length === 0
+  ) {
+    return {
+      browserChannel: null,
+      browserChannelVerified: false
+    };
+  }
+
+  return {
+    browserChannel: "Google Chrome stable",
+    browserChannelVerified: true
+  };
+};
+
+const withOfficialChromeLaunchEvidence = (input: {
+  payload: JsonObject;
+  command: "runtime.start";
+  runtimeInput: RuntimeActionInput;
+  identityPreflight: IdentityPreflightResult;
+  launchResult?: BrowserLaunchResult | null;
+  persistentExtensionBinding?: PersistentExtensionBinding | null;
+  nowIso: string;
+}): JsonObject => {
+  if (input.identityPreflight.mode !== "official_chrome_persistent_extension") {
+    return input.payload;
+  }
+
+  const browserChannel = mapOfficialChromeStableChannel(input.identityPreflight);
+  const runtimeStatus = {
+    ...input.payload,
+    runId: input.runtimeInput.runId
+  };
+  const providerEvidenceRecord: OfficialChromeLaunchEvidenceRecord =
+    buildOfficialChromeLaunchEvidenceRecord({
+      runId: input.runtimeInput.runId,
+      commandRef: input.command,
+      providerId: "official-chrome.persistent",
+      launchEnvelopeRef: `launch-envelope:${input.command}:${input.runtimeInput.runId}:v1`,
+      providerContractRef: OFFICIAL_CHROME_PERSISTENT_PROVIDER_CONTRACT_REF,
+      providerContractVerified: true,
+      browserChannel: browserChannel.browserChannel,
+      browserChannelVerified: browserChannel.browserChannelVerified,
+      browserVersion: input.identityPreflight.browserVersion,
+      profileRef: `profile:${input.runtimeInput.profile}`,
+      createdAt: input.nowIso,
+      collectedAt: input.nowIso,
+      launchResult: input.launchResult ?? null,
+      runtimeStatus,
+      persistentExtensionBinding:
+        input.persistentExtensionBinding ?? input.identityPreflight.binding,
+      networkRegionalRef:
+        typeof input.payload.proxyUrl === "string" && input.payload.proxyUrl.length > 0
+          ? `proxy:${input.runtimeInput.profile}`
+          : null,
+      fingerprintPolicyRef: "fingerprint-policy:runtime-profile"
+    });
+
+  return {
+    ...input.payload,
+    launch_evidence_ref: providerEvidenceRecord.identity.provider_evidence_record_id,
+    provider_evidence_record: providerEvidenceRecord
+  };
+};
 
 const parseLocalStorageSnapshot = (params: JsonObject): LocalStorageSnapshot | null => {
   const rawSnapshot = params.localStorageSnapshot;
@@ -893,7 +971,7 @@ export class ProfileRuntimeService {
       );
 
       startSucceeded = true;
-      return {
+      const payload: JsonObject = {
         profile: input.profile,
         profileState: session.profileState,
         browserState: browserStateFromProfileState(session.profileState, true),
@@ -914,6 +992,15 @@ export class ProfileRuntimeService {
         fingerprint_runtime: fingerprintRuntime,
         startedAt: nowIso
       };
+      return withOfficialChromeLaunchEvidence({
+        payload,
+        command: "runtime.start",
+        runtimeInput: input,
+        identityPreflight,
+        launchResult: browserLaunch,
+        persistentExtensionBinding: nextMeta.persistentExtensionBinding ?? null,
+        nowIso
+      });
     } catch (error) {
       throw mapRuntimeError(error);
     } finally {
@@ -1343,10 +1430,10 @@ export class ProfileRuntimeService {
       stateRunId: lockInspection?.stateRunId ?? null
     });
 
-	    return {
-	      profile: input.profile,
-	      runId: input.runId,
-	      profileState: accessState.profileState,
+    return {
+      profile: input.profile,
+      runId: input.runId,
+      profileState: accessState.profileState,
       browserState: browserStateFromProfileState(accessState.profileState, accessState.lockHeld),
       profileDir,
       proxyUrl: meta?.proxyBinding?.url ?? null,
