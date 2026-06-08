@@ -1352,6 +1352,90 @@ describe("profile-runtime identity preflight", () => {
     });
   });
 
+  it("emits official Chrome launch evidence from runtime.start", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-launch-evidence-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    const profile = "official_chrome_launch_evidence_profile";
+    const runId = "run-runtime-official-chrome-launch-evidence-001";
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile
+    });
+    const service = createTestService({
+      browserLauncher: {
+        launch: async () => ({
+          browserPath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          browserPid: 999999,
+          controllerPid: 999998,
+          launchArgs: ["--user-data-dir=/private/profile", "about:blank"],
+          launchedAt: "2026-06-08T06:42:00.000Z",
+          headless: false,
+          executionSurface: "real_browser"
+        }),
+        shutdown: async () => undefined
+      }
+    });
+
+    const started = await service.start({
+      cwd: baseDir,
+      profile,
+      runId,
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    expect(started.launch_evidence_ref).toEqual(expect.stringContaining(`provider-evidence:${runId}:`));
+    expect(started.provider_evidence_record).toMatchObject({
+      identity: {
+        run_id: runId,
+        command_ref: "runtime.start",
+        provider_evidence_contract_version: "v1"
+      },
+      selected_provider: {
+        provider_id: "official-chrome.persistent",
+        provider_contract_ref: "provider-contract:official-chrome.persistent:v1"
+      },
+      version_evidence: {
+        browser_channel: "Google Chrome stable",
+        browser_version: "Google Chrome 146.0.7680.154"
+      },
+      launch_arguments: {
+        launch_envelope_ref: `launch-envelope:runtime.start:${runId}:v1`,
+        browser_mode: {
+          headed: true,
+          headless: false,
+          real_browser_required: true
+        }
+      },
+      closeout_plan: {
+        coverage_status: "complete",
+        closeout_decision: "allow",
+        blocking_reasons: []
+      }
+    });
+    expect(JSON.stringify(started.provider_evidence_record)).not.toContain(manifestPath);
+    expect(JSON.stringify(started.provider_evidence_record)).not.toContain("/private/profile");
+
+    const status = await service.status({
+      cwd: baseDir,
+      profile,
+      runId,
+      params: {}
+    });
+    expect(status).toMatchObject({
+      identityBindingState: "bound",
+      runtimeReadiness: "ready"
+    });
+  });
+
   it("keeps bound official Chrome start pending until bootstrap is attested by execution surface", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-bootstrap-pending-"));
     tempDirs.push(baseDir);
