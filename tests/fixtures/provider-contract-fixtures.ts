@@ -2058,7 +2058,7 @@ export const officialChromeProviderFixtures = {
           missing_evidence: ["runtime_bootstrap_ref"],
           redaction_gaps: [],
           next_required_gates: ["runtime_attestation", "native_messaging_health"],
-          closeout_decision: "defer"
+          closeout_decision: "deny"
         }
       }
     },

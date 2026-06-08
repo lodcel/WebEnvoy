@@ -256,7 +256,7 @@ describe("official Chrome provider fixtures for #1144", () => {
       coverage_status: "partial",
       blocking_reasons: ["native_messaging_status_unready", "evidence_ref_unavailable"],
       missing_evidence: ["runtime_bootstrap_ref"],
-      closeout_decision: "defer"
+      closeout_decision: "deny"
     });
     expect(partial.evidence_refs).toContainEqual(
       expect.objectContaining({
@@ -264,6 +264,7 @@ describe("official Chrome provider fixtures for #1144", () => {
         status: "partial"
       })
     );
+    expect(partial.closeout_plan.closeout_decision).not.toBe("defer");
 
     expect(failClosed.closeout_plan).toMatchObject({
       coverage_status: "blocked",
