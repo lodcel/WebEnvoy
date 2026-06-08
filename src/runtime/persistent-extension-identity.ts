@@ -82,6 +82,17 @@ const EMPTY_INSTALL_DIAGNOSTICS: IdentityPreflightInstallDiagnostics = {
   legacyLauncherDetected: null
 };
 
+const isProviderBlockingServiceWorkerCodeIdentity = (
+  freshness: ExtensionServiceWorkerFreshnessDiagnostics
+): boolean => {
+  const extensionLoadCheck =
+    freshness.codeIdentityObservation?.provider_doctor_extension_load_check ?? null;
+  return (
+    extensionLoadCheck?.blocking === "provider_blocking" &&
+    (extensionLoadCheck.status === "fail" || extensionLoadCheck.status === "unknown")
+  );
+};
+
 export const setIdentityPreflightAdaptersForTests = (
   overrides: Partial<IdentityPreflightAdapters>
 ): void => {
@@ -437,7 +448,10 @@ export const runIdentityPreflight = async (input: {
     }
     extensionServiceWorkerFreshness =
       await resolveProfileExtensionServiceWorkerFreshness(profileDir, binding.extensionId);
-    if (extensionServiceWorkerFreshness.state === "stale") {
+    if (
+      extensionServiceWorkerFreshness.state === "stale" ||
+      isProviderBlockingServiceWorkerCodeIdentity(extensionServiceWorkerFreshness)
+    ) {
       return buildBlockingResult({
         mode: "official_chrome_persistent_extension",
         browserPath,

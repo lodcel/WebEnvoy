@@ -1,7 +1,18 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile
+} from "node:fs/promises";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -93,8 +104,27 @@ const seedInstalledPersistentExtension = async (input: {
   const extensionId = input.extensionId ?? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const profileDir = path.join(input.cwd, ".webenvoy", "profiles", input.profile, "Default");
   const extensionDir = path.join(profileDir, "Extensions", extensionId, "1.0.0");
+  const unpackedDir = path.join(profileDir, "Extensions", extensionId, "unpacked");
+  const scriptContent = `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\nglobalThis.__webenvoyBuild = 'fresh';\n`;
+  const evidenceMtime = new Date("2026-05-01T00:00:00.000Z");
   await mkdir(extensionDir, { recursive: true });
   await writeFile(path.join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
+  if (input.enabled !== false) {
+    await mkdir(path.join(unpackedDir, "build"), { recursive: true });
+    await writeFile(path.join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
+    await writeFile(path.join(unpackedDir, "build", "background.js"), scriptContent);
+    await utimes(path.join(unpackedDir, "manifest.json"), evidenceMtime, evidenceMtime);
+    await utimes(path.join(unpackedDir, "build", "background.js"), evidenceMtime, evidenceMtime);
+    await utimes(path.join(unpackedDir, "build"), evidenceMtime, evidenceMtime);
+    await utimes(unpackedDir, evidenceMtime, evidenceMtime);
+    const serviceWorkerDir = path.join(profileDir, "Service Worker", "ScriptCache");
+    const serviceWorkerScript = path.join(serviceWorkerDir, `${extensionId}-service-worker.js`);
+    await mkdir(serviceWorkerDir, { recursive: true });
+    await writeFile(serviceWorkerScript, scriptContent);
+    await utimes(serviceWorkerScript, evidenceMtime, evidenceMtime);
+    await utimes(serviceWorkerDir, evidenceMtime, evidenceMtime);
+    await utimes(path.join(profileDir, "Service Worker"), evidenceMtime, evidenceMtime);
+  }
   await writeFile(
     path.join(profileDir, "Preferences"),
     `${JSON.stringify(
@@ -102,7 +132,13 @@ const seedInstalledPersistentExtension = async (input: {
         extensions: {
           settings: {
             [extensionId]: {
-              state: input.enabled === false ? 0 : 1
+              state: input.enabled === false ? 0 : 1,
+              ...(input.enabled === false
+                ? {}
+                : {
+                    location: 4,
+                    path: unpackedDir
+                  })
             }
           }
         }

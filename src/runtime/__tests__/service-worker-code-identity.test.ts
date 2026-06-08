@@ -31,9 +31,25 @@ describe("service worker code identity observation", () => {
         status: "pass",
         severity: "info",
         blocking: "none",
-        capability_id: "N/A"
+        capability_id: "N/A",
+        diagnostics: {
+          code: "service_worker_fresh",
+          observed: "sha256:expected",
+          expected: "sha256:expected"
+        }
       }
     });
+    expect(
+      Array.isArray(observation.provider_doctor_extension_load_check.diagnostics)
+    ).toBe(false);
+    const legacyObservedKey = "observed" + "_value";
+    const legacyExpectedKey = "expected" + "_value";
+    expect(JSON.stringify(observation.provider_doctor_extension_load_check.diagnostics)).not.toContain(
+      legacyObservedKey
+    );
+    expect(JSON.stringify(observation.provider_doctor_extension_load_check.diagnostics)).not.toContain(
+      legacyExpectedKey
+    );
   });
 
   it("fails closed when the observed service worker digest is stale", () => {
@@ -46,13 +62,11 @@ describe("service worker code identity observation", () => {
       status: "fail",
       severity: "error",
       blocking: "provider_blocking",
-      diagnostics: [
-        {
-          code: "service_worker_code_identity_stale",
-          observed_value: "sha256:stale",
-          expected_value: "sha256:expected"
-        }
-      ]
+      diagnostics: {
+        code: "service_worker_stale",
+        observed: "sha256:stale",
+        expected: "sha256:expected"
+      }
     });
   });
 
@@ -84,11 +98,9 @@ describe("service worker code identity observation", () => {
       status: "unknown",
       severity: "error",
       blocking: "provider_blocking",
-      diagnostics: [
-        {
-          code: "service_worker_observed_identity_missing"
-        }
-      ]
+      diagnostics: {
+        code: "service_worker_observed_identity_missing"
+      }
     });
   });
 
@@ -122,7 +134,10 @@ describe("service worker code identity observation", () => {
       provider_doctor_extension_load_check: {
         status: "fail",
         severity: "error",
-        blocking: "provider_blocking"
+        blocking: "provider_blocking",
+        diagnostics: {
+          code: "service_worker_evidence_redaction_invalid"
+        }
       }
     });
   });

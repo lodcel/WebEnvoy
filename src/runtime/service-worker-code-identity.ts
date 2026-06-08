@@ -28,8 +28,8 @@ export interface ProviderDoctorEvidenceRef {
 
 export interface ProviderDoctorDiagnostic {
   code: string;
-  observed_value: string | null;
-  expected_value: string | null;
+  observed: string | null;
+  expected: string | null;
   remediation_hint: string | null;
 }
 
@@ -41,7 +41,7 @@ export interface ProviderDoctorExtensionLoadCheck {
   blocking: ProviderDoctorCheckBlocking;
   capability_id: "N/A";
   summary: string;
-  diagnostics: ProviderDoctorDiagnostic[];
+  diagnostics: ProviderDoctorDiagnostic;
   evidence_refs: ProviderDoctorEvidenceRef[];
 }
 
@@ -109,19 +109,19 @@ const comparisonDiagnosticCode = (
 ): string => {
   switch (comparison) {
     case "match":
-      return "service_worker_code_identity_match";
+      return "service_worker_fresh";
     case "observed_stale":
-      return "service_worker_code_identity_stale";
+      return "service_worker_stale";
     case "observed_unknown":
-      return "service_worker_code_identity_unknown";
+      return "service_worker_observation_unavailable";
     case "expected_identity_missing":
       return "service_worker_expected_identity_missing";
     case "observed_identity_missing":
       return "service_worker_observed_identity_missing";
     case "redaction_invalid":
-      return "service_worker_identity_redaction_invalid";
+      return "service_worker_evidence_redaction_invalid";
     case "source_conflict":
-      return "service_worker_identity_source_conflict";
+      return "service_worker_source_conflict";
   }
 };
 
@@ -164,14 +164,12 @@ const mapComparisonToDoctorCheck = (input: {
     blocking,
     capability_id: "N/A",
     summary,
-    diagnostics: [
-      {
-        code: comparisonDiagnosticCode(input.comparison),
-        observed_value: input.observedDigest,
-        expected_value: input.expectedDigest,
-        remediation_hint: input.remediationHint
-      }
-    ],
+    diagnostics: {
+      code: comparisonDiagnosticCode(input.comparison),
+      observed: input.observedDigest,
+      expected: input.expectedDigest,
+      remediation_hint: input.remediationHint
+    },
     evidence_refs: input.evidenceRefs
   };
 };

@@ -1,4 +1,13 @@
-import { chmod, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  unlink,
+  utimes,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -359,8 +368,27 @@ const seedInstalledPersistentExtension = async (input: {
   const extensionId = input.extensionId ?? PERSISTENT_EXTENSION_ID;
   const profileDir = join(input.baseDir, ".webenvoy", "profiles", input.profile, "Default");
   const extensionDir = join(profileDir, "Extensions", extensionId, "1.0.0");
+  const unpackedDir = join(profileDir, "Extensions", extensionId, "unpacked");
+  const scriptContent = `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\nglobalThis.__webenvoyBuild = 'fresh';\n`;
+  const evidenceMtime = new Date("2026-05-01T00:00:00.000Z");
   await mkdir(extensionDir, { recursive: true });
   await writeFile(join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
+  if (input.enabled !== false) {
+    await mkdir(join(unpackedDir, "build"), { recursive: true });
+    await writeFile(join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
+    await writeFile(join(unpackedDir, "build", "background.js"), scriptContent, "utf8");
+    await utimes(join(unpackedDir, "manifest.json"), evidenceMtime, evidenceMtime);
+    await utimes(join(unpackedDir, "build", "background.js"), evidenceMtime, evidenceMtime);
+    await utimes(join(unpackedDir, "build"), evidenceMtime, evidenceMtime);
+    await utimes(unpackedDir, evidenceMtime, evidenceMtime);
+    const serviceWorkerDir = join(profileDir, "Service Worker", "ScriptCache");
+    const serviceWorkerScript = join(serviceWorkerDir, `${extensionId}-service-worker.js`);
+    await mkdir(serviceWorkerDir, { recursive: true });
+    await writeFile(serviceWorkerScript, scriptContent, "utf8");
+    await utimes(serviceWorkerScript, evidenceMtime, evidenceMtime);
+    await utimes(serviceWorkerDir, evidenceMtime, evidenceMtime);
+    await utimes(join(profileDir, "Service Worker"), evidenceMtime, evidenceMtime);
+  }
   await writeFile(
     join(profileDir, "Preferences"),
     `${JSON.stringify(
@@ -368,7 +396,13 @@ const seedInstalledPersistentExtension = async (input: {
         extensions: {
           settings: {
             [extensionId]: {
-              state: input.enabled === false ? 0 : 1
+              state: input.enabled === false ? 0 : 1,
+              ...(input.enabled === false
+                ? {}
+                : {
+                    location: 4,
+                    path: unpackedDir
+                  })
             }
           }
         }
