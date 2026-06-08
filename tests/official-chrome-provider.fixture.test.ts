@@ -179,15 +179,16 @@ describe("official Chrome provider fixtures for #1144", () => {
 
     expect(supported.identity.provider_id).toBe(officialChromeProviderFixtureIds.providerId);
     expect(supported.outcome).toMatchObject({
-      overall_status: "pass",
+      overall_status: "warn",
       provider_blocked: false,
+      blocked_capabilities: [officialChromeProviderFixtureIds.capabilityId],
       doctor_verification_level: "doctor_checked",
       next_required_gates: ["runtime_attestation"]
     });
     expect(new Set(supported.checks.map((check) => check.category))).toEqual(
       new Set(requiredDoctorCategories)
     );
-    expect(supported.checks.every((check) => check.status === "pass")).toBe(true);
+    expect(supported.outcome.overall_status).not.toBe("pass");
     expect(
       supported.checks.find((check) => check.category === "version")?.diagnostics
     ).toMatchObject({
@@ -197,6 +198,29 @@ describe("official Chrome provider fixtures for #1144", () => {
     expect(
       supported.checks.find((check) => check.category === "version")?.diagnostics.observed
     ).not.toContain("125");
+    expect(
+      supported.checks.find((check) => check.category === "capability_readiness")
+    ).toMatchObject({
+      status: "warn",
+      blocking: "capability_blocking"
+    });
+    expect(
+      supported.checks.find((check) => check.category === "capability_readiness")?.diagnostics
+    ).toMatchObject({
+      code: "capability_readiness.runtime_attestation_pending",
+      minimum_next_verification_level: "runtime_attested"
+    });
+    expect(
+      supported.checks.find((check) => check.category === "capability_readiness")?.diagnostics
+        .unsatisfied_runtime_requirements
+    ).toEqual(
+      expect.arrayContaining([
+        "extension_binding",
+        "native_messaging",
+        "runtime_bootstrap_ready",
+        "real_browser"
+      ])
+    );
 
     expect(partial.outcome).toMatchObject({
       overall_status: "warn",
@@ -250,12 +274,15 @@ describe("official Chrome provider fixtures for #1144", () => {
       runtime_bootstrap_required: true
     });
     expect(supported.closeout_plan).toMatchObject({
-      coverage_status: "complete",
-      blocking_reasons: [],
-      missing_evidence: [],
+      coverage_status: "partial",
+      blocking_reasons: ["runtime_attestation_required"],
+      missing_evidence: ["runtime_attestation_ref"],
       redaction_gaps: [],
-      closeout_decision: "allow"
+      next_required_gates: ["runtime_attestation"],
+      closeout_decision: "deny"
     });
+    expect(supported.closeout_plan.closeout_decision).not.toBe("allow");
+    expect(supported.closeout_plan.minimum_attestation_level).toBe("runtime_attested");
     expect(supported.launch_arguments.launch_envelope_ref).toBe(officialChromeProviderFixtureIds.launchEnvelopeRef);
     expect(supported.version_evidence).toMatchObject({
       browser_channel: "Google Chrome stable",

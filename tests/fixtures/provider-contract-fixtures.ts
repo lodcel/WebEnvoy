@@ -1372,13 +1372,13 @@ export const officialChromeProviderFixtures = {
         {
           check_id: "official-chrome-launch-readiness",
           category: "capability_readiness",
-          status: "pass",
-          severity: "info",
-          blocking: "none",
+          status: "warn",
+          severity: "warning",
+          blocking: "capability_blocking",
           capability_id: officialChromeCapabilityId,
-          summary: "Static official Chrome launch prerequisites are aligned for runtime admission.",
+          summary: "Static official Chrome launch prerequisites are aligned, but runtime attestation inputs are still required before admission.",
           diagnostics: {
-            code: "capability_readiness.ready_for_runtime_attestation",
+            code: "capability_readiness.runtime_attestation_pending",
             required_runtime_requirements: [
               "profile_binding",
               "extension_binding",
@@ -1408,9 +1408,9 @@ export const officialChromeProviderFixtures = {
         }
       ],
       outcome: {
-        overall_status: "pass",
+        overall_status: "warn",
         provider_blocked: false,
-        blocked_capabilities: [],
+        blocked_capabilities: [officialChromeCapabilityId],
         doctor_verification_level: "doctor_checked",
         next_required_gates: ["runtime_attestation"]
       }
@@ -1884,12 +1884,12 @@ export const officialChromeProviderFixtures = {
           ],
           required_freshness: "current_launch",
           minimum_attestation_level: "runtime_attested",
-          coverage_status: "complete",
-          blocking_reasons: [],
-          missing_evidence: [],
+          coverage_status: "partial",
+          blocking_reasons: ["runtime_attestation_required"],
+          missing_evidence: ["runtime_attestation_ref"],
           redaction_gaps: [],
-          next_required_gates: [],
-          closeout_decision: "allow"
+          next_required_gates: ["runtime_attestation"],
+          closeout_decision: "deny"
         }
       }
     },
