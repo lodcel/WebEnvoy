@@ -122,9 +122,12 @@ describe("official Chrome provider fixtures for #1144", () => {
       supported_actions: ["launch"],
       supported_execution_layers: ["chrome_process", "persistent_profile", "playwright_cdp"],
       support_level: "declared",
-      decision: "defer",
+      support_state: "blocked",
+      decision: "deny",
       blocking_reasons: ["verification_source_missing"]
     });
+    expect(partial.blocking_reasons).not.toHaveLength(0);
+    expect(partial.decision).not.toBe("defer");
     expect(partial.verification_sources.map((source) => source.kind)).toEqual([
       "provider_declaration",
       "static_contract_check",

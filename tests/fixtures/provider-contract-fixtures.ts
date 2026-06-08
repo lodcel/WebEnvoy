@@ -1108,7 +1108,8 @@ export const officialChromeProviderFixtures = {
         fixture_ref: "tests/official-chrome-provider.fixture.test.ts"
       },
       fail_closed_policy: "deny_or_defer_on_missing_runtime_or_live_evidence",
-      decision: "defer",
+      support_state: "blocked",
+      decision: "deny",
       blocking_reasons: ["verification_source_missing"],
       evidence_refs: [
         {
