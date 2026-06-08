@@ -897,8 +897,8 @@ export const officialChromeProviderFixtures = {
         ],
         evidence_outputs: [
           "doctor_report",
-          "provider_health_ref",
-          "launch_admission_evidence"
+          "runtime_attestation",
+          "live_evidence_ref"
         ],
         risk_constraints: ["requires_latest_head_evidence", "requires_manual_confirmation"],
         verification_level: "static_checked",
@@ -1669,7 +1669,7 @@ export const officialChromeProviderFixtures = {
         provider_blocked: true,
         blocked_capabilities: [officialChromeCapabilityId],
         doctor_verification_level: "doctor_checked",
-        next_required_gates: ["persistent_extension_identity", "native_messaging_health"]
+        next_required_gates: ["manual_review", "runtime_attestation"]
       }
     }
   },

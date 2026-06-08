@@ -42,6 +42,14 @@ describe("official Chrome provider fixtures for #1144", () => {
       supported_actions: ["read", "diagnose"],
       verification_level: "static_checked"
     });
+    expect(capability.evidence_outputs).toEqual([
+      "doctor_report",
+      "runtime_attestation",
+      "live_evidence_ref"
+    ]);
+    expect(capability.evidence_outputs).not.toEqual(
+      expect.arrayContaining(["provider_health_ref", "launch_admission_evidence"])
+    );
     expect(capability.risk_constraints).toEqual([
       "requires_latest_head_evidence",
       "requires_manual_confirmation"
@@ -243,8 +251,12 @@ describe("official Chrome provider fixtures for #1144", () => {
     expect(failClosed.outcome).toMatchObject({
       overall_status: "fail",
       provider_blocked: true,
-      blocked_capabilities: [officialChromeProviderFixtureIds.capabilityId]
+      blocked_capabilities: [officialChromeProviderFixtureIds.capabilityId],
+      next_required_gates: ["manual_review", "runtime_attestation"]
     });
+    expect(failClosed.outcome.next_required_gates).not.toEqual(
+      expect.arrayContaining(["persistent_extension_identity", "native_messaging_health"])
+    );
     expect(failClosed.outcome.overall_status).not.toBe("pass");
     expect(failClosed.checks).toEqual(
       expect.arrayContaining([
