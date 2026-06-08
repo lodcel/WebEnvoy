@@ -3,6 +3,10 @@ const providerId = "generic-local-contract-provider";
 const capabilityId = "generic-l2-page-read";
 const contractRef = `provider-contract:${providerId}:v1`;
 const launchEnvelopeRef = `launch-envelope:${providerId}:read:v1`;
+const officialChromeProviderId = "official-chrome.persistent";
+const officialChromeCapabilityId = "official-chrome.runtime";
+const officialChromeContractRef = `provider-contract:${officialChromeProviderId}:v1`;
+const officialChromeLaunchEnvelopeRef = "launch-envelope:official-chrome.persistent:runtime:v1";
 
 export const providerContractFixtures = {
   validGenericProviderContract: {
@@ -846,9 +850,969 @@ export const providerEvidenceFixtures = {
   }
 } as const;
 
+export const officialChromeProviderFixtures = {
+  contractSnapshot: {
+    provider_identity: {
+      provider_id: officialChromeProviderId,
+      provider_family: "official_chrome",
+      provider_version: "fixture-v1",
+      contract_version: "v1",
+      distribution_channel: "official_chrome_profile",
+      implementation_owner: "webenvoy_core"
+    },
+    provider_mode: "core_managed",
+    browser_engine: {
+      engine_family: "chromium",
+      browser_channel: "Google Chrome stable",
+      browser_version_range: "Google Chrome stable >=125",
+      headless_policy: "forbidden",
+      extension_binding_support: "required",
+      profile_binding_support: "required"
+    },
+    automation_transport: {
+      transport_kind: "extension_bridge",
+      transport_owner: "webenvoy_core",
+      command_surface: ["runtime_control", "page_automation", "diagnostics", "artifact_passthrough"],
+      attach_model: "attach_or_launch",
+      native_messaging_support: "required",
+      cdp_support: "supported",
+      playwright_support: "supported"
+    },
+    capabilities: [
+      {
+        capability_id: officialChromeCapabilityId,
+        capability_kind: "runtime_control",
+        supported_execution_layers: ["L3", "L2"],
+        supported_actions: ["launch", "attach", "read", "diagnose"],
+        runtime_requirements: [
+          "profile_binding",
+          "persistent_extension_binding",
+          "native_messaging_ready",
+          "runtime_bootstrap_ready",
+          "real_browser_headful"
+        ],
+        evidence_outputs: [
+          "runtime_health",
+          "doctor_report",
+          "provider_health_ref",
+          "runtime_attestation",
+          "launch_admission_evidence"
+        ],
+        risk_constraints: ["official_chrome_only", "persistent_profile_required", "headful_only"],
+        verification_level: "runtime_attested",
+        limitations: ["live_evidence_not_included"]
+      }
+    ],
+    verification: {
+      provider_level: "runtime_attested",
+      capability_levels: {
+        [officialChromeCapabilityId]: "runtime_attested"
+      },
+      verified_at: fixtureTimestamp,
+      evidence_refs: [
+        officialChromeContractRef,
+        "doctor://official-chrome/health-complete",
+        "launch-evidence://official-chrome/run-complete"
+      ]
+    },
+    limitations: ["live_evidence_not_included"]
+  },
+  launchEnvelope: {
+    identity: {
+      launch_envelope_id: "launch-env-official-chrome-runtime-001",
+      launch_envelope_version: "v1",
+      command_ref: "runtime.start",
+      run_id: "run-official-chrome-fixture-complete-001",
+      created_at: fixtureTimestamp,
+      requested_by: "webenvoy_cli"
+    },
+    provider: {
+      provider_contract_ref: officialChromeContractRef,
+      provider_id: officialChromeProviderId,
+      provider_contract_version: "v1",
+      provider_mode: "core_managed",
+      capability_refs: [officialChromeCapabilityId],
+      minimum_verification_level: "runtime_attested"
+    },
+    profile: {
+      profile_ref: "profile-ref:official-chrome:redacted",
+      profile_binding_mode: "required_existing",
+      profile_lock_policy: "exclusive_runtime",
+      extension_identity_required: true,
+      native_host_binding_required: true,
+      login_state_requirement: "not_required"
+    },
+    browser_mode: {
+      headed: true,
+      headless: false,
+      execution_safety_mode: "default",
+      browser_channel: "Google Chrome stable",
+      browser_version_requirement: "Google Chrome stable >=125",
+      real_browser_required: true
+    },
+    network: {
+      proxy_policy: "direct",
+      locale: "en-US",
+      timezone: "UTC",
+      accept_language: "en-US,en;q=0.9"
+    },
+    runtime_bindings: {
+      extension_binding_mode: "persistent_profile_extension",
+      extension_paths: [],
+      native_messaging_mode: "required",
+      runtime_bootstrap_required: true
+    },
+    fingerprint: {
+      seed_policy: "not_required",
+      rotation_policy: "not_applicable"
+    },
+    evidence_requirements: {
+      required_evidence_kinds: [
+        "provider_contract_ref",
+        "launch_config_snapshot",
+        "profile_binding_ref",
+        "extension_binding_ref",
+        "native_messaging_binding_ref",
+        "runtime_bootstrap_ref",
+        "browser_channel_attestation"
+      ],
+      minimum_attestation_level: "runtime_attested",
+      artifact_policy: "best_effort",
+      freshness_policy: "current_launch",
+      failure_disclosure_required: true
+    },
+    admission_health_requirements: [
+      {
+        target: "persistent_extension_identity",
+        required_state: "healthy",
+        recovery_allowed: false,
+        recovery_outcomes: ["new_envelope_required"]
+      },
+      {
+        target: "native_messaging",
+        required_state: "healthy",
+        recovery_allowed: true,
+        recovery_outcomes: ["healthy_after_recovery", "still_disconnected", "new_envelope_required"]
+      },
+      {
+        target: "service_worker_freshness",
+        required_state: "healthy",
+        recovery_allowed: true,
+        recovery_outcomes: ["healthy_after_recovery", "new_envelope_required"]
+      }
+    ],
+    limitations: ["live_evidence_not_included"]
+  },
+  capabilityMatrix: {
+    supported: {
+      provider_id: officialChromeProviderId,
+      contract_version: "v1",
+      capability_id: officialChromeCapabilityId,
+      requested_capability_ref: `consumer:official-chrome:${officialChromeCapabilityId}`,
+      required_actions: ["launch", "attach", "read"],
+      required_execution_layers: ["L3", "L2"],
+      required_runtime_requirements: [
+        "profile_binding",
+        "persistent_extension_binding",
+        "native_messaging_ready",
+        "runtime_bootstrap_ready",
+        "real_browser_headful"
+      ],
+      declared_capability_ref: `browser_provider_contract.capabilities[${officialChromeCapabilityId}]`,
+      verification_sources: [
+        {
+          kind: "provider_declaration",
+          status: "passed",
+          scope: "capability",
+          evidence_ref: officialChromeContractRef
+        },
+        {
+          kind: "provider_health",
+          status: "passed",
+          scope: "runtime",
+          evidence_ref: "doctor://official-chrome/health-complete"
+        },
+        {
+          kind: "runtime_attestation",
+          status: "passed",
+          scope: "runtime",
+          evidence_ref: "launch-evidence://official-chrome/run-complete"
+        }
+      ],
+      support_state: "runtime_attested",
+      decision: "allow",
+      blocking_reasons: [],
+      evidence_refs: [
+        {
+          kind: "contract_ref",
+          ref: officialChromeContractRef,
+          source: "provider_declaration",
+          scope: "capability"
+        }
+      ]
+    },
+    partial: {
+      provider_id: officialChromeProviderId,
+      contract_version: "v1",
+      capability_id: officialChromeCapabilityId,
+      requested_capability_ref: `consumer:official-chrome-partial:${officialChromeCapabilityId}`,
+      required_actions: ["launch", "attach", "read"],
+      required_execution_layers: ["L3", "L2"],
+      required_runtime_requirements: [
+        "profile_binding",
+        "persistent_extension_binding",
+        "native_messaging_ready",
+        "runtime_bootstrap_ready",
+        "real_browser_headful"
+      ],
+      declared_capability_ref: `browser_provider_contract.capabilities[${officialChromeCapabilityId}]`,
+      verification_sources: [
+        {
+          kind: "provider_declaration",
+          status: "passed",
+          scope: "capability",
+          evidence_ref: officialChromeContractRef
+        },
+        {
+          kind: "provider_health",
+          status: "passed",
+          scope: "runtime",
+          evidence_ref: "doctor://official-chrome/health-partial"
+        },
+        {
+          kind: "runtime_attestation",
+          status: "partial",
+          scope: "runtime",
+          evidence_ref: "launch-evidence://official-chrome/run-partial"
+        }
+      ],
+      support_state: "runtime_observed",
+      decision: "defer",
+      blocking_reasons: ["verification_source_missing"],
+      evidence_refs: [
+        {
+          kind: "contract_ref",
+          ref: officialChromeContractRef,
+          source: "provider_declaration",
+          scope: "capability"
+        }
+      ]
+    },
+    failClosed: {
+      provider_id: officialChromeProviderId,
+      contract_version: "v1",
+      capability_id: officialChromeCapabilityId,
+      requested_capability_ref: `consumer:official-chrome-blocked:${officialChromeCapabilityId}`,
+      required_actions: ["launch", "attach", "read"],
+      required_execution_layers: ["L3", "L2"],
+      required_runtime_requirements: [
+        "profile_binding",
+        "persistent_extension_binding",
+        "native_messaging_ready",
+        "runtime_bootstrap_ready",
+        "real_browser_headful"
+      ],
+      declared_capability_ref: `browser_provider_contract.capabilities[${officialChromeCapabilityId}]`,
+      verification_sources: [
+        {
+          kind: "provider_declaration",
+          status: "passed",
+          scope: "capability",
+          evidence_ref: officialChromeContractRef
+        },
+        {
+          kind: "provider_health",
+          status: "failed",
+          scope: "runtime",
+          evidence_ref: "doctor://official-chrome/health-blocked"
+        },
+        {
+          kind: "runtime_attestation",
+          status: "failed",
+          scope: "runtime",
+          evidence_ref: "launch-evidence://official-chrome/run-blocked"
+        }
+      ],
+      support_state: "blocked",
+      decision: "deny",
+      blocking_reasons: ["runtime_requirement_missing", "provider_limitation_conflict"],
+      evidence_refs: [
+        {
+          kind: "contract_ref",
+          ref: officialChromeContractRef,
+          source: "provider_declaration",
+          scope: "capability"
+        }
+      ]
+    }
+  },
+  providerHealth: {
+    supported: {
+      identity: {
+        doctor_report_id: "doctor-official-chrome-complete-001",
+        doctor_contract_version: "v1",
+        provider_id: officialChromeProviderId,
+        provider_contract_version: "v1",
+        provider_version: "fixture-v1",
+        generated_at: fixtureTimestamp,
+        scope: "capability"
+      },
+      checks: [
+        {
+          check_id: "persistent-extension-identity",
+          category: "extension_identity",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Persistent extension identity matches the official Chrome binding."
+        },
+        {
+          check_id: "native-messaging-health",
+          category: "native_messaging",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Native messaging bridge is ready."
+        },
+        {
+          check_id: "service-worker-freshness",
+          category: "service_worker_freshness",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Service worker freshness is within the required window."
+        }
+      ],
+      outcome: {
+        overall_status: "pass",
+        provider_blocked: false,
+        blocked_capabilities: [],
+        doctor_verification_level: "runtime_attested",
+        next_required_gates: []
+      }
+    },
+    partial: {
+      identity: {
+        doctor_report_id: "doctor-official-chrome-partial-001",
+        doctor_contract_version: "v1",
+        provider_id: officialChromeProviderId,
+        provider_contract_version: "v1",
+        provider_version: "fixture-v1",
+        generated_at: fixtureTimestamp,
+        scope: "capability"
+      },
+      checks: [
+        {
+          check_id: "persistent-extension-identity",
+          category: "extension_identity",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Persistent extension identity matches the official Chrome binding."
+        },
+        {
+          check_id: "native-messaging-health",
+          category: "native_messaging",
+          status: "warn",
+          severity: "warning",
+          blocking: "capability_blocking",
+          capability_id: officialChromeCapabilityId,
+          summary: "Native messaging is recoverable but not fully ready."
+        }
+      ],
+      outcome: {
+        overall_status: "warn",
+        provider_blocked: false,
+        blocked_capabilities: [officialChromeCapabilityId],
+        doctor_verification_level: "health_checked",
+        next_required_gates: ["runtime_attestation"]
+      }
+    },
+    failClosed: {
+      identity: {
+        doctor_report_id: "doctor-official-chrome-blocked-001",
+        doctor_contract_version: "v1",
+        provider_id: officialChromeProviderId,
+        provider_contract_version: "v1",
+        provider_version: "fixture-v1",
+        generated_at: fixtureTimestamp,
+        scope: "capability"
+      },
+      checks: [
+        {
+          check_id: "persistent-extension-identity",
+          category: "extension_identity",
+          status: "fail",
+          severity: "error",
+          blocking: "provider_blocking",
+          capability_id: "N/A",
+          summary: "Persistent extension identity is missing or mismatched."
+        },
+        {
+          check_id: "native-messaging-health",
+          category: "native_messaging",
+          status: "fail",
+          severity: "error",
+          blocking: "provider_blocking",
+          capability_id: officialChromeCapabilityId,
+          summary: "Native messaging bridge is unavailable."
+        }
+      ],
+      outcome: {
+        overall_status: "fail",
+        provider_blocked: true,
+        blocked_capabilities: [officialChromeCapabilityId],
+        doctor_verification_level: "doctor_checked",
+        next_required_gates: ["persistent_extension_identity", "native_messaging_health"]
+      }
+    }
+  },
+  evidence: {
+    supported: {
+      provider_evidence_record: {
+        identity: {
+          provider_evidence_record_id: "per-official-chrome-complete-001",
+          provider_evidence_contract_version: "v1",
+          run_id: "run-official-chrome-fixture-complete-001",
+          command_ref: "runtime.start",
+          created_at: fixtureTimestamp,
+          evidence_scope: "launch_admission",
+          base_refs: ["FR-0033.browser_provider_contract.v1", "FR-0037.launch_envelope.v1"]
+        },
+        selected_provider: {
+          provider_id: officialChromeProviderId,
+          provider_contract_ref: officialChromeContractRef,
+          provider_contract_version: "v1",
+          provider_mode: "core_managed",
+          provider_class_ref: "registry-entry:official-chrome.persistent",
+          selection_reason: "default_eligible",
+          selection_source: "launch_envelope",
+          selection_evidence_refs: ["ev-provider-contract", "ev-provider-health"]
+        },
+        version_evidence: {
+          provider_version: "fixture-v1",
+          browser_channel: "Google Chrome stable",
+          browser_version: "Google Chrome 125.0.0.0",
+          extension_version: "1.0.0",
+          native_host_version: "1.0.0",
+          contract_version: "v1",
+          version_evidence_refs: ["ev-channel", "ev-version"]
+        },
+        launch_arguments: {
+          launch_envelope_ref: officialChromeLaunchEnvelopeRef,
+          launch_envelope_version: "v1",
+          provider_launch_ref: "launch-snapshot:official-chrome:redacted",
+          browser_mode: {
+            headed: true,
+            headless: false,
+            real_browser_required: true,
+            browser_channel: "Google Chrome stable"
+          },
+          runtime_bindings: {
+            extension_binding_mode: "persistent_profile_extension",
+            native_messaging_mode: "required",
+            runtime_bootstrap_required: true
+          },
+          network_regional_ref: null,
+          fingerprint_policy_ref: null,
+          launch_argument_evidence_refs: ["ev-launch-snapshot", "ev-runtime-bootstrap"]
+        },
+        profile_reference: {
+          profile_ref: "profile-ref:official-chrome:redacted",
+          profile_binding_mode: "required_existing",
+          profile_lock_status: "locked_by_current_run",
+          login_state_evidence: "not_required",
+          profile_persistence_status: "persistent",
+          profile_evidence_refs: ["ev-profile-binding"]
+        },
+        extension_status: {
+          extension_required: true,
+          extension_binding_mode: "persistent_profile_extension",
+          extension_id: "abcdefghijklmnopabcdefghijklmnop",
+          extension_version: "1.0.0",
+          extension_installation_status: "installed_in_profile",
+          extension_runtime_status: "ready",
+          extension_evidence_refs: ["ev-extension-binding"]
+        },
+        native_messaging_status: {
+          native_messaging_required: true,
+          native_host_name: "com.webenvoy.host",
+          native_host_manifest_ref: "native-manifest-ref:redacted:official-chrome",
+          allowed_origin_ref: "allowed-origin-ref:redacted:official-chrome",
+          native_host_version: "1.0.0",
+          native_messaging_runtime_status: "ready",
+          native_messaging_evidence_refs: ["ev-native-binding"]
+        },
+        evidence_refs: [
+          {
+            evidence_ref_id: "ev-provider-contract",
+            kind: "provider_contract_ref",
+            ref: officialChromeContractRef,
+            source: "provider_contract",
+            status: "available",
+            collected_at: null,
+            freshness: "current_record",
+            sensitivity: "public",
+            redaction_state: "not_required",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-provider-health",
+            kind: "provider_health_ref",
+            ref: "doctor://official-chrome/health-complete",
+            source: "provider_doctor",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_record",
+            sensitivity: "internal",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-channel",
+            kind: "browser_channel_attestation",
+            ref: "browser-channel:Google Chrome stable",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "internal",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-version",
+            kind: "version_attestation",
+            ref: "version-attestation:official-chrome:redacted",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "internal",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-launch-snapshot",
+            kind: "launch_config_snapshot",
+            ref: "launch-snapshot:official-chrome:redacted",
+            source: "launch_envelope",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: "artifact:official-chrome-launch-snapshot"
+          },
+          {
+            evidence_ref_id: "ev-profile-binding",
+            kind: "profile_binding_ref",
+            ref: "profile-ref:official-chrome:redacted",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-extension-binding",
+            kind: "extension_binding_ref",
+            ref: "extension-binding:redacted:official-chrome",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-native-binding",
+            kind: "native_messaging_binding_ref",
+            ref: "native-binding:redacted:official-chrome",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-runtime-bootstrap",
+            kind: "runtime_bootstrap_ref",
+            ref: "runtime-bootstrap:redacted:official-chrome",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "internal",
+            redaction_state: "redacted",
+            artifact_identity: null
+          }
+        ],
+        closeout_plan: {
+          required_evidence_kinds: [
+            "provider_contract_ref",
+            "launch_config_snapshot",
+            "profile_binding_ref",
+            "extension_binding_ref",
+            "native_messaging_binding_ref",
+            "runtime_bootstrap_ref",
+            "browser_channel_attestation"
+          ],
+          required_freshness: "current_launch",
+          minimum_attestation_level: "runtime_attested",
+          coverage_status: "complete",
+          blocking_reasons: [],
+          missing_evidence: [],
+          redaction_gaps: [],
+          next_required_gates: [],
+          closeout_decision: "allow"
+        }
+      }
+    },
+    partial: {
+      provider_evidence_record: {
+        identity: {
+          provider_evidence_record_id: "per-official-chrome-partial-001",
+          provider_evidence_contract_version: "v1",
+          run_id: "run-official-chrome-fixture-partial-001",
+          command_ref: "runtime.start",
+          created_at: fixtureTimestamp,
+          evidence_scope: "launch_admission",
+          base_refs: ["FR-0033.browser_provider_contract.v1", "FR-0037.launch_envelope.v1"]
+        },
+        selected_provider: {
+          provider_id: officialChromeProviderId,
+          provider_contract_ref: officialChromeContractRef,
+          provider_contract_version: "v1",
+          provider_mode: "core_managed",
+          provider_class_ref: "registry-entry:official-chrome.persistent",
+          selection_reason: "default_eligible",
+          selection_source: "launch_envelope",
+          selection_evidence_refs: ["ev-provider-contract"]
+        },
+        version_evidence: {
+          provider_version: "fixture-v1",
+          browser_channel: "Google Chrome stable",
+          browser_version: "Google Chrome 125.0.0.0",
+          extension_version: "1.0.0",
+          native_host_version: "1.0.0",
+          contract_version: "v1",
+          version_evidence_refs: ["ev-channel"]
+        },
+        launch_arguments: {
+          launch_envelope_ref: officialChromeLaunchEnvelopeRef,
+          launch_envelope_version: "v1",
+          provider_launch_ref: "launch-snapshot:official-chrome:redacted",
+          browser_mode: {
+            headed: true,
+            headless: false,
+            real_browser_required: true,
+            browser_channel: "Google Chrome stable"
+          },
+          runtime_bindings: {
+            extension_binding_mode: "persistent_profile_extension",
+            native_messaging_mode: "required",
+            runtime_bootstrap_required: true
+          },
+          network_regional_ref: null,
+          fingerprint_policy_ref: null,
+          launch_argument_evidence_refs: ["ev-launch-snapshot"]
+        },
+        profile_reference: {
+          profile_ref: "profile-ref:official-chrome:redacted",
+          profile_binding_mode: "required_existing",
+          profile_lock_status: "locked_by_current_run",
+          login_state_evidence: "not_required",
+          profile_persistence_status: "persistent",
+          profile_evidence_refs: ["ev-profile-binding"]
+        },
+        extension_status: {
+          extension_required: true,
+          extension_binding_mode: "persistent_profile_extension",
+          extension_id: "abcdefghijklmnopabcdefghijklmnop",
+          extension_version: "1.0.0",
+          extension_installation_status: "installed_in_profile",
+          extension_runtime_status: "recoverable",
+          extension_evidence_refs: ["ev-extension-binding"]
+        },
+        native_messaging_status: {
+          native_messaging_required: true,
+          native_host_name: "com.webenvoy.host",
+          native_host_manifest_ref: "native-manifest-ref:redacted:official-chrome",
+          allowed_origin_ref: "allowed-origin-ref:redacted:official-chrome",
+          native_host_version: "1.0.0",
+          native_messaging_runtime_status: "recoverable",
+          native_messaging_evidence_refs: ["ev-native-binding"]
+        },
+        evidence_refs: [
+          {
+            evidence_ref_id: "ev-provider-contract",
+            kind: "provider_contract_ref",
+            ref: officialChromeContractRef,
+            source: "provider_contract",
+            status: "available",
+            collected_at: null,
+            freshness: "current_record",
+            sensitivity: "public",
+            redaction_state: "not_required",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-channel",
+            kind: "browser_channel_attestation",
+            ref: "browser-channel:Google Chrome stable",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "internal",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-launch-snapshot",
+            kind: "launch_config_snapshot",
+            ref: "launch-snapshot:official-chrome:redacted",
+            source: "launch_envelope",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: "artifact:official-chrome-launch-snapshot"
+          },
+          {
+            evidence_ref_id: "ev-profile-binding",
+            kind: "profile_binding_ref",
+            ref: "profile-ref:official-chrome:redacted",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-extension-binding",
+            kind: "extension_binding_ref",
+            ref: "extension-binding:redacted:official-chrome",
+            source: "runtime_admission",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-native-binding",
+            kind: "native_messaging_binding_ref",
+            ref: "native-binding:redacted:official-chrome",
+            source: "runtime_admission",
+            status: "partial",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "redacted",
+            artifact_identity: null
+          }
+        ],
+        closeout_plan: {
+          required_evidence_kinds: [
+            "provider_contract_ref",
+            "launch_config_snapshot",
+            "profile_binding_ref",
+            "extension_binding_ref",
+            "native_messaging_binding_ref",
+            "runtime_bootstrap_ref",
+            "browser_channel_attestation"
+          ],
+          required_freshness: "current_launch",
+          minimum_attestation_level: "runtime_attested",
+          coverage_status: "partial",
+          blocking_reasons: ["native_messaging_status_unready", "evidence_ref_unavailable"],
+          missing_evidence: ["runtime_bootstrap_ref"],
+          redaction_gaps: [],
+          next_required_gates: ["runtime_attestation", "native_messaging_health"],
+          closeout_decision: "defer"
+        }
+      }
+    },
+    failClosed: {
+      provider_evidence_record: {
+        identity: {
+          provider_evidence_record_id: "per-official-chrome-blocked-001",
+          provider_evidence_contract_version: "v1",
+          run_id: "run-official-chrome-fixture-blocked-001",
+          command_ref: "runtime.start",
+          created_at: fixtureTimestamp,
+          evidence_scope: "launch_admission",
+          base_refs: ["FR-0033.browser_provider_contract.v1", "FR-0037.launch_envelope.v1"]
+        },
+        selected_provider: {
+          provider_id: officialChromeProviderId,
+          provider_contract_ref: officialChromeContractRef,
+          provider_contract_version: "v1",
+          provider_mode: "core_managed",
+          provider_class_ref: "registry-entry:official-chrome.persistent",
+          selection_reason: "default_eligible",
+          selection_source: "launch_envelope",
+          selection_evidence_refs: ["ev-provider-contract"]
+        },
+        version_evidence: {
+          provider_version: "fixture-v1",
+          browser_channel: "unknown",
+          browser_version: "unknown",
+          extension_version: "unknown",
+          native_host_version: "unknown",
+          contract_version: "v1",
+          version_evidence_refs: ["ev-channel"]
+        },
+        launch_arguments: {
+          launch_envelope_ref: officialChromeLaunchEnvelopeRef,
+          launch_envelope_version: "v1",
+          provider_launch_ref: "launch-snapshot:official-chrome:redacted",
+          browser_mode: {
+            headed: false,
+            headless: true,
+            real_browser_required: true,
+            browser_channel: "Google Chrome stable"
+          },
+          runtime_bindings: {
+            extension_binding_mode: "persistent_profile_extension",
+            native_messaging_mode: "required",
+            runtime_bootstrap_required: true
+          },
+          network_regional_ref: null,
+          fingerprint_policy_ref: null,
+          launch_argument_evidence_refs: ["ev-launch-snapshot"]
+        },
+        profile_reference: {
+          profile_ref: "profile-ref:official-chrome:redacted",
+          profile_binding_mode: "required_existing",
+          profile_lock_status: "unlocked",
+          login_state_evidence: "unknown",
+          profile_persistence_status: "blocked",
+          profile_evidence_refs: []
+        },
+        extension_status: {
+          extension_required: true,
+          extension_binding_mode: "persistent_profile_extension",
+          extension_id: null,
+          extension_version: "unknown",
+          extension_installation_status: "missing",
+          extension_runtime_status: "blocked",
+          extension_evidence_refs: []
+        },
+        native_messaging_status: {
+          native_messaging_required: true,
+          native_host_name: "com.webenvoy.host",
+          native_host_manifest_ref: null,
+          allowed_origin_ref: null,
+          native_host_version: "unknown",
+          native_messaging_runtime_status: "blocked",
+          native_messaging_evidence_refs: []
+        },
+        evidence_refs: [
+          {
+            evidence_ref_id: "ev-provider-contract",
+            kind: "provider_contract_ref",
+            ref: officialChromeContractRef,
+            source: "provider_contract",
+            status: "available",
+            collected_at: null,
+            freshness: "current_record",
+            sensitivity: "public",
+            redaction_state: "not_required",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-channel",
+            kind: "browser_channel_attestation",
+            ref: "browser-channel:unknown",
+            source: "runtime_admission",
+            status: "partial",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "internal",
+            redaction_state: "redacted",
+            artifact_identity: null
+          },
+          {
+            evidence_ref_id: "ev-launch-snapshot",
+            kind: "launch_config_snapshot",
+            ref: "launch-snapshot:official-chrome:redacted",
+            source: "launch_envelope",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "sensitive",
+            redaction_state: "policy_missing",
+            artifact_identity: "artifact:official-chrome-launch-snapshot"
+          }
+        ],
+        closeout_plan: {
+          required_evidence_kinds: [
+            "provider_contract_ref",
+            "launch_config_snapshot",
+            "profile_binding_ref",
+            "extension_binding_ref",
+            "native_messaging_binding_ref",
+            "runtime_bootstrap_ref",
+            "browser_channel_attestation"
+          ],
+          required_freshness: "current_launch",
+          minimum_attestation_level: "runtime_attested",
+          coverage_status: "blocked",
+          blocking_reasons: [
+            "provider_limitation_conflict",
+            "profile_lock_unavailable",
+            "extension_status_unready",
+            "native_messaging_status_unready",
+            "runtime_attestation_required",
+            "redaction_policy_missing"
+          ],
+          missing_evidence: [
+            "profile_binding_ref",
+            "extension_binding_ref",
+            "native_messaging_binding_ref",
+            "runtime_bootstrap_ref",
+            "google_chrome_stable_attestation"
+          ],
+          redaction_gaps: ["ev-launch-snapshot"],
+          next_required_gates: [
+            "real_browser_launch_attestation",
+            "persistent_extension_identity",
+            "native_messaging_health",
+            "profile_lock_attestation"
+          ],
+          closeout_decision: "deny"
+        }
+      }
+    }
+  }
+} as const;
+
 export const providerContractFixtureIds = {
   providerId,
   capabilityId,
   contractRef,
   launchEnvelopeRef
+} as const;
+
+export const officialChromeProviderFixtureIds = {
+  providerId: officialChromeProviderId,
+  capabilityId: officialChromeCapabilityId,
+  contractRef: officialChromeContractRef,
+  launchEnvelopeRef: officialChromeLaunchEnvelopeRef
 } as const;
