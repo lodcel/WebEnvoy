@@ -212,6 +212,7 @@ export interface OfficialChromeLaunchEvidenceInput {
   providerId: OfficialChromeLaunchEvidenceProviderId;
   launchEnvelopeRef: string | null;
   providerContractRef: string | null;
+  providerContractVerified?: boolean | null;
   profileRef: string | null;
   browserChannel?: string | null;
   browserVersion?: string | null;
@@ -371,6 +372,20 @@ const hasInvalidRedaction = (ref: ProviderEvidenceRef): boolean =>
   ref.redaction_state === "policy_missing" ||
   ref.redaction_state === "invalid";
 
+const isProviderContractRefMatch = (input: {
+  providerId: OfficialChromeLaunchEvidenceProviderId;
+  providerContractRef: string | null;
+  providerContractVerified: boolean | null | undefined;
+}): boolean => {
+  if (input.providerContractVerified !== true || !input.providerContractRef) {
+    return false;
+  }
+  return (
+    input.providerContractRef.includes(input.providerId) &&
+    input.providerContractRef.includes("v1")
+  );
+};
+
 const buildCloseoutPlan = (input: {
   providerId: OfficialChromeLaunchEvidenceProviderId;
   evidenceRefs: ProviderEvidenceRef[];
@@ -378,6 +393,8 @@ const buildCloseoutPlan = (input: {
   profileRef: string | null;
   launchEnvelopeRef: string | null;
   providerContractRef: string | null;
+  providerContractVerified: boolean | null | undefined;
+  launchResult: BrowserLaunchResult | null | undefined;
   extensionRuntimeStatus: string;
   nativeMessagingRuntimeStatus: string;
 }): OfficialChromeLaunchEvidenceRecord["closeout_plan"] => {
@@ -393,6 +410,16 @@ const buildCloseoutPlan = (input: {
   if (!input.providerContractRef) {
     blockingReasons.add("provider_contract_missing");
     missingEvidence.add("provider_contract_ref");
+  } else if (
+    !isProviderContractRefMatch({
+      providerId: input.providerId,
+      providerContractRef: input.providerContractRef,
+      providerContractVerified: input.providerContractVerified
+    })
+  ) {
+    blockingReasons.add("provider_contract_version_mismatch");
+    blockingReasons.add("source_conflict");
+    nextRequiredGates.add("provider_contract_match_verification");
   }
   if (!input.launchEnvelopeRef) {
     blockingReasons.add("launch_envelope_missing");
@@ -406,6 +433,18 @@ const buildCloseoutPlan = (input: {
     blockingReasons.add("version_evidence_missing");
     missingEvidence.add("browser_version");
     nextRequiredGates.add("browser_version_attestation");
+  }
+  if (input.launchResult?.headless === true) {
+    blockingReasons.add("provider_limitation_conflict");
+    blockingReasons.add("runtime_attestation_required");
+    missingEvidence.add("real_browser_launch_evidence");
+    nextRequiredGates.add("real_browser_launch_attestation");
+  }
+  if (input.launchResult && input.launchResult.executionSurface !== "real_browser") {
+    blockingReasons.add("provider_limitation_conflict");
+    blockingReasons.add("runtime_attestation_required");
+    missingEvidence.add("real_browser_launch_evidence");
+    nextRequiredGates.add("real_browser_launch_attestation");
   }
   if (
     input.providerId === "official-chrome.persistent" &&
@@ -487,6 +526,11 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
     ? mapRuntimeStatus(input.runtimeStatus)
     : "unknown";
   const providerContractRef = input.providerContractRef ?? "provider-contract:missing";
+  const providerContractRefVerified = isProviderContractRefMatch({
+    providerId: input.providerId,
+    providerContractRef: input.providerContractRef,
+    providerContractVerified: input.providerContractVerified
+  });
   const launchEnvelopeRef = input.launchEnvelopeRef ?? "launch-envelope:missing";
   const launchRef = launchSnapshotRef({
     providerId: input.providerId,
@@ -501,7 +545,11 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
       kind: "provider_contract_ref",
       ref: providerContractRef,
       source: "provider_contract",
-      status: input.providerContractRef ? "available" : "unavailable",
+      status: providerContractRefVerified
+        ? "available"
+        : input.providerContractRef
+          ? "partial"
+          : "unavailable",
       collected_at: null,
       freshness: "current_record",
       sensitivity: "public",
@@ -574,6 +622,7 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
   ];
 
   if (persistent) {
+    const nativeManifestAvailable = manifestRef !== null;
     evidenceRefs.push(
       buildEvidenceRef({
         evidence_ref_id: "ev-extension-binding",
@@ -594,11 +643,17 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
         kind: "native_messaging_binding_ref",
         ref: manifestRef ?? "native-binding:missing",
         source: "runtime_admission",
-        status: input.persistentExtensionBinding ? "available" : "unavailable",
+        status:
+          input.persistentExtensionBinding && nativeManifestAvailable
+            ? "available"
+            : "unavailable",
         collected_at: input.runtimeStatus ? collectedAt : null,
         freshness: "current_launch",
         sensitivity: "internal",
-        redaction_state: input.persistentExtensionBinding ? "redacted" : "redaction_required",
+        redaction_state:
+          input.persistentExtensionBinding && nativeManifestAvailable
+            ? "redacted"
+            : "redaction_required",
         artifact_identity: null
       }),
       buildEvidenceRef({
@@ -626,6 +681,8 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
     profileRef,
     launchEnvelopeRef: input.launchEnvelopeRef,
     providerContractRef: input.providerContractRef,
+    providerContractVerified: input.providerContractVerified,
+    launchResult: input.launchResult,
     extensionRuntimeStatus,
     nativeMessagingRuntimeStatus
   });
