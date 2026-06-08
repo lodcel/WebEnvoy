@@ -20,36 +20,39 @@ describe("official Chrome provider fixtures for #1144", () => {
       distribution_channel: "official_chrome_profile"
     });
     expect(contract.browser_engine).toMatchObject({
+      engine_family: "chrome",
       browser_channel: "Google Chrome stable",
+      browser_version_range: "system_installed",
       headless_policy: "forbidden",
       extension_binding_support: "required",
       profile_binding_support: "required"
     });
     expect(contract.automation_transport).toMatchObject({
-      transport_kind: "extension_bridge",
+      transport_kind: "hybrid",
       native_messaging_support: "required",
-      attach_model: "attach_or_launch"
+      attach_model: "launch"
     });
     expect(capability).toMatchObject({
       capability_id: officialChromeProviderFixtureIds.capabilityId,
-      supported_execution_layers: ["L3", "L2"],
-      supported_actions: ["launch", "attach", "read", "diagnose"],
-      verification_level: "runtime_attested"
+      supported_execution_layers: ["L3"],
+      supported_actions: ["launch", "attach"],
+      verification_level: "static_checked"
     });
     expect(capability.runtime_requirements).toEqual([
       "profile_binding",
-      "persistent_extension_binding",
-      "native_messaging_ready",
+      "extension_binding",
+      "native_messaging",
       "runtime_bootstrap_ready",
-      "real_browser_headful"
+      "real_browser"
     ]);
 
     expect(envelope.provider).toMatchObject({
       provider_contract_ref: officialChromeProviderFixtureIds.contractRef,
       provider_id: officialChromeProviderFixtureIds.providerId,
-      minimum_verification_level: "runtime_attested"
+      minimum_verification_level: "doctor_checked"
     });
     expect(envelope.profile).toMatchObject({
+      profile_lock_policy: "exclusive_required",
       extension_identity_required: true,
       native_host_binding_required: true
     });
@@ -64,6 +67,11 @@ describe("official Chrome provider fixtures for #1144", () => {
       native_messaging_mode: "required",
       runtime_bootstrap_required: true
     });
+    expect(envelope.admission_health_requirements.map((item) => item.target)).toEqual([
+      "extension_identity",
+      "native_messaging",
+      "runtime_bootstrap"
+    ]);
   });
 
   it("locks supported, partial and fail-closed capability matrix states", () => {
@@ -74,36 +82,53 @@ describe("official Chrome provider fixtures for #1144", () => {
     expect(supported).toMatchObject({
       provider_id: officialChromeProviderFixtureIds.providerId,
       capability_id: officialChromeProviderFixtureIds.capabilityId,
-      support_state: "runtime_attested",
-      decision: "allow",
+      support_level: "statically_verified",
+      decision: "defer",
       blocking_reasons: []
     });
     expect(supported.verification_sources.map((source) => source.kind)).toEqual([
       "provider_declaration",
-      "provider_health",
-      "runtime_attestation"
+      "static_contract_check",
+      "manual_review_attestation"
     ]);
+    expect(supported).not.toHaveProperty("support_state");
+    expect(supported.verification_sources).not.toContainEqual(
+      expect.objectContaining({ kind: "provider_health" })
+    );
+    expect(supported.verification_sources).not.toContainEqual(
+      expect.objectContaining({ kind: "runtime_attestation" })
+    );
 
     expect(partial).toMatchObject({
-      support_state: "runtime_observed",
+      support_level: "declared",
       decision: "defer",
       blocking_reasons: ["verification_source_missing"]
     });
+    expect(partial.verification_sources.map((source) => source.kind)).toEqual([
+      "provider_declaration",
+      "static_contract_check",
+      "manual_review_attestation"
+    ]);
     expect(partial.verification_sources).toContainEqual(
       expect.objectContaining({
-        kind: "runtime_attestation",
+        kind: "manual_review_attestation",
         status: "partial"
       })
     );
 
     expect(failClosed).toMatchObject({
-      support_state: "blocked",
+      support_level: "statically_verified",
       decision: "deny",
-      blocking_reasons: ["runtime_requirement_missing", "provider_limitation_conflict"]
+      blocking_reasons: ["runtime_requirement_missing", "verification_source_missing"]
     });
+    expect(failClosed.verification_sources.map((source) => source.kind)).toEqual([
+      "provider_declaration",
+      "static_contract_check",
+      "manual_review_attestation"
+    ]);
     expect(failClosed.verification_sources).toContainEqual(
       expect.objectContaining({
-        kind: "provider_health",
+        kind: "manual_review_attestation",
         status: "failed"
       })
     );
@@ -118,20 +143,21 @@ describe("official Chrome provider fixtures for #1144", () => {
     expect(supported.outcome).toMatchObject({
       overall_status: "pass",
       provider_blocked: false,
-      doctor_verification_level: "runtime_attested",
-      next_required_gates: []
+      doctor_verification_level: "doctor_checked",
+      next_required_gates: ["runtime_attestation"]
     });
     expect(supported.checks.map((check) => check.category)).toEqual([
-      "extension_identity",
+      "extension_load",
       "native_messaging",
-      "service_worker_freshness"
+      "extension_load",
+      "capability_readiness"
     ]);
 
     expect(partial.outcome).toMatchObject({
       overall_status: "warn",
       provider_blocked: false,
       blocked_capabilities: [officialChromeProviderFixtureIds.capabilityId],
-      doctor_verification_level: "health_checked",
+      doctor_verification_level: "doctor_checked",
       next_required_gates: ["runtime_attestation"]
     });
 
@@ -140,7 +166,22 @@ describe("official Chrome provider fixtures for #1144", () => {
       provider_blocked: true,
       blocked_capabilities: [officialChromeProviderFixtureIds.capabilityId]
     });
-    expect(failClosed.checks.every((check) => check.blocking === "provider_blocking")).toBe(true);
+    expect(failClosed.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check_id: "official_chrome_persistent_extension_identity",
+          blocking: "provider_blocking"
+        }),
+        expect.objectContaining({
+          check_id: "host_registration",
+          blocking: "provider_blocking"
+        }),
+        expect.objectContaining({
+          check_id: "official-chrome-launch-readiness",
+          blocking: "capability_blocking"
+        })
+      ])
+    );
   });
 
   it("locks official Chrome evidence fixtures for complete, partial and fail-closed states", () => {

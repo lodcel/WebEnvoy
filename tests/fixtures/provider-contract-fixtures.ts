@@ -4,9 +4,13 @@ const capabilityId = "generic-l2-page-read";
 const contractRef = `provider-contract:${providerId}:v1`;
 const launchEnvelopeRef = `launch-envelope:${providerId}:read:v1`;
 const officialChromeProviderId = "official-chrome.persistent";
-const officialChromeCapabilityId = "official-chrome.runtime";
+const officialChromeCapabilityId = "browser-runtime.launch";
 const officialChromeContractRef = `provider-contract:${officialChromeProviderId}:v1`;
 const officialChromeLaunchEnvelopeRef = "launch-envelope:official-chrome.persistent:runtime:v1";
+const officialChromeDescriptorRef =
+  "docs/dev/specs/FR-0043-official-chrome-persistent-descriptor/spec.md";
+const officialChromeCapabilityMatrixRef =
+  "docs/dev/specs/FR-0044-official-chrome-capability-matrix/spec.md";
 
 export const providerContractFixtures = {
   validGenericProviderContract: {
@@ -862,18 +866,18 @@ export const officialChromeProviderFixtures = {
     },
     provider_mode: "core_managed",
     browser_engine: {
-      engine_family: "chromium",
+      engine_family: "chrome",
       browser_channel: "Google Chrome stable",
-      browser_version_range: "Google Chrome stable >=125",
+      browser_version_range: "system_installed",
       headless_policy: "forbidden",
       extension_binding_support: "required",
       profile_binding_support: "required"
     },
     automation_transport: {
-      transport_kind: "extension_bridge",
+      transport_kind: "hybrid",
       transport_owner: "webenvoy_core",
       command_surface: ["runtime_control", "page_automation", "diagnostics", "artifact_passthrough"],
-      attach_model: "attach_or_launch",
+      attach_model: "launch",
       native_messaging_support: "required",
       cdp_support: "supported",
       playwright_support: "supported"
@@ -882,37 +886,35 @@ export const officialChromeProviderFixtures = {
       {
         capability_id: officialChromeCapabilityId,
         capability_kind: "runtime_control",
-        supported_execution_layers: ["L3", "L2"],
-        supported_actions: ["launch", "attach", "read", "diagnose"],
+        supported_execution_layers: ["L3"],
+        supported_actions: ["launch", "attach"],
         runtime_requirements: [
           "profile_binding",
-          "persistent_extension_binding",
-          "native_messaging_ready",
+          "extension_binding",
+          "native_messaging",
           "runtime_bootstrap_ready",
-          "real_browser_headful"
+          "real_browser"
         ],
         evidence_outputs: [
-          "runtime_health",
           "doctor_report",
           "provider_health_ref",
-          "runtime_attestation",
           "launch_admission_evidence"
         ],
         risk_constraints: ["official_chrome_only", "persistent_profile_required", "headful_only"],
-        verification_level: "runtime_attested",
+        verification_level: "static_checked",
         limitations: ["live_evidence_not_included"]
       }
     ],
     verification: {
-      provider_level: "runtime_attested",
+      provider_level: "static_checked",
       capability_levels: {
-        [officialChromeCapabilityId]: "runtime_attested"
+        [officialChromeCapabilityId]: "static_checked"
       },
       verified_at: fixtureTimestamp,
       evidence_refs: [
         officialChromeContractRef,
-        "doctor://official-chrome/health-complete",
-        "launch-evidence://official-chrome/run-complete"
+        officialChromeDescriptorRef,
+        officialChromeCapabilityMatrixRef
       ]
     },
     limitations: ["live_evidence_not_included"]
@@ -932,12 +934,12 @@ export const officialChromeProviderFixtures = {
       provider_contract_version: "v1",
       provider_mode: "core_managed",
       capability_refs: [officialChromeCapabilityId],
-      minimum_verification_level: "runtime_attested"
+      minimum_verification_level: "doctor_checked"
     },
     profile: {
       profile_ref: "profile-ref:official-chrome:redacted",
       profile_binding_mode: "required_existing",
-      profile_lock_policy: "exclusive_runtime",
+      profile_lock_policy: "exclusive_required",
       extension_identity_required: true,
       native_host_binding_required: true,
       login_state_requirement: "not_required"
@@ -976,14 +978,14 @@ export const officialChromeProviderFixtures = {
         "runtime_bootstrap_ref",
         "browser_channel_attestation"
       ],
-      minimum_attestation_level: "runtime_attested",
+      minimum_attestation_level: "doctor_checked",
       artifact_policy: "best_effort",
       freshness_policy: "current_launch",
       failure_disclosure_required: true
     },
     admission_health_requirements: [
       {
-        target: "persistent_extension_identity",
+        target: "extension_identity",
         required_state: "healthy",
         recovery_allowed: false,
         recovery_outcomes: ["new_envelope_required"]
@@ -995,7 +997,7 @@ export const officialChromeProviderFixtures = {
         recovery_outcomes: ["healthy_after_recovery", "still_disconnected", "new_envelope_required"]
       },
       {
-        target: "service_worker_freshness",
+        target: "runtime_bootstrap",
         required_state: "healthy",
         recovery_allowed: true,
         recovery_outcomes: ["healthy_after_recovery", "new_envelope_required"]
@@ -1009,16 +1011,18 @@ export const officialChromeProviderFixtures = {
       contract_version: "v1",
       capability_id: officialChromeCapabilityId,
       requested_capability_ref: `consumer:official-chrome:${officialChromeCapabilityId}`,
-      required_actions: ["launch", "attach", "read"],
-      required_execution_layers: ["L3", "L2"],
+      capability_kind: "runtime_control",
+      supported_actions: ["launch", "attach"],
+      supported_execution_layers: ["L3"],
       required_runtime_requirements: [
         "profile_binding",
-        "persistent_extension_binding",
-        "native_messaging_ready",
+        "extension_binding",
+        "native_messaging",
         "runtime_bootstrap_ready",
-        "real_browser_headful"
+        "real_browser"
       ],
-      declared_capability_ref: `browser_provider_contract.capabilities[${officialChromeCapabilityId}]`,
+      support_level: "statically_verified",
+      limitations: ["live_evidence_not_included"],
       verification_sources: [
         {
           kind: "provider_declaration",
@@ -1027,20 +1031,28 @@ export const officialChromeProviderFixtures = {
           evidence_ref: officialChromeContractRef
         },
         {
-          kind: "provider_health",
+          kind: "static_contract_check",
           status: "passed",
-          scope: "runtime",
-          evidence_ref: "doctor://official-chrome/health-complete"
+          scope: "capability",
+          evidence_ref: officialChromeCapabilityMatrixRef
         },
         {
-          kind: "runtime_attestation",
+          kind: "manual_review_attestation",
           status: "passed",
-          scope: "runtime",
-          evidence_ref: "launch-evidence://official-chrome/run-complete"
+          scope: "capability",
+          evidence_ref: "manual-review:official-chrome-capability-matrix:supported"
         }
       ],
-      support_state: "runtime_attested",
-      decision: "allow",
+      evidence_ref_strategy: {
+        static_descriptor_ref: officialChromeDescriptorRef,
+        capability_matrix_ref: officialChromeCapabilityMatrixRef,
+        health_result_ref: "doctor://official-chrome/health-complete",
+        launch_evidence_ref: "launch-evidence://official-chrome/run-complete",
+        fixture_ref: "tests/official-chrome-provider.fixture.test.ts"
+      },
+      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_live_evidence",
+      downstream_owner: "#1144",
+      decision: "defer",
       blocking_reasons: [],
       evidence_refs: [
         {
@@ -1056,16 +1068,18 @@ export const officialChromeProviderFixtures = {
       contract_version: "v1",
       capability_id: officialChromeCapabilityId,
       requested_capability_ref: `consumer:official-chrome-partial:${officialChromeCapabilityId}`,
-      required_actions: ["launch", "attach", "read"],
-      required_execution_layers: ["L3", "L2"],
+      capability_kind: "runtime_control",
+      supported_actions: ["launch", "attach"],
+      supported_execution_layers: ["L3"],
       required_runtime_requirements: [
         "profile_binding",
-        "persistent_extension_binding",
-        "native_messaging_ready",
+        "extension_binding",
+        "native_messaging",
         "runtime_bootstrap_ready",
-        "real_browser_headful"
+        "real_browser"
       ],
-      declared_capability_ref: `browser_provider_contract.capabilities[${officialChromeCapabilityId}]`,
+      support_level: "declared",
+      limitations: ["live_evidence_not_included"],
       verification_sources: [
         {
           kind: "provider_declaration",
@@ -1074,19 +1088,26 @@ export const officialChromeProviderFixtures = {
           evidence_ref: officialChromeContractRef
         },
         {
-          kind: "provider_health",
+          kind: "static_contract_check",
           status: "passed",
-          scope: "runtime",
-          evidence_ref: "doctor://official-chrome/health-partial"
+          scope: "capability",
+          evidence_ref: officialChromeCapabilityMatrixRef
         },
         {
-          kind: "runtime_attestation",
+          kind: "manual_review_attestation",
           status: "partial",
-          scope: "runtime",
-          evidence_ref: "launch-evidence://official-chrome/run-partial"
+          scope: "capability",
+          evidence_ref: "manual-review:official-chrome-capability-matrix:partial"
         }
       ],
-      support_state: "runtime_observed",
+      evidence_ref_strategy: {
+        static_descriptor_ref: officialChromeDescriptorRef,
+        capability_matrix_ref: officialChromeCapabilityMatrixRef,
+        health_result_ref: "doctor://official-chrome/health-partial",
+        launch_evidence_ref: "launch-evidence://official-chrome/run-partial",
+        fixture_ref: "tests/official-chrome-provider.fixture.test.ts"
+      },
+      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_live_evidence",
       decision: "defer",
       blocking_reasons: ["verification_source_missing"],
       evidence_refs: [
@@ -1103,16 +1124,18 @@ export const officialChromeProviderFixtures = {
       contract_version: "v1",
       capability_id: officialChromeCapabilityId,
       requested_capability_ref: `consumer:official-chrome-blocked:${officialChromeCapabilityId}`,
-      required_actions: ["launch", "attach", "read"],
-      required_execution_layers: ["L3", "L2"],
+      capability_kind: "runtime_control",
+      supported_actions: ["launch", "attach"],
+      supported_execution_layers: ["L3"],
       required_runtime_requirements: [
         "profile_binding",
-        "persistent_extension_binding",
-        "native_messaging_ready",
+        "extension_binding",
+        "native_messaging",
         "runtime_bootstrap_ready",
-        "real_browser_headful"
+        "real_browser"
       ],
-      declared_capability_ref: `browser_provider_contract.capabilities[${officialChromeCapabilityId}]`,
+      support_level: "statically_verified",
+      limitations: ["live_evidence_not_included"],
       verification_sources: [
         {
           kind: "provider_declaration",
@@ -1121,21 +1144,29 @@ export const officialChromeProviderFixtures = {
           evidence_ref: officialChromeContractRef
         },
         {
-          kind: "provider_health",
-          status: "failed",
-          scope: "runtime",
-          evidence_ref: "doctor://official-chrome/health-blocked"
+          kind: "static_contract_check",
+          status: "passed",
+          scope: "capability",
+          evidence_ref: officialChromeCapabilityMatrixRef
         },
         {
-          kind: "runtime_attestation",
+          kind: "manual_review_attestation",
           status: "failed",
-          scope: "runtime",
-          evidence_ref: "launch-evidence://official-chrome/run-blocked"
+          scope: "capability",
+          evidence_ref: "manual-review:official-chrome-capability-matrix:blocked"
         }
       ],
-      support_state: "blocked",
+      evidence_ref_strategy: {
+        static_descriptor_ref: officialChromeDescriptorRef,
+        capability_matrix_ref: officialChromeCapabilityMatrixRef,
+        health_result_ref: "doctor://official-chrome/health-blocked",
+        launch_evidence_ref: "launch-evidence://official-chrome/run-blocked",
+        fixture_ref: "tests/official-chrome-provider.fixture.test.ts"
+      },
+      fail_closed_policy: "deny_or_defer_on_missing_runtime_or_live_evidence",
+      downstream_owner: "#1144",
       decision: "deny",
-      blocking_reasons: ["runtime_requirement_missing", "provider_limitation_conflict"],
+      blocking_reasons: ["runtime_requirement_missing", "verification_source_missing"],
       evidence_refs: [
         {
           kind: "contract_ref",
@@ -1157,41 +1188,134 @@ export const officialChromeProviderFixtures = {
         generated_at: fixtureTimestamp,
         scope: "capability"
       },
+      input_contract_ref: {
+        provider_contract_spec: "FR-0033-browser-provider-contract",
+        expected_binary_source: {
+          source_id: "official-chrome-stable",
+          source_kind: "browser_executable",
+          locator_ref: "browser-bundle:Google Chrome stable",
+          locator_sensitivity: "internal",
+          expected_access: "launchable"
+        },
+        capability_ids_requested: [officialChromeCapabilityId]
+      },
       checks: [
         {
-          check_id: "persistent-extension-identity",
-          category: "extension_identity",
+          check_id: "official_chrome_persistent_extension_identity",
+          category: "extension_load",
           status: "pass",
           severity: "info",
           blocking: "none",
           capability_id: "N/A",
-          summary: "Persistent extension identity matches the official Chrome binding."
+          summary: "Persistent extension identity matches the official Chrome binding.",
+          diagnostics: {
+            code: "persistent_extension_identity.healthy",
+            observed: "profile-scoped stable extension identity matched",
+            expected: "stable extension identity ref bound to selected profile",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "extension_state_ref",
+              ref: "extension-binding:redacted:official-chrome",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
         },
         {
-          check_id: "native-messaging-health",
+          check_id: "native_host_identity",
           category: "native_messaging",
           status: "pass",
           severity: "info",
           blocking: "none",
           capability_id: "N/A",
-          summary: "Native messaging bridge is ready."
+          summary: "Native messaging bridge is ready.",
+          diagnostics: {
+            code: "native_messaging.bridge_handshake_missing".replace("_missing", "_ready"),
+            observed: "bridge handshake succeeded for selected provider",
+            expected: "current-run bridge handshake for official Chrome persistent provider",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "native_manifest_ref",
+              ref: "native-manifest-ref:redacted:official-chrome",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
         },
         {
-          check_id: "service-worker-freshness",
-          category: "service_worker_freshness",
+          check_id: "official_chrome_persistent_service_worker_freshness",
+          category: "extension_load",
           status: "pass",
           severity: "info",
           blocking: "none",
           capability_id: "N/A",
-          summary: "Service worker freshness is within the required window."
+          summary: "Service worker freshness is within the required window.",
+          diagnostics: {
+            code: "service_worker_fresh",
+            observed: "current service worker digest matches expected bundle identity",
+            expected: "fresh service worker for selected persistent extension",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "extension_state_ref",
+              ref: "service-worker:redacted:official-chrome",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
+        },
+        {
+          check_id: "official-chrome-launch-readiness",
+          category: "capability_readiness",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: officialChromeCapabilityId,
+          summary: "Static official Chrome launch prerequisites are aligned for runtime admission.",
+          diagnostics: {
+            code: "capability_readiness.ready_for_runtime_attestation",
+            required_runtime_requirements: [
+              "profile_binding",
+              "extension_binding",
+              "native_messaging",
+              "runtime_bootstrap_ready",
+              "real_browser"
+            ],
+            satisfied_runtime_requirements: ["profile_binding", "provider_doctor_passed"],
+            unsatisfied_runtime_requirements: [
+              "extension_binding",
+              "native_messaging",
+              "runtime_bootstrap_ready",
+              "real_browser"
+            ],
+            minimum_next_verification_level: "runtime_attested",
+            remediation_hint: "Collect runtime attestation from #1143 launch evidence before admission."
+          },
+          evidence_refs: [
+            {
+              kind: "doctor_artifact_ref",
+              ref: "doctor://official-chrome/health-complete",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "internal"
+            }
+          ]
         }
       ],
       outcome: {
         overall_status: "pass",
         provider_blocked: false,
         blocked_capabilities: [],
-        doctor_verification_level: "runtime_attested",
-        next_required_gates: []
+        doctor_verification_level: "doctor_checked",
+        next_required_gates: ["runtime_attestation"]
       }
     },
     partial: {
@@ -1204,31 +1328,109 @@ export const officialChromeProviderFixtures = {
         generated_at: fixtureTimestamp,
         scope: "capability"
       },
+      input_contract_ref: {
+        provider_contract_spec: "FR-0033-browser-provider-contract",
+        expected_binary_source: {
+          source_id: "official-chrome-stable",
+          source_kind: "browser_executable",
+          locator_ref: "browser-bundle:Google Chrome stable",
+          locator_sensitivity: "internal",
+          expected_access: "launchable"
+        },
+        capability_ids_requested: [officialChromeCapabilityId]
+      },
       checks: [
         {
-          check_id: "persistent-extension-identity",
-          category: "extension_identity",
+          check_id: "official_chrome_persistent_extension_identity",
+          category: "extension_load",
           status: "pass",
           severity: "info",
           blocking: "none",
           capability_id: "N/A",
-          summary: "Persistent extension identity matches the official Chrome binding."
+          summary: "Persistent extension identity matches the official Chrome binding.",
+          diagnostics: {
+            code: "persistent_extension_identity.healthy",
+            observed: "profile-scoped stable extension identity matched",
+            expected: "stable extension identity ref bound to selected profile",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "extension_state_ref",
+              ref: "extension-binding:redacted:official-chrome",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
         },
         {
-          check_id: "native-messaging-health",
+          check_id: "bridge_handshake",
           category: "native_messaging",
           status: "warn",
           severity: "warning",
           blocking: "capability_blocking",
+          capability_id: "N/A",
+          summary: "Native messaging is recoverable but not fully ready.",
+          diagnostics: {
+            code: "native_messaging.socket_stale_or_disconnected",
+            observed: "bridge became recoverable after stale socket detection",
+            expected: "ready current-run native bridge",
+            remediation_hint: "refresh native messaging bridge and recollect current-run doctor evidence"
+          },
+          evidence_refs: [
+            {
+              kind: "doctor_artifact_ref",
+              ref: "doctor://official-chrome/health-partial",
+              status: "partial",
+              collected_at: fixtureTimestamp,
+              sensitivity: "internal"
+            }
+          ]
+        },
+        {
+          check_id: "official-chrome-launch-readiness",
+          category: "capability_readiness",
+          status: "warn",
+          severity: "warning",
+          blocking: "capability_blocking",
           capability_id: officialChromeCapabilityId,
-          summary: "Native messaging is recoverable but not fully ready."
+          summary: "Doctor evidence exists, but runtime attestation is still missing for launch admission.",
+          diagnostics: {
+            code: "capability_readiness.runtime_attestation_pending",
+            required_runtime_requirements: [
+              "profile_binding",
+              "extension_binding",
+              "native_messaging",
+              "runtime_bootstrap_ready",
+              "real_browser"
+            ],
+            satisfied_runtime_requirements: ["profile_binding", "provider_doctor_passed"],
+            unsatisfied_runtime_requirements: [
+              "extension_binding",
+              "native_messaging",
+              "runtime_bootstrap_ready",
+              "real_browser"
+            ],
+            minimum_next_verification_level: "runtime_attested",
+            remediation_hint: "collect current launch evidence from #1143 before allowing runtime admission"
+          },
+          evidence_refs: [
+            {
+              kind: "doctor_artifact_ref",
+              ref: "doctor://official-chrome/health-partial",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "internal"
+            }
+          ]
         }
       ],
       outcome: {
         overall_status: "warn",
         provider_blocked: false,
         blocked_capabilities: [officialChromeCapabilityId],
-        doctor_verification_level: "health_checked",
+        doctor_verification_level: "doctor_checked",
         next_required_gates: ["runtime_attestation"]
       }
     },
@@ -1242,24 +1444,127 @@ export const officialChromeProviderFixtures = {
         generated_at: fixtureTimestamp,
         scope: "capability"
       },
+      input_contract_ref: {
+        provider_contract_spec: "FR-0033-browser-provider-contract",
+        expected_binary_source: {
+          source_id: "official-chrome-stable",
+          source_kind: "browser_executable",
+          locator_ref: "browser-bundle:Google Chrome stable",
+          locator_sensitivity: "internal",
+          expected_access: "launchable"
+        },
+        capability_ids_requested: [officialChromeCapabilityId]
+      },
       checks: [
         {
-          check_id: "persistent-extension-identity",
-          category: "extension_identity",
+          check_id: "official_chrome_persistent_extension_identity",
+          category: "extension_load",
           status: "fail",
           severity: "error",
           blocking: "provider_blocking",
           capability_id: "N/A",
-          summary: "Persistent extension identity is missing or mismatched."
+          summary: "Persistent extension identity is missing or mismatched.",
+          diagnostics: {
+            code: "persistent_extension_identity.mismatch",
+            observed: "no stable extension identity bound to selected profile",
+            expected: "profile-scoped stable extension identity ref",
+            remediation_hint: "reinstall or rebind the persistent extension before retrying"
+          },
+          evidence_refs: [
+            {
+              kind: "extension_state_ref",
+              ref: "extension-binding:redacted:official-chrome",
+              status: "unavailable",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
         },
         {
-          check_id: "native-messaging-health",
+          check_id: "host_registration",
           category: "native_messaging",
           status: "fail",
           severity: "error",
           blocking: "provider_blocking",
+          capability_id: "N/A",
+          summary: "Native messaging bridge is unavailable.",
+          diagnostics: {
+            code: "native_messaging.registration_missing",
+            observed: "current profile has no usable host registration",
+            expected: "official Chrome persistent provider host registration",
+            remediation_hint: "restore native host registration and allowed origins before admission"
+          },
+          evidence_refs: [
+            {
+              kind: "native_manifest_ref",
+              ref: "native-manifest-ref:redacted:official-chrome",
+              status: "unavailable",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
+        },
+        {
+          check_id: "official_chrome_persistent_service_worker_freshness",
+          category: "extension_load",
+          status: "fail",
+          severity: "error",
+          blocking: "provider_blocking",
+          capability_id: "N/A",
+          summary: "Service worker freshness is stale for the selected extension identity.",
+          diagnostics: {
+            code: "service_worker_stale",
+            observed: "stale or mismatched worker digest",
+            expected: "fresh service worker for selected persistent extension",
+            remediation_hint: "refresh the extension worker and recollect doctor evidence"
+          },
+          evidence_refs: [
+            {
+              kind: "extension_state_ref",
+              ref: "service-worker:redacted:official-chrome",
+              status: "partial",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
+        },
+        {
+          check_id: "official-chrome-launch-readiness",
+          category: "capability_readiness",
+          status: "fail",
+          severity: "error",
+          blocking: "capability_blocking",
           capability_id: officialChromeCapabilityId,
-          summary: "Native messaging bridge is unavailable."
+          summary: "Provider doctor cannot satisfy launch readiness for official Chrome persistent runtime.",
+          diagnostics: {
+            code: "capability_readiness.required_checks_failed",
+            required_runtime_requirements: [
+              "profile_binding",
+              "extension_binding",
+              "native_messaging",
+              "runtime_bootstrap_ready",
+              "real_browser"
+            ],
+            satisfied_runtime_requirements: [],
+            unsatisfied_runtime_requirements: [
+              "profile_binding",
+              "extension_binding",
+              "native_messaging",
+              "runtime_bootstrap_ready",
+              "real_browser"
+            ],
+            minimum_next_verification_level: "runtime_attested",
+            remediation_hint: "fix provider-blocking health failures before attempting runtime admission"
+          },
+          evidence_refs: [
+            {
+              kind: "doctor_artifact_ref",
+              ref: "doctor://official-chrome/health-blocked",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "internal"
+            }
+          ]
         }
       ],
       outcome: {
