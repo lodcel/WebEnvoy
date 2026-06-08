@@ -257,6 +257,27 @@ describe("official Chrome provider fixtures for #1144", () => {
         "real_browser"
       ])
     );
+    expect(
+      supported.checks.find(
+        (check) => check.check_id === "official_chrome_persistent_service_worker_freshness"
+      )
+    ).toMatchObject({
+      category: "extension_load",
+      status: "pass",
+      severity: "info",
+      blocking: "none",
+      capability_id: "N/A",
+      diagnostics: {
+        code: "service_worker_fresh"
+      },
+      evidence_refs: [
+        expect.objectContaining({
+          kind: "extension_state_ref",
+          status: "available",
+          sensitivity: "sensitive"
+        })
+      ]
+    });
 
     expect(partial.outcome).toMatchObject({
       overall_status: "fail",
@@ -272,6 +293,11 @@ describe("official Chrome provider fixtures for #1144", () => {
       expect.arrayContaining(["binary", "version", "display_mode", "profile_persistence"])
     );
     expect(partial.outcome.provider_blocked).toBe(true);
+    expect(
+      partial.checks.some(
+        (check) => check.check_id === "official_chrome_persistent_service_worker_freshness"
+      )
+    ).toBe(false);
 
     expect(failClosed.outcome).toMatchObject({
       overall_status: "fail",
@@ -292,6 +318,16 @@ describe("official Chrome provider fixtures for #1144", () => {
         expect.objectContaining({
           check_id: "host_registration",
           blocking: "provider_blocking"
+        }),
+        expect.objectContaining({
+          check_id: "official_chrome_persistent_service_worker_freshness",
+          category: "extension_load",
+          status: "fail",
+          severity: "error",
+          blocking: "provider_blocking",
+          diagnostics: expect.objectContaining({
+            code: "service_worker_stale"
+          })
         }),
         expect.objectContaining({
           check_id: "official-chrome-launch-readiness",

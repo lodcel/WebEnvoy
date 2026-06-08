@@ -159,8 +159,8 @@ describe("closeout runtime readiness preflight", () => {
           identityPreflight: {
             mode: "official_chrome_persistent_extension",
             extensionServiceWorkerFreshness: {
-              state: "unknown",
-              reason: "SERVICE_WORKER_CACHE_MISSING",
+              state: "fresh",
+              reason: "SERVICE_WORKER_CACHE_CURRENT",
               extensionPath: "/repo/old/extension"
             }
           }
@@ -179,6 +179,68 @@ describe("closeout runtime readiness preflight", () => {
           active_extension_digest: "digest-a",
           expected_extension_digest: "digest-a"
         }
+      }
+    });
+  });
+
+  it("blocks an official Chrome persistent runtime when service worker freshness is unknown", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: {
+          decision: "equivalent",
+          reason_codes: ["same_extension_tree_digest"],
+          active_extension_source_path: "/repo/current/extension",
+          expected_extension_source_path: "/repo/current/extension",
+          active_extension_digest: "digest-a",
+          expected_extension_digest: "digest-a"
+        },
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "unknown",
+              reason: "SERVICE_WORKER_CACHE_MISSING",
+              extensionPath: "/repo/current/extension"
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: {
+        blocker_code: "extension_service_worker_freshness_unknown",
+        required_recovery_action: "collect_current_extension_service_worker_freshness_then_restart_runtime"
+      },
+      runtime_status: {
+        extension_service_worker_freshness_state: "unknown",
+        extension_service_worker_freshness_reason: "SERVICE_WORKER_CACHE_MISSING"
+      }
+    });
+  });
+
+  it("blocks an official Chrome persistent runtime when service worker freshness evidence is missing", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      blocker: {
+        blocker_code: "extension_service_worker_freshness_unknown"
+      },
+      runtime_status: {
+        extension_service_worker_freshness_state: null,
+        extension_service_worker_freshness_reason: null
       }
     });
   });
