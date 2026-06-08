@@ -17,8 +17,9 @@ describe("official Chrome provider fixtures for #1144", () => {
       provider_id: officialChromeProviderFixtureIds.providerId,
       provider_family: "official_chrome",
       contract_version: "v1",
-      distribution_channel: "official_chrome_profile"
+      distribution_channel: "builtin"
     });
+    expect(contract.provider_identity.distribution_channel).not.toBe("official_chrome_profile");
     expect(contract.browser_engine).toMatchObject({
       engine_family: "chrome",
       browser_channel: "Google Chrome stable",
@@ -39,6 +40,15 @@ describe("official Chrome provider fixtures for #1144", () => {
       supported_actions: ["read", "diagnose"],
       verification_level: "static_checked"
     });
+    expect(capability.risk_constraints).toEqual([
+      "requires_latest_head_evidence",
+      "requires_manual_confirmation"
+    ]);
+    expect(capability.limitations).toEqual(["diagnostic_only"]);
+    expect(capability.risk_constraints).not.toEqual(
+      expect.arrayContaining(["official_chrome_only", "persistent_profile_required", "headful_only"])
+    );
+    expect(capability.limitations).not.toEqual(expect.arrayContaining(["live_evidence_not_included"]));
     expect(capability.capability_kind).not.toBe("runtime_control");
     expect(capability.supported_actions).not.toEqual(expect.arrayContaining(["launch", "attach"]));
     expect(capability.runtime_requirements).toEqual([
@@ -232,6 +242,15 @@ describe("official Chrome provider fixtures for #1144", () => {
       redaction_gaps: [],
       closeout_decision: "allow"
     });
+    expect(supported.launch_arguments.launch_envelope_ref).toBe(officialChromeProviderFixtureIds.launchEnvelopeRef);
+    expect(supported.closeout_plan.required_evidence_kinds).toContain("launch_envelope_ref");
+    expect(supported.evidence_refs).toContainEqual(
+      expect.objectContaining({
+        kind: "launch_envelope_ref",
+        ref: officialChromeProviderFixtureIds.launchEnvelopeRef,
+        status: "available"
+      })
+    );
 
     expect(partial.closeout_plan).toMatchObject({
       coverage_status: "partial",

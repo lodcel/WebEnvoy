@@ -861,7 +861,7 @@ export const officialChromeProviderFixtures = {
       provider_family: "official_chrome",
       provider_version: "fixture-v1",
       contract_version: "v1",
-      distribution_channel: "official_chrome_profile",
+      distribution_channel: "builtin",
       implementation_owner: "webenvoy_core"
     },
     provider_mode: "core_managed",
@@ -900,9 +900,9 @@ export const officialChromeProviderFixtures = {
           "provider_health_ref",
           "launch_admission_evidence"
         ],
-        risk_constraints: ["official_chrome_only", "persistent_profile_required", "headful_only"],
+        risk_constraints: ["requires_latest_head_evidence", "requires_manual_confirmation"],
         verification_level: "static_checked",
-        limitations: ["live_evidence_not_included"]
+        limitations: ["diagnostic_only"]
       }
     ],
     verification: {
@@ -917,7 +917,7 @@ export const officialChromeProviderFixtures = {
         officialChromeCapabilityMatrixRef
       ]
     },
-    limitations: ["live_evidence_not_included"]
+    limitations: ["diagnostic_only"]
   },
   launchEnvelope: {
     identity: {
@@ -1003,7 +1003,7 @@ export const officialChromeProviderFixtures = {
         recovery_outcomes: ["healthy_after_recovery", "new_envelope_required"]
       }
     ],
-    limitations: ["live_evidence_not_included"]
+    limitations: ["diagnostic_only"]
   },
   capabilityMatrix: {
     supported: {
@@ -1022,7 +1022,7 @@ export const officialChromeProviderFixtures = {
         "real_browser"
       ],
       support_level: "statically_verified",
-      limitations: ["live_evidence_not_included"],
+      limitations: ["diagnostic_only"],
       verification_sources: [
         {
           kind: "provider_declaration",
@@ -1079,7 +1079,7 @@ export const officialChromeProviderFixtures = {
         "real_browser"
       ],
       support_level: "declared",
-      limitations: ["live_evidence_not_included"],
+      limitations: ["diagnostic_only"],
       verification_sources: [
         {
           kind: "provider_declaration",
@@ -1135,7 +1135,7 @@ export const officialChromeProviderFixtures = {
         "real_browser"
       ],
       support_level: "statically_verified",
-      limitations: ["live_evidence_not_included"],
+      limitations: ["diagnostic_only"],
       verification_sources: [
         {
           kind: "provider_declaration",
@@ -1798,6 +1798,18 @@ export const officialChromeProviderFixtures = {
             artifact_identity: null
           },
           {
+            evidence_ref_id: "ev-launch-envelope",
+            kind: "launch_envelope_ref",
+            ref: officialChromeLaunchEnvelopeRef,
+            source: "launch_envelope",
+            status: "available",
+            collected_at: fixtureTimestamp,
+            freshness: "current_launch",
+            sensitivity: "internal",
+            redaction_state: "not_required",
+            artifact_identity: null
+          },
+          {
             evidence_ref_id: "ev-launch-snapshot",
             kind: "launch_config_snapshot",
             ref: "launch-snapshot:official-chrome:redacted",
@@ -1861,6 +1873,7 @@ export const officialChromeProviderFixtures = {
         closeout_plan: {
           required_evidence_kinds: [
             "provider_contract_ref",
+            "launch_envelope_ref",
             "launch_config_snapshot",
             "profile_binding_ref",
             "extension_binding_ref",
