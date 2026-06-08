@@ -237,6 +237,36 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
     expect(record.closeout_plan.missing_evidence).toContain("real_browser_launch_evidence");
   });
 
+  it("fails closed when launch evidence lacks explicit headed attestation", () => {
+    const { headless: _headless, ...launchResultWithoutHeadless } = buildLaunchResult();
+    const record = buildOfficialChromeLaunchEvidenceRecord({
+      runId: "run-official-launch-headless-missing-001",
+      commandRef: "command-envelope:run-official-launch-headless-missing-001",
+      providerId: "official-chrome.persistent",
+      providerContractRef: "provider-contract:official-chrome.persistent:v1",
+      providerContractVerified: true,
+      browserChannelVerified: true,
+      launchEnvelopeRef: "launch-envelope:run-official-launch-headless-missing-001:v1",
+      profileRef: "profile:private-profile",
+      browserVersion: "Google Chrome 125.0.0.0",
+      launchResult: launchResultWithoutHeadless,
+      runtimeStatus: buildReadyStatus("run-official-launch-headless-missing-001"),
+      persistentExtensionBinding: binding
+    });
+
+    expect(record.launch_arguments.browser_mode).toMatchObject({
+      real_browser_required: true,
+      headed: false,
+      headless: false
+    });
+    expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.blocking_reasons).toEqual(
+      expect.arrayContaining(["provider_limitation_conflict", "runtime_attestation_required"])
+    );
+    expect(record.closeout_plan.missing_evidence).toContain("real_browser_launch_evidence");
+    expect(record.closeout_plan.next_required_gates).toContain("real_browser_launch_attestation");
+  });
+
   it("fails closed for non-real-browser launch evidence", () => {
     const record = buildOfficialChromeLaunchEvidenceRecord({
       runId: "run-official-launch-surface-001",
@@ -393,8 +423,20 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       browserChannel: "Google Chrome stable",
       browserVersion: "Chrome for Testing 125.0.0.0"
     });
+    const googleChromeForTesting = buildPersistentRecord({
+      runId: "run-official-launch-google-cft-001",
+      commandRef: "command-envelope:run-official-launch-google-cft-001",
+      browserChannel: "Google Chrome stable",
+      browserVersion: "Google Chrome for Testing 125.0.0.0"
+    });
+    const googleChromeDev = buildPersistentRecord({
+      runId: "run-official-launch-google-dev-001",
+      commandRef: "command-envelope:run-official-launch-google-dev-001",
+      browserChannel: "Google Chrome stable",
+      browserVersion: "Google Chrome Dev 125.0.0.0"
+    });
 
-    for (const record of [chromium, chromeForTesting]) {
+    for (const record of [chromium, chromeForTesting, googleChromeForTesting, googleChromeDev]) {
       expect(record.closeout_plan.closeout_decision).toBe("deny");
       expect(record.closeout_plan.blocking_reasons).toEqual(
         expect.arrayContaining(["provider_limitation_conflict", "runtime_attestation_required"])

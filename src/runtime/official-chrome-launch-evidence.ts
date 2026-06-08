@@ -431,7 +431,29 @@ const isGoogleChromeStableAttested = (input: {
   if (channel !== "google chrome stable") {
     return false;
   }
-  return version.startsWith("google chrome ") && !version.includes("beta");
+  const nonStableLabels = [
+    "for testing",
+    "chrome for testing",
+    "chromium",
+    "beta",
+    "dev",
+    "canary",
+    "unstable",
+    "nightly"
+  ];
+  if (nonStableLabels.some((label) => version.includes(label))) {
+    return false;
+  }
+  return /^google chrome \d/.test(version);
+};
+
+const hasRealBrowserLaunchAttestation = (
+  launchResult: BrowserLaunchResult | null | undefined
+): boolean => {
+  if (!launchResult) {
+    return false;
+  }
+  return launchResult.headless === false && launchResult.executionSurface === "real_browser";
 };
 
 const buildCloseoutPlan = (input: {
@@ -497,13 +519,7 @@ const buildCloseoutPlan = (input: {
     missingEvidence.add("google_chrome_stable_attestation");
     nextRequiredGates.add("browser_channel_attestation");
   }
-  if (input.launchResult?.headless === true) {
-    blockingReasons.add("provider_limitation_conflict");
-    blockingReasons.add("runtime_attestation_required");
-    missingEvidence.add("real_browser_launch_evidence");
-    nextRequiredGates.add("real_browser_launch_attestation");
-  }
-  if (input.launchResult && input.launchResult.executionSurface !== "real_browser") {
+  if (!hasRealBrowserLaunchAttestation(input.launchResult)) {
     blockingReasons.add("provider_limitation_conflict");
     blockingReasons.add("runtime_attestation_required");
     missingEvidence.add("real_browser_launch_evidence");
@@ -614,6 +630,7 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
     runId: input.runId
   });
   const headless = input.launchResult?.headless === true;
+  const headed = input.launchResult?.headless === false;
 
   const evidenceRefs: ProviderEvidenceRef[] = [
     buildEvidenceRef({
@@ -800,7 +817,7 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
       launch_envelope_version: "v1",
       provider_launch_ref: launchRef,
       browser_mode: {
-        headed: !headless,
+        headed,
         headless,
         real_browser_required: true,
         browser_channel: browserChannel
