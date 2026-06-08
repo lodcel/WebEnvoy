@@ -412,10 +412,12 @@ const isProviderContractRefMatch = (input: {
   if (input.providerContractVerified !== true || !input.providerContractRef) {
     return false;
   }
-  return (
-    input.providerContractRef.includes(input.providerId) &&
-    input.providerContractRef.includes("v1")
-  );
+  const segments = input.providerContractRef.split(":");
+  if (segments.length !== 3) {
+    return false;
+  }
+  const [prefix, providerId, version] = segments;
+  return prefix === "provider-contract" && providerId === input.providerId && version === "v1";
 };
 
 const isGoogleChromeStableAttested = (input: {

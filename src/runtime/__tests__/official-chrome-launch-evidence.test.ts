@@ -328,36 +328,60 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
   });
 
   it("fails closed when provider contract ref is unverified or mismatched", () => {
-    const unverified = buildOfficialChromeLaunchEvidenceRecord({
-      runId: "run-official-launch-contract-unverified-001",
-      commandRef: "command-envelope:run-official-launch-contract-unverified-001",
-      providerId: "official-chrome.persistent",
-      providerContractRef: "provider-contract:official-chrome.persistent:v1",
-      providerContractVerified: false,
-      browserChannelVerified: true,
-      launchEnvelopeRef: "launch-envelope:run-official-launch-contract-unverified-001:v1",
-      profileRef: "profile:private-profile",
-      browserVersion: "Google Chrome 125.0.0.0",
-      launchResult: buildLaunchResult(),
-      runtimeStatus: buildReadyStatus(),
-      persistentExtensionBinding: binding
-    });
-    const mismatched = buildOfficialChromeLaunchEvidenceRecord({
-      runId: "run-official-launch-contract-mismatch-001",
-      commandRef: "command-envelope:run-official-launch-contract-mismatch-001",
-      providerId: "official-chrome.persistent",
-      providerContractRef: "provider-contract:official-chrome.direct:v1",
-      providerContractVerified: true,
-      browserChannelVerified: true,
-      launchEnvelopeRef: "launch-envelope:run-official-launch-contract-mismatch-001:v1",
-      profileRef: "profile:private-profile",
-      browserVersion: "Google Chrome 125.0.0.0",
-      launchResult: buildLaunchResult(),
-      runtimeStatus: buildReadyStatus(),
-      persistentExtensionBinding: binding
-    });
+    const cases = [
+      {
+        label: "unverified",
+        providerContractRef: "provider-contract:official-chrome.persistent:v1",
+        providerContractVerified: false
+      },
+      {
+        label: "provider-mismatch",
+        providerContractRef: "provider-contract:official-chrome.direct:v1",
+        providerContractVerified: true
+      },
+      {
+        label: "provider-prefix",
+        providerContractRef: "provider-contract:official-chrome.persistent-preview:v1",
+        providerContractVerified: true
+      },
+      {
+        label: "provider-suffix",
+        providerContractRef: "provider-contract:preview-official-chrome.persistent:v1",
+        providerContractVerified: true
+      },
+      {
+        label: "version-prefix",
+        providerContractRef: "provider-contract:official-chrome.persistent:v10",
+        providerContractVerified: true
+      },
+      {
+        label: "extra-version-fragment",
+        providerContractRef: "provider-contract:official-chrome.persistent:v1:previous-v1",
+        providerContractVerified: true
+      },
+      {
+        label: "wrong-prefix",
+        providerContractRef: "provider-contract-ref:official-chrome.persistent:v1",
+        providerContractVerified: true
+      }
+    ];
 
-    for (const record of [unverified, mismatched]) {
+    for (const { label, providerContractRef, providerContractVerified } of cases) {
+      const record = buildOfficialChromeLaunchEvidenceRecord({
+        runId: `run-official-launch-contract-${label}-001`,
+        commandRef: `command-envelope:run-official-launch-contract-${label}-001`,
+        providerId: "official-chrome.persistent",
+        providerContractRef,
+        providerContractVerified,
+        browserChannelVerified: true,
+        launchEnvelopeRef: `launch-envelope:run-official-launch-contract-${label}-001:v1`,
+        profileRef: "profile:private-profile",
+        browserVersion: "Google Chrome 125.0.0.0",
+        launchResult: buildLaunchResult(),
+        runtimeStatus: buildReadyStatus(`run-official-launch-contract-${label}-001`),
+        persistentExtensionBinding: binding
+      });
+
       expect(record.closeout_plan.closeout_decision).toBe("deny");
       expect(record.closeout_plan.blocking_reasons).toEqual(
         expect.arrayContaining(["provider_contract_version_mismatch", "source_conflict"])
