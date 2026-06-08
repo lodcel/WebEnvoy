@@ -280,14 +280,45 @@ const launchSnapshotRef = (input: {
 const statusString = (status: JsonObject | null | undefined, key: string): string | null =>
   asNonEmptyString(status?.[key]);
 
+const asJsonObject = (value: unknown): JsonObject | null =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
+
+const profileLockOwnerRunIds = (status: JsonObject | null | undefined): string[] => {
+  if (!status) {
+    return [];
+  }
+  const runtimeTakeoverEvidence = asJsonObject(status.runtimeTakeoverEvidence);
+  return [
+    statusString(status, "runId"),
+    statusString(status, "run_id"),
+    statusString(runtimeTakeoverEvidence, "observedRunId"),
+    statusString(runtimeTakeoverEvidence, "observed_run_id")
+  ].filter((runId): runId is string => runId !== null);
+};
+
+const isProfileLockHeldByCurrentRun = (
+  status: JsonObject | null | undefined,
+  currentRunId: string
+): boolean => {
+  if (status?.lockHeld !== true) {
+    return false;
+  }
+  const ownerRunIds = profileLockOwnerRunIds(status);
+  return ownerRunIds.length > 0 && ownerRunIds.every((ownerRunId) => ownerRunId === currentRunId);
+};
+
 const mapProfileLockStatus = (
-  status: JsonObject | null | undefined
+  status: JsonObject | null | undefined,
+  currentRunId: string
 ): OfficialChromeLaunchEvidenceRecord["profile_reference"]["profile_lock_status"] => {
   if (!status) {
     return "unknown";
   }
-  if (status.lockHeld === true) {
+  if (isProfileLockHeldByCurrentRun(status, currentRunId)) {
     return "locked_by_current_run";
+  }
+  if (status.lockHeld === true && profileLockOwnerRunIds(status).length > 0) {
+    return "stale_or_disconnected";
   }
   const profileState = statusString(status, "profileState");
   if (profileState === "disconnected") {
@@ -726,7 +757,7 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
     browserVersion,
     browserChannelVerified: input.browserChannelVerified,
     profileRef,
-    profileLockStatus: mapProfileLockStatus(input.runtimeStatus),
+    profileLockStatus: mapProfileLockStatus(input.runtimeStatus, input.runId),
     launchEnvelopeRef: input.launchEnvelopeRef,
     providerContractRef: input.providerContractRef,
     providerContractVerified: input.providerContractVerified,
@@ -786,7 +817,7 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
     profile_reference: {
       profile_ref: profileRef ?? "profile-ref:missing",
       profile_binding_mode: persistent ? "required_existing" : "not_required",
-      profile_lock_status: mapProfileLockStatus(input.runtimeStatus),
+      profile_lock_status: mapProfileLockStatus(input.runtimeStatus, input.runId),
       login_state_evidence: mapLoginState(input.runtimeStatus),
       profile_persistence_status: persistent ? "persistent" : "ephemeral",
       profile_evidence_refs: ["ev-profile-binding"]

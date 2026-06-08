@@ -26,9 +26,9 @@ const buildLaunchResultBase = () => ({
   processOwnership: "external_persistent_app" as const
 });
 
-const buildReadyStatus = () => ({
+const buildReadyStatus = (runId = "run-official-launch-001") => ({
   profile: "private-profile",
-  runId: "run-official-launch-001",
+  runId,
   profileState: "ready",
   lockHeld: true,
   identityBindingState: "bound",
@@ -36,27 +36,34 @@ const buildReadyStatus = () => ({
   bootstrapState: "ready",
   runtimeReadiness: "ready",
   headless: false,
-  executionSurface: "real_browser"
+  executionSurface: "real_browser",
+  runtimeTakeoverEvidence: {
+    observedRunId: runId,
+    ownerConflictFree: true,
+    identityBound: true
+  }
 });
 
 const buildPersistentRecord = (
   overrides: Partial<Parameters<typeof buildOfficialChromeLaunchEvidenceRecord>[0]> = {}
-) =>
-  buildOfficialChromeLaunchEvidenceRecord({
-    runId: "run-official-launch-default-001",
-    commandRef: "command-envelope:run-official-launch-default-001",
+): ReturnType<typeof buildOfficialChromeLaunchEvidenceRecord> => {
+  const runId = overrides.runId ?? "run-official-launch-default-001";
+  return buildOfficialChromeLaunchEvidenceRecord({
+    runId,
+    commandRef: `command-envelope:${runId}`,
     providerId: "official-chrome.persistent",
     providerContractRef: "provider-contract:official-chrome.persistent:v1",
     providerContractVerified: true,
     browserChannelVerified: true,
-    launchEnvelopeRef: "launch-envelope:run-official-launch-default-001:v1",
+    launchEnvelopeRef: `launch-envelope:${runId}:v1`,
     profileRef: "profile:private-profile",
     browserVersion: "Google Chrome 125.0.0.0",
     launchResult: buildLaunchResult(),
-    runtimeStatus: buildReadyStatus(),
+    runtimeStatus: buildReadyStatus(runId),
     persistentExtensionBinding: binding,
     ...overrides
   });
+};
 
 const binding = {
   extensionId: "abcdefghijklmnopabcdefghijklmnop",
@@ -350,6 +357,23 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
     });
 
     expect(record.profile_reference.profile_lock_status).toBe("unlocked");
+    expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.blocking_reasons).toContain("profile_lock_unavailable");
+    expect(record.closeout_plan.missing_evidence).toContain("profile_lock_status");
+    expect(record.closeout_plan.next_required_gates).toContain("profile_lock_attestation");
+  });
+
+  it("fails closed when profile lock evidence belongs to a different run", () => {
+    const record = buildPersistentRecord({
+      runId: "run-official-launch-current-001",
+      commandRef: "command-envelope:run-official-launch-current-001",
+      runtimeStatus: {
+        ...buildReadyStatus("run-official-launch-foreign-001"),
+        lockHeld: true
+      }
+    });
+
+    expect(record.profile_reference.profile_lock_status).toBe("stale_or_disconnected");
     expect(record.closeout_plan.closeout_decision).toBe("deny");
     expect(record.closeout_plan.blocking_reasons).toContain("profile_lock_unavailable");
     expect(record.closeout_plan.missing_evidence).toContain("profile_lock_status");
