@@ -46,6 +46,8 @@ export interface CloseoutRuntimeReadinessPreflight {
     identity_binding_state: string | null;
     extension_service_worker_freshness_state: string | null;
     extension_service_worker_freshness_reason: string | null;
+    extension_service_worker_code_identity: JsonObject | null;
+    provider_doctor_extension_load_check: JsonObject | null;
     extension_source_path: string | null;
     expected_extension_source_path: string | null;
     extension_source_equivalence: {
@@ -256,6 +258,17 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
     extensionServiceWorkerFreshness?.reason ??
       identityPreflight?.extension_service_worker_freshness_reason
   );
+  const extensionServiceWorkerCodeIdentity = asObject(
+    extensionServiceWorkerFreshness?.codeIdentityObservation ??
+      identityPreflight?.extension_service_worker_code_identity
+  );
+  const providerDoctorExtensionLoadCheck = asObject(
+    extensionServiceWorkerCodeIdentity?.provider_doctor_extension_load_check ??
+      identityPreflight?.provider_doctor_extension_load_check
+  );
+  const serviceWorkerComparisonResult = asString(
+    extensionServiceWorkerCodeIdentity?.freshness_comparison_result
+  );
   const extensionSourcePath = asString(
     extensionServiceWorkerFreshness?.extensionPath ??
       identityPreflight?.extension_service_worker_extension_path
@@ -288,6 +301,8 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       identity_binding_state: identityBindingState,
       extension_service_worker_freshness_state: extensionServiceWorkerFreshnessState,
       extension_service_worker_freshness_reason: extensionServiceWorkerFreshnessReason,
+      extension_service_worker_code_identity: extensionServiceWorkerCodeIdentity,
+      provider_doctor_extension_load_check: providerDoctorExtensionLoadCheck,
       extension_source_path: extensionSourcePath,
       expected_extension_source_path: expectedExtensionSourcePath,
       extension_source_equivalence: extensionSourceEquivalence,
@@ -336,6 +351,30 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       blocker: blocker(
         "extension_service_worker_stale",
         "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+      ),
+      ...base
+    };
+  }
+
+  if (
+    identityPreflightMode === "official_chrome_persistent_extension" &&
+    serviceWorkerComparisonResult !== "match"
+  ) {
+    return {
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: blocker(
+        serviceWorkerComparisonResult === "observed_stale" ||
+          serviceWorkerComparisonResult === "redaction_invalid" ||
+          serviceWorkerComparisonResult === "source_conflict"
+          ? "extension_service_worker_stale"
+          : "extension_service_worker_freshness_unknown",
+        serviceWorkerComparisonResult === "observed_stale" ||
+          serviceWorkerComparisonResult === "redaction_invalid" ||
+          serviceWorkerComparisonResult === "source_conflict"
+          ? "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+          : "collect_current_extension_service_worker_freshness_then_restart_runtime"
       ),
       ...base
     };

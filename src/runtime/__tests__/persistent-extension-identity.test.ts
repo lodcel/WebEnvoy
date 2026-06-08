@@ -81,13 +81,15 @@ const writeInstalledProfileExtension = async (input: {
 const writeServiceWorkerCache = async (input: {
   profileDir: string;
   mtime: Date;
+  scriptContent?: string;
 }): Promise<void> => {
   const serviceWorkerDir = join(input.profileDir, "Default", "Service Worker", "ScriptCache");
-  const scriptPath = join(serviceWorkerDir, "service-worker.js");
+  const scriptPath = join(serviceWorkerDir, `${EXTENSION_ID}-service-worker.js`);
   await mkdir(serviceWorkerDir, { recursive: true });
   await writeFile(
     scriptPath,
-    `const WEBENVOY_EXTENSION_URL = "chrome-extension://${EXTENSION_ID}/build/background.js";\nself.addEventListener('install', () => undefined);\n`,
+    input.scriptContent ??
+      `const WEBENVOY_EXTENSION_URL = "chrome-extension://${EXTENSION_ID}/build/background.js";\nself.addEventListener('install', () => undefined);\n`,
     "utf8"
   );
   await utimes(scriptPath, input.mtime, input.mtime);
@@ -1292,7 +1294,7 @@ describe("runIdentityPreflight", () => {
       manifestPath,
       extensionServiceWorkerFreshness: {
         state: "unknown",
-        reason: "SERVICE_WORKER_CACHE_MISSING",
+        reason: "EXTENSION_SERVICE_WORKER_SCRIPT_DIGEST_UNAVAILABLE",
         extensionPath: unpackedDir
       }
     });
@@ -1550,18 +1552,35 @@ describe("runIdentityPreflight", () => {
         reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
         extensionId: EXTENSION_ID,
         extensionPath: unpackedDir,
-        serviceWorkerPath: join(profileDir, "Default", "Service Worker")
+        serviceWorkerPath: join(profileDir, "Default", "Service Worker"),
+        codeIdentityObservation: {
+          freshness_comparison_result: "observed_stale",
+          active_worker_lifecycle_state: "script_cache_observed",
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "fail",
+            blocking: "provider_blocking"
+          }
+        }
       }
     });
-    expect(buildIdentityPreflightError(result)).toMatchObject({
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
       code: "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
       details: {
         reason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
         extension_service_worker_freshness_reason:
           "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+        extension_service_worker_extension_path: null,
+        extension_service_worker_cache_path: null,
+        extension_service_worker_freshness_comparison_result: "observed_stale",
         recovery_hint: expect.stringContaining("Default/Service Worker")
       }
     });
+    expect(JSON.stringify(preflightError.details)).not.toContain(unpackedDir);
+    expect(JSON.stringify(preflightError.details)).not.toContain(
+      join(profileDir, "Default", "Service Worker")
+    );
   });
 
   it("refuses to refresh managed service worker cache through a symlinked profile path", async () => {
@@ -1872,7 +1891,8 @@ describe("runIdentityPreflight", () => {
     await utimes(unpackedDir, sameTimestamp, sameTimestamp);
     await writeServiceWorkerCache({
       profileDir,
-      mtime: sameTimestamp
+      mtime: sameTimestamp,
+      scriptContent: "globalThis.__webenvoyBuild = 'same-second';\n"
     });
     await writeFile(
       manifestPath,
@@ -1919,7 +1939,16 @@ describe("runIdentityPreflight", () => {
       extensionServiceWorkerFreshness: {
         state: "fresh",
         reason: "SERVICE_WORKER_CACHE_CURRENT",
-        extensionPath: unpackedDir
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "match",
+          active_worker_lifecycle_state: "script_cache_observed",
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "pass",
+            blocking: "none"
+          }
+        }
       }
     });
   });
@@ -2087,7 +2116,8 @@ describe("runIdentityPreflight", () => {
     );
     await writeServiceWorkerCache({
       profileDir,
-      mtime: new Date("2026-05-01T00:00:00.000Z")
+      mtime: new Date("2026-05-01T00:00:00.000Z"),
+      scriptContent: "globalThis.__webenvoyBuild = 'bundle';\n"
     });
     await writeFile(
       manifestPath,
@@ -2192,7 +2222,8 @@ describe("runIdentityPreflight", () => {
     );
     await writeServiceWorkerCache({
       profileDir,
-      mtime: new Date("2026-05-01T00:00:00.000Z")
+      mtime: new Date("2026-05-01T00:00:00.000Z"),
+      scriptContent: "globalThis.__webenvoyBuild = 'current';\n"
     });
     await writeFile(
       manifestPath,
@@ -2279,7 +2310,8 @@ describe("runIdentityPreflight", () => {
     );
     await writeServiceWorkerCache({
       profileDir,
-      mtime: new Date("2026-05-01T00:00:00.000Z")
+      mtime: new Date("2026-05-01T00:00:00.000Z"),
+      scriptContent: "globalThis.__webenvoyBuild = 'current';\n"
     });
     await writeFile(
       manifestPath,

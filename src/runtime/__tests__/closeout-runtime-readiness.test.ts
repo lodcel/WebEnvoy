@@ -161,7 +161,22 @@ describe("closeout runtime readiness preflight", () => {
             extensionServiceWorkerFreshness: {
               state: "fresh",
               reason: "SERVICE_WORKER_CACHE_CURRENT",
-              extensionPath: "/repo/old/extension"
+              extensionPath: "/repo/old/extension",
+              codeIdentityObservation: {
+                expected_extension_bundle_identity_locator:
+                  "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
+                observed_active_service_worker_script_identity_locator:
+                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/script-cache/current",
+                expected_bundle_digest_locator: "sha256:digest-a",
+                observed_service_worker_code_digest_locator: "sha256:digest-a",
+                active_worker_lifecycle_state: "script_cache_observed",
+                freshness_comparison_result: "match",
+                provider_doctor_extension_load_check: {
+                  category: "extension_load",
+                  status: "pass",
+                  blocking: "none"
+                }
+              }
             }
           }
         }
@@ -241,6 +256,91 @@ describe("closeout runtime readiness preflight", () => {
       runtime_status: {
         extension_service_worker_freshness_state: null,
         extension_service_worker_freshness_reason: null
+      }
+    });
+  });
+
+  it("exposes FR-0047 code identity and provider doctor check on ready runtime", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "fresh",
+              reason: "SERVICE_WORKER_CACHE_CURRENT",
+              codeIdentityObservation: {
+                expected_extension_bundle_identity_locator:
+                  "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
+                observed_active_service_worker_script_identity_locator:
+                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/script-cache/current",
+                expected_bundle_digest_locator: "sha256:expected",
+                observed_service_worker_code_digest_locator: "sha256:expected",
+                active_worker_lifecycle_state: "script_cache_observed",
+                freshness_comparison_result: "match",
+                provider_doctor_extension_load_check: {
+                  category: "extension_load",
+                  status: "pass",
+                  blocking: "none"
+                }
+              }
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "GO",
+      runtime_status: {
+        extension_service_worker_code_identity: {
+          freshness_comparison_result: "match",
+          active_worker_lifecycle_state: "script_cache_observed"
+        },
+        provider_doctor_extension_load_check: {
+          category: "extension_load",
+          status: "pass",
+          blocking: "none"
+        }
+      }
+    });
+  });
+
+  it("blocks redaction-invalid service worker code identity evidence", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "stale",
+              reason: "SERVICE_WORKER_EVIDENCE_REDACTION_INVALID",
+              codeIdentityObservation: {
+                freshness_comparison_result: "redaction_invalid",
+                active_worker_lifecycle_state: "redaction_invalid",
+                provider_doctor_extension_load_check: {
+                  category: "extension_load",
+                  status: "fail",
+                  blocking: "provider_blocking"
+                }
+              }
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_code: "extension_service_worker_stale"
+      },
+      runtime_status: {
+        extension_service_worker_code_identity: {
+          freshness_comparison_result: "redaction_invalid"
+        },
+        provider_doctor_extension_load_check: {
+          status: "fail",
+          blocking: "provider_blocking"
+        }
       }
     });
   });

@@ -745,20 +745,27 @@ const mapRuntimeError = (error: unknown): CliError => {
   return new CliError("ERR_RUNTIME_UNAVAILABLE", "最小会话运行时不可用", { retryable: true });
 };
 
-const buildIdentityPreflightOutput = (identityPreflight: IdentityPreflightResult) => ({
-  mode: identityPreflight.mode,
-  binding: identityPreflight.binding,
-  manifestPath: identityPreflight.manifestPath,
-  manifestSource: identityPreflight.manifestSource,
-  expectedOrigin: identityPreflight.expectedOrigin,
-  allowedOrigins: identityPreflight.allowedOrigins,
-  browserPath: identityPreflight.browserPath,
-  browserVersion: identityPreflight.browserVersion,
-  blocking: identityPreflight.blocking,
-  failureReason: identityPreflight.failureReason,
-  installDiagnostics: identityPreflight.installDiagnostics,
-  extensionServiceWorkerFreshness: identityPreflight.extensionServiceWorkerFreshness
-});
+const buildIdentityPreflightOutput = (identityPreflight: IdentityPreflightResult) => {
+  const codeIdentityObservation =
+    identityPreflight.extensionServiceWorkerFreshness?.codeIdentityObservation ?? null;
+  return {
+    mode: identityPreflight.mode,
+    binding: identityPreflight.binding,
+    manifestPath: identityPreflight.manifestPath,
+    manifestSource: identityPreflight.manifestSource,
+    expectedOrigin: identityPreflight.expectedOrigin,
+    allowedOrigins: identityPreflight.allowedOrigins,
+    browserPath: identityPreflight.browserPath,
+    browserVersion: identityPreflight.browserVersion,
+    blocking: identityPreflight.blocking,
+    failureReason: identityPreflight.failureReason,
+    installDiagnostics: identityPreflight.installDiagnostics,
+    extensionServiceWorkerFreshness: identityPreflight.extensionServiceWorkerFreshness,
+    extension_service_worker_code_identity: codeIdentityObservation,
+    provider_doctor_extension_load_check:
+      codeIdentityObservation?.provider_doctor_extension_load_check ?? null
+  };
+};
 
 export class ProfileRuntimeService {
   readonly #storeFactory: (cwd: string) => ProfileStoreLike;

@@ -107,12 +107,25 @@ describe("webenvoy cli contract / install and identity", () => {
           reason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
           extension_service_worker_freshness_reason:
             "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
-          extension_service_worker_extension_path: unpackedDir,
-          extension_service_worker_cache_path: path.join(defaultDir, "Service Worker"),
+          extension_service_worker_extension_path: null,
+          extension_service_worker_cache_path: null,
+          extension_service_worker_expected_bundle_identity_locator:
+            `extension-bundle/official-chrome.persistent/${extensionId}/service-worker/build/background.js`,
+          extension_service_worker_observed_script_identity_locator:
+            `extension-service-worker/official-chrome.persistent/${extensionId}/script-cache/current`,
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "fail",
+            blocking: "provider_blocking"
+          },
           recovery_hint: expect.stringContaining("Default/Service Worker")
         }
       }
     });
+    expect(JSON.stringify(parseSingleJsonLine(result.stdout).error.details)).not.toContain(unpackedDir);
+    expect(JSON.stringify(parseSingleJsonLine(result.stdout).error.details)).not.toContain(
+      path.join(defaultDir, "Service Worker")
+    );
 
     const dryRunRefresh = runCli(
       [

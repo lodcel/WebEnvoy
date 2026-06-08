@@ -108,6 +108,7 @@ const buildBlockingResult = (
 export const buildIdentityPreflightError = (
   result: IdentityPreflightResult
 ): CliError => {
+  const codeIdentityObservation = result.extensionServiceWorkerFreshness?.codeIdentityObservation ?? null;
   const details = {
     ability_id: "runtime.identity_preflight",
     stage: "execution" as const,
@@ -134,12 +135,27 @@ export const buildIdentityPreflightError = (
     legacy_launcher_detected: result.installDiagnostics.legacyLauncherDetected,
     extension_service_worker_freshness_state: result.extensionServiceWorkerFreshness?.state ?? null,
     extension_service_worker_freshness_reason: result.extensionServiceWorkerFreshness?.reason ?? null,
-    extension_service_worker_extension_path: result.extensionServiceWorkerFreshness?.extensionPath ?? null,
+    extension_service_worker_extension_path: null,
     extension_service_worker_extension_mtime_ms:
       result.extensionServiceWorkerFreshness?.extensionLatestMtimeMs ?? null,
-    extension_service_worker_cache_path: result.extensionServiceWorkerFreshness?.serviceWorkerPath ?? null,
+    extension_service_worker_cache_path: null,
     extension_service_worker_cache_mtime_ms:
       result.extensionServiceWorkerFreshness?.serviceWorkerLatestMtimeMs ?? null,
+    extension_service_worker_code_identity: codeIdentityObservation,
+    provider_doctor_extension_load_check:
+      codeIdentityObservation?.provider_doctor_extension_load_check ?? null,
+    extension_service_worker_expected_bundle_identity_locator:
+      codeIdentityObservation?.expected_extension_bundle_identity_locator ?? null,
+    extension_service_worker_observed_script_identity_locator:
+      codeIdentityObservation?.observed_active_service_worker_script_identity_locator ?? null,
+    extension_service_worker_expected_bundle_digest_locator:
+      codeIdentityObservation?.expected_bundle_digest_locator ?? null,
+    extension_service_worker_observed_code_digest_locator:
+      codeIdentityObservation?.observed_service_worker_code_digest_locator ?? null,
+    extension_service_worker_lifecycle_state:
+      codeIdentityObservation?.active_worker_lifecycle_state ?? null,
+    extension_service_worker_freshness_comparison_result:
+      codeIdentityObservation?.freshness_comparison_result ?? null,
     recovery_hint: result.extensionServiceWorkerFreshness?.recoveryHint ?? null
   };
 

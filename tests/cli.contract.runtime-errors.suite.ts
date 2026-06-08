@@ -25,16 +25,13 @@ const startOfficialReadyRuntime = async (
       defaultDir,
       "Service Worker",
       "ScriptCache",
-      "service-worker.js"
+      `${extensionId}-service-worker.js`
     );
     await mkdir(path.dirname(extensionBuildFile), { recursive: true });
     await mkdir(path.dirname(serviceWorkerFile), { recursive: true });
     await writeFile(path.join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
     await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'ready';\n");
-    await writeFile(
-      serviceWorkerFile,
-      `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\n`
-    );
+    await writeFile(serviceWorkerFile, "globalThis.__webenvoyBuild = 'ready';\n");
     await writeFile(
       path.join(defaultDir, "Preferences"),
       `${JSON.stringify(
