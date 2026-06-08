@@ -39,6 +39,25 @@ const buildReadyStatus = () => ({
   executionSurface: "real_browser"
 });
 
+const buildPersistentRecord = (
+  overrides: Partial<Parameters<typeof buildOfficialChromeLaunchEvidenceRecord>[0]> = {}
+) =>
+  buildOfficialChromeLaunchEvidenceRecord({
+    runId: "run-official-launch-default-001",
+    commandRef: "command-envelope:run-official-launch-default-001",
+    providerId: "official-chrome.persistent",
+    providerContractRef: "provider-contract:official-chrome.persistent:v1",
+    providerContractVerified: true,
+    browserChannelVerified: true,
+    launchEnvelopeRef: "launch-envelope:run-official-launch-default-001:v1",
+    profileRef: "profile:private-profile",
+    browserVersion: "Google Chrome 125.0.0.0",
+    launchResult: buildLaunchResult(),
+    runtimeStatus: buildReadyStatus(),
+    persistentExtensionBinding: binding,
+    ...overrides
+  });
+
 const binding = {
   extensionId: "abcdefghijklmnopabcdefghijklmnop",
   nativeHostName: "com.webenvoy.host",
@@ -54,6 +73,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.persistent:v1",
       providerContractVerified: true,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-001:v1",
       profileRef: "/Users/example/Library/Application Support/WebEnvoy/private-profile",
       browserVersion: "Google Chrome 125.0.0.0",
@@ -118,6 +138,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.persistent:v1",
       providerContractVerified: true,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-002:v1",
       profileRef: "profile:private-profile",
       createdAt: "2026-06-08T00:00:00.000Z",
@@ -161,6 +182,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.persistent:v1",
       providerContractVerified: true,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-003:v1",
       profileRef: "/Users/example/Library/Application Support/WebEnvoy/private-profile",
       browserVersion: "Google Chrome 125.0.0.0",
@@ -188,6 +210,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.persistent:v1",
       providerContractVerified: true,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-headless-001:v1",
       profileRef: "profile:private-profile",
       browserVersion: "Google Chrome 125.0.0.0",
@@ -214,6 +237,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.persistent:v1",
       providerContractVerified: true,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-surface-001:v1",
       profileRef: "profile:private-profile",
       browserVersion: "Google Chrome 125.0.0.0",
@@ -236,6 +260,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.persistent:v1",
       providerContractVerified: true,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-native-missing-001:v1",
       profileRef: "profile:private-profile",
       browserVersion: "Google Chrome 125.0.0.0",
@@ -272,6 +297,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.persistent:v1",
       providerContractVerified: false,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-contract-unverified-001:v1",
       profileRef: "profile:private-profile",
       browserVersion: "Google Chrome 125.0.0.0",
@@ -285,6 +311,7 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
       providerId: "official-chrome.persistent",
       providerContractRef: "provider-contract:official-chrome.direct:v1",
       providerContractVerified: true,
+      browserChannelVerified: true,
       launchEnvelopeRef: "launch-envelope:run-official-launch-contract-mismatch-001:v1",
       profileRef: "profile:private-profile",
       browserVersion: "Google Chrome 125.0.0.0",
@@ -310,5 +337,77 @@ describe("buildOfficialChromeLaunchEvidenceRecord", () => {
         ])
       );
     }
+  });
+
+  it("fails closed when the persistent profile is not locked by the current run", () => {
+    const record = buildPersistentRecord({
+      runId: "run-official-launch-unlocked-001",
+      commandRef: "command-envelope:run-official-launch-unlocked-001",
+      runtimeStatus: {
+        ...buildReadyStatus(),
+        lockHeld: false
+      }
+    });
+
+    expect(record.profile_reference.profile_lock_status).toBe("unlocked");
+    expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.blocking_reasons).toContain("profile_lock_unavailable");
+    expect(record.closeout_plan.missing_evidence).toContain("profile_lock_status");
+    expect(record.closeout_plan.next_required_gates).toContain("profile_lock_attestation");
+  });
+
+  it("fails closed for Chromium and Chrome for Testing channel attestations", () => {
+    const chromium = buildPersistentRecord({
+      runId: "run-official-launch-chromium-001",
+      commandRef: "command-envelope:run-official-launch-chromium-001",
+      browserChannel: "Chromium",
+      browserVersion: "Chromium 125.0.0.0"
+    });
+    const chromeForTesting = buildPersistentRecord({
+      runId: "run-official-launch-cft-001",
+      commandRef: "command-envelope:run-official-launch-cft-001",
+      browserChannel: "Google Chrome stable",
+      browserVersion: "Chrome for Testing 125.0.0.0"
+    });
+
+    for (const record of [chromium, chromeForTesting]) {
+      expect(record.closeout_plan.closeout_decision).toBe("deny");
+      expect(record.closeout_plan.blocking_reasons).toEqual(
+        expect.arrayContaining(["provider_limitation_conflict", "runtime_attestation_required"])
+      );
+      expect(record.closeout_plan.missing_evidence).toContain("google_chrome_stable_attestation");
+      expect(record.closeout_plan.next_required_gates).toContain("browser_channel_attestation");
+      expect(record.evidence_refs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "browser_channel_attestation",
+            status: "partial"
+          })
+        ])
+      );
+    }
+  });
+
+  it("fails closed when Google Chrome stable channel is not verified", () => {
+    const record = buildPersistentRecord({
+      runId: "run-official-launch-channel-unverified-001",
+      commandRef: "command-envelope:run-official-launch-channel-unverified-001",
+      browserChannelVerified: false
+    });
+
+    expect(record.closeout_plan.closeout_decision).toBe("deny");
+    expect(record.closeout_plan.blocking_reasons).toEqual(
+      expect.arrayContaining(["provider_limitation_conflict", "runtime_attestation_required"])
+    );
+    expect(record.closeout_plan.missing_evidence).toContain("google_chrome_stable_attestation");
+    expect(record.evidence_refs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "browser_channel_attestation",
+          ref: "browser-channel:Google Chrome stable",
+          status: "partial"
+        })
+      ])
+    );
   });
 });

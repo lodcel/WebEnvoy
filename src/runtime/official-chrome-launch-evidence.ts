@@ -213,6 +213,7 @@ export interface OfficialChromeLaunchEvidenceInput {
   launchEnvelopeRef: string | null;
   providerContractRef: string | null;
   providerContractVerified?: boolean | null;
+  browserChannelVerified?: boolean | null;
   profileRef: string | null;
   browserChannel?: string | null;
   browserVersion?: string | null;
@@ -386,11 +387,30 @@ const isProviderContractRefMatch = (input: {
   );
 };
 
+const isGoogleChromeStableAttested = (input: {
+  browserChannel: string;
+  browserVersion: string;
+  browserChannelVerified: boolean | null | undefined;
+}): boolean => {
+  if (input.browserChannelVerified !== true) {
+    return false;
+  }
+  const channel = input.browserChannel.trim().toLowerCase();
+  const version = input.browserVersion.trim().toLowerCase();
+  if (channel !== "google chrome stable") {
+    return false;
+  }
+  return version.startsWith("google chrome ") && !version.includes("beta");
+};
+
 const buildCloseoutPlan = (input: {
   providerId: OfficialChromeLaunchEvidenceProviderId;
   evidenceRefs: ProviderEvidenceRef[];
+  browserChannel: string;
   browserVersion: string;
+  browserChannelVerified: boolean | null | undefined;
   profileRef: string | null;
+  profileLockStatus: OfficialChromeLaunchEvidenceRecord["profile_reference"]["profile_lock_status"];
   launchEnvelopeRef: string | null;
   providerContractRef: string | null;
   providerContractVerified: boolean | null | undefined;
@@ -434,6 +454,18 @@ const buildCloseoutPlan = (input: {
     missingEvidence.add("browser_version");
     nextRequiredGates.add("browser_version_attestation");
   }
+  if (
+    !isGoogleChromeStableAttested({
+      browserChannel: input.browserChannel,
+      browserVersion: input.browserVersion,
+      browserChannelVerified: input.browserChannelVerified
+    })
+  ) {
+    blockingReasons.add("provider_limitation_conflict");
+    blockingReasons.add("runtime_attestation_required");
+    missingEvidence.add("google_chrome_stable_attestation");
+    nextRequiredGates.add("browser_channel_attestation");
+  }
   if (input.launchResult?.headless === true) {
     blockingReasons.add("provider_limitation_conflict");
     blockingReasons.add("runtime_attestation_required");
@@ -445,6 +477,14 @@ const buildCloseoutPlan = (input: {
     blockingReasons.add("runtime_attestation_required");
     missingEvidence.add("real_browser_launch_evidence");
     nextRequiredGates.add("real_browser_launch_attestation");
+  }
+  if (
+    input.providerId === "official-chrome.persistent" &&
+    input.profileLockStatus !== "locked_by_current_run"
+  ) {
+    blockingReasons.add("profile_lock_unavailable");
+    missingEvidence.add("profile_lock_status");
+    nextRequiredGates.add("profile_lock_attestation");
   }
   if (
     input.providerId === "official-chrome.persistent" &&
@@ -511,6 +551,11 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
   const persistent = input.providerId === "official-chrome.persistent";
   const browserChannel = input.browserChannel ?? "Google Chrome stable";
   const browserVersion = input.browserVersion ?? "unknown";
+  const browserChannelAttested = isGoogleChromeStableAttested({
+    browserChannel,
+    browserVersion,
+    browserChannelVerified: input.browserChannelVerified
+  });
   const providerVersion = input.providerVersion ?? "0.1.0";
   const profileRef = opaqueRef("profile-ref", input.profileRef);
   const launchConfigStatus: EvidenceRefStatus = input.launchResult ? "available" : "unavailable";
@@ -573,7 +618,7 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
       kind: "browser_channel_attestation",
       ref: `browser-channel:${browserChannel}`,
       source: "manual_review",
-      status: "available",
+      status: browserChannelAttested ? "available" : "partial",
       collected_at: null,
       freshness: "current_record",
       sensitivity: "public",
@@ -677,8 +722,11 @@ export const buildOfficialChromeLaunchEvidenceRecord = (
   const closeoutPlan = buildCloseoutPlan({
     providerId: input.providerId,
     evidenceRefs,
+    browserChannel,
     browserVersion,
+    browserChannelVerified: input.browserChannelVerified,
     profileRef,
+    profileLockStatus: mapProfileLockStatus(input.runtimeStatus),
     launchEnvelopeRef: input.launchEnvelopeRef,
     providerContractRef: input.providerContractRef,
     providerContractVerified: input.providerContractVerified,
