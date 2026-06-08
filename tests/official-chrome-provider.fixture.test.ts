@@ -152,6 +152,15 @@ describe("official Chrome provider fixtures for #1144", () => {
     const supported = officialChromeProviderFixtures.providerHealth.supported;
     const partial = officialChromeProviderFixtures.providerHealth.partial;
     const failClosed = officialChromeProviderFixtures.providerHealth.failClosed;
+    const requiredDoctorCategories = [
+      "binary",
+      "version",
+      "display_mode",
+      "profile_persistence",
+      "extension_load",
+      "native_messaging",
+      "capability_readiness"
+    ];
 
     expect(supported.identity.provider_id).toBe(officialChromeProviderFixtureIds.providerId);
     expect(supported.outcome).toMatchObject({
@@ -160,12 +169,10 @@ describe("official Chrome provider fixtures for #1144", () => {
       doctor_verification_level: "doctor_checked",
       next_required_gates: ["runtime_attestation"]
     });
-    expect(supported.checks.map((check) => check.category)).toEqual([
-      "extension_load",
-      "native_messaging",
-      "extension_load",
-      "capability_readiness"
-    ]);
+    expect(new Set(supported.checks.map((check) => check.category))).toEqual(
+      new Set(requiredDoctorCategories)
+    );
+    expect(supported.checks.every((check) => check.status === "pass")).toBe(true);
 
     expect(partial.outcome).toMatchObject({
       overall_status: "warn",
@@ -174,12 +181,17 @@ describe("official Chrome provider fixtures for #1144", () => {
       doctor_verification_level: "doctor_checked",
       next_required_gates: ["runtime_attestation"]
     });
+    expect(partial.outcome.overall_status).not.toBe("pass");
+    expect(new Set(partial.checks.map((check) => check.category))).not.toEqual(
+      new Set(requiredDoctorCategories)
+    );
 
     expect(failClosed.outcome).toMatchObject({
       overall_status: "fail",
       provider_blocked: true,
       blocked_capabilities: [officialChromeProviderFixtureIds.capabilityId]
     });
+    expect(failClosed.outcome.overall_status).not.toBe("pass");
     expect(failClosed.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

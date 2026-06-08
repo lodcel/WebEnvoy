@@ -1201,6 +1201,102 @@ export const officialChromeProviderFixtures = {
       },
       checks: [
         {
+          check_id: "official-chrome-binary-source",
+          category: "binary",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Official Chrome stable executable is resolvable and launchable.",
+          diagnostics: {
+            code: "provider_binary_ok",
+            observed: "source_id=official-chrome-stable; access=launchable",
+            expected: "source_id=official-chrome-stable; expected_access=launchable",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "local_file_ref",
+              ref: "doctor://official-chrome/health-complete/binary",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "internal"
+            }
+          ]
+        },
+        {
+          check_id: "official-chrome-browser-version",
+          category: "version",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Official Chrome stable version satisfies the declared system-installed requirement.",
+          diagnostics: {
+            code: "browser_version_ok",
+            observed: "Google Chrome stable 125.0.0.0",
+            expected: "system_installed",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "command_output_ref",
+              ref: "doctor://official-chrome/health-complete/version",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "internal"
+            }
+          ]
+        },
+        {
+          check_id: "official-chrome-display-mode",
+          category: "display_mode",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Display mode is headful and satisfies the forbidden-headless policy.",
+          diagnostics: {
+            code: "display_mode_ok",
+            observed: "headful real browser display available",
+            expected: "headless forbidden; real browser required",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "command_output_ref",
+              ref: "doctor://official-chrome/health-complete/display-mode",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "internal"
+            }
+          ]
+        },
+        {
+          check_id: "official-chrome-profile-persistence",
+          category: "profile_persistence",
+          status: "pass",
+          severity: "info",
+          blocking: "none",
+          capability_id: "N/A",
+          summary: "Persistent profile binding is present and satisfies the required profile semantics.",
+          diagnostics: {
+            code: "profile_persistence_ok",
+            observed: "persistent profile binding available for selected official Chrome provider",
+            expected: "required persistent profile binding",
+            remediation_hint: "N/A"
+          },
+          evidence_refs: [
+            {
+              kind: "profile_state_ref",
+              ref: "doctor://official-chrome/health-complete/profile-persistence",
+              status: "available",
+              collected_at: fixtureTimestamp,
+              sensitivity: "sensitive"
+            }
+          ]
+        },
+        {
           check_id: "official_chrome_persistent_extension_identity",
           category: "extension_load",
           status: "pass",
