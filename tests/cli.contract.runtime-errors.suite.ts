@@ -7,15 +7,56 @@ const startOfficialReadyRuntime = async (
   profile: string,
   runId: string
 ): Promise<Record<string, unknown>> => {
+  const extensionId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const manifestPath = await createNativeHostManifest({
-    allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    allowedOrigins: [`chrome-extension://${extensionId}/`]
   });
-  await seedInstalledPersistentExtension({
-    cwd: runtimeCwd,
-    profile
-  });
+  const seedFreshPersistentExtension = async (): Promise<void> => {
+    await seedInstalledPersistentExtension({
+      cwd: runtimeCwd,
+      profile,
+      extensionId
+    });
+    const profileDir = path.join(runtimeCwd, ".webenvoy", "profiles", profile);
+    const defaultDir = path.join(profileDir, "Default");
+    const extensionDir = path.join(runtimeCwd, "extension");
+    const extensionBuildFile = path.join(extensionDir, "build", "background.js");
+    const serviceWorkerFile = path.join(
+      defaultDir,
+      "Service Worker",
+      "ScriptCache",
+      "service-worker.js"
+    );
+    await mkdir(path.dirname(extensionBuildFile), { recursive: true });
+    await mkdir(path.dirname(serviceWorkerFile), { recursive: true });
+    await writeFile(path.join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
+    await writeFile(extensionBuildFile, "globalThis.__webenvoyBuild = 'ready';\n");
+    await writeFile(
+      serviceWorkerFile,
+      `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\n`
+    );
+    await writeFile(
+      path.join(defaultDir, "Preferences"),
+      `${JSON.stringify(
+        {
+          extensions: {
+            settings: {
+              [extensionId]: {
+                state: 1,
+                location: 4,
+                path: extensionDir
+              }
+            }
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+  };
+  await seedFreshPersistentExtension();
   const persistentExtensionIdentity = {
-    extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    extension_id: extensionId,
     manifest_path: manifestPath
   };
   const start = runCli(
@@ -50,10 +91,7 @@ const startOfficialReadyRuntime = async (
       transportState: "ready"
     }
   });
-  await seedInstalledPersistentExtension({
-    cwd: runtimeCwd,
-    profile
-  });
+  await seedFreshPersistentExtension();
   return persistentExtensionIdentity;
 };
 

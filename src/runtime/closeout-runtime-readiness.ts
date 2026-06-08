@@ -11,6 +11,7 @@ export type CloseoutRuntimeBlockerCode =
   | "lock_conflict"
   | "identity_mismatch"
   | "extension_service_worker_stale"
+  | "extension_service_worker_freshness_unknown"
   | "extension_source_mismatch"
   | "request_identity_replay";
 
@@ -243,6 +244,7 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
   const targetBinding = buildTargetBinding(params, takeoverEvidence);
   const identityBindingState = asString(status.identityBindingState);
   const identityPreflight = asObject(status.identityPreflight);
+  const identityPreflightMode = asString(identityPreflight?.mode);
   const extensionServiceWorkerFreshness = asObject(
     identityPreflight?.extensionServiceWorkerFreshness
   );
@@ -334,6 +336,22 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       blocker: blocker(
         "extension_service_worker_stale",
         "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+      ),
+      ...base
+    };
+  }
+
+  if (
+    identityPreflightMode === "official_chrome_persistent_extension" &&
+    extensionServiceWorkerFreshnessState !== "fresh"
+  ) {
+    return {
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: blocker(
+        "extension_service_worker_freshness_unknown",
+        "collect_current_extension_service_worker_freshness_then_restart_runtime"
       ),
       ...base
     };
