@@ -846,6 +846,9 @@ while true; do sleep 1; done
     const launchArgs = parseLaunchArgs(await waitForLaunchLog(logPath));
     expect(findArgValue(launchArgs, "--disable-extensions-except=")).toBeNull();
     expect(findArgValue(launchArgs, "--load-extension=")).toBeNull();
+    expect(launchArgs).toContain("--remote-debugging-port=0");
+    expect(launchArgs).not.toContain("--remote-allow-origins=*");
+    expect(launchArgs.some((arg) => arg.startsWith("--remote-allow-origins="))).toBe(false);
 
     await shutdownBrowserSession({
       profileDir,
