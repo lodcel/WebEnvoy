@@ -9,7 +9,7 @@
 - [ ] 确认本 suite 没有 capability matrix semantics、launch evidence、fixture payload、runtime implementation、fresh live evidence、XHS 或 Syvert scope。
 - [ ] 确认与 #1146 direct descriptor 的差异边界清楚，未定义 direct launch args / final args evidence。
 - [ ] 确认没有 CloakBrowser private patch schema、driver state、license secret、account credential、cookie、token、raw sensitive path 或 broker credential。
-- [ ] 确认 PR metadata 使用正确关闭语义，并声明 integration local-only、live evidence N/A。
+- [ ] 确认 PR metadata 使用 `Refs #1147`，不自动关闭 #1147，并声明 integration local-only、live evidence N/A。
 
 ## 实现前待办
 

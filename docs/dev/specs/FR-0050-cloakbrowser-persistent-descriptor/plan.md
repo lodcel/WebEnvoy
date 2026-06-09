@@ -4,7 +4,7 @@
 
 把 `#1147 cloakbrowser.persistent Descriptor` 冻结成一个窄 formal suite：只定义 persistent CloakBrowser profile、extension workflow capability references、health requirement inputs、provider contract references，以及与 direct descriptor 的差异边界，使 #1149 capability matrix 和后续 health issues 可消费。
 
-`#1147` 是 `work-item-complete`：合入本 suite 后满足 persistent descriptor freeze 的关闭条件；capability matrix、health checks、fixtures、runtime implementation、launch evidence 与 live evidence 由后续 issue 承接。
+`#1147` 在本 PR 中只进入 `formal_spec_review_pr`：合入本 suite 后冻结 persistent descriptor formal suite，并为 #1149 capability matrix、health checks、fixtures、runtime implementation、launch evidence 与 live evidence 提供输入。本 PR 必须使用 `Refs #1147`，不得自动关闭 #1147。
 
 ## 分阶段拆分
 
@@ -81,7 +81,7 @@
 ## 进入实现前条件
 
 - FR-0050 spec review 通过。
-- reviewer 确认 #1147 的关闭语义是 persistent descriptor complete，不是 runtime behavior complete。
+- reviewer 确认 PR metadata 使用 `Refs #1147`，且本 formal spec review PR 不自动关闭 #1147。
 - reviewer 确认 persistent profile / extension workflow / health requirement inputs 只以 refs 表达，没有写成 readiness 或 pass evidence。
 - reviewer 确认 direct 差异边界清楚，未推进 #1146 direct launch / final args evidence。
 - reviewer 确认本 suite 不暴露 CloakBrowser private patch schema 或 secret。
