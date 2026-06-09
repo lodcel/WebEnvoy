@@ -304,12 +304,20 @@ When target capability 或 closeout plan 要求 current-run final args evidence
 Then consumer 必须 fail-closed
 And 不得把该 evidence 当作 latest-head、current-launch 或 live evidence substitute
 
-## 边界场景
+## 异常与边界场景
 
 - direct variant 若只记录 arg key 和 path hash，仍不能证明该 path materialization 成功。
 - persistent variant 若 provider 只回传 partial args，必须允许 `reconstructed_partial`，但 consumer 命中 required key 时必须阻断。
 - cloakserve variant 若通过 diagnostic log 重建 args，必须标记 `diagnostic_only` attestation boundary，不得误报为 authoritative input shape。
 - 若 allowlisted arg key 对应的值可能承载 secret，仍必须按 `redacted_value` 或 `secret_forbidden` 处理，不能因 key 在 allowlist 中而明文输出 value。
+
+## 验收标准
+
+1. 仓库内已落成 `FR-0058` formal suite，并能把 CloakBrowser final args evidence 冻结成独立 shared contract，而不是继续散落在 sibling descriptor 文案中。
+2. shared contract 已同时覆盖 build-time assembled 与 reconstructed provenance、redaction boundary、non-proof semantics、variant-specific boundary 与 downstream fail-closed 行为。
+3. spec 明确列出允许记录与禁止披露的 final args facts，且禁止项覆盖 full local path、raw argv、token、proxy credential、fingerprint seed、private patch payload、account identifier 与 page content。
+4. spec 明确要求 final args evidence 不得单独证明 browser honored args、runtime ready、health pass、capability allowed、anti-detection pass、target tab ready 或 live evidence attested。
+5. `.github/spec-issue-sync-map.yml` 已新增 `FR-0058 -> #1155` 的单条 canonical 映射。
 
 ## 完成定义
 
