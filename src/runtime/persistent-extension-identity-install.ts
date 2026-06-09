@@ -14,6 +14,13 @@ import {
   type ServiceWorkerCodeIdentityObservation,
   type ServiceWorkerLifecycleState
 } from "./service-worker-code-identity.js";
+import {
+  digestServiceWorkerBundleSources,
+  extractRelativeModuleSpecifiers,
+  normalizeServiceWorkerBundleScriptPath,
+  resolveRelativeModuleScriptPath,
+  type ServiceWorkerBundleSource
+} from "./service-worker-bundle-digest.js";
 
 export const ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME =
   "WebEnvoyActiveServiceWorkerCodeIdentity.json";
@@ -680,43 +687,117 @@ const resolveExtensionBundleLatestMtimeMs = async (extensionPath: string): Promi
   return latest;
 };
 
-const digestFile = async (path: string): Promise<string | null> => {
+const readSafeExtensionSource = async (input: {
+  extensionPath: string;
+  rootRealPath: string;
+  scriptRef: string;
+}): Promise<ServiceWorkerBundleSource | null> => {
+  const scriptPath = normalizeServiceWorkerBundleScriptPath(input.scriptRef);
+  if (!scriptPath) {
+    return null;
+  }
+  const filePath = resolve(input.extensionPath, scriptPath);
+  if (!isPathInside(input.extensionPath, filePath)) {
+    return null;
+  }
   try {
-    const stat = await lstat(path);
+    const stat = await lstat(filePath);
     if (!stat.isFile() || stat.isSymbolicLink()) {
       return null;
     }
-    return createHash("sha256").update(await readFile(path)).digest("hex");
+    const fileRealPath = await realpath(filePath);
+    if (!isPathInside(input.rootRealPath, fileRealPath)) {
+      return null;
+    }
+    return {
+      scriptPath,
+      source: await readFile(filePath, "utf8")
+    };
   } catch {
     return null;
   }
 };
 
-const resolveExpectedServiceWorkerScriptDigest = async (
+const resolveExpectedServiceWorkerBundleDigest = async (
   extensionPath: string
 ): Promise<{ digest: string | null; scriptRef: string | null }> => {
   const manifestPath = join(extensionPath, "manifest.json");
+  let serviceWorkerRef = "build/background.js";
+  let isModule = false;
   try {
     const raw = await readFile(manifestPath, "utf8");
     const manifest = asRecord(JSON.parse(raw));
     const background = manifest ? asRecord(manifest.background) : null;
-    const serviceWorkerRef = background ? asNonEmptyString(background.service_worker) : null;
-    if (!serviceWorkerRef) {
-      return {
-        digest: await digestFile(join(extensionPath, "build", "background.js")),
-        scriptRef: "build/background.js"
-      };
+    const manifestServiceWorkerRef = background
+      ? asNonEmptyString(background.service_worker)
+      : null;
+    if (manifestServiceWorkerRef) {
+      serviceWorkerRef = manifestServiceWorkerRef;
     }
+    isModule = background?.type === "module";
+  } catch {
+    serviceWorkerRef = "build/background.js";
+    isModule = false;
+  }
+
+  const entryScriptPath = normalizeServiceWorkerBundleScriptPath(serviceWorkerRef);
+  if (!entryScriptPath) {
     return {
-      digest: await digestFile(join(extensionPath, serviceWorkerRef)),
+      digest: null,
       scriptRef: serviceWorkerRef
     };
-  } catch {
+  }
+  const rootRealPath = await realpath(extensionPath).catch(() => null);
+  if (!rootRealPath) {
     return {
-      digest: await digestFile(join(extensionPath, "build", "background.js")),
-      scriptRef: "build/background.js"
+      digest: null,
+      scriptRef: entryScriptPath
     };
   }
+
+  const sources = new Map<string, ServiceWorkerBundleSource>();
+  const pending = [entryScriptPath];
+  while (pending.length > 0) {
+    const currentScriptPath = pending.shift();
+    if (!currentScriptPath) {
+      continue;
+    }
+    if (sources.has(currentScriptPath)) {
+      continue;
+    }
+    const source = await readSafeExtensionSource({
+      extensionPath,
+      rootRealPath,
+      scriptRef: currentScriptPath
+    });
+    if (!source) {
+      return {
+        digest: null,
+        scriptRef: entryScriptPath
+      };
+    }
+    sources.set(currentScriptPath, source);
+    if (!isModule) {
+      continue;
+    }
+    for (const specifier of extractRelativeModuleSpecifiers(source.source)) {
+      const moduleScriptPath = resolveRelativeModuleScriptPath(currentScriptPath, specifier);
+      if (!moduleScriptPath) {
+        return {
+          digest: null,
+          scriptRef: entryScriptPath
+        };
+      }
+      if (!sources.has(moduleScriptPath)) {
+        pending.push(moduleScriptPath);
+      }
+    }
+  }
+
+  return {
+    digest: digestServiceWorkerBundleSources([...sources.values()]),
+    scriptRef: entryScriptPath
+  };
 };
 
 const isTargetServiceWorkerCacheFile = async (
@@ -1172,7 +1253,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  const expectedScript = await resolveExpectedServiceWorkerScriptDigest(extensionPath);
+  const expectedScript = await resolveExpectedServiceWorkerBundleDigest(extensionPath);
 
   const serviceWorkerCacheMtime = await resolveTargetServiceWorkerCacheLatestMtimeMs(
     serviceWorkerPath,
@@ -1282,19 +1363,10 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
     };
   }
 
-  if (
-    extensionLatestMtimeMs > serviceWorkerLatestMtimeMs ||
-    (serviceWorkerCacheMtime?.source === "script_cache" &&
-      expectedScript.digest !== null &&
-      serviceWorkerCacheMtime.digest !== null &&
-      expectedScript.digest !== serviceWorkerCacheMtime.digest)
-  ) {
+  if (extensionLatestMtimeMs > serviceWorkerLatestMtimeMs) {
     return {
       state: "stale",
-      reason:
-        extensionLatestMtimeMs > serviceWorkerLatestMtimeMs
-          ? "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD"
-          : "SERVICE_WORKER_CODE_IDENTITY_MISMATCH",
+      reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
       extensionId,
       extensionPath,
       extensionLatestMtimeMs,

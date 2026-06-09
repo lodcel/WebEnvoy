@@ -926,6 +926,14 @@ export class ProfileRuntimeService {
         controllerPid: browserLaunch.controllerPid,
         nowIso
       });
+      if (identityPreflight.mode === "official_chrome_persistent_extension") {
+        identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
+          runtimeInput: input,
+          identityPreflight,
+          profileDir,
+          meta: existingMeta
+        });
+      }
       session = markSessionReady(session);
       const readiness =
         identityPreflight.identityBindingState === "bound"
@@ -942,14 +950,6 @@ export class ProfileRuntimeService {
               identityPreflight,
               profileState: session.profileState
             });
-      if (identityPreflight.mode === "official_chrome_persistent_extension") {
-        identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
-          runtimeInput: input,
-          identityPreflight,
-          profileDir,
-          meta: existingMeta
-        });
-      }
       if (
         shouldFailPersistentBootstrapTransportAdmission({
           params: input.params,

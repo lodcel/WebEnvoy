@@ -18,7 +18,9 @@ done
 if [[ -n "$user_data_dir" ]]; then
   mkdir -p "$user_data_dir/Default"
   printf '{}' > "$user_data_dir/Local State"
-  printf '{}' > "$user_data_dir/Default/Preferences"
+  if [[ ! -e "$user_data_dir/Default/Preferences" ]]; then
+    printf '{}' > "$user_data_dir/Default/Preferences"
+  fi
 fi
 
 if [[ -n "${WEBENVOY_BROWSER_MOCK_LOG:-}" ]]; then
@@ -33,7 +35,8 @@ fi
 
 ttl="${WEBENVOY_BROWSER_MOCK_TTL:-2}"
 trap 'exit 0' TERM INT
-if [[ "${WEBENVOY_BROWSER_MOCK_CDP:-0}" == "1" && -n "$user_data_dir" ]]; then
+mock_version="${WEBENVOY_BROWSER_MOCK_VERSION:-Chromium 146.0.0.0}"
+if [[ "${WEBENVOY_BROWSER_MOCK_CDP:-0}" == "1" && "$mock_version" == Google\ Chrome* && -n "$user_data_dir" ]]; then
   WEBENVOY_BROWSER_MOCK_USER_DATA_DIR="$user_data_dir" \
   WEBENVOY_BROWSER_MOCK_TTL="$ttl" \
   node >/dev/null 2>/dev/null <<'NODE'

@@ -1,6 +1,11 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+
+import {
+  digestServiceWorkerBundleSources,
+  normalizeServiceWorkerBundleScriptPath,
+  type ServiceWorkerBundleSource
+} from "./service-worker-bundle-digest.js";
 
 export interface ActiveServiceWorkerCodeIdentityObservation {
   extensionId: string;
@@ -234,18 +239,23 @@ const withCdpSession = async <T>(
   }
 };
 
-const readServiceWorkerScriptSource = async (input: {
+const readServiceWorkerBundleSources = async (input: {
   wsUrl: string;
+  extensionId: string;
   targetScriptPath: string;
   deadlineMs: number;
-}): Promise<string | null> => {
+}): Promise<ServiceWorkerBundleSource[] | null> => {
   try {
     return await withCdpSession(
       input.wsUrl,
       async (send, takeEvents) => {
         await send("Debugger.enable");
-        let scriptId: string | null = null;
-        while (Date.now() < input.deadlineMs && !scriptId) {
+        const scripts = new Map<string, string>();
+        let lastObservedScriptAt = Date.now();
+        while (
+          Date.now() < input.deadlineMs &&
+          (!scripts.has(input.targetScriptPath) || Date.now() - lastObservedScriptAt < 150)
+        ) {
           for (const event of takeEvents()) {
             if (event.method !== "Debugger.scriptParsed") {
               continue;
@@ -254,20 +264,31 @@ const readServiceWorkerScriptSource = async (input: {
             const url = typeof params.url === "string" ? params.url : "";
             const currentScriptId =
               typeof params.scriptId === "string" ? params.scriptId : null;
-            if (currentScriptId && url.includes(input.targetScriptPath)) {
-              scriptId = currentScriptId;
-              break;
+            const scriptPath = normalizeExtensionScriptPath(url, input.extensionId);
+            const normalizedScriptPath = scriptPath
+              ? normalizeServiceWorkerBundleScriptPath(scriptPath)
+              : null;
+            if (currentScriptId && normalizedScriptPath) {
+              scripts.set(normalizedScriptPath, currentScriptId);
+              lastObservedScriptAt = Date.now();
             }
           }
-          if (!scriptId) {
-            await sleep(50);
-          }
+          await sleep(50);
         }
-        if (!scriptId) {
+        if (!scripts.has(input.targetScriptPath)) {
           return null;
         }
-        const result = await send("Debugger.getScriptSource", { scriptId });
-        return typeof result.scriptSource === "string" ? result.scriptSource : null;
+        const sources: ServiceWorkerBundleSource[] = [];
+        for (const [scriptPath, scriptId] of [...scripts.entries()].sort(([left], [right]) =>
+          left.localeCompare(right)
+        )) {
+          const result = await send("Debugger.getScriptSource", { scriptId });
+          if (typeof result.scriptSource !== "string") {
+            return null;
+          }
+          sources.push({ scriptPath, source: result.scriptSource });
+        }
+        return sources;
       },
       input.deadlineMs
     );
@@ -295,15 +316,23 @@ export const observeActiveExtensionServiceWorkerCodeIdentity = async (input: {
   if (!target) {
     return { state: "unavailable", reason: "service_worker_target_missing" };
   }
-  const source = await readServiceWorkerScriptSource({
-    wsUrl: target.wsUrl,
-    targetScriptPath: target.scriptPath,
-    deadlineMs
-  });
-  if (source === null) {
+  const targetScriptPath = normalizeServiceWorkerBundleScriptPath(target.scriptPath);
+  if (!targetScriptPath) {
     return { state: "unavailable", reason: "service_worker_script_source_missing" };
   }
-  const digest = createHash("sha256").update(source).digest("hex");
+  const sources = await readServiceWorkerBundleSources({
+    wsUrl: target.wsUrl,
+    extensionId: input.extensionId,
+    targetScriptPath,
+    deadlineMs
+  });
+  if (sources === null) {
+    return { state: "unavailable", reason: "service_worker_script_source_missing" };
+  }
+  const digest = digestServiceWorkerBundleSources(sources);
+  if (digest === null) {
+    return { state: "unavailable", reason: "service_worker_script_source_missing" };
+  }
   return {
     state: "observed",
     observation: {
@@ -311,7 +340,7 @@ export const observeActiveExtensionServiceWorkerCodeIdentity = async (input: {
       runId: input.runId,
       observedActiveServiceWorkerScriptIdentityLocator: buildObservedScriptLocator(
         input.extensionId,
-        target.scriptPath
+        targetScriptPath
       ),
       observedServiceWorkerCodeDigestLocator: `sha256:${digest}`,
       observedAt: new Date().toISOString()

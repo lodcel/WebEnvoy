@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { chmod, mkdtemp, mkdir, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,9 +15,20 @@ import {
   refreshProfileExtensionServiceWorkerCache
 } from "../persistent-extension-identity-install.js";
 import type { ProfileMeta } from "../profile-store.js";
+import { digestServiceWorkerBundleSources } from "../service-worker-bundle-digest.js";
 
 const EXTENSION_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const DEFAULT_TIMESTAMP = "2026-03-27T00:00:00.000Z";
+
+const testServiceWorkerBundleDigest = (
+  sources: readonly { scriptPath: string; source: string }[]
+): string => {
+  const digest = digestServiceWorkerBundleSources(sources);
+  if (!digest) {
+    throw new Error("failed to build test service worker bundle digest");
+  }
+  return digest;
+};
 
 const createProfileMeta = (
   profileDir: string,
@@ -105,6 +115,7 @@ const writeActiveServiceWorkerObservation = async (input: {
   profileDir: string;
   extensionId: string;
   scriptContent: string;
+  bundleSources?: readonly { scriptPath: string; source: string }[];
   runId?: string;
 }): Promise<void> => {
   const serviceWorkerPath = join(input.profileDir, "Default", "Service Worker");
@@ -117,9 +128,13 @@ const writeActiveServiceWorkerObservation = async (input: {
         run_id: input.runId ?? "run-test-active-service-worker-observation",
         lifecycle_state: "active_worker_observed",
         observed_active_service_worker_script_identity_locator:
-          `extension-service-worker/official-chrome.persistent/${input.extensionId}/active/background`,
+          `extension-service-worker/official-chrome.persistent/${input.extensionId}/active/build/background.js`,
         observed_service_worker_code_digest_locator:
-          `sha256:${createHash("sha256").update(input.scriptContent).digest("hex")}`,
+          `sha256:${testServiceWorkerBundleDigest(
+            input.bundleSources ?? [
+              { scriptPath: "build/background.js", source: input.scriptContent }
+            ]
+          )}`,
         observed_at: "2026-06-08T16:10:00.000Z"
       },
       null,
@@ -2171,7 +2186,242 @@ describe("runIdentityPreflight", () => {
           freshness_comparison_result: "match",
           active_worker_lifecycle_state: "active_worker_observed",
           observed_active_service_worker_script_identity_locator:
-            `extension-service-worker/official-chrome.persistent/${EXTENSION_ID}/active/background`,
+            `extension-service-worker/official-chrome.persistent/${EXTENSION_ID}/active/build/background.js`,
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "pass",
+            blocking: "none",
+            diagnostics: {
+              code: "service_worker_fresh"
+            }
+          }
+        }
+      }
+    });
+  });
+
+  it("fails closed when an active module service worker entry matches but an imported module is stale", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-module-sw-stale-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-module-sw-stale-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-module-sw-stale-"));
+    const entryContent = "import './module.js';\nglobalThis.__webenvoyBuild = 'module-entry';\n";
+    const observedModuleContent = "globalThis.__webenvoyImportedModule = 'old';\n";
+    const expectedModuleContent = "globalThis.__webenvoyImportedModule = 'new';\n";
+    const sameTimestamp = new Date("2026-05-01T00:00:00.000Z");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(join(unpackedDir, "build"), { recursive: true });
+    await writeFile(
+      join(unpackedDir, "manifest.json"),
+      `${JSON.stringify(
+        {
+          manifest_version: 3,
+          background: {
+            service_worker: "build/background.js",
+            type: "module"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(join(unpackedDir, "build", "background.js"), entryContent, "utf8");
+    await writeFile(join(unpackedDir, "build", "module.js"), expectedModuleContent, "utf8");
+    await utimes(join(unpackedDir, "manifest.json"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "background.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "module.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build"), sameTimestamp, sameTimestamp);
+    await utimes(unpackedDir, sameTimestamp, sameTimestamp);
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: sameTimestamp,
+      scriptContent: entryContent
+    });
+    await writeActiveServiceWorkerObservation({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      scriptContent: entryContent,
+      bundleSources: [
+        { scriptPath: "build/background.js", source: entryContent },
+        { scriptPath: "build/module.js", source: observedModuleContent }
+      ]
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      extensionServiceWorkerFreshness: {
+        state: "stale",
+        reason: "SERVICE_WORKER_CODE_IDENTITY_MISMATCH",
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "observed_stale",
+          active_worker_lifecycle_state: "active_worker_observed",
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "fail",
+            blocking: "provider_blocking",
+            diagnostics: {
+              code: "service_worker_stale"
+            }
+          }
+        }
+      }
+    });
+  });
+
+  it("passes module service worker preflight when active observed module graph matches expected bundle", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-module-sw-fresh-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-module-sw-fresh-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-module-sw-fresh-"));
+    const entryContent = "import './module.js';\nglobalThis.__webenvoyBuild = 'module-entry';\n";
+    const moduleContent = "globalThis.__webenvoyImportedModule = 'fresh';\n";
+    const sameTimestamp = new Date("2026-05-01T00:00:00.000Z");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(join(unpackedDir, "build"), { recursive: true });
+    await writeFile(
+      join(unpackedDir, "manifest.json"),
+      `${JSON.stringify(
+        {
+          manifest_version: 3,
+          background: {
+            service_worker: "build/background.js",
+            type: "module"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(join(unpackedDir, "build", "background.js"), entryContent, "utf8");
+    await writeFile(join(unpackedDir, "build", "module.js"), moduleContent, "utf8");
+    await utimes(join(unpackedDir, "manifest.json"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "background.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "module.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build"), sameTimestamp, sameTimestamp);
+    await utimes(unpackedDir, sameTimestamp, sameTimestamp);
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: sameTimestamp,
+      scriptContent: entryContent
+    });
+    await writeActiveServiceWorkerObservation({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      scriptContent: entryContent,
+      bundleSources: [
+        { scriptPath: "build/background.js", source: entryContent },
+        { scriptPath: "build/module.js", source: moduleContent }
+      ]
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      extensionServiceWorkerFreshness: {
+        state: "fresh",
+        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "match",
+          active_worker_lifecycle_state: "active_worker_observed",
           provider_doctor_extension_load_check: {
             category: "extension_load",
             status: "pass",

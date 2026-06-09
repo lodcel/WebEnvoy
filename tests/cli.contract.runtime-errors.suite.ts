@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { repoRoot, binPath, mockBrowserPath, nativeHostMockPath, repoOwnedNativeHostEntryPath, browserStateFilename, tempDirs, resolveDatabaseSync, DatabaseSync, itWithSqlite, createRuntimeCwd, createNativeHostManifest, seedInstalledPersistentExtension, defaultRuntimeEnv, runCli, expectBundledNativeHostStarts, createNativeHostCommand, createShellWrappedNativeHostCommand, PROFILE_MODE_ROOT_PREFERRED, quoteLauncherExportValue, resolveCanonicalExpectedProfileDir, expectProfileRootOnlyLauncherContract, expectDualEnvRootPreferredLauncherContract, runGit, createGitWorktreePair, runCliAsync, parseSingleJsonLine, encodeNativeBridgeEnvelope, readSingleNativeBridgeEnvelope, asRecord, resolveCliGateEnvelope, resolveWriteInteractionTier, scopedXhsGateOptions, assertLockMissing, detectSystemChromePath, wait, runHeadlessDomProbe, realBrowserContractsEnabled, BROWSER_STATE_FILENAME, BROWSER_CONTROL_FILENAME, isPidAlive, scopedReadGateOptions, path, readFile, writeFile, mkdir, realpath, rm, stat, chmod, symlink, spawn, spawnSync, createServer, createRequire, tmpdir, resolveRuntimeStorePath, type DatabaseSyncCtor } from "./cli.contract.shared.js";
 import { SQLiteRuntimeStore } from "../src/runtime/store/sqlite-runtime-store.js";
 import { ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME } from "../src/runtime/persistent-extension-identity-install.js";
+import { digestServiceWorkerBundleSources } from "../src/runtime/service-worker-bundle-digest.js";
 
 const startOfficialReadyRuntime = async (
   runtimeCwd: string,
@@ -35,9 +35,28 @@ const startOfficialReadyRuntime = async (
       "globalThis.__webenvoyBuild = 'fresh';\n";
     await mkdir(path.dirname(extensionBuildFile), { recursive: true });
     await mkdir(path.dirname(serviceWorkerFile), { recursive: true });
-    await writeFile(path.join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
+    await writeFile(
+      path.join(extensionDir, "manifest.json"),
+      `${JSON.stringify(
+        {
+          manifest_version: 3,
+          background: {
+            service_worker: "build/background.js",
+            type: "module"
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
     await writeFile(extensionBuildFile, serviceWorkerScript);
     await writeFile(serviceWorkerFile, serviceWorkerScript);
+    const serviceWorkerBundleDigest = digestServiceWorkerBundleSources([
+      { scriptPath: "build/background.js", source: serviceWorkerScript }
+    ]);
+    if (!serviceWorkerBundleDigest) {
+      throw new Error("failed to build runtime-errors service worker bundle digest");
+    }
     await writeFile(
       path.join(serviceWorkerRoot, ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME),
       `${JSON.stringify(
@@ -46,9 +65,9 @@ const startOfficialReadyRuntime = async (
           run_id: runId,
           lifecycle_state: "active_worker_observed",
           observed_active_service_worker_script_identity_locator:
-            `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,
+            `extension-service-worker/official-chrome.persistent/${extensionId}/active/build/background.js`,
           observed_service_worker_code_digest_locator:
-            `sha256:${createHash("sha256").update(serviceWorkerScript).digest("hex")}`,
+            `sha256:${serviceWorkerBundleDigest}`,
           observed_at: new Date().toISOString()
         },
         null,

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   chmod,
   mkdtemp,
@@ -22,6 +21,7 @@ import { NativeMessagingTransportError } from "../native-messaging/bridge.js";
 import type { ProfileLock } from "../profile-lock.js";
 import { ProfileStore, type ProfileMeta } from "../profile-store.js";
 import { buildRuntimeBootstrapContextId } from "../runtime-bootstrap.js";
+import { digestServiceWorkerBundleSources } from "../service-worker-bundle-digest.js";
 import {
   acquireBrowserEnvTestLock,
   releaseBrowserEnvTestLock
@@ -38,6 +38,16 @@ const originalPlatform = process.platform;
 const PERSISTENT_EXTENSION_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const persistentExtensionScriptContent = (extensionId: string): string =>
   `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\nglobalThis.__webenvoyBuild = 'fresh';\n`;
+
+const persistentExtensionBundleDigest = (scriptContent: string): string => {
+  const digest = digestServiceWorkerBundleSources([
+    { scriptPath: "build/background.js", source: scriptContent }
+  ]);
+  if (!digest) {
+    throw new Error("failed to build test persistent extension bundle digest");
+  }
+  return digest;
+};
 
 const createMockBrowserExecutable = async (
   versionOutput: string = "Chromium 146.0.0.0"
@@ -382,7 +392,7 @@ const seedInstalledPersistentExtension = async (input: {
     await mkdir(join(unpackedDir, "build"), { recursive: true });
     await writeFile(join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
     await writeFile(join(unpackedDir, "build", "background.js"), scriptContent, "utf8");
-    const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+    const scriptDigest = persistentExtensionBundleDigest(scriptContent);
     await utimes(join(unpackedDir, "manifest.json"), evidenceMtime, evidenceMtime);
     await utimes(join(unpackedDir, "build", "background.js"), evidenceMtime, evidenceMtime);
     await utimes(join(unpackedDir, "build"), evidenceMtime, evidenceMtime);
@@ -485,7 +495,7 @@ const createTestService = (
       options?.activeServiceWorkerObserver ??
       (async ({ extensionId, runId }) => {
         const scriptContent = persistentExtensionScriptContent(extensionId);
-        const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+        const scriptDigest = persistentExtensionBundleDigest(scriptContent);
         return {
           state: "observed" as const,
           observation: {
@@ -1541,7 +1551,14 @@ describe("profile-runtime identity preflight", () => {
       baseDir,
       profile: "active_sw_missing_profile"
     });
+    const bridgeRunCommand = vi.fn(async () => ({
+      ok: true as const,
+      payload: {}
+    }));
     const service = createTestService({
+      bridgeFactory: () => ({
+        runCommand: bridgeRunCommand
+      }),
       activeServiceWorkerObserver: async () => ({
         state: "unavailable",
         reason: "service_worker_target_missing"
@@ -1567,6 +1584,11 @@ describe("profile-runtime identity preflight", () => {
         extension_service_worker_freshness_reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING"
       }
     });
+    expect(bridgeRunCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "runtime.bootstrap"
+      })
+    );
   });
 
   it("keeps bound official Chrome start pending until bootstrap is attested by execution surface", async () => {
@@ -3561,7 +3583,7 @@ describe("profile-runtime identity preflight", () => {
       activeServiceWorkerObserver: async ({ extensionId, runId }) => {
         observedRunIds.push(runId);
         const scriptContent = persistentExtensionScriptContent(extensionId);
-        const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+        const scriptDigest = persistentExtensionBundleDigest(scriptContent);
         return {
           state: "observed" as const,
           observation: {
@@ -3751,7 +3773,7 @@ describe("profile-runtime identity preflight", () => {
         observedRunIds.push(runId);
         if (runId === "run-runtime-attach-active-sw-owner-001") {
           const scriptContent = persistentExtensionScriptContent(extensionId);
-          const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+          const scriptDigest = persistentExtensionBundleDigest(scriptContent);
           return {
             state: "observed" as const,
             observation: {

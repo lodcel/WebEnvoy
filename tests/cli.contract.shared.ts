@@ -22,9 +22,19 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { buildRuntimeBootstrapContextId } from "../src/runtime/runtime-bootstrap.js";
 import { ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME } from "../src/runtime/persistent-extension-identity-install.js";
+import { digestServiceWorkerBundleSources } from "../src/runtime/service-worker-bundle-digest.js";
 import { resolveRuntimeStorePath } from "../src/runtime/store/sqlite-runtime-store.js";
 
 const repoRoot = path.resolve(path.join(import.meta.dirname, ".."));
+const testServiceWorkerBundleDigest = (scriptContent: string): string => {
+  const digest = digestServiceWorkerBundleSources([
+    { scriptPath: "build/background.js", source: scriptContent }
+  ]);
+  if (!digest) {
+    throw new Error("failed to build test service worker bundle digest");
+  }
+  return digest;
+};
 const binPath = path.join(repoRoot, "bin", "webenvoy");
 const mockBrowserPath = path.join(repoRoot, "tests", "fixtures", "mock-browser.sh");
 const nativeHostMockPath = path.join(repoRoot, "tests", "fixtures", "native-host-mock.mjs");
@@ -116,7 +126,7 @@ const seedInstalledPersistentExtension = async (input: {
     await mkdir(path.join(unpackedDir, "build"), { recursive: true });
     await writeFile(path.join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
     await writeFile(path.join(unpackedDir, "build", "background.js"), scriptContent);
-    const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+    const scriptDigest = testServiceWorkerBundleDigest(scriptContent);
     await utimes(path.join(unpackedDir, "manifest.json"), evidenceMtime, evidenceMtime);
     await utimes(path.join(unpackedDir, "build", "background.js"), evidenceMtime, evidenceMtime);
     await utimes(path.join(unpackedDir, "build"), evidenceMtime, evidenceMtime);
@@ -138,7 +148,7 @@ const seedInstalledPersistentExtension = async (input: {
           run_id: input.runId ?? "run-contract-fixture-active-service-worker",
           lifecycle_state: "active_worker_observed",
           observed_active_service_worker_script_identity_locator:
-            `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,
+            `extension-service-worker/official-chrome.persistent/${extensionId}/active/build/background.js`,
           observed_service_worker_code_digest_locator: `sha256:${scriptDigest}`,
           observed_at: new Date().toISOString()
         },
