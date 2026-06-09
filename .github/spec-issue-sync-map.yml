@@ -101,3 +101,5 @@ mappings:
     canonical_issue_number: 1147
   - spec_path: docs/dev/specs/FR-0051-cloakbrowser-cloakserve-descriptor/spec.md
     canonical_issue_number: 1148
+  - spec_path: docs/dev/specs/FR-0059-cloakbrowser-fingerprint-seed-policy/spec.md
+    canonical_issue_number: 1156
