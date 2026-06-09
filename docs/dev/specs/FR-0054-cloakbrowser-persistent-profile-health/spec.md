@@ -150,16 +150,25 @@ Persistent profile state 必须按以下矩阵生成 `runtime_item_health_state`
 
 ### 4.2 Minimum validation matrix
 
-后续 implementation 或 validator 至少必须覆盖以下矩阵；本 FR 只冻结期望行为，不新增测试代码。
+后续 implementation 或 validator 至少必须覆盖以下 minimum validation matrix；本 FR 只冻结期望行为，不新增测试代码。
 
 | Validation case | Required input | Expected health state | Expected outcome |
 |---|---|---|---|
 | Healthy selected profile | persistent + current-run lock + clear concurrency + fresh profile evidence | `healthy` | Profile state may enter `health_passed_requirements`; later gates still required. |
 | Controlled disconnect | disconnect ref present + unlocked profile + fresh evidence | `disconnected` | Fail-closed; recovery or reconnect must be followed by new health run. |
+| Control process dead / browser alive | control process dead while browser alive and selected profile evidence is otherwise fresh | `disconnected` | Fail-closed; controller restart or reattach may be attempted only as recovery candidate, followed by new health run. |
+| Lock still held but control chain disconnected | lock still held by the expected run, but control chain disconnected or broker/control channel cannot prove ownership continuity | `recoverable` | Fail-closed; recovery_path_status may be `candidate|in_progress`, but `health_passed_requirements` must not include profile state until recheck proves continuity. |
+| Stale ready signal | stale ready signal or ready signal stale compared with current health run freshness policy | `blocked` | Fail-closed; old ready signal must be discarded and cannot satisfy current profile, extension, or Native Messaging health. |
 | Stale lock recovery candidate | stale lock + fresh lock evidence + no detected conflicting owner | `recoverable` | Fail-closed; remediation may be suggested but not accepted as pass. |
 | Lock ownership conflict | `locked_by_other` | `blocked` | Provider/capability blocking; no runtime admission. |
 | Concurrency contention | `suspected` or `detected` | `recoverable` for suspected, `blocked` for detected | Both fail-closed until fresh clear state. |
 | Missing or stale evidence | unavailable/partial/invalid redaction or stale freshness | `blocked` | `overall_status=fail|unknown`; no pass fields. |
+
+约束：
+
+- control process dead while browser alive is not runtime success; it is a disconnected controller chain and must not be treated as healthy.
+- lock still held with control chain disconnected is not proof of valid lock ownership continuity; it remains recoverable at most and requires a new current health run.
+- stale ready signal / ready signal stale must be treated as blocked when required health depends on current state freshness, even if older artifacts reported ready.
 
 ### 5. Extension load and runtime surface signals
 
