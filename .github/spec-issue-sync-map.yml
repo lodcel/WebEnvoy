@@ -105,6 +105,8 @@ mappings:
     canonical_issue_number: 1150
   - spec_path: docs/dev/specs/FR-0054-cloakbrowser-persistent-profile-health/spec.md
     canonical_issue_number: 1151
+  - spec_path: docs/dev/specs/FR-0057-cloakbrowser-native-messaging-bridge-doctor/spec.md
+    canonical_issue_number: 1154
   - spec_path: docs/dev/specs/FR-0058-cloakbrowser-final-args-evidence/spec.md
     canonical_issue_number: 1155
   - spec_path: docs/dev/specs/FR-0059-cloakbrowser-fingerprint-seed-policy/spec.md
