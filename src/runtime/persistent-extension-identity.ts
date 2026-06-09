@@ -52,8 +52,13 @@ export interface IdentityPreflightResult {
     | "IDENTITY_ALLOWED_ORIGIN_MISSING"
     | "IDENTITY_BINDING_CONFLICT"
     | "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED"
+    | "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING"
+    | "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED"
+    | "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN"
     | "BOOTSTRAP_PENDING";
 }
+
+export type ServiceWorkerCodeIdentityAdmissionMode = "required" | "deferred";
 
 const execFileAsync = promisify(execFile);
 
@@ -82,6 +87,45 @@ const EMPTY_INSTALL_DIAGNOSTICS: IdentityPreflightInstallDiagnostics = {
   legacyLauncherDetected: null
 };
 
+const isProviderBlockingServiceWorkerCodeIdentity = (
+  freshness: ExtensionServiceWorkerFreshnessDiagnostics,
+  admissionMode: ServiceWorkerCodeIdentityAdmissionMode
+): boolean => {
+  const extensionLoadCheck =
+    freshness.codeIdentityObservation?.provider_doctor_extension_load_check ?? null;
+  const comparison = freshness.codeIdentityObservation?.freshness_comparison_result ?? null;
+  if (
+    admissionMode === "deferred" &&
+    (comparison === "observed_identity_missing" || comparison === "observed_unknown")
+  ) {
+    return false;
+  }
+  return (
+    extensionLoadCheck?.blocking === "provider_blocking" &&
+    (extensionLoadCheck.status === "fail" || extensionLoadCheck.status === "unknown")
+  );
+};
+
+const resolveServiceWorkerFailureReason = (
+  freshness: ExtensionServiceWorkerFreshnessDiagnostics
+): IdentityPreflightResult["failureReason"] => {
+  const comparison =
+    freshness.codeIdentityObservation?.freshness_comparison_result ?? null;
+  if (freshness.state === "stale" || comparison === "observed_stale") {
+    return "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED";
+  }
+  if (comparison === "expected_identity_missing") {
+    return "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING";
+  }
+  if (comparison === "observed_unknown") {
+    return "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN";
+  }
+  if (comparison === "observed_identity_missing") {
+    return "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED";
+  }
+  return "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN";
+};
+
 export const setIdentityPreflightAdaptersForTests = (
   overrides: Partial<IdentityPreflightAdapters>
 ): void => {
@@ -108,6 +152,7 @@ const buildBlockingResult = (
 export const buildIdentityPreflightError = (
   result: IdentityPreflightResult
 ): CliError => {
+  const codeIdentityObservation = result.extensionServiceWorkerFreshness?.codeIdentityObservation ?? null;
   const details = {
     ability_id: "runtime.identity_preflight",
     stage: "execution" as const,
@@ -134,12 +179,27 @@ export const buildIdentityPreflightError = (
     legacy_launcher_detected: result.installDiagnostics.legacyLauncherDetected,
     extension_service_worker_freshness_state: result.extensionServiceWorkerFreshness?.state ?? null,
     extension_service_worker_freshness_reason: result.extensionServiceWorkerFreshness?.reason ?? null,
-    extension_service_worker_extension_path: result.extensionServiceWorkerFreshness?.extensionPath ?? null,
+    extension_service_worker_extension_path: null,
     extension_service_worker_extension_mtime_ms:
       result.extensionServiceWorkerFreshness?.extensionLatestMtimeMs ?? null,
-    extension_service_worker_cache_path: result.extensionServiceWorkerFreshness?.serviceWorkerPath ?? null,
+    extension_service_worker_cache_path: null,
     extension_service_worker_cache_mtime_ms:
       result.extensionServiceWorkerFreshness?.serviceWorkerLatestMtimeMs ?? null,
+    extension_service_worker_code_identity: codeIdentityObservation,
+    provider_doctor_extension_load_check:
+      codeIdentityObservation?.provider_doctor_extension_load_check ?? null,
+    extension_service_worker_expected_bundle_identity_locator:
+      codeIdentityObservation?.expected_extension_bundle_identity_locator ?? null,
+    extension_service_worker_observed_script_identity_locator:
+      codeIdentityObservation?.observed_active_service_worker_script_identity_locator ?? null,
+    extension_service_worker_expected_bundle_digest_locator:
+      codeIdentityObservation?.expected_bundle_digest_locator ?? null,
+    extension_service_worker_observed_code_digest_locator:
+      codeIdentityObservation?.observed_service_worker_code_digest_locator ?? null,
+    extension_service_worker_lifecycle_state:
+      codeIdentityObservation?.active_worker_lifecycle_state ?? null,
+    extension_service_worker_freshness_comparison_result:
+      codeIdentityObservation?.freshness_comparison_result ?? null,
     recovery_hint: result.extensionServiceWorkerFreshness?.recoveryHint ?? null
   };
 
@@ -147,6 +207,30 @@ export const buildIdentityPreflightError = (
     return new CliError(
       "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
       "managed profile 的 persistent extension Service Worker 缓存早于当前 extension build，已阻止继续执行",
+      { details, retryable: false }
+    );
+  }
+
+  if (result.failureReason === "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING") {
+    return new CliError(
+      "ERR_RUNTIME_IDENTITY_MISMATCH",
+      "official Chrome persistent extension 缺少预期 Service Worker 代码身份，已阻止继续执行",
+      { details, retryable: false }
+    );
+  }
+
+  if (result.failureReason === "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED") {
+    return new CliError(
+      "ERR_RUNTIME_IDENTITY_MISMATCH",
+      "official Chrome persistent extension 缺少当前 active Service Worker 代码身份观测，已阻止继续执行",
+      { details, retryable: false }
+    );
+  }
+
+  if (result.failureReason === "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN") {
+    return new CliError(
+      "ERR_RUNTIME_IDENTITY_MISMATCH",
+      "official Chrome persistent extension Service Worker 代码身份未知，已阻止继续执行",
       { details, retryable: false }
     );
   }
@@ -178,6 +262,9 @@ export const runIdentityPreflight = async (input: {
   params: JsonObject;
   meta: ProfileMeta | null;
   profileDir?: string | null;
+  runId?: string | null;
+  serviceWorkerCodeIdentityAdmission?: ServiceWorkerCodeIdentityAdmissionMode;
+  serviceWorkerObservationObservedAfter?: string | null;
 }): Promise<IdentityPreflightResult> => {
   let browserPath: string | null = null;
   let browserVersion: string | null = null;
@@ -399,6 +486,8 @@ export const runIdentityPreflight = async (input: {
 
   let extensionServiceWorkerFreshness: ExtensionServiceWorkerFreshnessDiagnostics | null = null;
   if (profileDir) {
+    const serviceWorkerCodeIdentityAdmission =
+      input.serviceWorkerCodeIdentityAdmission ?? "required";
     const extensionState = await resolveProfileExtensionState(profileDir, binding.extensionId);
     if (extensionState !== "enabled") {
       return buildBlockingResult({
@@ -420,8 +509,20 @@ export const runIdentityPreflight = async (input: {
       });
     }
     extensionServiceWorkerFreshness =
-      await resolveProfileExtensionServiceWorkerFreshness(profileDir, binding.extensionId);
-    if (extensionServiceWorkerFreshness.state === "stale") {
+      await resolveProfileExtensionServiceWorkerFreshness(profileDir, binding.extensionId, {
+        requiredObservationRunId: input.runId ?? null,
+        requiredObservationObservedAfter:
+          serviceWorkerCodeIdentityAdmission === "required"
+            ? input.serviceWorkerObservationObservedAfter ?? null
+            : null
+      });
+    if (
+      extensionServiceWorkerFreshness.state === "stale" ||
+      isProviderBlockingServiceWorkerCodeIdentity(
+        extensionServiceWorkerFreshness,
+        serviceWorkerCodeIdentityAdmission
+      )
+    ) {
       return buildBlockingResult({
         mode: "official_chrome_persistent_extension",
         browserPath,
@@ -437,7 +538,7 @@ export const runIdentityPreflight = async (input: {
         allowedOrigins: manifest.allowed_origins,
         installDiagnostics,
         extensionServiceWorkerFreshness,
-        failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED"
+        failureReason: resolveServiceWorkerFailureReason(extensionServiceWorkerFreshness)
       });
     }
   }

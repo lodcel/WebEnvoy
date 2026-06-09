@@ -51,6 +51,10 @@ import {
   runIdentityPreflight,
   type IdentityPreflightResult
 } from "./persistent-extension-identity.js";
+import {
+  observeActiveExtensionServiceWorkerCodeIdentity,
+  type ActiveServiceWorkerObserverResult
+} from "./active-service-worker-observer.js";
 import type { ProfileState } from "./profile-state.js";
 import {
   buildFingerprintContextForMeta
@@ -81,6 +85,10 @@ import {
 import { NativeHostBridgeTransport } from "./native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "./native-messaging/loopback.js";
 import { buildRuntimeBootstrapContextId } from "./runtime-bootstrap.js";
+import {
+  type ExtensionServiceWorkerFreshnessDiagnostics,
+  writeActiveServiceWorkerCodeIdentityObservation
+} from "./persistent-extension-identity-install.js";
 import { resolveRuntimeProfileRoot } from "./worktree-root.js";
 import {
   applyProfileProxyBinding,
@@ -302,6 +310,12 @@ interface RuntimeBridgeLike {
 interface RuntimeBridgeFactoryOptions {
   waitForProfileSocketOnOpen?: boolean;
 }
+type ActiveServiceWorkerObserverLike = (input: {
+  profileDir: string;
+  extensionId: string;
+  runId: string;
+  timeoutMs?: number;
+}) => Promise<ActiveServiceWorkerObserverResult>;
 const isoNow = (): string => new Date().toISOString();
 const DEFAULT_LOCK_FILE_ADAPTER: LockFileAdapter = {
   readFile: async (path, encoding) => readFile(path, encoding),
@@ -745,20 +759,60 @@ const mapRuntimeError = (error: unknown): CliError => {
   return new CliError("ERR_RUNTIME_UNAVAILABLE", "最小会话运行时不可用", { retryable: true });
 };
 
-const buildIdentityPreflightOutput = (identityPreflight: IdentityPreflightResult) => ({
-  mode: identityPreflight.mode,
-  binding: identityPreflight.binding,
-  manifestPath: identityPreflight.manifestPath,
-  manifestSource: identityPreflight.manifestSource,
-  expectedOrigin: identityPreflight.expectedOrigin,
-  allowedOrigins: identityPreflight.allowedOrigins,
-  browserPath: identityPreflight.browserPath,
-  browserVersion: identityPreflight.browserVersion,
-  blocking: identityPreflight.blocking,
-  failureReason: identityPreflight.failureReason,
-  installDiagnostics: identityPreflight.installDiagnostics,
-  extensionServiceWorkerFreshness: identityPreflight.extensionServiceWorkerFreshness
-});
+const buildPublicServiceWorkerFreshnessOutput = (
+  freshness: ExtensionServiceWorkerFreshnessDiagnostics | null | undefined
+) => {
+  if (!freshness) {
+    return null;
+  }
+  const codeIdentityObservation = freshness.codeIdentityObservation ?? null;
+  return {
+    state: freshness.state,
+    reason: freshness.reason,
+    extensionId: freshness.extensionId,
+    extensionLatestMtimeMs: freshness.extensionLatestMtimeMs,
+    serviceWorkerLatestMtimeMs: freshness.serviceWorkerLatestMtimeMs,
+    expected_extension_bundle_identity_locator:
+      codeIdentityObservation?.expected_extension_bundle_identity_locator ?? null,
+    observed_active_service_worker_script_identity_locator:
+      codeIdentityObservation?.observed_active_service_worker_script_identity_locator ?? null,
+    expected_bundle_digest_locator: codeIdentityObservation?.expected_bundle_digest_locator ?? null,
+    observed_service_worker_code_digest_locator:
+      codeIdentityObservation?.observed_service_worker_code_digest_locator ?? null,
+    background_service_worker_cache_identity_locator:
+      codeIdentityObservation?.background_service_worker_cache_identity_locator ?? null,
+    background_service_worker_cache_digest_locator:
+      codeIdentityObservation?.background_service_worker_cache_digest_locator ?? null,
+    active_worker_lifecycle_state: codeIdentityObservation?.active_worker_lifecycle_state ?? null,
+    freshness_comparison_result: codeIdentityObservation?.freshness_comparison_result ?? null,
+    codeIdentityObservation,
+    recoveryHint: freshness.recoveryHint
+  };
+};
+
+const buildIdentityPreflightOutput = (identityPreflight: IdentityPreflightResult) => {
+  const codeIdentityObservation =
+    identityPreflight.extensionServiceWorkerFreshness?.codeIdentityObservation ?? null;
+  return {
+    mode: identityPreflight.mode,
+    binding: identityPreflight.binding,
+    manifestPath: identityPreflight.manifestPath,
+    manifestSource: identityPreflight.manifestSource,
+    expectedOrigin: identityPreflight.expectedOrigin,
+    allowedOrigins: identityPreflight.allowedOrigins,
+    browserPath: identityPreflight.browserPath,
+    browserVersion: identityPreflight.browserVersion,
+    blocking: identityPreflight.blocking,
+    failureReason: identityPreflight.failureReason,
+    installDiagnostics: identityPreflight.installDiagnostics,
+    extensionServiceWorkerFreshness: buildPublicServiceWorkerFreshnessOutput(
+      identityPreflight.extensionServiceWorkerFreshness
+    ),
+    extension_service_worker_code_identity: codeIdentityObservation,
+    provider_doctor_extension_load_check:
+      codeIdentityObservation?.provider_doctor_extension_load_check ?? null
+  };
+};
 
 export class ProfileRuntimeService {
   readonly #storeFactory: (cwd: string) => ProfileStoreLike;
@@ -766,6 +820,7 @@ export class ProfileRuntimeService {
   readonly #isProcessAlive: (pid: number) => boolean;
   readonly #browserLauncher: BrowserLauncherLike;
   readonly #bridgeFactory: (options?: RuntimeBridgeFactoryOptions) => RuntimeBridgeLike;
+  readonly #activeServiceWorkerObserver: ActiveServiceWorkerObserverLike;
 
   constructor(options?: {
     storeFactory?: (cwd: string) => ProfileStoreLike;
@@ -773,6 +828,7 @@ export class ProfileRuntimeService {
     isProcessAlive?: (pid: number) => boolean;
     browserLauncher?: BrowserLauncherLike;
     bridgeFactory?: (options?: RuntimeBridgeFactoryOptions) => RuntimeBridgeLike;
+    activeServiceWorkerObserver?: ActiveServiceWorkerObserverLike;
   }) {
     this.#storeFactory =
       options?.storeFactory ??
@@ -800,6 +856,9 @@ export class ProfileRuntimeService {
     this.#bridgeFactory = options?.bridgeFactory ?? ((bridgeOptions) =>
       resolveDefaultRuntimeBridge(bridgeOptions)
     );
+    this.#activeServiceWorkerObserver =
+      options?.activeServiceWorkerObserver ??
+      ((observerInput) => observeActiveExtensionServiceWorkerCodeIdentity(observerInput));
   }
 
   async start(input: RuntimeActionInput): Promise<JsonObject> {
@@ -826,10 +885,11 @@ export class ProfileRuntimeService {
       let existingMeta = await this.#readMeta(store, input.profile, {
         mode: readFingerprintMetaMode(input.params)
       });
-      const identityPreflight = await this.#runIdentityPreflight({
+      let identityPreflight = await this.#runIdentityPreflight({
         input,
         meta: existingMeta,
-        profileDir
+        profileDir,
+        serviceWorkerCodeIdentityAdmission: "deferred"
       });
       const usesPersistentIdentityMode =
         identityPreflight.mode === "official_chrome_persistent_extension";
@@ -902,6 +962,14 @@ export class ProfileRuntimeService {
         controllerPid: browserLaunch.controllerPid,
         nowIso
       });
+      if (identityPreflight.mode === "official_chrome_persistent_extension") {
+        identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
+          runtimeInput: input,
+          identityPreflight,
+          profileDir,
+          meta: existingMeta
+        });
+      }
       session = markSessionReady(session);
       const readiness =
         identityPreflight.identityBindingState === "bound"
@@ -1041,10 +1109,11 @@ export class ProfileRuntimeService {
       let existingMeta = await this.#readMeta(store, input.profile, {
         mode: readFingerprintMetaMode(input.params)
       });
-      const identityPreflight = await this.#runIdentityPreflight({
+      let identityPreflight = await this.#runIdentityPreflight({
         input,
         meta: existingMeta,
-        profileDir
+        profileDir,
+        serviceWorkerCodeIdentityAdmission: confirmLogin ? "required" : "deferred"
       });
       const usesPersistentIdentityMode =
         identityPreflight.mode === "official_chrome_persistent_extension";
@@ -1155,6 +1224,14 @@ export class ProfileRuntimeService {
           controllerPid: browserLaunch.controllerPid,
           nowIso
         });
+        if (identityPreflight.mode === "official_chrome_persistent_extension") {
+          identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
+            runtimeInput: input,
+            identityPreflight,
+            profileDir,
+            meta: existingMeta
+          });
+        }
       }
 
       await store.writeMeta(
@@ -1336,7 +1413,9 @@ export class ProfileRuntimeService {
     const identityPreflight = await runIdentityPreflight({
       params: input.params,
       meta,
-      profileDir
+      profileDir,
+      runId: input.runId,
+      serviceWorkerCodeIdentityAdmission: "deferred"
     });
     const observedReadyAttachReadiness = await this.#readObservedRuntimeReadiness({
       runtimeInput: input,
@@ -1508,10 +1587,12 @@ export class ProfileRuntimeService {
         ? lock.controllerPid
         : lock.ownerPid;
 
-    const identityPreflight = await runIdentityPreflight({
+    let identityPreflight = await runIdentityPreflight({
       params: input.params,
       meta,
-      profileDir
+      profileDir,
+      runId: input.runId,
+      serviceWorkerCodeIdentityAdmission: "deferred"
     });
     if (shouldBlockSessionEntryOnIdentityPreflight(identityPreflight)) {
       throw buildIdentityPreflightError(identityPreflight);
@@ -1524,7 +1605,6 @@ export class ProfileRuntimeService {
         retryable: true
       });
     }
-
     const requestedExecutionMode = readRequestedExecutionMode(input.params);
     const fingerprintRuntime = buildFingerprintContextForMeta(input.profile, meta, {
       requestedExecutionMode
@@ -1630,6 +1710,12 @@ export class ProfileRuntimeService {
         retryable: true
       });
     }
+    identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
+      runtimeInput: input,
+      identityPreflight,
+      profileDir,
+      meta
+    });
 
     const takeoverMode = runtimeTakeoverEvidence.mode;
     const nextOwnerPid = takeoverMode === "recoverable_rebind" ? process.pid : lock.ownerPid;
@@ -2917,17 +3003,61 @@ export class ProfileRuntimeService {
     input: RuntimeActionInput;
     meta: ProfileMeta | null;
     profileDir: string;
+    serviceWorkerCodeIdentityAdmission?: "required" | "deferred";
+    serviceWorkerObservationObservedAfter?: string | null;
   }): Promise<IdentityPreflightResult> {
     const preflight = await runIdentityPreflight({
       params: input.input.params,
       meta: input.meta,
-      profileDir: input.profileDir
+      profileDir: input.profileDir,
+      runId: input.input.runId,
+      serviceWorkerCodeIdentityAdmission: input.serviceWorkerCodeIdentityAdmission,
+      serviceWorkerObservationObservedAfter: input.serviceWorkerObservationObservedAfter
     });
     await this.#ensureProfileScopedNativeHostManifest({
       preflight,
       profileDir: input.profileDir
     });
     return preflight;
+  }
+
+  async #observeAndVerifyActiveServiceWorkerIdentity(input: {
+    runtimeInput: RuntimeActionInput;
+    identityPreflight: IdentityPreflightResult;
+    profileDir: string;
+    meta: ProfileMeta | null;
+  }): Promise<IdentityPreflightResult> {
+    if (
+      input.identityPreflight.mode !== "official_chrome_persistent_extension" ||
+      input.identityPreflight.identityBindingState !== "bound" ||
+      !input.identityPreflight.binding
+    ) {
+      return input.identityPreflight;
+    }
+    const observationStartedAt = isoNow();
+    const observation = await this.#activeServiceWorkerObserver({
+      profileDir: input.profileDir,
+      extensionId: input.identityPreflight.binding.extensionId,
+      runId: input.runtimeInput.runId,
+      timeoutMs: 1_000
+    });
+    if (observation.state === "observed") {
+      await writeActiveServiceWorkerCodeIdentityObservation(
+        input.profileDir,
+        observation.observation
+      );
+    }
+    const verifiedPreflight = await this.#runIdentityPreflight({
+      input: input.runtimeInput,
+      meta: input.meta,
+      profileDir: input.profileDir,
+      serviceWorkerCodeIdentityAdmission: "required",
+      serviceWorkerObservationObservedAfter: observationStartedAt
+    });
+    if (shouldBlockSessionEntryOnIdentityPreflight(verifiedPreflight)) {
+      throw buildIdentityPreflightError(verifiedPreflight);
+    }
+    return verifiedPreflight;
   }
 
   async #ensureProfileScopedNativeHostManifest(input: {

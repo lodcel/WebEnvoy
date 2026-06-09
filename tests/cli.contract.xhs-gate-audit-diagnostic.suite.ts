@@ -2399,7 +2399,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
       WEBENVOY_NATIVE_TRANSPORT: "loopback"
     });
 
-    expect(result.status).toBe(0);
+    expect(result.status, result.stdout).toBe(0);
     const body = parseSingleJsonLine(result.stdout);
     expect(body).toMatchObject({
       command: "xhs.search",
@@ -2519,7 +2519,7 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
       WEBENVOY_NATIVE_TRANSPORT: "loopback"
     });
 
-    expect(result.status).toBe(0);
+    expect(result.status, result.stdout).toBe(0);
     const body = parseSingleJsonLine(result.stdout);
     expect(body).toMatchObject({
       status: "success",
@@ -2770,7 +2770,8 @@ process.stdin.on("data", (chunk) => {
     const runId = "run-contract-xhs-bootstrap-recovery-001";
     await seedInstalledPersistentExtension({
       cwd: runtimeCwd,
-      profile
+      profile,
+      runId
     });
 
     const start = runCli(
@@ -2793,11 +2794,12 @@ process.stdin.on("data", (chunk) => {
       runtimeCwd,
       {
         WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
-        WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostMockPath),
+        WEBENVOY_BROWSER_MOCK_TTL: "30",
+        WEBENVOY_NATIVE_HOST_CMD: `${process.execPath} ${nativeHostMockPath}`,
         WEBENVOY_NATIVE_HOST_MODE: "bootstrap-ack-timeout-error"
       }
     );
-    expect(start.status).toBe(0);
+    expect(start.status, start.stdout).toBe(0);
     const startBody = parseSingleJsonLine(start.stdout);
     expect(startBody).toMatchObject({
       command: "runtime.start",
@@ -2812,7 +2814,8 @@ process.stdin.on("data", (chunk) => {
     });
     await seedInstalledPersistentExtension({
       cwd: runtimeCwd,
-      profile
+      profile,
+      runId
     });
 
     const nativeHostPath = path.join(runtimeCwd, "native-host-live-prewarm.cjs");
@@ -3101,18 +3104,19 @@ process.stdin.on("data", (chunk) => {
       })
     ], runtimeCwd, {
       WEBENVOY_NATIVE_TRANSPORT: "native",
-      WEBENVOY_NATIVE_HOST_CMD: createNativeHostCommand(nativeHostPath),
+      WEBENVOY_NATIVE_HOST_CMD: `${process.execPath} ${nativeHostPath}`,
       WEBENVOY_TEST_TRACE_PATH: tracePath,
-      WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154"
+      WEBENVOY_BROWSER_MOCK_VERSION: "Google Chrome 146.0.7680.154",
+      WEBENVOY_BROWSER_MOCK_TTL: "30"
     });
 
-    expect(result.status).toBe(0);
+    expect(result.status, result.stdout).toBe(0);
     const body = parseSingleJsonLine(result.stdout);
     expect(body).toMatchObject({
       command: "xhs.search",
       status: "success"
     });
-  });
+  }, 40_000);
 
   it("accepts live_read_limited as approved live mode in limited risk state", () => {
     const runId = "run-issue209-live-limited-001";

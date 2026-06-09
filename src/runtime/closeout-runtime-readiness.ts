@@ -1,5 +1,4 @@
 import type { JsonObject } from "../core/types.js";
-import { resolve } from "node:path";
 import { buildRuntimeBootstrapContextId } from "./runtime-bootstrap.js";
 
 export type CloseoutRuntimePreflightDecision = "GO" | "RECOVERABLE" | "NO_GO";
@@ -13,6 +12,7 @@ export type CloseoutRuntimeBlockerCode =
   | "extension_service_worker_stale"
   | "extension_service_worker_freshness_unknown"
   | "extension_source_mismatch"
+  | "extension_source_unverified"
   | "request_identity_replay";
 
 export interface CloseoutRuntimeReadinessPreflight {
@@ -46,6 +46,8 @@ export interface CloseoutRuntimeReadinessPreflight {
     identity_binding_state: string | null;
     extension_service_worker_freshness_state: string | null;
     extension_service_worker_freshness_reason: string | null;
+    extension_service_worker_code_identity: JsonObject | null;
+    provider_doctor_extension_load_check: JsonObject | null;
     extension_source_path: string | null;
     expected_extension_source_path: string | null;
     extension_source_equivalence: {
@@ -78,6 +80,29 @@ const asInteger = (value: unknown): number | null =>
 
 const asBooleanOrNull = (value: unknown): boolean | null =>
   typeof value === "boolean" ? value : null;
+
+const redactExtensionSourceEquivalence = (input: {
+  decision: "not_checked" | "equivalent" | "mismatch";
+  reason_codes: string[];
+  active_extension_source_path: string | null;
+  expected_extension_source_path: string | null;
+  active_extension_digest: string | null;
+  expected_extension_digest: string | null;
+}): {
+  decision: "not_checked" | "equivalent" | "mismatch";
+  reason_codes: string[];
+  active_extension_source_path: null;
+  expected_extension_source_path: null;
+  active_extension_digest: string | null;
+  expected_extension_digest: string | null;
+} => ({
+  decision: input.decision,
+  reason_codes: input.reason_codes,
+  active_extension_source_path: null,
+  expected_extension_source_path: null,
+  active_extension_digest: input.active_extension_digest,
+  expected_extension_digest: input.expected_extension_digest
+});
 
 const isIsoTimestampAtOrAfter = (value: unknown, floor: unknown): boolean => {
   if (typeof value !== "string" || typeof floor !== "string") {
@@ -256,21 +281,28 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
     extensionServiceWorkerFreshness?.reason ??
       identityPreflight?.extension_service_worker_freshness_reason
   );
-  const extensionSourcePath = asString(
-    extensionServiceWorkerFreshness?.extensionPath ??
-      identityPreflight?.extension_service_worker_extension_path
+  const extensionServiceWorkerCodeIdentity = asObject(
+    extensionServiceWorkerFreshness?.codeIdentityObservation ??
+      identityPreflight?.extension_service_worker_code_identity
   );
-  const expectedExtensionSourcePath = input.expectedExtensionPath
-    ? resolve(input.expectedExtensionPath)
-    : null;
+  const providerDoctorExtensionLoadCheck = asObject(
+    extensionServiceWorkerCodeIdentity?.provider_doctor_extension_load_check ??
+      identityPreflight?.provider_doctor_extension_load_check
+  );
+  const serviceWorkerComparisonResult = asString(
+    extensionServiceWorkerCodeIdentity?.freshness_comparison_result
+  );
+  const extensionSourcePath = null;
   const extensionSourceEquivalence = input.extensionSourceEquivalence ?? {
     decision: "not_checked" as const,
     reason_codes: [] as string[],
     active_extension_source_path: extensionSourcePath,
-    expected_extension_source_path: expectedExtensionSourcePath,
+    expected_extension_source_path: null,
     active_extension_digest: null,
     expected_extension_digest: null
   };
+  const publicExtensionSourceEquivalence =
+    redactExtensionSourceEquivalence(extensionSourceEquivalence);
   const transportState = asString(status.transportState);
   const bootstrapState = asString(status.bootstrapState);
   const runtimeReadiness = asString(status.runtimeReadiness);
@@ -288,9 +320,11 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       identity_binding_state: identityBindingState,
       extension_service_worker_freshness_state: extensionServiceWorkerFreshnessState,
       extension_service_worker_freshness_reason: extensionServiceWorkerFreshnessReason,
-      extension_source_path: extensionSourcePath,
-      expected_extension_source_path: expectedExtensionSourcePath,
-      extension_source_equivalence: extensionSourceEquivalence,
+      extension_service_worker_code_identity: extensionServiceWorkerCodeIdentity,
+      provider_doctor_extension_load_check: providerDoctorExtensionLoadCheck,
+      extension_source_path: null,
+      expected_extension_source_path: null,
+      extension_source_equivalence: publicExtensionSourceEquivalence,
       transport_state: transportState,
       bootstrap_state: bootstrapState,
       runtime_readiness: runtimeReadiness,
@@ -310,12 +344,7 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
     };
   }
 
-  if (
-    expectedExtensionSourcePath !== null &&
-    extensionSourcePath !== null &&
-    resolve(extensionSourcePath) !== expectedExtensionSourcePath &&
-    extensionSourceEquivalence.decision !== "equivalent"
-  ) {
+  if (extensionSourceEquivalence.decision === "mismatch") {
     return {
       decision: "NO_GO",
       runtime_state: "blocked",
@@ -323,6 +352,22 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       blocker: blocker(
         "extension_source_mismatch",
         "reinstall_runtime_extension_from_current_worktree_then_restart_runtime"
+      ),
+      ...base
+    };
+  }
+
+  if (
+    identityPreflightMode === "official_chrome_persistent_extension" &&
+    extensionSourceEquivalence.decision !== "equivalent"
+  ) {
+    return {
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: blocker(
+        "extension_source_unverified",
+        "prove_runtime_extension_source_matches_current_worktree_then_restart_runtime"
       ),
       ...base
     };
@@ -336,6 +381,30 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       blocker: blocker(
         "extension_service_worker_stale",
         "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+      ),
+      ...base
+    };
+  }
+
+  if (
+    identityPreflightMode === "official_chrome_persistent_extension" &&
+    serviceWorkerComparisonResult !== "match"
+  ) {
+    return {
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: blocker(
+        serviceWorkerComparisonResult === "observed_stale" ||
+          serviceWorkerComparisonResult === "redaction_invalid" ||
+          serviceWorkerComparisonResult === "source_conflict"
+          ? "extension_service_worker_stale"
+          : "extension_service_worker_freshness_unknown",
+        serviceWorkerComparisonResult === "observed_stale" ||
+          serviceWorkerComparisonResult === "redaction_invalid" ||
+          serviceWorkerComparisonResult === "source_conflict"
+          ? "run_runtime_refresh_extension_service_worker_then_restart_runtime"
+          : "collect_current_extension_service_worker_freshness_then_restart_runtime"
       ),
       ...base
     };

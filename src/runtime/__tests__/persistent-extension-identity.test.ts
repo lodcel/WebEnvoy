@@ -10,11 +10,25 @@ import {
   runIdentityPreflight,
   setIdentityPreflightAdaptersForTests
 } from "../persistent-extension-identity.js";
-import { refreshProfileExtensionServiceWorkerCache } from "../persistent-extension-identity-install.js";
+import {
+  ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME,
+  refreshProfileExtensionServiceWorkerCache
+} from "../persistent-extension-identity-install.js";
 import type { ProfileMeta } from "../profile-store.js";
+import { digestServiceWorkerBundleSources } from "../service-worker-bundle-digest.js";
 
 const EXTENSION_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const DEFAULT_TIMESTAMP = "2026-03-27T00:00:00.000Z";
+
+const testServiceWorkerBundleDigest = (
+  sources: readonly { scriptPath: string; source: string }[]
+): string => {
+  const digest = digestServiceWorkerBundleSources(sources);
+  if (!digest) {
+    throw new Error("failed to build test service worker bundle digest");
+  }
+  return digest;
+};
 
 const createProfileMeta = (
   profileDir: string,
@@ -81,18 +95,81 @@ const writeInstalledProfileExtension = async (input: {
 const writeServiceWorkerCache = async (input: {
   profileDir: string;
   mtime: Date;
+  scriptContent?: string;
 }): Promise<void> => {
   const serviceWorkerDir = join(input.profileDir, "Default", "Service Worker", "ScriptCache");
-  const scriptPath = join(serviceWorkerDir, "service-worker.js");
+  const scriptPath = join(serviceWorkerDir, `${EXTENSION_ID}-service-worker.js`);
   await mkdir(serviceWorkerDir, { recursive: true });
   await writeFile(
     scriptPath,
-    `const WEBENVOY_EXTENSION_URL = "chrome-extension://${EXTENSION_ID}/build/background.js";\nself.addEventListener('install', () => undefined);\n`,
+    input.scriptContent ??
+      `const WEBENVOY_EXTENSION_URL = "chrome-extension://${EXTENSION_ID}/build/background.js";\nself.addEventListener('install', () => undefined);\n`,
     "utf8"
   );
   await utimes(scriptPath, input.mtime, input.mtime);
   await utimes(serviceWorkerDir, input.mtime, input.mtime);
   await utimes(join(input.profileDir, "Default", "Service Worker"), input.mtime, input.mtime);
+};
+
+const writeActiveServiceWorkerObservation = async (input: {
+  profileDir: string;
+  extensionId: string;
+  scriptContent: string;
+  bundleSources?: readonly { scriptPath: string; source: string }[];
+  runId?: string;
+}): Promise<void> => {
+  const serviceWorkerPath = join(input.profileDir, "Default", "Service Worker");
+  await mkdir(serviceWorkerPath, { recursive: true });
+  await writeFile(
+    join(serviceWorkerPath, ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME),
+    `${JSON.stringify(
+      {
+        extension_id: input.extensionId,
+        run_id: input.runId ?? "run-test-active-service-worker-observation",
+        lifecycle_state: "active_worker_observed",
+        observed_active_service_worker_script_identity_locator:
+          `extension-service-worker/official-chrome.persistent/${input.extensionId}/active/build/background.js`,
+        observed_service_worker_code_digest_locator:
+          `sha256:${testServiceWorkerBundleDigest(
+            input.bundleSources ?? [
+              { scriptPath: "build/background.js", source: input.scriptContent }
+            ]
+          )}`,
+        observed_at: "2026-06-08T16:10:00.000Z"
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+};
+
+const writeFreshUnpackedServiceWorkerEvidence = async (input: {
+  profileDir: string;
+  extensionId: string;
+}): Promise<string> => {
+  const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-fresh-"));
+  const scriptContent = `const WEBENVOY_EXTENSION_URL = "chrome-extension://${input.extensionId}/build/background.js";\nglobalThis.__webenvoyBuild = 'fresh';\n`;
+  const mtime = new Date("2026-05-01T00:00:00.000Z");
+  await mkdir(join(unpackedDir, "build"), { recursive: true });
+  await writeFile(join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
+  await writeFile(join(unpackedDir, "build", "background.js"), scriptContent, "utf8");
+  await utimes(join(unpackedDir, "manifest.json"), mtime, mtime);
+  await utimes(join(unpackedDir, "build", "background.js"), mtime, mtime);
+  await utimes(join(unpackedDir, "build"), mtime, mtime);
+  await utimes(unpackedDir, mtime, mtime);
+  await writeServiceWorkerCache({
+    profileDir: input.profileDir,
+    mtime,
+    scriptContent
+  });
+  await writeProfileExtensionPreferences({
+    profileDir: input.profileDir,
+    extensionId: input.extensionId,
+    location: 4,
+    extensionPath: unpackedDir
+  });
+  return unpackedDir;
 };
 
 const createNativeHostManifest = async (input: {
@@ -181,6 +258,10 @@ describe("runIdentityPreflight", () => {
       profileDir,
       extensionId: EXTENSION_ID
     });
+    await writeFreshUnpackedServiceWorkerEvidence({
+      profileDir,
+      extensionId: EXTENSION_ID
+    });
 
     const resolvePreferredBrowserVersionTruthSource = vi.fn().mockResolvedValue({
       executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -221,9 +302,9 @@ describe("runIdentityPreflight", () => {
       mode: "official_chrome_persistent_extension",
       browserPath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       browserVersion: "Google Chrome 146.0.7680.154",
-      identityBindingState: "bound",
-      blocking: false,
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      identityBindingState: "mismatch",
+      blocking: true,
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       manifestPath,
       expectedOrigin: `chrome-extension://${EXTENSION_ID}/`,
       allowedOrigins: [`chrome-extension://${EXTENSION_ID}/`]
@@ -463,6 +544,10 @@ describe("runIdentityPreflight", () => {
       profileDir,
       extensionId: EXTENSION_ID
     });
+    await writeFreshUnpackedServiceWorkerEvidence({
+      profileDir,
+      extensionId: EXTENSION_ID
+    });
 
     setIdentityPreflightAdaptersForTests({
       resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
@@ -484,8 +569,8 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       manifestPath,
       manifestSource: "browser_default",
       expectedOrigin: `chrome-extension://${EXTENSION_ID}/`,
@@ -520,6 +605,10 @@ describe("runIdentityPreflight", () => {
       profileDir,
       extensionId: EXTENSION_ID
     });
+    await writeFreshUnpackedServiceWorkerEvidence({
+      profileDir,
+      extensionId: EXTENSION_ID
+    });
 
     setIdentityPreflightAdaptersForTests({
       resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
@@ -541,8 +630,8 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       manifestPath,
       manifestSource: "browser_default",
       expectedOrigin: `chrome-extension://${EXTENSION_ID}/`
@@ -650,6 +739,10 @@ describe("runIdentityPreflight", () => {
       extensionId: EXTENSION_ID,
       state: 1
     });
+    await writeFreshUnpackedServiceWorkerEvidence({
+      profileDir,
+      extensionId: EXTENSION_ID
+    });
     await writeFile(
       manifestPath,
       `${JSON.stringify(
@@ -685,9 +778,9 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: false,
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       installDiagnostics: {
         launcherPath,
         launcherExists: true,
@@ -1232,7 +1325,7 @@ describe("runIdentityPreflight", () => {
     });
   });
 
-  it("treats developer-mode unpacked extension path as enabled when profile Extensions dir is absent", async () => {
+  it("fails closed when developer-mode unpacked extension lacks expected service worker digest", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-unpacked-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-unpacked-"));
     const manifestPath = join(
@@ -1287,18 +1380,29 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING",
       manifestPath,
       extensionServiceWorkerFreshness: {
         state: "unknown",
-        reason: "SERVICE_WORKER_CACHE_MISSING",
-        extensionPath: unpackedDir
+        reason: "EXTENSION_SERVICE_WORKER_SCRIPT_DIGEST_UNAVAILABLE",
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "expected_identity_missing",
+          provider_doctor_extension_load_check: {
+            status: "fail",
+            blocking: "provider_blocking",
+            diagnostics: {
+              code: "service_worker_expected_identity_missing"
+            }
+          }
+        }
       }
     });
   });
 
-  it("treats an empty managed profile service worker directory as missing cache", async () => {
+  it("fails closed when managed profile service worker directory lacks script evidence", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-empty-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-empty-sw-"));
     const manifestPath = join(
@@ -1362,19 +1466,38 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: false,
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
         state: "unknown",
         reason: "SERVICE_WORKER_CACHE_MISSING",
         extensionPath: unpackedDir,
-        serviceWorkerLatestMtimeMs: null
+        serviceWorkerLatestMtimeMs: null,
+        codeIdentityObservation: {
+          freshness_comparison_result: "observed_identity_missing",
+          provider_doctor_extension_load_check: {
+            status: "unknown",
+            blocking: "provider_blocking",
+            diagnostics: {
+              code: "service_worker_observed_identity_missing"
+            }
+          }
+        }
+      }
+    });
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "SERVICE_WORKER_CACHE_MISSING",
+        extension_service_worker_freshness_comparison_result: "observed_identity_missing"
       }
     });
   });
 
-  it("does not fail closed on registration database records without script cache evidence", async () => {
+  it("fails closed on registration database records without script cache evidence", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-db-only-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-db-only-sw-"));
     const manifestPath = join(
@@ -1454,14 +1577,34 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: false,
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
         state: "unknown",
         reason: "SERVICE_WORKER_CACHE_MISSING",
         extensionPath: unpackedDir,
-        serviceWorkerLatestMtimeMs: null
+        serviceWorkerLatestMtimeMs: null,
+        codeIdentityObservation: {
+          freshness_comparison_result: "observed_identity_missing",
+          active_worker_lifecycle_state: "registration_only",
+          provider_doctor_extension_load_check: {
+            status: "unknown",
+            blocking: "provider_blocking",
+            diagnostics: {
+              code: "service_worker_observed_identity_missing"
+            }
+          }
+        }
+      }
+    });
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "SERVICE_WORKER_CACHE_MISSING",
+        extension_service_worker_freshness_comparison_result: "observed_identity_missing"
       }
     });
   });
@@ -1550,18 +1693,35 @@ describe("runIdentityPreflight", () => {
         reason: "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
         extensionId: EXTENSION_ID,
         extensionPath: unpackedDir,
-        serviceWorkerPath: join(profileDir, "Default", "Service Worker")
+        serviceWorkerPath: join(profileDir, "Default", "Service Worker"),
+        codeIdentityObservation: {
+          freshness_comparison_result: "observed_identity_missing",
+          active_worker_lifecycle_state: "disk_script_cache_observed",
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "unknown",
+            blocking: "provider_blocking"
+          }
+        }
       }
     });
-    expect(buildIdentityPreflightError(result)).toMatchObject({
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
       code: "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
       details: {
         reason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
         extension_service_worker_freshness_reason:
           "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD",
+        extension_service_worker_extension_path: null,
+        extension_service_worker_cache_path: null,
+        extension_service_worker_freshness_comparison_result: "observed_identity_missing",
         recovery_hint: expect.stringContaining("Default/Service Worker")
       }
     });
+    expect(JSON.stringify(preflightError.details)).not.toContain(unpackedDir);
+    expect(JSON.stringify(preflightError.details)).not.toContain(
+      join(profileDir, "Default", "Service Worker")
+    );
   });
 
   it("refuses to refresh managed service worker cache through a symlinked profile path", async () => {
@@ -1848,7 +2008,7 @@ describe("runIdentityPreflight", () => {
     });
   });
 
-  it("allows extension build and service worker cache to share the same timestamp", async () => {
+  it("fails closed when matching disk cache lacks active service worker observation", async () => {
     const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-same-sw-"));
     const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-same-sw-"));
     const manifestPath = join(
@@ -1872,7 +2032,109 @@ describe("runIdentityPreflight", () => {
     await utimes(unpackedDir, sameTimestamp, sameTimestamp);
     await writeServiceWorkerCache({
       profileDir,
-      mtime: sameTimestamp
+      mtime: sameTimestamp,
+      scriptContent: "globalThis.__webenvoyBuild = 'same-second';\n"
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+      extensionServiceWorkerFreshness: {
+        state: "unknown",
+        reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "observed_identity_missing",
+          active_worker_lifecycle_state: "disk_script_cache_observed",
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "unknown",
+            blocking: "provider_blocking"
+          }
+        }
+      }
+    });
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
+        extension_service_worker_freshness_comparison_result: "observed_identity_missing"
+      }
+    });
+  });
+
+  it("passes same-timestamp preflight only when active service worker observation matches expected digest", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-active-sw-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-active-sw-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-active-sw-"));
+    const extensionBuildFile = join(unpackedDir, "build", "background.js");
+    const scriptContent = "globalThis.__webenvoyBuild = 'active-observed';\n";
+    const sameTimestamp = new Date("2026-05-01T00:00:00.000Z");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(dirname(extensionBuildFile), { recursive: true });
+    await writeFile(extensionBuildFile, scriptContent, "utf8");
+    await utimes(extensionBuildFile, sameTimestamp, sameTimestamp);
+    await utimes(dirname(extensionBuildFile), sameTimestamp, sameTimestamp);
+    await utimes(unpackedDir, sameTimestamp, sameTimestamp);
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: sameTimestamp,
+      scriptContent
+    });
+    await writeActiveServiceWorkerObservation({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      scriptContent
     });
     await writeFile(
       manifestPath,
@@ -1919,7 +2181,256 @@ describe("runIdentityPreflight", () => {
       extensionServiceWorkerFreshness: {
         state: "fresh",
         reason: "SERVICE_WORKER_CACHE_CURRENT",
-        extensionPath: unpackedDir
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "match",
+          active_worker_lifecycle_state: "active_worker_observed",
+          observed_active_service_worker_script_identity_locator:
+            `extension-service-worker/official-chrome.persistent/${EXTENSION_ID}/active/build/background.js`,
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "pass",
+            blocking: "none",
+            diagnostics: {
+              code: "service_worker_fresh"
+            }
+          }
+        }
+      }
+    });
+  });
+
+  it("fails closed when an active module service worker entry matches but an imported module is stale", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-module-sw-stale-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-module-sw-stale-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-module-sw-stale-"));
+    const entryContent = "import './module.js';\nglobalThis.__webenvoyBuild = 'module-entry';\n";
+    const observedModuleContent = "globalThis.__webenvoyImportedModule = 'old';\n";
+    const expectedModuleContent = "globalThis.__webenvoyImportedModule = 'new';\n";
+    const sameTimestamp = new Date("2026-05-01T00:00:00.000Z");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(join(unpackedDir, "build"), { recursive: true });
+    await writeFile(
+      join(unpackedDir, "manifest.json"),
+      `${JSON.stringify(
+        {
+          manifest_version: 3,
+          background: {
+            service_worker: "build/background.js",
+            type: "module"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(join(unpackedDir, "build", "background.js"), entryContent, "utf8");
+    await writeFile(join(unpackedDir, "build", "module.js"), expectedModuleContent, "utf8");
+    await utimes(join(unpackedDir, "manifest.json"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "background.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "module.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build"), sameTimestamp, sameTimestamp);
+    await utimes(unpackedDir, sameTimestamp, sameTimestamp);
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: sameTimestamp,
+      scriptContent: entryContent
+    });
+    await writeActiveServiceWorkerObservation({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      scriptContent: entryContent,
+      bundleSources: [
+        { scriptPath: "build/background.js", source: entryContent },
+        { scriptPath: "build/module.js", source: observedModuleContent }
+      ]
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      extensionServiceWorkerFreshness: {
+        state: "stale",
+        reason: "SERVICE_WORKER_CODE_IDENTITY_MISMATCH",
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "observed_stale",
+          active_worker_lifecycle_state: "active_worker_observed",
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "fail",
+            blocking: "provider_blocking",
+            diagnostics: {
+              code: "service_worker_stale"
+            }
+          }
+        }
+      }
+    });
+  });
+
+  it("passes module service worker preflight when active observed module graph matches expected bundle", async () => {
+    const profileDir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-profile-module-sw-fresh-"));
+    const fakeHome = await mkdtemp(join(tmpdir(), "webenvoy-native-host-home-module-sw-fresh-"));
+    const manifestPath = join(
+      fakeHome,
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+      "NativeMessagingHosts",
+      "com.webenvoy.host.json"
+    );
+    const unpackedDir = await mkdtemp(join(tmpdir(), "webenvoy-unpacked-extension-module-sw-fresh-"));
+    const entryContent = "import './module.js';\nglobalThis.__webenvoyBuild = 'module-entry';\n";
+    const moduleContent = "globalThis.__webenvoyImportedModule = 'fresh';\n";
+    const sameTimestamp = new Date("2026-05-01T00:00:00.000Z");
+    vi.stubEnv("HOME", fakeHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await mkdir(join(unpackedDir, "build"), { recursive: true });
+    await writeFile(
+      join(unpackedDir, "manifest.json"),
+      `${JSON.stringify(
+        {
+          manifest_version: 3,
+          background: {
+            service_worker: "build/background.js",
+            type: "module"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(join(unpackedDir, "build", "background.js"), entryContent, "utf8");
+    await writeFile(join(unpackedDir, "build", "module.js"), moduleContent, "utf8");
+    await utimes(join(unpackedDir, "manifest.json"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "background.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build", "module.js"), sameTimestamp, sameTimestamp);
+    await utimes(join(unpackedDir, "build"), sameTimestamp, sameTimestamp);
+    await utimes(unpackedDir, sameTimestamp, sameTimestamp);
+    await writeServiceWorkerCache({
+      profileDir,
+      mtime: sameTimestamp,
+      scriptContent: entryContent
+    });
+    await writeActiveServiceWorkerObservation({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      scriptContent: entryContent,
+      bundleSources: [
+        { scriptPath: "build/background.js", source: entryContent },
+        { scriptPath: "build/module.js", source: moduleContent }
+      ]
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          name: "com.webenvoy.host",
+          allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeProfileExtensionPreferences({
+      profileDir,
+      extensionId: EXTENSION_ID,
+      location: 4,
+      extensionPath: unpackedDir
+    });
+
+    setIdentityPreflightAdaptersForTests({
+      resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        browserVersion: "Google Chrome 146.0.7680.154"
+      }),
+      isUnsupportedBrandedChromeForExtensions: vi.fn().mockReturnValue(true),
+      platform: () => "darwin"
+    });
+
+    const result = await runIdentityPreflight({
+      params: {
+        persistent_extension_identity: {
+          extension_id: EXTENSION_ID
+        }
+      },
+      meta: createProfileMeta(profileDir),
+      profileDir
+    });
+
+    expect(result).toMatchObject({
+      blocking: false,
+      identityBindingState: "bound",
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      extensionServiceWorkerFreshness: {
+        state: "fresh",
+        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        extensionPath: unpackedDir,
+        codeIdentityObservation: {
+          freshness_comparison_result: "match",
+          active_worker_lifecycle_state: "active_worker_observed",
+          provider_doctor_extension_load_check: {
+            category: "extension_load",
+            status: "pass",
+            blocking: "none",
+            diagnostics: {
+              code: "service_worker_fresh"
+            }
+          }
+        }
       }
     });
   });
@@ -2087,7 +2598,8 @@ describe("runIdentityPreflight", () => {
     );
     await writeServiceWorkerCache({
       profileDir,
-      mtime: new Date("2026-05-01T00:00:00.000Z")
+      mtime: new Date("2026-05-01T00:00:00.000Z"),
+      scriptContent: "globalThis.__webenvoyBuild = 'bundle';\n"
     });
     await writeFile(
       manifestPath,
@@ -2128,12 +2640,12 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: false,
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
-        state: "fresh",
-        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        state: "unknown",
+        reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
         extensionPath: unpackedDir
       }
     });
@@ -2192,7 +2704,8 @@ describe("runIdentityPreflight", () => {
     );
     await writeServiceWorkerCache({
       profileDir,
-      mtime: new Date("2026-05-01T00:00:00.000Z")
+      mtime: new Date("2026-05-01T00:00:00.000Z"),
+      scriptContent: "globalThis.__webenvoyBuild = 'current';\n"
     });
     await writeFile(
       manifestPath,
@@ -2279,7 +2792,8 @@ describe("runIdentityPreflight", () => {
     );
     await writeServiceWorkerCache({
       profileDir,
-      mtime: new Date("2026-05-01T00:00:00.000Z")
+      mtime: new Date("2026-05-01T00:00:00.000Z"),
+      scriptContent: "globalThis.__webenvoyBuild = 'current';\n"
     });
     await writeFile(
       manifestPath,
@@ -2320,12 +2834,12 @@ describe("runIdentityPreflight", () => {
     });
 
     expect(result).toMatchObject({
-      blocking: false,
-      identityBindingState: "bound",
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      blocking: true,
+      identityBindingState: "mismatch",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
-        state: "fresh",
-        reason: "SERVICE_WORKER_CACHE_CURRENT",
+        state: "unknown",
+        reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
         extensionPath: unpackedDir
       }
     });
@@ -2356,6 +2870,10 @@ describe("runIdentityPreflight", () => {
       profileDir,
       extensionId: EXTENSION_ID
     });
+    await writeFreshUnpackedServiceWorkerEvidence({
+      profileDir,
+      extensionId: EXTENSION_ID
+    });
 
     setIdentityPreflightAdaptersForTests({
       resolvePreferredBrowserVersionTruthSource: vi.fn().mockResolvedValue({
@@ -2381,7 +2899,7 @@ describe("runIdentityPreflight", () => {
 
     expect(result).toMatchObject({
       mode: "official_chrome_persistent_extension",
-      identityBindingState: "bound",
+      identityBindingState: "mismatch",
       binding: {
         extensionId: EXTENSION_ID,
         nativeHostName: "com.webenvoy.host",
@@ -2389,8 +2907,8 @@ describe("runIdentityPreflight", () => {
         manifestPath
       },
       manifestPath,
-      failureReason: "IDENTITY_PREFLIGHT_PASSED",
-      blocking: false
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+      blocking: true
     });
   });
 

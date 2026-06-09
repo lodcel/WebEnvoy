@@ -16,7 +16,10 @@ import {
 import { NativeHostBridgeTransport } from "../runtime/native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "../runtime/native-messaging/loopback.js";
 import { ProfileRuntimeService } from "../runtime/profile-runtime.js";
-import { refreshProfileExtensionServiceWorkerCache } from "../runtime/persistent-extension-identity-install.js";
+import {
+  refreshProfileExtensionServiceWorkerCache,
+  resolveEnabledUnpackedPath
+} from "../runtime/persistent-extension-identity-install.js";
 import { buildRuntimeBootstrapContextId } from "../runtime/runtime-bootstrap.js";
 import { buildFingerprintContextForMeta, appendFingerprintContext } from "../runtime/fingerprint-runtime.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
@@ -65,17 +68,6 @@ type ExtensionSourceEquivalence = NonNullable<
   Parameters<typeof buildCloseoutRuntimeReadinessPreflight>[0]["extensionSourceEquivalence"]
 >;
 
-const resolveExtensionSourcePathFromStatus = (status: JsonObject): string | null => {
-  const identityPreflight = asObject(status.identityPreflight);
-  const extensionServiceWorkerFreshness = asObject(
-    identityPreflight?.extensionServiceWorkerFreshness
-  );
-  return asString(
-    extensionServiceWorkerFreshness?.extensionPath ??
-      identityPreflight?.extension_service_worker_extension_path
-  );
-};
-
 const digestExtensionDirectory = async (extensionPath: string): Promise<string | null> => {
   const root = resolve(extensionPath);
   const rootStat = await lstat(root).catch(() => null);
@@ -117,8 +109,13 @@ const digestExtensionDirectory = async (extensionPath: string): Promise<string |
 const resolveExtensionSourceEquivalence = async (input: {
   status: JsonObject;
   expectedExtensionPath: string;
+  profileDir?: string | null;
 }): Promise<ExtensionSourceEquivalence> => {
-  const activeExtensionSourcePath = resolveExtensionSourcePathFromStatus(input.status);
+  const activeExtensionSourcePath =
+    await resolveExtensionSourcePathFromProfile({
+      status: input.status,
+      profileDir: input.profileDir ?? null
+    });
   const expectedExtensionSourcePath = resolve(input.expectedExtensionPath);
   const base = {
     active_extension_source_path: activeExtensionSourcePath,
@@ -166,6 +163,27 @@ const resolveExtensionSourceEquivalence = async (input: {
     active_extension_digest: activeDigest,
     expected_extension_digest: expectedDigest
   };
+};
+
+const resolveExtensionSourcePathFromProfile = async (input: {
+  status: JsonObject;
+  profileDir: string | null;
+}): Promise<string | null> => {
+  if (!input.profileDir) {
+    return null;
+  }
+  const identityPreflight = asObject(input.status.identityPreflight);
+  if (asString(identityPreflight?.mode) !== "official_chrome_persistent_extension") {
+    return null;
+  }
+  const extensionServiceWorkerFreshness = asObject(
+    identityPreflight?.extensionServiceWorkerFreshness
+  );
+  const extensionId = asString(extensionServiceWorkerFreshness?.extensionId);
+  if (!extensionId) {
+    return null;
+  }
+  return await resolveEnabledUnpackedPath(input.profileDir, extensionId);
 };
 
 const buildPersistedSessionRhythmStatusView = (
@@ -3158,9 +3176,12 @@ const runtimeCloseoutPreflight = async (context: RuntimeContext) => {
     params: context.params
   });
   const expectedExtensionPath = join(context.cwd, "extension");
+  const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
+  const profileDir = context.profile ? profileStore.getProfileDir(context.profile) : null;
   const extensionSourceEquivalence = await resolveExtensionSourceEquivalence({
     status,
-    expectedExtensionPath
+    expectedExtensionPath,
+    profileDir
   });
   return {
     closeout_runtime_readiness_preflight: buildCloseoutRuntimeReadinessPreflight({
@@ -3227,6 +3248,8 @@ const prepareCloseoutGateRuntimeStatus = async (
 
 const runtimeCloseoutGate = async (context: RuntimeContext) => {
   const expectedExtensionPath = join(context.cwd, "extension");
+  const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
+  const profileDir = context.profile ? profileStore.getProfileDir(context.profile) : null;
   let status = await profileRuntime.status({
     cwd: context.cwd,
     profile: context.profile ?? "",
@@ -3235,7 +3258,8 @@ const runtimeCloseoutGate = async (context: RuntimeContext) => {
   });
   let extensionSourceEquivalence = await resolveExtensionSourceEquivalence({
     status,
-    expectedExtensionPath
+    expectedExtensionPath,
+    profileDir
   });
   let closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
     status,
@@ -3250,7 +3274,8 @@ const runtimeCloseoutGate = async (context: RuntimeContext) => {
   );
   extensionSourceEquivalence = await resolveExtensionSourceEquivalence({
     status,
-    expectedExtensionPath
+    expectedExtensionPath,
+    profileDir
   });
   closeoutRuntimeReadinessPreflight = buildCloseoutRuntimeReadinessPreflight({
     status,

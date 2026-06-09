@@ -1,5 +1,6 @@
+import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, lstat, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { inspectManagedNativeHostInstall } from "../install/native-host-install-root.js";
@@ -8,6 +9,21 @@ import {
   type BrowserChannel
 } from "../install/native-host-platform.js";
 import type { PersistentExtensionBinding } from "./profile-store.js";
+import {
+  evaluateServiceWorkerCodeIdentityObservation,
+  type ServiceWorkerCodeIdentityObservation,
+  type ServiceWorkerLifecycleState
+} from "./service-worker-code-identity.js";
+import {
+  digestServiceWorkerBundleSources,
+  extractRelativeModuleSpecifiers,
+  normalizeServiceWorkerBundleScriptPath,
+  resolveRelativeModuleScriptPath,
+  type ServiceWorkerBundleSource
+} from "./service-worker-bundle-digest.js";
+
+export const ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME =
+  "WebEnvoyActiveServiceWorkerCodeIdentity.json";
 
 export type ManifestSource = "binding" | "browser_default" | "windows_registry";
 
@@ -47,14 +63,19 @@ export interface ExtensionServiceWorkerFreshnessDiagnostics {
   reason:
     | "PROFILE_EXTENSION_NOT_UNPACKED"
     | "EXTENSION_SOURCE_MTIME_UNAVAILABLE"
+    | "EXTENSION_SERVICE_WORKER_SCRIPT_DIGEST_UNAVAILABLE"
+    | "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING"
     | "SERVICE_WORKER_CACHE_MISSING"
     | "SERVICE_WORKER_CACHE_CURRENT"
-    | "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD";
+    | "SERVICE_WORKER_CACHE_OLDER_THAN_EXTENSION_BUILD"
+    | "SERVICE_WORKER_CODE_IDENTITY_MISMATCH"
+    | "SERVICE_WORKER_EVIDENCE_REDACTION_INVALID";
   extensionId: string;
   extensionPath: string | null;
   extensionLatestMtimeMs: number | null;
   serviceWorkerPath: string;
   serviceWorkerLatestMtimeMs: number | null;
+  codeIdentityObservation: ServiceWorkerCodeIdentityObservation | null;
   recoveryHint: string | null;
 }
 
@@ -81,6 +102,14 @@ export interface ExtensionServiceWorkerRefreshBlocker {
   required_recovery_action: "inspect_managed_profile_service_worker_cache";
   expected_service_worker_path: string;
   actual_service_worker_path: string;
+}
+
+export interface ActiveServiceWorkerCodeIdentityObservationRecord {
+  extensionId: string;
+  runId: string;
+  observedActiveServiceWorkerScriptIdentityLocator: string;
+  observedServiceWorkerCodeDigestLocator: string;
+  observedAt: string;
 }
 
 export interface ProfileExtensionSourceRebindResult {
@@ -658,6 +687,119 @@ const resolveExtensionBundleLatestMtimeMs = async (extensionPath: string): Promi
   return latest;
 };
 
+const readSafeExtensionSource = async (input: {
+  extensionPath: string;
+  rootRealPath: string;
+  scriptRef: string;
+}): Promise<ServiceWorkerBundleSource | null> => {
+  const scriptPath = normalizeServiceWorkerBundleScriptPath(input.scriptRef);
+  if (!scriptPath) {
+    return null;
+  }
+  const filePath = resolve(input.extensionPath, scriptPath);
+  if (!isPathInside(input.extensionPath, filePath)) {
+    return null;
+  }
+  try {
+    const stat = await lstat(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      return null;
+    }
+    const fileRealPath = await realpath(filePath);
+    if (!isPathInside(input.rootRealPath, fileRealPath)) {
+      return null;
+    }
+    return {
+      scriptPath,
+      source: await readFile(filePath, "utf8")
+    };
+  } catch {
+    return null;
+  }
+};
+
+const resolveExpectedServiceWorkerBundleDigest = async (
+  extensionPath: string
+): Promise<{ digest: string | null; scriptRef: string | null }> => {
+  const manifestPath = join(extensionPath, "manifest.json");
+  let serviceWorkerRef = "build/background.js";
+  let isModule = false;
+  try {
+    const raw = await readFile(manifestPath, "utf8");
+    const manifest = asRecord(JSON.parse(raw));
+    const background = manifest ? asRecord(manifest.background) : null;
+    const manifestServiceWorkerRef = background
+      ? asNonEmptyString(background.service_worker)
+      : null;
+    if (manifestServiceWorkerRef) {
+      serviceWorkerRef = manifestServiceWorkerRef;
+    }
+    isModule = background?.type === "module";
+  } catch {
+    serviceWorkerRef = "build/background.js";
+    isModule = false;
+  }
+
+  const entryScriptPath = normalizeServiceWorkerBundleScriptPath(serviceWorkerRef);
+  if (!entryScriptPath) {
+    return {
+      digest: null,
+      scriptRef: serviceWorkerRef
+    };
+  }
+  const rootRealPath = await realpath(extensionPath).catch(() => null);
+  if (!rootRealPath) {
+    return {
+      digest: null,
+      scriptRef: entryScriptPath
+    };
+  }
+
+  const sources = new Map<string, ServiceWorkerBundleSource>();
+  const pending = [entryScriptPath];
+  while (pending.length > 0) {
+    const currentScriptPath = pending.shift();
+    if (!currentScriptPath) {
+      continue;
+    }
+    if (sources.has(currentScriptPath)) {
+      continue;
+    }
+    const source = await readSafeExtensionSource({
+      extensionPath,
+      rootRealPath,
+      scriptRef: currentScriptPath
+    });
+    if (!source) {
+      return {
+        digest: null,
+        scriptRef: entryScriptPath
+      };
+    }
+    sources.set(currentScriptPath, source);
+    if (!isModule) {
+      continue;
+    }
+    for (const specifier of extractRelativeModuleSpecifiers(source.source)) {
+      const moduleScriptPath = resolveRelativeModuleScriptPath(currentScriptPath, specifier);
+      if (!moduleScriptPath) {
+        return {
+          digest: null,
+          scriptRef: entryScriptPath
+        };
+      }
+      if (!sources.has(moduleScriptPath)) {
+        pending.push(moduleScriptPath);
+      }
+    }
+  }
+
+  return {
+    digest: digestServiceWorkerBundleSources([...sources.values()]),
+    scriptRef: entryScriptPath
+  };
+};
+
 const isTargetServiceWorkerCacheFile = async (
   path: string,
   extensionId: string
@@ -724,7 +866,19 @@ type ResolvedServiceWorkerCacheMtime = {
     | "registration_database"
     | "registration_database_with_opaque_script_cache"
     | "script_cache";
+  digest: string | null;
 };
+
+type ActiveServiceWorkerCodeIdentityEvidence = {
+  observedActiveServiceWorkerScriptIdentityLocator: string;
+  observedServiceWorkerCodeDigestLocator: string;
+  observedAt: string | null;
+};
+
+export interface ExtensionServiceWorkerFreshnessOptions {
+  requiredObservationRunId?: string | null;
+  requiredObservationObservedAfter?: string | null;
+}
 
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   serviceWorkerPath: string,
@@ -732,6 +886,7 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
 ): Promise<ResolvedServiceWorkerCacheMtime | null> => {
   let latest: number | null = null;
   let opaqueLatest: number | null = null;
+  const targetFiles: string[] = [];
   const scriptCachePath = join(serviceWorkerPath, "ScriptCache");
   const rootPath = await realpath(scriptCachePath).catch(() => scriptCachePath);
   const pending = [rootPath];
@@ -753,6 +908,7 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
     if (!stat.isDirectory()) {
       if (await isTargetServiceWorkerCacheFile(currentPath, extensionId)) {
         latest = latest === null ? stat.mtimeMs : Math.max(latest, stat.mtimeMs);
+        targetFiles.push(currentPath);
       } else {
         opaqueLatest =
           opaqueLatest === null ? stat.mtimeMs : Math.max(opaqueLatest, stat.mtimeMs);
@@ -771,9 +927,14 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   }
 
   if (latest !== null) {
+    const hash = createHash("sha256");
+    for (const targetFile of targetFiles.sort()) {
+      hash.update(await readFile(targetFile));
+    }
     return {
       mtimeMs: latest,
-      source: "script_cache"
+      source: "script_cache",
+      digest: hash.digest("hex")
     };
   }
   const registrationLatestMtimeMs = await resolveTargetExtensionReferenceLatestMtimeMs(
@@ -786,16 +947,159 @@ const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   if (opaqueLatest !== null) {
     return {
       mtimeMs: opaqueLatest,
-      source: "registration_database_with_opaque_script_cache"
+      source: "registration_database_with_opaque_script_cache",
+      digest: null
     };
   }
   return {
     mtimeMs: registrationLatestMtimeMs,
-    source: "registration_database"
+    source: "registration_database",
+    digest: null
   };
 };
 
-const resolveEnabledUnpackedPath = async (
+const digestLocator = (digest: string | null): string | null =>
+  digest ? `sha256:${digest}` : null;
+
+const resolveActiveServiceWorkerCodeIdentityEvidence = async (
+  serviceWorkerPath: string,
+  extensionId: string,
+  options: ExtensionServiceWorkerFreshnessOptions = {}
+): Promise<ActiveServiceWorkerCodeIdentityEvidence | null> => {
+  const artifactPath = join(
+    serviceWorkerPath,
+    ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+  );
+  let raw: string;
+  try {
+    raw = await readFile(artifactPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const record = asRecord(parsed);
+  if (!record) {
+    return null;
+  }
+  if (record.extension_id !== extensionId || record.lifecycle_state !== "active_worker_observed") {
+    return null;
+  }
+  if (
+    typeof options.requiredObservationRunId === "string" &&
+    options.requiredObservationRunId.length > 0 &&
+    record.run_id !== options.requiredObservationRunId
+  ) {
+    return null;
+  }
+  if (typeof record.run_id !== "string" || record.run_id.trim().length === 0) {
+    return null;
+  }
+  if (
+    typeof options.requiredObservationObservedAfter === "string" &&
+    options.requiredObservationObservedAfter.length > 0
+  ) {
+    const observedAt = asNonEmptyString(record.observed_at);
+    if (!observedAt) {
+      return null;
+    }
+    const requiredObservedAfterMs = Date.parse(options.requiredObservationObservedAfter);
+    const observedAtMs = Date.parse(observedAt);
+    if (
+      !Number.isFinite(requiredObservedAfterMs) ||
+      !Number.isFinite(observedAtMs) ||
+      observedAtMs < requiredObservedAfterMs
+    ) {
+      return null;
+    }
+  }
+  const observedScriptLocator = asNonEmptyString(
+    record.observed_active_service_worker_script_identity_locator
+  );
+  const observedDigestLocator = asNonEmptyString(
+    record.observed_service_worker_code_digest_locator
+  );
+  if (!observedScriptLocator || !observedDigestLocator) {
+    return null;
+  }
+
+  return {
+    observedActiveServiceWorkerScriptIdentityLocator: observedScriptLocator,
+    observedServiceWorkerCodeDigestLocator: observedDigestLocator,
+    observedAt: asNonEmptyString(record.observed_at)
+  };
+};
+
+export const writeActiveServiceWorkerCodeIdentityObservation = async (
+  profileDir: string,
+  observation: ActiveServiceWorkerCodeIdentityObservationRecord
+): Promise<void> => {
+  const serviceWorkerPath = join(profileDir, "Default", "Service Worker");
+  await mkdir(serviceWorkerPath, { recursive: true });
+  const artifactPath = join(
+    serviceWorkerPath,
+    ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+  );
+  const tempPath = `${artifactPath}.${process.pid}.${randomUUID()}.tmp`;
+  const record = {
+    extension_id: observation.extensionId,
+    run_id: observation.runId,
+    lifecycle_state: "active_worker_observed",
+    observed_active_service_worker_script_identity_locator:
+      observation.observedActiveServiceWorkerScriptIdentityLocator,
+    observed_service_worker_code_digest_locator:
+      observation.observedServiceWorkerCodeDigestLocator,
+    observed_at: observation.observedAt
+  };
+  try {
+    await writeFile(tempPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    await rename(tempPath, artifactPath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+};
+
+const buildCodeIdentityObservation = (input: {
+  extensionId: string;
+  extensionPath: string | null;
+  serviceWorkerPath: string;
+  expectedScriptRef: string | null;
+  expectedScriptDigest: string | null;
+  serviceWorkerCacheDigest: string | null;
+  lifecycleState: ServiceWorkerLifecycleState;
+  activeEvidence: ActiveServiceWorkerCodeIdentityEvidence | null;
+  recoveryHint: string | null;
+}): ServiceWorkerCodeIdentityObservation =>
+  evaluateServiceWorkerCodeIdentityObservation({
+    extensionId: input.extensionId,
+    expectedExtensionBundleIdentityLocator: input.expectedScriptRef
+      ? `extension-bundle/official-chrome.persistent/${input.extensionId}/service-worker/${input.expectedScriptRef}`
+      : null,
+    observedActiveServiceWorkerScriptIdentityLocator:
+      input.activeEvidence?.observedActiveServiceWorkerScriptIdentityLocator ?? null,
+    expectedBundleDigestLocator: digestLocator(input.expectedScriptDigest),
+    observedServiceWorkerCodeDigestLocator:
+      input.activeEvidence?.observedServiceWorkerCodeDigestLocator ?? null,
+    backgroundServiceWorkerCacheIdentityLocator: input.serviceWorkerCacheDigest
+      ? `extension-service-worker-cache/official-chrome.persistent/${input.extensionId}/script-cache/background`
+      : null,
+    backgroundServiceWorkerCacheDigestLocator: digestLocator(input.serviceWorkerCacheDigest),
+    activeWorkerLifecycleState: input.activeEvidence ? "active_worker_observed" : input.lifecycleState,
+    observedAt: input.activeEvidence?.observedAt ?? null,
+    remediationHint: input.recoveryHint,
+    rawPathDenylist: [input.extensionPath, input.serviceWorkerPath]
+  });
+
+export const resolveEnabledUnpackedPath = async (
   profileDir: string,
   extensionId: string
 ): Promise<string | null> => {
@@ -892,7 +1196,8 @@ const resolveServiceWorkerRefreshPathBlocker = async (
 
 export const resolveProfileExtensionServiceWorkerFreshness = async (
   profileDir: string,
-  extensionId: string
+  extensionId: string,
+  options: ExtensionServiceWorkerFreshnessOptions = {}
 ): Promise<ExtensionServiceWorkerFreshnessDiagnostics> => {
   const serviceWorkerPath = join(profileDir, "Default", "Service Worker");
   const extensionPath = await resolveEnabledUnpackedPath(profileDir, extensionId);
@@ -908,6 +1213,17 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       extensionLatestMtimeMs: null,
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs: null,
+      codeIdentityObservation: buildCodeIdentityObservation({
+        extensionId,
+        extensionPath: null,
+        serviceWorkerPath,
+        expectedScriptRef: null,
+        expectedScriptDigest: null,
+        serviceWorkerCacheDigest: null,
+        lifecycleState: "source_missing",
+        activeEvidence: null,
+        recoveryHint: null
+      }),
       recoveryHint: null
     };
   }
@@ -922,15 +1238,103 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       extensionLatestMtimeMs: null,
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs: null,
+      codeIdentityObservation: buildCodeIdentityObservation({
+        extensionId,
+        extensionPath,
+        serviceWorkerPath,
+        expectedScriptRef: null,
+        expectedScriptDigest: null,
+        serviceWorkerCacheDigest: null,
+        lifecycleState: "source_missing",
+        activeEvidence: null,
+        recoveryHint: null
+      }),
       recoveryHint: null
     };
   }
+
+  const expectedScript = await resolveExpectedServiceWorkerBundleDigest(extensionPath);
 
   const serviceWorkerCacheMtime = await resolveTargetServiceWorkerCacheLatestMtimeMs(
     serviceWorkerPath,
     extensionId
   );
   const serviceWorkerLatestMtimeMs = serviceWorkerCacheMtime?.mtimeMs ?? null;
+  const lifecycleState: ServiceWorkerLifecycleState =
+    serviceWorkerCacheMtime?.source === "script_cache"
+      ? "disk_script_cache_observed"
+      : serviceWorkerCacheMtime?.source === "registration_database" ||
+          serviceWorkerCacheMtime?.source === "registration_database_with_opaque_script_cache"
+        ? "registration_only"
+        : "unavailable";
+  const activeEvidence = await resolveActiveServiceWorkerCodeIdentityEvidence(
+    serviceWorkerPath,
+    extensionId,
+    options
+  );
+  const codeIdentityObservation = buildCodeIdentityObservation({
+    extensionId,
+    extensionPath,
+    serviceWorkerPath,
+    expectedScriptRef: expectedScript.scriptRef,
+    expectedScriptDigest: expectedScript.digest,
+    serviceWorkerCacheDigest: serviceWorkerCacheMtime?.digest ?? null,
+    lifecycleState,
+    activeEvidence,
+    recoveryHint
+  });
+  if (codeIdentityObservation.freshness_comparison_result === "redaction_invalid") {
+    return {
+      state: "stale",
+      reason: "SERVICE_WORKER_EVIDENCE_REDACTION_INVALID",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs,
+      codeIdentityObservation,
+      recoveryHint
+    };
+  }
+  if (codeIdentityObservation.freshness_comparison_result === "expected_identity_missing") {
+    return {
+      state: "unknown",
+      reason: "EXTENSION_SERVICE_WORKER_SCRIPT_DIGEST_UNAVAILABLE",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs,
+      codeIdentityObservation,
+      recoveryHint: null
+    };
+  }
+  if (codeIdentityObservation.freshness_comparison_result === "match") {
+    return {
+      state: "fresh",
+      reason: "SERVICE_WORKER_CACHE_CURRENT",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs,
+      codeIdentityObservation,
+      recoveryHint: null
+    };
+  }
+  if (codeIdentityObservation.freshness_comparison_result === "observed_stale") {
+    return {
+      state: "stale",
+      reason: "SERVICE_WORKER_CODE_IDENTITY_MISMATCH",
+      extensionId,
+      extensionPath,
+      extensionLatestMtimeMs,
+      serviceWorkerPath,
+      serviceWorkerLatestMtimeMs,
+      codeIdentityObservation,
+      recoveryHint
+    };
+  }
   if (serviceWorkerLatestMtimeMs === null) {
     return {
       state: "unknown",
@@ -940,6 +1344,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       extensionLatestMtimeMs,
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs: null,
+      codeIdentityObservation,
       recoveryHint: null
     };
   }
@@ -953,6 +1358,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       extensionLatestMtimeMs,
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs: null,
+      codeIdentityObservation,
       recoveryHint: null
     };
   }
@@ -966,6 +1372,7 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       extensionLatestMtimeMs,
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs,
+      codeIdentityObservation,
       recoveryHint
     };
   }
@@ -979,19 +1386,21 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
       extensionLatestMtimeMs,
       serviceWorkerPath,
       serviceWorkerLatestMtimeMs: null,
+      codeIdentityObservation,
       recoveryHint: null
     };
   }
 
   return {
-    state: "fresh",
-    reason: "SERVICE_WORKER_CACHE_CURRENT",
+    state: "unknown",
+    reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
     extensionId,
     extensionPath,
     extensionLatestMtimeMs,
     serviceWorkerPath,
     serviceWorkerLatestMtimeMs,
-    recoveryHint: null
+    codeIdentityObservation,
+    recoveryHint
   };
 };
 

@@ -1199,6 +1199,9 @@ export const launchBrowser = async (input: BrowserLaunchInput): Promise<BrowserL
     "--no-first-run",
     "--no-default-browser-check"
   ];
+  if (launchMode === "official_chrome_persistent_extension") {
+    launchArgs.push("--remote-debugging-port=0");
+  }
   if (launchMode === "load_extension") {
     extensionBootstrap = resolveExtensionBootstrapPayload(input);
     const extensionStaging = await stageExtensionForRun({

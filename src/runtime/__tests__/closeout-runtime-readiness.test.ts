@@ -33,6 +33,15 @@ const readyStatus = () => ({
   }
 });
 
+const equivalentExtensionSource = () => ({
+  decision: "equivalent" as const,
+  reason_codes: ["same_extension_tree_digest"],
+  active_extension_source_path: "/repo/current/extension",
+  expected_extension_source_path: "/repo/current/extension",
+  active_extension_digest: "digest-a",
+  expected_extension_digest: "digest-a"
+});
+
 const recoverableStaleBootstrapEvidence = () => ({
   identityBound: true,
   ownerConflictFree: true,
@@ -82,6 +91,8 @@ describe("closeout runtime readiness preflight", () => {
   it("blocks a ready runtime when the managed extension service worker cache is stale", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -113,6 +124,14 @@ describe("closeout runtime readiness preflight", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
         expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: {
+          decision: "mismatch",
+          reason_codes: ["extension_tree_digest_mismatch"],
+          active_extension_source_path: "/repo/old/extension",
+          expected_extension_source_path: "/repo/current/extension",
+          active_extension_digest: "digest-a",
+          expected_extension_digest: "digest-b"
+        },
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -136,8 +155,12 @@ describe("closeout runtime readiness preflight", () => {
       runtime_status: {
         extension_service_worker_freshness_state: "unknown",
         extension_service_worker_freshness_reason: "SERVICE_WORKER_CACHE_MISSING",
-        extension_source_path: "/repo/old/extension",
-        expected_extension_source_path: "/repo/current/extension"
+        extension_source_path: null,
+        expected_extension_source_path: null,
+        extension_source_equivalence: {
+          active_extension_source_path: null,
+          expected_extension_source_path: null
+        }
       }
     });
   });
@@ -161,7 +184,22 @@ describe("closeout runtime readiness preflight", () => {
             extensionServiceWorkerFreshness: {
               state: "fresh",
               reason: "SERVICE_WORKER_CACHE_CURRENT",
-              extensionPath: "/repo/old/extension"
+              extensionPath: "/repo/old/extension",
+              codeIdentityObservation: {
+                expected_extension_bundle_identity_locator:
+                  "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
+                observed_active_service_worker_script_identity_locator:
+                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/background",
+                expected_bundle_digest_locator: "sha256:digest-a",
+                observed_service_worker_code_digest_locator: "sha256:digest-a",
+                active_worker_lifecycle_state: "active_worker_observed",
+                freshness_comparison_result: "match",
+                provider_doctor_extension_load_check: {
+                  category: "extension_load",
+                  status: "pass",
+                  blocking: "none"
+                }
+              }
             }
           }
         }
@@ -171,14 +209,57 @@ describe("closeout runtime readiness preflight", () => {
       runtime_state: "ready",
       blocker: null,
       runtime_status: {
-        extension_source_path: "/repo/old/extension",
-        expected_extension_source_path: "/repo/current/extension",
+        extension_source_path: null,
+        expected_extension_source_path: null,
         extension_source_equivalence: {
           decision: "equivalent",
           reason_codes: ["same_extension_tree_digest"],
+          active_extension_source_path: null,
+          expected_extension_source_path: null,
           active_extension_digest: "digest-a",
           expected_extension_digest: "digest-a"
         }
+      }
+    });
+  });
+
+  it("redacts raw extension source paths from public closeout readiness output", () => {
+    const result = buildCloseoutRuntimeReadinessPreflight({
+      expectedExtensionPath: "/repo/current/extension",
+      extensionSourceEquivalence: {
+        decision: "mismatch",
+        reason_codes: ["extension_tree_digest_mismatch"],
+        active_extension_source_path: "/repo/old/extension",
+        expected_extension_source_path: "/repo/current/extension",
+        active_extension_digest: "digest-a",
+        expected_extension_digest: "digest-b"
+      },
+      status: {
+        ...readyStatus(),
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension",
+          extensionServiceWorkerFreshness: {
+            state: "unknown",
+            reason: "SERVICE_WORKER_CACHE_MISSING",
+            extensionPath: "/repo/old/extension",
+            serviceWorkerPath: "/profile/Default/Service Worker"
+          }
+        }
+      }
+    });
+
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("/repo/old/extension");
+    expect(serialized).not.toContain("/repo/current/extension");
+    expect(serialized).not.toContain("/profile/Default/Service Worker");
+    expect(result.runtime_status).toMatchObject({
+      extension_source_path: null,
+      expected_extension_source_path: null,
+      extension_source_equivalence: {
+        active_extension_source_path: null,
+        expected_extension_source_path: null,
+        active_extension_digest: "digest-a",
+        expected_extension_digest: "digest-b"
       }
     });
   });
@@ -187,14 +268,7 @@ describe("closeout runtime readiness preflight", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
         expectedExtensionPath: "/repo/current/extension",
-        extensionSourceEquivalence: {
-          decision: "equivalent",
-          reason_codes: ["same_extension_tree_digest"],
-          active_extension_source_path: "/repo/current/extension",
-          expected_extension_source_path: "/repo/current/extension",
-          active_extension_digest: "digest-a",
-          expected_extension_digest: "digest-a"
-        },
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -225,6 +299,8 @@ describe("closeout runtime readiness preflight", () => {
   it("blocks an official Chrome persistent runtime when service worker freshness evidence is missing", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -243,6 +319,161 @@ describe("closeout runtime readiness preflight", () => {
         extension_service_worker_freshness_reason: null
       }
     });
+  });
+
+  it("exposes FR-0047 code identity and provider doctor check on ready runtime", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "fresh",
+              reason: "SERVICE_WORKER_CACHE_CURRENT",
+              codeIdentityObservation: {
+                expected_extension_bundle_identity_locator:
+                  "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
+                observed_active_service_worker_script_identity_locator:
+                  "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/background",
+                expected_bundle_digest_locator: "sha256:expected",
+                observed_service_worker_code_digest_locator: "sha256:expected",
+                active_worker_lifecycle_state: "active_worker_observed",
+                freshness_comparison_result: "match",
+                provider_doctor_extension_load_check: {
+                  category: "extension_load",
+                  status: "pass",
+                  blocking: "none"
+                }
+              }
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "GO",
+      runtime_status: {
+        extension_service_worker_code_identity: {
+          freshness_comparison_result: "match",
+          active_worker_lifecycle_state: "active_worker_observed"
+        },
+        provider_doctor_extension_load_check: {
+          category: "extension_load",
+          status: "pass",
+          blocking: "none"
+        }
+      }
+    });
+  });
+
+  it("blocks redaction-invalid service worker code identity evidence", () => {
+    expect(
+      buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
+        status: {
+          ...readyStatus(),
+          identityPreflight: {
+            mode: "official_chrome_persistent_extension",
+            extensionServiceWorkerFreshness: {
+              state: "stale",
+              reason: "SERVICE_WORKER_EVIDENCE_REDACTION_INVALID",
+              codeIdentityObservation: {
+                freshness_comparison_result: "redaction_invalid",
+                active_worker_lifecycle_state: "redaction_invalid",
+                provider_doctor_extension_load_check: {
+                  category: "extension_load",
+                  status: "fail",
+                  blocking: "provider_blocking"
+                }
+              }
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_code: "extension_service_worker_stale"
+      },
+      runtime_status: {
+        extension_service_worker_code_identity: {
+          freshness_comparison_result: "redaction_invalid"
+        },
+        provider_doctor_extension_load_check: {
+          status: "fail",
+          blocking: "provider_blocking"
+        }
+      }
+    });
+  });
+
+  it("blocks official Chrome closeout when active extension source proof is not checked", () => {
+    const result = buildCloseoutRuntimeReadinessPreflight({
+      expectedExtensionPath: "/repo/current/extension",
+      extensionSourceEquivalence: {
+        decision: "not_checked",
+        reason_codes: ["active_extension_source_missing"],
+        active_extension_source_path: null,
+        expected_extension_source_path: "/repo/current/extension",
+        active_extension_digest: null,
+        expected_extension_digest: null
+      },
+      status: {
+        ...readyStatus(),
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension",
+          extensionServiceWorkerFreshness: {
+            state: "fresh",
+            reason: "SERVICE_WORKER_CACHE_CURRENT",
+            extensionPath: "/repo/current/extension",
+            serviceWorkerPath: "/profile/Default/Service Worker",
+            codeIdentityObservation: {
+              expected_extension_bundle_identity_locator:
+                "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
+              observed_active_service_worker_script_identity_locator:
+                "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/background",
+              expected_bundle_digest_locator: "sha256:digest-a",
+              observed_service_worker_code_digest_locator: "sha256:digest-a",
+              active_worker_lifecycle_state: "active_worker_observed",
+              freshness_comparison_result: "match",
+              provider_doctor_extension_load_check: {
+                category: "extension_load",
+                status: "pass",
+                blocking: "none"
+              }
+            }
+          }
+        }
+      }
+    });
+
+    expect(result).toMatchObject({
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: {
+        blocker_code: "extension_source_unverified",
+        required_recovery_action:
+          "prove_runtime_extension_source_matches_current_worktree_then_restart_runtime"
+      },
+      runtime_status: {
+        extension_service_worker_freshness_state: "fresh",
+        extension_source_path: null,
+        expected_extension_source_path: null,
+        extension_source_equivalence: {
+          decision: "not_checked",
+          reason_codes: ["active_extension_source_missing"],
+          active_extension_source_path: null,
+          expected_extension_source_path: null
+        }
+      }
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("/repo/current/extension");
+    expect(serialized).not.toContain("/profile/Default/Service Worker");
   });
 
   it("still blocks a ready runtime when extension source content differs", () => {
@@ -278,7 +509,9 @@ describe("closeout runtime readiness preflight", () => {
       runtime_status: {
         extension_source_equivalence: {
           decision: "mismatch",
-          reason_codes: ["extension_tree_digest_mismatch"]
+          reason_codes: ["extension_tree_digest_mismatch"],
+          active_extension_source_path: null,
+          expected_extension_source_path: null
         }
       }
     });

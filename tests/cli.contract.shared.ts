@@ -1,7 +1,18 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile
+} from "node:fs/promises";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -10,9 +21,20 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildRuntimeBootstrapContextId } from "../src/runtime/runtime-bootstrap.js";
+import { ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME } from "../src/runtime/persistent-extension-identity-install.js";
+import { digestServiceWorkerBundleSources } from "../src/runtime/service-worker-bundle-digest.js";
 import { resolveRuntimeStorePath } from "../src/runtime/store/sqlite-runtime-store.js";
 
 const repoRoot = path.resolve(path.join(import.meta.dirname, ".."));
+const testServiceWorkerBundleDigest = (scriptContent: string): string => {
+  const digest = digestServiceWorkerBundleSources([
+    { scriptPath: "build/background.js", source: scriptContent }
+  ]);
+  if (!digest) {
+    throw new Error("failed to build test service worker bundle digest");
+  }
+  return digest;
+};
 const binPath = path.join(repoRoot, "bin", "webenvoy");
 const mockBrowserPath = path.join(repoRoot, "tests", "fixtures", "mock-browser.sh");
 const nativeHostMockPath = path.join(repoRoot, "tests", "fixtures", "native-host-mock.mjs");
@@ -68,6 +90,7 @@ const createNativeHostManifest = async (input: {
   const manifestPath = path.join(dir, `${input.nativeHostName ?? "com.webenvoy.host"}.json`);
   const launcherPath = path.join(dir, "mock-webenvoy-host");
   await writeFile(launcherPath, "#!/usr/bin/env bash\nexit 0\n", "utf8");
+  await chmod(launcherPath, 0o755);
   await writeFile(
     manifestPath,
     `${JSON.stringify(
@@ -89,12 +112,53 @@ const seedInstalledPersistentExtension = async (input: {
   profile: string;
   extensionId?: string;
   enabled?: boolean;
+  runId?: string;
 }): Promise<void> => {
   const extensionId = input.extensionId ?? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const profileDir = path.join(input.cwd, ".webenvoy", "profiles", input.profile, "Default");
   const extensionDir = path.join(profileDir, "Extensions", extensionId, "1.0.0");
+  const unpackedDir = path.join(profileDir, "Extensions", extensionId, "unpacked");
+  const scriptContent = `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\nglobalThis.__webenvoyBuild = 'fresh';\n`;
+  const evidenceMtime = new Date("2026-05-01T00:00:00.000Z");
   await mkdir(extensionDir, { recursive: true });
   await writeFile(path.join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
+  if (input.enabled !== false) {
+    await mkdir(path.join(unpackedDir, "build"), { recursive: true });
+    await writeFile(path.join(unpackedDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
+    await writeFile(path.join(unpackedDir, "build", "background.js"), scriptContent);
+    const scriptDigest = testServiceWorkerBundleDigest(scriptContent);
+    await utimes(path.join(unpackedDir, "manifest.json"), evidenceMtime, evidenceMtime);
+    await utimes(path.join(unpackedDir, "build", "background.js"), evidenceMtime, evidenceMtime);
+    await utimes(path.join(unpackedDir, "build"), evidenceMtime, evidenceMtime);
+    await utimes(unpackedDir, evidenceMtime, evidenceMtime);
+    const serviceWorkerDir = path.join(profileDir, "Service Worker", "ScriptCache");
+    const serviceWorkerScript = path.join(serviceWorkerDir, `${extensionId}-service-worker.js`);
+    await mkdir(serviceWorkerDir, { recursive: true });
+    await writeFile(serviceWorkerScript, scriptContent);
+    await utimes(serviceWorkerScript, evidenceMtime, evidenceMtime);
+    await writeFile(
+      path.join(
+        profileDir,
+        "Service Worker",
+        ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+      ),
+      `${JSON.stringify(
+        {
+          extension_id: extensionId,
+          run_id: input.runId ?? "run-contract-fixture-active-service-worker",
+          lifecycle_state: "active_worker_observed",
+          observed_active_service_worker_script_identity_locator:
+            `extension-service-worker/official-chrome.persistent/${extensionId}/active/build/background.js`,
+          observed_service_worker_code_digest_locator: `sha256:${scriptDigest}`,
+          observed_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`
+    );
+    await utimes(serviceWorkerDir, evidenceMtime, evidenceMtime);
+    await utimes(path.join(profileDir, "Service Worker"), evidenceMtime, evidenceMtime);
+  }
   await writeFile(
     path.join(profileDir, "Preferences"),
     `${JSON.stringify(
@@ -102,7 +166,13 @@ const seedInstalledPersistentExtension = async (input: {
         extensions: {
           settings: {
             [extensionId]: {
-              state: input.enabled === false ? 0 : 1
+              state: input.enabled === false ? 0 : 1,
+              ...(input.enabled === false
+                ? {}
+                : {
+                    location: 4,
+                    path: unpackedDir
+                  })
             }
           }
         }
@@ -119,6 +189,7 @@ const defaultRuntimeEnv = (cwd: string): Record<string, string> => ({
   WEBENVOY_BROWSER_PATH: mockBrowserPath,
   WEBENVOY_BROWSER_MOCK_LOG: path.join(cwd, ".browser-launch.log"),
   WEBENVOY_BROWSER_MOCK_TTL: "2",
+  WEBENVOY_BROWSER_MOCK_CDP: "1",
   WEBENVOY_NATIVE_HOST_MANIFEST_DIR: path.join(
     cwd,
     ".webenvoy",
