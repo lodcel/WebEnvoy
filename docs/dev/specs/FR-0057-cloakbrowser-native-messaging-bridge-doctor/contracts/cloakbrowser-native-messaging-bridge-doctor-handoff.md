@@ -22,6 +22,125 @@ interface CloakBrowserNativeMessagingBridgeDoctorHandoff {
 - 后续 health implementation 必须把可消费结论映射到 `FR-0038.provider_doctor_report`，并使用 `category="native_messaging"`。
 - `bridge_doctor_ready` 只能表示 doctor-layer readiness，不表示 runtime attestation、target tab readiness、page command success、account safety 或 live evidence。
 
+## 1.1 Minimal valid example
+
+以下示例是 redacted handoff JSON，用于说明最小合法 shape。它表达 `cloakbrowser.persistent` 已具备进入 WebEnvoy Native Messaging bridge doctor 的 current / redacted / non-stub preflight evidence；它不表达 runtime attestation、target tab readiness、page command success、account safety 或 live evidence。
+
+```json
+{
+  "identity": {
+    "handoff_id": "cb-nm-bridge-doctor-20260610-001",
+    "handoff_contract_version": "v1",
+    "canonical_issue": 1154,
+    "provider_id": "cloakbrowser.persistent",
+    "variant_kind": "persistent",
+    "doctor_owner": "webenvoy_native_messaging_bridge_doctor",
+    "provider_contract_ref": "docs/dev/specs/FR-0050-cloakbrowser-persistent-descriptor/spec.md",
+    "created_at": "2026-06-10T00:00:00Z"
+  },
+  "input_refs": {
+    "provider_descriptor_ref": "docs/dev/specs/FR-0050-cloakbrowser-persistent-descriptor/spec.md",
+    "extension_identity_ref": "doctor-input://webenvoy-extension/redacted-identity",
+    "native_host_identity_ref": "doctor-input://webenvoy-native-host/redacted-host-id",
+    "native_host_manifest_ref": "doctor-input://webenvoy-native-host/redacted-manifest-locator",
+    "allowed_origins_ref": "doctor-input://webenvoy-extension/redacted-allowed-origin",
+    "host_registration_ref": "doctor-input://webenvoy-native-host/redacted-registration",
+    "bridge_transport_ref": "doctor-input://webenvoy-native-host/redacted-transport",
+    "profile_binding_ref": "doctor-input://cloakbrowser/redacted-profile-binding",
+    "provider_broker_ref": "doctor-input://cloakbrowser/redacted-broker",
+    "redaction_policy_ref": "FR-0041"
+  },
+  "applicability": {
+    "state": "applicable",
+    "reason": "cloakbrowser.persistent declares Native Messaging bridge inputs; WebEnvoy-owned bridge evidence refs are present.",
+    "descriptor_support": "required",
+    "can_enter_preflight": true
+  },
+  "required_checks": [
+    {
+      "check_id": "bridge_owner_attribution",
+      "provider_doctor_category": "native_messaging",
+      "capability_id": "N/A",
+      "required": true,
+      "mapped_failure_classes": ["ownership_mismatch"]
+    },
+    {
+      "check_id": "descriptor_applicability",
+      "provider_doctor_category": "native_messaging",
+      "capability_id": "N/A",
+      "required": true,
+      "mapped_failure_classes": ["descriptor_unsupported", "descriptor_input_missing"]
+    },
+    {
+      "check_id": "extension_identity_binding",
+      "provider_doctor_category": "native_messaging",
+      "capability_id": "N/A",
+      "required": true,
+      "mapped_failure_classes": ["extension_identity_missing", "extension_origin_mismatch"]
+    },
+    {
+      "check_id": "native_host_manifest",
+      "provider_doctor_category": "native_messaging",
+      "capability_id": "N/A",
+      "required": true,
+      "mapped_failure_classes": ["native_manifest_missing", "native_manifest_redaction_invalid"]
+    },
+    {
+      "check_id": "bridge_handshake_preflight",
+      "provider_doctor_category": "native_messaging",
+      "capability_id": "N/A",
+      "required": true,
+      "mapped_failure_classes": ["bridge_handshake_missing", "bridge_handshake_mismatch", "stub_or_fake_host_evidence"]
+    }
+  ],
+  "stateful_conclusion": "bridge_doctor_ready",
+  "failure_classes": [],
+  "provider_doctor_report_ref": "doctor-artifact://cb-nm-bridge-doctor/report-redacted",
+  "evidence_refs": [
+    {
+      "kind": "doctor_artifact_ref",
+      "ref": "doctor-artifact://cb-nm-bridge-doctor/provider-descriptor-digest",
+      "status": "available",
+      "collected_at": "2026-06-10T00:00:00Z",
+      "sensitivity": "internal"
+    },
+    {
+      "kind": "extension_state_ref",
+      "ref": "doctor-artifact://cb-nm-bridge-doctor/extension-identity-redacted",
+      "status": "available",
+      "collected_at": "2026-06-10T00:00:00Z",
+      "sensitivity": "sensitive"
+    },
+    {
+      "kind": "native_manifest_ref",
+      "ref": "doctor-artifact://cb-nm-bridge-doctor/native-manifest-redacted",
+      "status": "available",
+      "collected_at": "2026-06-10T00:00:00Z",
+      "sensitivity": "sensitive"
+    },
+    {
+      "kind": "command_output_ref",
+      "ref": "doctor-artifact://cb-nm-bridge-doctor/handshake-redacted",
+      "status": "available",
+      "collected_at": "2026-06-10T00:00:00Z",
+      "sensitivity": "sensitive"
+    }
+  ],
+  "next_required_gates": [
+    "runtime_attestation",
+    "live_evidence",
+    "capability_matrix",
+    "limitation_gate"
+  ]
+}
+```
+
+示例约束：
+
+- `input_refs.provider_descriptor_ref` 是输入 locator；它不是 `evidence_refs[*].kind`。
+- 如果后续需要把 descriptor material 作为 evidence 引用，必须转换为 FR-0038-compatible `doctor_artifact_ref` 或 `local_file_ref`，例如引用 descriptor digest、redacted artifact id 或 repo-local formal spec locator。
+- 示例中的 `bridge_doctor_ready` 只说明 Native Messaging doctor-layer preflight ready；后续 runtime / live gates 仍保留在 `next_required_gates`。
+
 ## 2. Identity
 
 ```ts
@@ -175,12 +294,12 @@ type BridgeDoctorFailureClass =
 
 ```ts
 type BridgeDoctorEvidenceKind =
+  | "local_file_ref"
   | "extension_state_ref"
   | "native_manifest_ref"
   | "command_output_ref"
   | "profile_state_ref"
   | "doctor_artifact_ref"
-  | "provider_descriptor_ref"
 
 type BridgeDoctorEvidenceStatus =
   | "available"
@@ -206,6 +325,8 @@ interface BridgeDoctorEvidenceRef {
 约束：
 
 - This shape remains compatible with `FR-0038` evidence refs.
+- `BridgeDoctorEvidenceKind` 必须保持在 `FR-0038.ProviderDoctorEvidenceKind` 的闭集内；不得新增 handoff-only evidence kind。
+- `provider_descriptor_ref` 只允许出现在 `input_refs.provider_descriptor_ref`。如 descriptor material 需要进入 `evidence_refs`，必须转换为 `doctor_artifact_ref` 或 `local_file_ref`，并以 digest、redacted artifact locator 或 repo-local formal spec locator 表达。
 - `sensitivity=secret` values may only appear as redacted locator or secret handle.
 - Required check with only `partial|unavailable` evidence cannot pass.
 
