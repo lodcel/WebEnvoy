@@ -4,7 +4,7 @@
 
 把 `#1148 cloakbrowser.cloakserve Descriptor` 冻结成一个窄 formal suite：只定义 `cloakbrowser.cloakserve` 的 static descriptor、default extension disabling、extension workflow experimental status、provider contract refs、limitation refs 与 evidence slots，供 #1149 capability matrix 和 #1152 limitation gate 消费。
 
-`#1148` 是 `work-item-complete`：合入本 suite 后满足 cloakserve descriptor/limitation freeze 的关闭条件；capability matrix、limitation gate、health、launch evidence、fixtures 与 runtime implementation 由后续 issue 承接。
+本 suite 合入只冻结 cloakserve descriptor/limitation formal suite，并为 #1149 capability matrix 与 #1152 limitation gate 提供 fail-closed 输入；formal spec review PR 使用 refs-only 语义，#1148 保持 open。capability matrix、limitation gate、health、launch evidence、fixtures 与 runtime implementation 由后续 issue 承接。
 
 ## 分阶段拆分
 

@@ -8,7 +8,7 @@
 - [ ] 确认 provider contract refs 指向 FR-0033 / FR-0035 / #1149 / #1152，且本 suite 不定义 capability matrix 或 limitation gate result。
 - [ ] 确认 limitation refs 已足够 #1149 和 #1152 fail-closed 消费。
 - [ ] 确认本 suite 没有 runtime implementation、health result schema、launch evidence、fresh live evidence、fixtures、XHS、Syvert、official Chrome service worker 或 browser patching。
-- [ ] 确认 PR metadata 使用 `Fixes #1148`，并声明 integration local-only、live evidence N/A。
+- [ ] 确认 PR metadata 使用 `Refs #1148` refs-only 语义，并声明 integration local-only、live evidence N/A；formal spec review PR 保持 #1148 open。
 
 ## 实现前待办
 
