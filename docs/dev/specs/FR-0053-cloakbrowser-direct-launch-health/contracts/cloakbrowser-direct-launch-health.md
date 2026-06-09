@@ -215,6 +215,121 @@ cloakbrowser_direct_launch_health_report:
           collected_at: "2026-06-09T13:30:00Z"
           sensitivity: "sensitive"
           redaction_state: "redacted"
+    - check_id: "version-probe"
+      category: "version_probe"
+      status: "pass"
+      severity: "info"
+      blocking: "none"
+      summary: "Provider-managed version evidence matches the expected policy."
+      diagnostics:
+        code: "version_probe_pass"
+        observed: "provider-managed-version-match"
+        expected: "provider-managed-version-match"
+        remediation_hint: null
+        proves:
+          - "health_admission_evidence"
+        does_not_prove:
+          - "runtime_ready"
+      evidence_refs:
+        - kind: "version_output_ref"
+          ref: "artifact:version-output:run-123"
+          status: "available"
+          collected_at: "2026-06-09T13:30:00Z"
+          sensitivity: "internal"
+          redaction_state: "not_required"
+    - check_id: "launch-args-probe"
+      category: "launch_args_probe"
+      status: "pass"
+      severity: "info"
+      blocking: "none"
+      summary: "Current-run final args evidence is present and redacted."
+      diagnostics:
+        code: "launch_args_probe_pass"
+        observed: "current_run_redacted_final_args"
+        expected: "current_run_redacted_final_args"
+        remediation_hint: null
+        proves:
+          - "health_admission_evidence"
+        does_not_prove:
+          - "browser_honored_args"
+          - "runtime_ready"
+      evidence_refs:
+        - kind: "final_args_evidence_ref"
+          ref: "artifact:final-args:run-123"
+          status: "available"
+          collected_at: "2026-06-09T13:30:00Z"
+          sensitivity: "internal"
+          redaction_state: "redacted"
+    - check_id: "environment-probe"
+      category: "environment_probe"
+      status: "pass"
+      severity: "info"
+      blocking: "none"
+      summary: "Headful display and launcher environment facts are available."
+      diagnostics:
+        code: "environment_probe_pass"
+        observed: "display_available_headless_not_used"
+        expected: "display_available_headless_not_used"
+        remediation_hint: null
+        proves:
+          - "health_admission_evidence"
+        does_not_prove:
+          - "account_safety_pass"
+          - "anti_detection_pass"
+      evidence_refs:
+        - kind: "environment_probe_ref"
+          ref: "artifact:environment-probe:run-123"
+          status: "available"
+          collected_at: "2026-06-09T13:30:00Z"
+          sensitivity: "internal"
+          redaction_state: "not_required"
+    - check_id: "transport-probe"
+      category: "transport_probe"
+      status: "pass"
+      severity: "info"
+      blocking: "none"
+      summary: "Hybrid transport preflight facts are available for later runtime gate entry."
+      diagnostics:
+        code: "transport_probe_pass"
+        observed: "provider_control_surface_and_attach_preconditions_observed"
+        expected: "provider_control_surface_and_attach_preconditions_observed"
+        remediation_hint: null
+        proves:
+          - "health_admission_evidence"
+        does_not_prove:
+          - "target_tab_ready"
+          - "page_automation_success"
+          - "live_evidence_attested"
+      evidence_refs:
+        - kind: "transport_probe_ref"
+          ref: "artifact:transport-probe:run-123"
+          status: "available"
+          collected_at: "2026-06-09T13:30:00Z"
+          sensitivity: "internal"
+          redaction_state: "not_required"
+    - check_id: "optional-extension-probe"
+      category: "optional_extension_probe"
+      status: "not_applicable"
+      severity: "info"
+      blocking: "none"
+      summary: "Optional extension presence was not requested for this admission."
+      diagnostics:
+        code: "optional_extension_not_requested"
+        observed: "extension_required_for_admission=false"
+        expected: "extension_required_for_admission=false"
+        remediation_hint: null
+        proves:
+          - "health_admission_evidence"
+        does_not_prove:
+          - "stable_extension_identity"
+          - "native_messaging_ready"
+      evidence_refs:
+        - kind: "extension_state_ref"
+          ref: "artifact:optional-extension-policy:run-123"
+          status: "not_applicable"
+          collected_at: "2026-06-09T13:30:00Z"
+          sensitivity: "internal"
+          redaction_state: "not_required"
     - check_id: "admission-summary"
       category: "admission_summary"
       status: "warn"
