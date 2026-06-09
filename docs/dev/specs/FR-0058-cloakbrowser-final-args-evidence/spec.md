@@ -44,8 +44,8 @@ Canonical Issue: #1155
 
 约束：
 
+- 本 formal contract 的 ownership 属于 `#1155` / `FR-0058`，这是 suite-level / document-level metadata，不是 `cloakbrowser_final_args_evidence` record 内的必填字段。
 - 该对象属于 CloakBrowser provider-specific evidence contract surface，可被 direct、persistent、cloakserve variants 共享消费。
-- `contract_owner` 必须指向 `#1155` / `FR-0058`。
 - 该对象只表达一次 CloakBrowser launch args input shape 的证据索引、披露边界与非证明性结论。
 - 该对象不得被解释为：
   - browser launch implementation
