@@ -447,6 +447,20 @@ const seedInstalledPersistentExtension = async (input: {
   );
 };
 
+const expectPublicServiceWorkerFreshnessRedacted = (
+  freshness: unknown,
+  rawPathNeedles: readonly string[]
+): void => {
+  expect(freshness).toEqual(expect.any(Object));
+  const record = freshness as Record<string, unknown>;
+  expect(record.extensionPath).toBeUndefined();
+  expect(record.serviceWorkerPath).toBeUndefined();
+  const serialized = JSON.stringify(record);
+  for (const rawPath of rawPathNeedles) {
+    expect(serialized).not.toContain(rawPath);
+  }
+};
+
 const createMockRegExecutable = async (manifestPath: string): Promise<string> => {
   const dir = await mkdtemp(join(tmpdir(), "webenvoy-native-host-reg-"));
   tempDirs.push(dir);
@@ -3250,25 +3264,29 @@ describe("profile-runtime identity preflight", () => {
       }
     });
 
-    await expect(
-      service.login({
-        cwd: baseDir,
-        profile: "identity_login_profile",
-        runId: "run-runtime-identity-login-001",
-        params: {
-          persistent_extension_identity: {
-            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            manifest_path: manifestPath
-          }
+    const loginStarted = await service.login({
+      cwd: baseDir,
+      profile: "identity_login_profile",
+      runId: "run-runtime-identity-login-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
         }
-      })
-    ).resolves.toMatchObject({
+      }
+    });
+    expect(loginStarted).toMatchObject({
       profile: "identity_login_profile",
       profileState: "logging_in",
       browserState: "logging_in",
       lockHeld: true,
       confirmationRequired: true
     });
+    expectPublicServiceWorkerFreshnessRedacted(
+      (loginStarted.identityPreflight as { extensionServiceWorkerFreshness?: unknown })
+        .extensionServiceWorkerFreshness,
+      [baseDir, join(baseDir, ".webenvoy", "profiles", "identity_login_profile")]
+    );
 
     expect(launchSpy).toHaveBeenCalledTimes(1);
 
@@ -3302,21 +3320,25 @@ describe("profile-runtime identity preflight", () => {
     });
     const service = createTestService();
 
-    await expect(
-      service.start({
-        cwd: baseDir,
-        profile: "identity_reuse_profile",
-        runId: "run-runtime-identity-reuse-001",
-        params: {
-          persistent_extension_identity: {
-            extension_id: extensionId,
-            manifest_path: manifestPath
-          }
+    const started = await service.start({
+      cwd: baseDir,
+      profile: "identity_reuse_profile",
+      runId: "run-runtime-identity-reuse-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: extensionId,
+          manifest_path: manifestPath
         }
-      })
-    ).resolves.toMatchObject({
+      }
+    });
+    expect(started).toMatchObject({
       profileState: "ready"
     });
+    expectPublicServiceWorkerFreshnessRedacted(
+      (started.identityPreflight as { extensionServiceWorkerFreshness?: unknown })
+        .extensionServiceWorkerFreshness,
+      [baseDir, join(baseDir, ".webenvoy", "profiles", "identity_reuse_profile")]
+    );
 
     const status = await service.status({
       cwd: baseDir,
@@ -3335,6 +3357,11 @@ describe("profile-runtime identity preflight", () => {
       manifestPath,
       expectedOrigin: "chrome-extension://cccccccccccccccccccccccccccccccc/"
     });
+    expectPublicServiceWorkerFreshnessRedacted(
+      (status.identityPreflight as { extensionServiceWorkerFreshness?: unknown })
+        .extensionServiceWorkerFreshness,
+      [baseDir, join(baseDir, ".webenvoy", "profiles", "identity_reuse_profile")]
+    );
   });
 
   it("falls back to blocked identity diagnostics after repo-owned install manifest is removed", async () => {

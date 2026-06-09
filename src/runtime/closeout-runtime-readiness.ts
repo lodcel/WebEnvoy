@@ -1,5 +1,4 @@
 import type { JsonObject } from "../core/types.js";
-import { resolve } from "node:path";
 import { buildRuntimeBootstrapContextId } from "./runtime-bootstrap.js";
 
 export type CloseoutRuntimePreflightDecision = "GO" | "RECOVERABLE" | "NO_GO";
@@ -80,6 +79,29 @@ const asInteger = (value: unknown): number | null =>
 
 const asBooleanOrNull = (value: unknown): boolean | null =>
   typeof value === "boolean" ? value : null;
+
+const redactExtensionSourceEquivalence = (input: {
+  decision: "not_checked" | "equivalent" | "mismatch";
+  reason_codes: string[];
+  active_extension_source_path: string | null;
+  expected_extension_source_path: string | null;
+  active_extension_digest: string | null;
+  expected_extension_digest: string | null;
+}): {
+  decision: "not_checked" | "equivalent" | "mismatch";
+  reason_codes: string[];
+  active_extension_source_path: null;
+  expected_extension_source_path: null;
+  active_extension_digest: string | null;
+  expected_extension_digest: string | null;
+} => ({
+  decision: input.decision,
+  reason_codes: input.reason_codes,
+  active_extension_source_path: null,
+  expected_extension_source_path: null,
+  active_extension_digest: input.active_extension_digest,
+  expected_extension_digest: input.expected_extension_digest
+});
 
 const isIsoTimestampAtOrAfter = (value: unknown, floor: unknown): boolean => {
   if (typeof value !== "string" || typeof floor !== "string") {
@@ -269,21 +291,17 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
   const serviceWorkerComparisonResult = asString(
     extensionServiceWorkerCodeIdentity?.freshness_comparison_result
   );
-  const extensionSourcePath = asString(
-    extensionServiceWorkerFreshness?.extensionPath ??
-      identityPreflight?.extension_service_worker_extension_path
-  );
-  const expectedExtensionSourcePath = input.expectedExtensionPath
-    ? resolve(input.expectedExtensionPath)
-    : null;
+  const extensionSourcePath = null;
   const extensionSourceEquivalence = input.extensionSourceEquivalence ?? {
     decision: "not_checked" as const,
     reason_codes: [] as string[],
     active_extension_source_path: extensionSourcePath,
-    expected_extension_source_path: expectedExtensionSourcePath,
+    expected_extension_source_path: null,
     active_extension_digest: null,
     expected_extension_digest: null
   };
+  const publicExtensionSourceEquivalence =
+    redactExtensionSourceEquivalence(extensionSourceEquivalence);
   const transportState = asString(status.transportState);
   const bootstrapState = asString(status.bootstrapState);
   const runtimeReadiness = asString(status.runtimeReadiness);
@@ -303,9 +321,9 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       extension_service_worker_freshness_reason: extensionServiceWorkerFreshnessReason,
       extension_service_worker_code_identity: extensionServiceWorkerCodeIdentity,
       provider_doctor_extension_load_check: providerDoctorExtensionLoadCheck,
-      extension_source_path: extensionSourcePath,
-      expected_extension_source_path: expectedExtensionSourcePath,
-      extension_source_equivalence: extensionSourceEquivalence,
+      extension_source_path: null,
+      expected_extension_source_path: null,
+      extension_source_equivalence: publicExtensionSourceEquivalence,
       transport_state: transportState,
       bootstrap_state: bootstrapState,
       runtime_readiness: runtimeReadiness,
@@ -325,12 +343,7 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
     };
   }
 
-  if (
-    expectedExtensionSourcePath !== null &&
-    extensionSourcePath !== null &&
-    resolve(extensionSourcePath) !== expectedExtensionSourcePath &&
-    extensionSourceEquivalence.decision !== "equivalent"
-  ) {
+  if (extensionSourceEquivalence.decision === "mismatch") {
     return {
       decision: "NO_GO",
       runtime_state: "blocked",

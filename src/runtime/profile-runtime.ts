@@ -85,7 +85,10 @@ import {
 import { NativeHostBridgeTransport } from "./native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "./native-messaging/loopback.js";
 import { buildRuntimeBootstrapContextId } from "./runtime-bootstrap.js";
-import { writeActiveServiceWorkerCodeIdentityObservation } from "./persistent-extension-identity-install.js";
+import {
+  type ExtensionServiceWorkerFreshnessDiagnostics,
+  writeActiveServiceWorkerCodeIdentityObservation
+} from "./persistent-extension-identity-install.js";
 import { resolveRuntimeProfileRoot } from "./worktree-root.js";
 import {
   applyProfileProxyBinding,
@@ -756,6 +759,37 @@ const mapRuntimeError = (error: unknown): CliError => {
   return new CliError("ERR_RUNTIME_UNAVAILABLE", "最小会话运行时不可用", { retryable: true });
 };
 
+const buildPublicServiceWorkerFreshnessOutput = (
+  freshness: ExtensionServiceWorkerFreshnessDiagnostics | null | undefined
+) => {
+  if (!freshness) {
+    return null;
+  }
+  const codeIdentityObservation = freshness.codeIdentityObservation ?? null;
+  return {
+    state: freshness.state,
+    reason: freshness.reason,
+    extensionId: freshness.extensionId,
+    extensionLatestMtimeMs: freshness.extensionLatestMtimeMs,
+    serviceWorkerLatestMtimeMs: freshness.serviceWorkerLatestMtimeMs,
+    expected_extension_bundle_identity_locator:
+      codeIdentityObservation?.expected_extension_bundle_identity_locator ?? null,
+    observed_active_service_worker_script_identity_locator:
+      codeIdentityObservation?.observed_active_service_worker_script_identity_locator ?? null,
+    expected_bundle_digest_locator: codeIdentityObservation?.expected_bundle_digest_locator ?? null,
+    observed_service_worker_code_digest_locator:
+      codeIdentityObservation?.observed_service_worker_code_digest_locator ?? null,
+    background_service_worker_cache_identity_locator:
+      codeIdentityObservation?.background_service_worker_cache_identity_locator ?? null,
+    background_service_worker_cache_digest_locator:
+      codeIdentityObservation?.background_service_worker_cache_digest_locator ?? null,
+    active_worker_lifecycle_state: codeIdentityObservation?.active_worker_lifecycle_state ?? null,
+    freshness_comparison_result: codeIdentityObservation?.freshness_comparison_result ?? null,
+    codeIdentityObservation,
+    recoveryHint: freshness.recoveryHint
+  };
+};
+
 const buildIdentityPreflightOutput = (identityPreflight: IdentityPreflightResult) => {
   const codeIdentityObservation =
     identityPreflight.extensionServiceWorkerFreshness?.codeIdentityObservation ?? null;
@@ -771,7 +805,9 @@ const buildIdentityPreflightOutput = (identityPreflight: IdentityPreflightResult
     blocking: identityPreflight.blocking,
     failureReason: identityPreflight.failureReason,
     installDiagnostics: identityPreflight.installDiagnostics,
-    extensionServiceWorkerFreshness: identityPreflight.extensionServiceWorkerFreshness,
+    extensionServiceWorkerFreshness: buildPublicServiceWorkerFreshnessOutput(
+      identityPreflight.extensionServiceWorkerFreshness
+    ),
     extension_service_worker_code_identity: codeIdentityObservation,
     provider_doctor_extension_load_check:
       codeIdentityObservation?.provider_doctor_extension_load_check ?? null
