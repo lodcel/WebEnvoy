@@ -218,6 +218,14 @@ And 不得展开 private patch payload、stealth parameter、driver internal sta
 - provider private ref 只能证明 provider-private boundary 存在，不证明 patch correctness、runtime ready 或 anti-detection effectiveness。
 - 本 FR 不要求 fixed hash algorithm name 暴露到 public summary；如 algorithm disclosure 本身扩大攻击面，允许只保留 approved algorithm class ref。
 
+## 验收标准
+
+1. Formal suite 明确 caller-supplied seed 是 reproducibility claim 的唯一合法前提。
+2. Formal suite 明确 raw seed 默认 `secret`，只能以 redacted secret reference 表达。
+3. Formal suite 明确 seed hash 只能在 policy-approved 条件下记录，且 `seed_hash_value` 不得进入 public surfaces。
+4. Formal suite 明确 private patch、stealth parameter、driver internal state 与 fingerprint internals 不得进入 WebEnvoy core reusable contract。
+5. Formal suite 明确 downstream evidence、health 与 capability owners 的 fail-closed consumption boundary。
+
 ## 完成定义
 
 本 suite 合入后，`#1156` 的 formal contract 输入达到 PR-ready：
