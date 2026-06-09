@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, lstat, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { inspectManagedNativeHostInstall } from "../install/native-host-install-root.js";
@@ -95,6 +95,14 @@ export interface ExtensionServiceWorkerRefreshBlocker {
   required_recovery_action: "inspect_managed_profile_service_worker_cache";
   expected_service_worker_path: string;
   actual_service_worker_path: string;
+}
+
+export interface ActiveServiceWorkerCodeIdentityObservationRecord {
+  extensionId: string;
+  runId: string;
+  observedActiveServiceWorkerScriptIdentityLocator: string;
+  observedServiceWorkerCodeDigestLocator: string;
+  observedAt: string;
 }
 
 export interface ProfileExtensionSourceRebindResult {
@@ -786,6 +794,11 @@ type ActiveServiceWorkerCodeIdentityEvidence = {
   observedAt: string | null;
 };
 
+export interface ExtensionServiceWorkerFreshnessOptions {
+  requiredObservationRunId?: string | null;
+  requiredObservationObservedAfter?: string | null;
+}
+
 const resolveTargetServiceWorkerCacheLatestMtimeMs = async (
   serviceWorkerPath: string,
   extensionId: string
@@ -869,7 +882,8 @@ const digestLocator = (digest: string | null): string | null =>
 
 const resolveActiveServiceWorkerCodeIdentityEvidence = async (
   serviceWorkerPath: string,
-  extensionId: string
+  extensionId: string,
+  options: ExtensionServiceWorkerFreshnessOptions = {}
 ): Promise<ActiveServiceWorkerCodeIdentityEvidence | null> => {
   const artifactPath = join(
     serviceWorkerPath,
@@ -898,6 +912,34 @@ const resolveActiveServiceWorkerCodeIdentityEvidence = async (
   if (record.extension_id !== extensionId || record.lifecycle_state !== "active_worker_observed") {
     return null;
   }
+  if (
+    typeof options.requiredObservationRunId === "string" &&
+    options.requiredObservationRunId.length > 0 &&
+    record.run_id !== options.requiredObservationRunId
+  ) {
+    return null;
+  }
+  if (typeof record.run_id !== "string" || record.run_id.trim().length === 0) {
+    return null;
+  }
+  if (
+    typeof options.requiredObservationObservedAfter === "string" &&
+    options.requiredObservationObservedAfter.length > 0
+  ) {
+    const observedAt = asNonEmptyString(record.observed_at);
+    if (!observedAt) {
+      return null;
+    }
+    const requiredObservedAfterMs = Date.parse(options.requiredObservationObservedAfter);
+    const observedAtMs = Date.parse(observedAt);
+    if (
+      !Number.isFinite(requiredObservedAfterMs) ||
+      !Number.isFinite(observedAtMs) ||
+      observedAtMs < requiredObservedAfterMs
+    ) {
+      return null;
+    }
+  }
   const observedScriptLocator = asNonEmptyString(
     record.observed_active_service_worker_script_identity_locator
   );
@@ -913,6 +955,36 @@ const resolveActiveServiceWorkerCodeIdentityEvidence = async (
     observedServiceWorkerCodeDigestLocator: observedDigestLocator,
     observedAt: asNonEmptyString(record.observed_at)
   };
+};
+
+export const writeActiveServiceWorkerCodeIdentityObservation = async (
+  profileDir: string,
+  observation: ActiveServiceWorkerCodeIdentityObservationRecord
+): Promise<void> => {
+  const serviceWorkerPath = join(profileDir, "Default", "Service Worker");
+  await mkdir(serviceWorkerPath, { recursive: true });
+  const artifactPath = join(
+    serviceWorkerPath,
+    ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+  );
+  const tempPath = `${artifactPath}.${process.pid}.${randomUUID()}.tmp`;
+  const record = {
+    extension_id: observation.extensionId,
+    run_id: observation.runId,
+    lifecycle_state: "active_worker_observed",
+    observed_active_service_worker_script_identity_locator:
+      observation.observedActiveServiceWorkerScriptIdentityLocator,
+    observed_service_worker_code_digest_locator:
+      observation.observedServiceWorkerCodeDigestLocator,
+    observed_at: observation.observedAt
+  };
+  try {
+    await writeFile(tempPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    await rename(tempPath, artifactPath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 };
 
 const buildCodeIdentityObservation = (input: {
@@ -1043,7 +1115,8 @@ const resolveServiceWorkerRefreshPathBlocker = async (
 
 export const resolveProfileExtensionServiceWorkerFreshness = async (
   profileDir: string,
-  extensionId: string
+  extensionId: string,
+  options: ExtensionServiceWorkerFreshnessOptions = {}
 ): Promise<ExtensionServiceWorkerFreshnessDiagnostics> => {
   const serviceWorkerPath = join(profileDir, "Default", "Service Worker");
   const extensionPath = await resolveEnabledUnpackedPath(profileDir, extensionId);
@@ -1115,7 +1188,8 @@ export const resolveProfileExtensionServiceWorkerFreshness = async (
         : "unavailable";
   const activeEvidence = await resolveActiveServiceWorkerCodeIdentityEvidence(
     serviceWorkerPath,
-    extensionId
+    extensionId,
+    options
   );
   const codeIdentityObservation = buildCodeIdentityObservation({
     extensionId,

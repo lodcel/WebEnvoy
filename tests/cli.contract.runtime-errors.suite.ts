@@ -17,7 +17,8 @@ const startOfficialReadyRuntime = async (
     await seedInstalledPersistentExtension({
       cwd: runtimeCwd,
       profile,
-      extensionId
+      extensionId,
+      runId
     });
     const profileDir = path.join(runtimeCwd, ".webenvoy", "profiles", profile);
     const defaultDir = path.join(profileDir, "Default");
@@ -40,6 +41,7 @@ const startOfficialReadyRuntime = async (
       `${JSON.stringify(
         {
           extension_id: extensionId,
+          run_id: runId,
           lifecycle_state: "active_worker_observed",
           observed_active_service_worker_script_identity_locator:
             `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,

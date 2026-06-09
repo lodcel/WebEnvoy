@@ -58,6 +58,8 @@ export interface IdentityPreflightResult {
     | "BOOTSTRAP_PENDING";
 }
 
+export type ServiceWorkerCodeIdentityAdmissionMode = "required" | "deferred";
+
 const execFileAsync = promisify(execFile);
 
 interface IdentityPreflightAdapters extends IdentityManifestAdapters {
@@ -86,10 +88,18 @@ const EMPTY_INSTALL_DIAGNOSTICS: IdentityPreflightInstallDiagnostics = {
 };
 
 const isProviderBlockingServiceWorkerCodeIdentity = (
-  freshness: ExtensionServiceWorkerFreshnessDiagnostics
+  freshness: ExtensionServiceWorkerFreshnessDiagnostics,
+  admissionMode: ServiceWorkerCodeIdentityAdmissionMode
 ): boolean => {
   const extensionLoadCheck =
     freshness.codeIdentityObservation?.provider_doctor_extension_load_check ?? null;
+  const comparison = freshness.codeIdentityObservation?.freshness_comparison_result ?? null;
+  if (
+    admissionMode === "deferred" &&
+    (comparison === "observed_identity_missing" || comparison === "observed_unknown")
+  ) {
+    return false;
+  }
   return (
     extensionLoadCheck?.blocking === "provider_blocking" &&
     (extensionLoadCheck.status === "fail" || extensionLoadCheck.status === "unknown")
@@ -252,6 +262,9 @@ export const runIdentityPreflight = async (input: {
   params: JsonObject;
   meta: ProfileMeta | null;
   profileDir?: string | null;
+  runId?: string | null;
+  serviceWorkerCodeIdentityAdmission?: ServiceWorkerCodeIdentityAdmissionMode;
+  serviceWorkerObservationObservedAfter?: string | null;
 }): Promise<IdentityPreflightResult> => {
   let browserPath: string | null = null;
   let browserVersion: string | null = null;
@@ -473,6 +486,8 @@ export const runIdentityPreflight = async (input: {
 
   let extensionServiceWorkerFreshness: ExtensionServiceWorkerFreshnessDiagnostics | null = null;
   if (profileDir) {
+    const serviceWorkerCodeIdentityAdmission =
+      input.serviceWorkerCodeIdentityAdmission ?? "required";
     const extensionState = await resolveProfileExtensionState(profileDir, binding.extensionId);
     if (extensionState !== "enabled") {
       return buildBlockingResult({
@@ -494,10 +509,20 @@ export const runIdentityPreflight = async (input: {
       });
     }
     extensionServiceWorkerFreshness =
-      await resolveProfileExtensionServiceWorkerFreshness(profileDir, binding.extensionId);
+      await resolveProfileExtensionServiceWorkerFreshness(profileDir, binding.extensionId, {
+        requiredObservationRunId:
+          serviceWorkerCodeIdentityAdmission === "required" ? input.runId ?? null : null,
+        requiredObservationObservedAfter:
+          serviceWorkerCodeIdentityAdmission === "required"
+            ? input.serviceWorkerObservationObservedAfter ?? null
+            : null
+      });
     if (
       extensionServiceWorkerFreshness.state === "stale" ||
-      isProviderBlockingServiceWorkerCodeIdentity(extensionServiceWorkerFreshness)
+      isProviderBlockingServiceWorkerCodeIdentity(
+        extensionServiceWorkerFreshness,
+        serviceWorkerCodeIdentityAdmission
+      )
     ) {
       return buildBlockingResult({
         mode: "official_chrome_persistent_extension",

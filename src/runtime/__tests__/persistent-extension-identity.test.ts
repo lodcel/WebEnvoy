@@ -105,6 +105,7 @@ const writeActiveServiceWorkerObservation = async (input: {
   profileDir: string;
   extensionId: string;
   scriptContent: string;
+  runId?: string;
 }): Promise<void> => {
   const serviceWorkerPath = join(input.profileDir, "Default", "Service Worker");
   await mkdir(serviceWorkerPath, { recursive: true });
@@ -113,6 +114,7 @@ const writeActiveServiceWorkerObservation = async (input: {
     `${JSON.stringify(
       {
         extension_id: input.extensionId,
+        run_id: input.runId ?? "run-test-active-service-worker-observation",
         lifecycle_state: "active_worker_observed",
         observed_active_service_worker_script_identity_locator:
           `extension-service-worker/official-chrome.persistent/${input.extensionId}/active/background`,

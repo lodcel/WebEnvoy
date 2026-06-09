@@ -51,6 +51,10 @@ import {
   runIdentityPreflight,
   type IdentityPreflightResult
 } from "./persistent-extension-identity.js";
+import {
+  observeActiveExtensionServiceWorkerCodeIdentity,
+  type ActiveServiceWorkerObserverResult
+} from "./active-service-worker-observer.js";
 import type { ProfileState } from "./profile-state.js";
 import {
   buildFingerprintContextForMeta
@@ -81,6 +85,7 @@ import {
 import { NativeHostBridgeTransport } from "./native-messaging/host.js";
 import { createLoopbackNativeBridgeTransport } from "./native-messaging/loopback.js";
 import { buildRuntimeBootstrapContextId } from "./runtime-bootstrap.js";
+import { writeActiveServiceWorkerCodeIdentityObservation } from "./persistent-extension-identity-install.js";
 import { resolveRuntimeProfileRoot } from "./worktree-root.js";
 import {
   applyProfileProxyBinding,
@@ -302,6 +307,12 @@ interface RuntimeBridgeLike {
 interface RuntimeBridgeFactoryOptions {
   waitForProfileSocketOnOpen?: boolean;
 }
+type ActiveServiceWorkerObserverLike = (input: {
+  profileDir: string;
+  extensionId: string;
+  runId: string;
+  timeoutMs?: number;
+}) => Promise<ActiveServiceWorkerObserverResult>;
 const isoNow = (): string => new Date().toISOString();
 const DEFAULT_LOCK_FILE_ADAPTER: LockFileAdapter = {
   readFile: async (path, encoding) => readFile(path, encoding),
@@ -773,6 +784,7 @@ export class ProfileRuntimeService {
   readonly #isProcessAlive: (pid: number) => boolean;
   readonly #browserLauncher: BrowserLauncherLike;
   readonly #bridgeFactory: (options?: RuntimeBridgeFactoryOptions) => RuntimeBridgeLike;
+  readonly #activeServiceWorkerObserver: ActiveServiceWorkerObserverLike;
 
   constructor(options?: {
     storeFactory?: (cwd: string) => ProfileStoreLike;
@@ -780,6 +792,7 @@ export class ProfileRuntimeService {
     isProcessAlive?: (pid: number) => boolean;
     browserLauncher?: BrowserLauncherLike;
     bridgeFactory?: (options?: RuntimeBridgeFactoryOptions) => RuntimeBridgeLike;
+    activeServiceWorkerObserver?: ActiveServiceWorkerObserverLike;
   }) {
     this.#storeFactory =
       options?.storeFactory ??
@@ -807,6 +820,9 @@ export class ProfileRuntimeService {
     this.#bridgeFactory = options?.bridgeFactory ?? ((bridgeOptions) =>
       resolveDefaultRuntimeBridge(bridgeOptions)
     );
+    this.#activeServiceWorkerObserver =
+      options?.activeServiceWorkerObserver ??
+      ((observerInput) => observeActiveExtensionServiceWorkerCodeIdentity(observerInput));
   }
 
   async start(input: RuntimeActionInput): Promise<JsonObject> {
@@ -833,10 +849,11 @@ export class ProfileRuntimeService {
       let existingMeta = await this.#readMeta(store, input.profile, {
         mode: readFingerprintMetaMode(input.params)
       });
-      const identityPreflight = await this.#runIdentityPreflight({
+      let identityPreflight = await this.#runIdentityPreflight({
         input,
         meta: existingMeta,
-        profileDir
+        profileDir,
+        serviceWorkerCodeIdentityAdmission: "deferred"
       });
       const usesPersistentIdentityMode =
         identityPreflight.mode === "official_chrome_persistent_extension";
@@ -925,6 +942,14 @@ export class ProfileRuntimeService {
               identityPreflight,
               profileState: session.profileState
             });
+      if (identityPreflight.mode === "official_chrome_persistent_extension") {
+        identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
+          runtimeInput: input,
+          identityPreflight,
+          profileDir,
+          meta: existingMeta
+        });
+      }
       if (
         shouldFailPersistentBootstrapTransportAdmission({
           params: input.params,
@@ -1048,10 +1073,11 @@ export class ProfileRuntimeService {
       let existingMeta = await this.#readMeta(store, input.profile, {
         mode: readFingerprintMetaMode(input.params)
       });
-      const identityPreflight = await this.#runIdentityPreflight({
+      let identityPreflight = await this.#runIdentityPreflight({
         input,
         meta: existingMeta,
-        profileDir
+        profileDir,
+        serviceWorkerCodeIdentityAdmission: confirmLogin ? "required" : "deferred"
       });
       const usesPersistentIdentityMode =
         identityPreflight.mode === "official_chrome_persistent_extension";
@@ -1162,6 +1188,14 @@ export class ProfileRuntimeService {
           controllerPid: browserLaunch.controllerPid,
           nowIso
         });
+        if (identityPreflight.mode === "official_chrome_persistent_extension") {
+          identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
+            runtimeInput: input,
+            identityPreflight,
+            profileDir,
+            meta: existingMeta
+          });
+        }
       }
 
       await store.writeMeta(
@@ -2924,17 +2958,61 @@ export class ProfileRuntimeService {
     input: RuntimeActionInput;
     meta: ProfileMeta | null;
     profileDir: string;
+    serviceWorkerCodeIdentityAdmission?: "required" | "deferred";
+    serviceWorkerObservationObservedAfter?: string | null;
   }): Promise<IdentityPreflightResult> {
     const preflight = await runIdentityPreflight({
       params: input.input.params,
       meta: input.meta,
-      profileDir: input.profileDir
+      profileDir: input.profileDir,
+      runId: input.input.runId,
+      serviceWorkerCodeIdentityAdmission: input.serviceWorkerCodeIdentityAdmission,
+      serviceWorkerObservationObservedAfter: input.serviceWorkerObservationObservedAfter
     });
     await this.#ensureProfileScopedNativeHostManifest({
       preflight,
       profileDir: input.profileDir
     });
     return preflight;
+  }
+
+  async #observeAndVerifyActiveServiceWorkerIdentity(input: {
+    runtimeInput: RuntimeActionInput;
+    identityPreflight: IdentityPreflightResult;
+    profileDir: string;
+    meta: ProfileMeta | null;
+  }): Promise<IdentityPreflightResult> {
+    if (
+      input.identityPreflight.mode !== "official_chrome_persistent_extension" ||
+      input.identityPreflight.identityBindingState !== "bound" ||
+      !input.identityPreflight.binding
+    ) {
+      return input.identityPreflight;
+    }
+    const observationStartedAt = isoNow();
+    const observation = await this.#activeServiceWorkerObserver({
+      profileDir: input.profileDir,
+      extensionId: input.identityPreflight.binding.extensionId,
+      runId: input.runtimeInput.runId,
+      timeoutMs: 1_000
+    });
+    if (observation.state === "observed") {
+      await writeActiveServiceWorkerCodeIdentityObservation(
+        input.profileDir,
+        observation.observation
+      );
+    }
+    const verifiedPreflight = await this.#runIdentityPreflight({
+      input: input.runtimeInput,
+      meta: input.meta,
+      profileDir: input.profileDir,
+      serviceWorkerCodeIdentityAdmission: "required",
+      serviceWorkerObservationObservedAfter: observationStartedAt
+    });
+    if (shouldBlockSessionEntryOnIdentityPreflight(verifiedPreflight)) {
+      throw buildIdentityPreflightError(verifiedPreflight);
+    }
+    return verifiedPreflight;
   }
 
   async #ensureProfileScopedNativeHostManifest(input: {

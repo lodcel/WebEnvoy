@@ -80,6 +80,7 @@ const createNativeHostManifest = async (input: {
   const manifestPath = path.join(dir, `${input.nativeHostName ?? "com.webenvoy.host"}.json`);
   const launcherPath = path.join(dir, "mock-webenvoy-host");
   await writeFile(launcherPath, "#!/usr/bin/env bash\nexit 0\n", "utf8");
+  await chmod(launcherPath, 0o755);
   await writeFile(
     manifestPath,
     `${JSON.stringify(
@@ -101,6 +102,7 @@ const seedInstalledPersistentExtension = async (input: {
   profile: string;
   extensionId?: string;
   enabled?: boolean;
+  runId?: string;
 }): Promise<void> => {
   const extensionId = input.extensionId ?? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const profileDir = path.join(input.cwd, ".webenvoy", "profiles", input.profile, "Default");
@@ -133,6 +135,7 @@ const seedInstalledPersistentExtension = async (input: {
       `${JSON.stringify(
         {
           extension_id: extensionId,
+          run_id: input.runId ?? "run-contract-fixture-active-service-worker",
           lifecycle_state: "active_worker_observed",
           observed_active_service_worker_script_identity_locator:
             `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,
@@ -176,6 +179,7 @@ const defaultRuntimeEnv = (cwd: string): Record<string, string> => ({
   WEBENVOY_BROWSER_PATH: mockBrowserPath,
   WEBENVOY_BROWSER_MOCK_LOG: path.join(cwd, ".browser-launch.log"),
   WEBENVOY_BROWSER_MOCK_TTL: "2",
+  WEBENVOY_BROWSER_MOCK_CDP: "1",
   WEBENVOY_NATIVE_HOST_MANIFEST_DIR: path.join(
     cwd,
     ".webenvoy",

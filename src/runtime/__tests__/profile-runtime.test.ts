@@ -36,6 +36,8 @@ const originalAppData = process.env.APPDATA;
 const originalNativeHostManifestDir = process.env.WEBENVOY_NATIVE_HOST_MANIFEST_DIR;
 const originalPlatform = process.platform;
 const PERSISTENT_EXTENSION_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const persistentExtensionScriptContent = (extensionId: string): string =>
+  `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\nglobalThis.__webenvoyBuild = 'fresh';\n`;
 
 const createMockBrowserExecutable = async (
   versionOutput: string = "Chromium 146.0.0.0"
@@ -366,12 +368,13 @@ const seedInstalledPersistentExtension = async (input: {
   profile: string;
   extensionId?: string;
   enabled?: boolean;
+  runId?: string;
 }): Promise<void> => {
   const extensionId = input.extensionId ?? PERSISTENT_EXTENSION_ID;
   const profileDir = join(input.baseDir, ".webenvoy", "profiles", input.profile, "Default");
   const extensionDir = join(profileDir, "Extensions", extensionId, "1.0.0");
   const unpackedDir = join(profileDir, "Extensions", extensionId, "unpacked");
-  const scriptContent = `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\nglobalThis.__webenvoyBuild = 'fresh';\n`;
+  const scriptContent = persistentExtensionScriptContent(extensionId);
   const evidenceMtime = new Date("2026-05-01T00:00:00.000Z");
   await mkdir(extensionDir, { recursive: true });
   await writeFile(join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n", "utf8");
@@ -394,6 +397,7 @@ const seedInstalledPersistentExtension = async (input: {
       `${JSON.stringify(
         {
           extension_id: extensionId,
+          ...(input.runId ? { run_id: input.runId } : {}),
           lifecycle_state: "active_worker_observed",
           observed_active_service_worker_script_identity_locator:
             `extension-service-worker/official-chrome.persistent/${extensionId}/active/background`,
@@ -476,6 +480,24 @@ const createTestService = (
         }
       }),
     browserLauncher: options?.browserLauncher ?? createMockBrowserLauncher()
+    ,
+    activeServiceWorkerObserver:
+      options?.activeServiceWorkerObserver ??
+      (async ({ extensionId, runId }) => {
+        const scriptContent = persistentExtensionScriptContent(extensionId);
+        const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+        return {
+          state: "observed" as const,
+          observation: {
+            extensionId,
+            runId,
+            observedActiveServiceWorkerScriptIdentityLocator:
+              `extension-service-worker/official-chrome.persistent/${extensionId}/active/build/background.js`,
+            observedServiceWorkerCodeDigestLocator: `sha256:${scriptDigest}`,
+            observedAt: new Date().toISOString()
+          }
+        };
+      })
   });
 
 beforeAll(async () => {
@@ -1446,6 +1468,25 @@ describe("profile-runtime identity preflight", () => {
     });
 
     expect(started.launch_evidence_ref).toEqual(expect.stringContaining(`provider-evidence:${runId}:`));
+    const activeObservationRaw = await readFile(
+      join(
+        baseDir,
+        ".webenvoy",
+        "profiles",
+        profile,
+        "Default",
+        "Service Worker",
+        ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+      ),
+      "utf8"
+    );
+    expect(JSON.parse(activeObservationRaw)).toMatchObject({
+      extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      run_id: runId,
+      lifecycle_state: "active_worker_observed",
+      observed_active_service_worker_script_identity_locator:
+        "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/build/background.js"
+    });
     expect(started.provider_evidence_record).toMatchObject({
       identity: {
         run_id: runId,
@@ -1486,6 +1527,45 @@ describe("profile-runtime identity preflight", () => {
     expect(status).toMatchObject({
       identityBindingState: "bound",
       runtimeReadiness: "ready"
+    });
+  });
+
+  it("fails runtime.start closed when active service worker observation is unavailable after launch", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-active-sw-missing-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "active_sw_missing_profile"
+    });
+    const service = createTestService({
+      activeServiceWorkerObserver: async () => ({
+        state: "unavailable",
+        reason: "service_worker_target_missing"
+      })
+    });
+
+    await expect(
+      service.start({
+        cwd: baseDir,
+        profile: "active_sw_missing_profile",
+        runId: "run-runtime-active-sw-missing-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING"
+      }
     });
   });
 
