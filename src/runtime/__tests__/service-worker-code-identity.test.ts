@@ -150,6 +150,27 @@ describe("service worker code identity observation", () => {
     });
   });
 
+  it("uses the canonical FR-0047 code when active observation identity is unknown", () => {
+    const observation = evaluateServiceWorkerCodeIdentityObservation({
+      ...baseInput(),
+      activeWorkerLifecycleState: "unavailable"
+    });
+
+    expect(observation).toMatchObject({
+      freshness_comparison_result: "observed_unknown",
+      provider_doctor_extension_load_check: {
+        status: "unknown",
+        severity: "error",
+        blocking: "provider_blocking",
+        diagnostics: {
+          code: "service_worker_identity_unknown",
+          observed: "sha256:expected",
+          expected: "sha256:expected"
+        }
+      }
+    });
+  });
+
   it("fails closed when a locator leaks a raw path", () => {
     const observation = evaluateServiceWorkerCodeIdentityObservation({
       ...baseInput(),

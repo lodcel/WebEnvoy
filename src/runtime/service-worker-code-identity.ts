@@ -118,7 +118,7 @@ const comparisonDiagnosticCode = (
     case "observed_stale":
       return "service_worker_stale";
     case "observed_unknown":
-      return "service_worker_observation_unavailable";
+      return "service_worker_identity_unknown";
     case "expected_identity_missing":
       return "service_worker_expected_identity_missing";
     case "observed_identity_missing":

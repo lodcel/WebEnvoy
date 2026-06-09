@@ -287,7 +287,7 @@ describe("runIdentityPreflight", () => {
       browserVersion: "Google Chrome 146.0.7680.154",
       identityBindingState: "mismatch",
       blocking: true,
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       manifestPath,
       expectedOrigin: `chrome-extension://${EXTENSION_ID}/`,
       allowedOrigins: [`chrome-extension://${EXTENSION_ID}/`]
@@ -553,7 +553,7 @@ describe("runIdentityPreflight", () => {
 
     expect(result).toMatchObject({
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       manifestPath,
       manifestSource: "browser_default",
       expectedOrigin: `chrome-extension://${EXTENSION_ID}/`,
@@ -614,7 +614,7 @@ describe("runIdentityPreflight", () => {
 
     expect(result).toMatchObject({
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       manifestPath,
       manifestSource: "browser_default",
       expectedOrigin: `chrome-extension://${EXTENSION_ID}/`
@@ -763,7 +763,7 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       blocking: true,
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       installDiagnostics: {
         launcherPath,
         launcherExists: true,
@@ -1365,7 +1365,7 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       blocking: true,
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING",
       manifestPath,
       extensionServiceWorkerFreshness: {
         state: "unknown",
@@ -1451,7 +1451,7 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       blocking: true,
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
         state: "unknown",
         reason: "SERVICE_WORKER_CACHE_MISSING",
@@ -1467,6 +1467,15 @@ describe("runIdentityPreflight", () => {
             }
           }
         }
+      }
+    });
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "SERVICE_WORKER_CACHE_MISSING",
+        extension_service_worker_freshness_comparison_result: "observed_identity_missing"
       }
     });
   });
@@ -1553,7 +1562,7 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       blocking: true,
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
         state: "unknown",
         reason: "SERVICE_WORKER_CACHE_MISSING",
@@ -1570,6 +1579,15 @@ describe("runIdentityPreflight", () => {
             }
           }
         }
+      }
+    });
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "SERVICE_WORKER_CACHE_MISSING",
+        extension_service_worker_freshness_comparison_result: "observed_identity_missing"
       }
     });
   });
@@ -2041,7 +2059,7 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       blocking: true,
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
         state: "unknown",
         reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
@@ -2055,6 +2073,15 @@ describe("runIdentityPreflight", () => {
             blocking: "provider_blocking"
           }
         }
+      }
+    });
+    const preflightError = buildIdentityPreflightError(result);
+    expect(preflightError).toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
+        extension_service_worker_freshness_comparison_result: "observed_identity_missing"
       }
     });
   });
@@ -2363,7 +2390,7 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       blocking: true,
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
         state: "unknown",
         reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
@@ -2557,7 +2584,7 @@ describe("runIdentityPreflight", () => {
     expect(result).toMatchObject({
       blocking: true,
       identityBindingState: "mismatch",
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       extensionServiceWorkerFreshness: {
         state: "unknown",
         reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING",
@@ -2628,7 +2655,7 @@ describe("runIdentityPreflight", () => {
         manifestPath
       },
       manifestPath,
-      failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+      failureReason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
       blocking: true
     });
   });

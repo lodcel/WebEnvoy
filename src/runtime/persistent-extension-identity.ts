@@ -52,6 +52,9 @@ export interface IdentityPreflightResult {
     | "IDENTITY_ALLOWED_ORIGIN_MISSING"
     | "IDENTITY_BINDING_CONFLICT"
     | "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED"
+    | "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING"
+    | "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED"
+    | "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN"
     | "BOOTSTRAP_PENDING";
 }
 
@@ -91,6 +94,26 @@ const isProviderBlockingServiceWorkerCodeIdentity = (
     extensionLoadCheck?.blocking === "provider_blocking" &&
     (extensionLoadCheck.status === "fail" || extensionLoadCheck.status === "unknown")
   );
+};
+
+const resolveServiceWorkerFailureReason = (
+  freshness: ExtensionServiceWorkerFreshnessDiagnostics
+): IdentityPreflightResult["failureReason"] => {
+  const comparison =
+    freshness.codeIdentityObservation?.freshness_comparison_result ?? null;
+  if (freshness.state === "stale" || comparison === "observed_stale") {
+    return "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED";
+  }
+  if (comparison === "expected_identity_missing") {
+    return "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING";
+  }
+  if (comparison === "observed_unknown") {
+    return "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN";
+  }
+  if (comparison === "observed_identity_missing") {
+    return "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED";
+  }
+  return "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN";
 };
 
 export const setIdentityPreflightAdaptersForTests = (
@@ -174,6 +197,30 @@ export const buildIdentityPreflightError = (
     return new CliError(
       "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
       "managed profile 的 persistent extension Service Worker 缓存早于当前 extension build，已阻止继续执行",
+      { details, retryable: false }
+    );
+  }
+
+  if (result.failureReason === "EXTENSION_SERVICE_WORKER_EXPECTED_IDENTITY_MISSING") {
+    return new CliError(
+      "ERR_RUNTIME_IDENTITY_MISMATCH",
+      "official Chrome persistent extension 缺少预期 Service Worker 代码身份，已阻止继续执行",
+      { details, retryable: false }
+    );
+  }
+
+  if (result.failureReason === "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED") {
+    return new CliError(
+      "ERR_RUNTIME_IDENTITY_MISMATCH",
+      "official Chrome persistent extension 缺少当前 active Service Worker 代码身份观测，已阻止继续执行",
+      { details, retryable: false }
+    );
+  }
+
+  if (result.failureReason === "EXTENSION_SERVICE_WORKER_IDENTITY_UNKNOWN") {
+    return new CliError(
+      "ERR_RUNTIME_IDENTITY_MISMATCH",
+      "official Chrome persistent extension Service Worker 代码身份未知，已阻止继续执行",
       { details, retryable: false }
     );
   }
@@ -467,7 +514,7 @@ export const runIdentityPreflight = async (input: {
         allowedOrigins: manifest.allowed_origins,
         installDiagnostics,
         extensionServiceWorkerFreshness,
-        failureReason: "EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED"
+        failureReason: resolveServiceWorkerFailureReason(extensionServiceWorkerFreshness)
       });
     }
   }
