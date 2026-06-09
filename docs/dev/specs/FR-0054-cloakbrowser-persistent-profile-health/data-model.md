@@ -37,12 +37,27 @@
 ### `ProfileStateSignal`
 
 - 职责：表达 persistent profile 是否具备 required persistence、lock 与并发使用前置。
-- 关键字段：`profile_persistence_status`、`profile_lock_status`、`concurrent_use_status`、`cleanup_expectation_observed`、`freshness`、`evidence_refs`。
+- 关键字段：`profile_persistence_status`、`profile_lock_status`、`concurrent_use_status`、`runtime_item_health_state`、`controlled_disconnect_ref`、`recovery_path_status`、`cleanup_expectation_observed`、`freshness`、`evidence_refs`。
 
 约束：
 
 - `ephemeral`、`missing`、`locked_by_other`、`stale_lock`、`detected` 或 required unknown 状态必须 fail-closed。
+- `runtime_item_health_state=healthy` 只能由 persistent、current-run lock、clear concurrency、fresh evidence 与 valid redaction 共同产生。
+- `runtime_item_health_state=disconnected|recoverable|blocked` 命中 required persistent route 时不得进入 `health_passed_requirements`。
+- `recovery_path_status` 只表达候选恢复路径或复查需要，不证明恢复已经完成。
 - `cleanup_expectation_observed` 只表达健康检查没有要求清空 profile，不定义 cleanup implementation。
+
+### `RuntimeItemHealthStateMatrix`
+
+- 职责：把 profile persistence、lock ownership、concurrency、freshness 与 evidence redaction 映射到 `healthy`、`disconnected`、`recoverable`、`blocked`。
+- 生命周期：作为 health validator 的 contract input；不存储 runtime recovery 过程，不执行 remediation。
+
+约束：
+
+- `healthy` 才允许 profile state 进入 passed requirements。
+- `disconnected` 表示受控或可审计断开，但仍阻断 runtime admission。
+- `recoverable` 表示可尝试恢复或复查，但必须 fail-closed 到新的 fresh health run。
+- `blocked` 表示不能安全恢复或证据不足，必须 provider/capability blocking。
 
 ### `ExtensionSurfaceSignal`
 

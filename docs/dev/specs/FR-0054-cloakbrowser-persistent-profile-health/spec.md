@@ -107,6 +107,9 @@ Canonical Issue: #1151
 - `profile_persistence_status`
 - `profile_lock_status`
 - `concurrent_use_status`
+- `runtime_item_health_state`
+- `controlled_disconnect_ref`
+- `recovery_path_status`
 - `profile_state_freshness`
 - `cleanup_expectation_observed`
 - `state_evidence_refs`
@@ -116,9 +119,47 @@ Canonical Issue: #1151
 - `profile_persistence_status` 至少支持 `persistent`、`ephemeral`、`missing`、`unknown`。
 - `profile_lock_status` 至少支持 `locked_by_current_run`、`locked_by_other`、`stale_lock`、`unlocked`、`unknown`。
 - `concurrent_use_status` 至少支持 `clear`、`suspected`、`detected`、`unknown`。
+- `runtime_item_health_state` 至少支持 `healthy`、`disconnected`、`recoverable`、`blocked`。
+- `recovery_path_status` 至少支持 `not_needed`、`candidate`、`in_progress`、`completed_pending_recheck`、`not_available`、`blocked`。
 - `profile_state_freshness` 必须使用本 FR 的 freshness model；不得用 `generated_at` 替代采集时间。
 - persistent route required 时，`ephemeral`、`missing`、`locked_by_other`、`stale_lock`、`detected` 或 `unknown` 必须 fail-closed，除非后续独立 FR 明确某个 diagnostic-only mode 可降级。
+- `runtime_item_health_state=healthy` 只能在 profile persistent、lock owned by current run、concurrent use clear、freshness fresh、evidence available 且无 required redaction error 时出现。
+- `runtime_item_health_state=disconnected|recoverable|blocked` 命中 required persistent route 时不得进入 `health_passed_requirements`。
+- `controlled_disconnect_ref` 只能说明 disconnect 是受控或可审计事实；它不得把 disconnected profile 自动恢复为 healthy。
+- `recovery_path_status=candidate|in_progress|completed_pending_recheck` 只能表达恢复路径存在或执行中；在新的 current health run 重新采集并通过前，consumer 必须 fail-closed。
 - `cleanup_expectation_observed=preserve_profile_state` 只说明健康检查没有要求清空 profile；不得被解释为 cleanup implementation 已通过。
+
+### 4.1 Stateful runtime-item health matrix
+
+Persistent profile state 必须按以下矩阵生成 `runtime_item_health_state`，供 runtime admission、capability matrix 和 reviewer 判断是否可继续。该矩阵只定义 health contract 输出，不实现 recovery command。
+
+| Input condition | runtime_item_health_state | Required outcome | Recovery path | Fail-closed rule |
+|---|---|---|---|---|
+| `profile_persistence_status=persistent` + `profile_lock_status=locked_by_current_run` + `concurrent_use_status=clear` + fresh evidence | `healthy` | `overall_status=pass|warn` allowed | `recovery_path_status=not_needed` | Still must pass extension, Native Messaging, runtime and live gates. |
+| controlled disconnect observed, profile not currently locked by this run, no concurrent use detected, evidence fresh | `disconnected` | `overall_status=fail|unknown`, provider/capability blocked for runtime admission | `candidate` only if reconnect preconditions are documented by future owner | Disconnect remains fail-closed until a new health run proves `healthy`. |
+| stale lock or suspected contention with fresh evidence and no detected active conflicting owner | `recoverable` | `overall_status=fail|unknown`, affected capability blocked | `candidate|in_progress|completed_pending_recheck` | Recovery candidate cannot satisfy health; recheck is required. |
+| lock owned by another run, concurrent use detected, profile missing/ephemeral, unknown lock/concurrency, stale/missing evidence, or redaction invalid | `blocked` | `overall_status=fail|unknown`, provider or capability blocked | `not_available|blocked` unless future owner supplies separate remediation | Must not be downgraded to warning or pass. |
+
+约束：
+
+- `profile_lock_status=unlocked` 只能产生 `disconnected` 或 `blocked`，除非后续 owner 证明当前 mode 是 diagnostic-only 且不进入 runtime admission。
+- `profile_lock_status=stale_lock` 可产生 `recoverable`，但 required persistent route 仍必须 fail-closed，直到 recovery 后的新 health run 变为 `healthy`。
+- `concurrent_use_status=suspected` 可产生 `recoverable`，但不得通过；`detected` 必须产生 `blocked`。
+- `controlled_disconnect_ref`、`recovery_path_status` 和 remediation hint 都不是 recovery proof，不得进入 `health_passed_requirements`。
+- `completed_pending_recheck` 仍表示未通过；只有 recheck 后的 fresh `healthy` state 可以解除对应 health blocker。
+
+### 4.2 Minimum validation matrix
+
+后续 implementation 或 validator 至少必须覆盖以下矩阵；本 FR 只冻结期望行为，不新增测试代码。
+
+| Validation case | Required input | Expected health state | Expected outcome |
+|---|---|---|---|
+| Healthy selected profile | persistent + current-run lock + clear concurrency + fresh profile evidence | `healthy` | Profile state may enter `health_passed_requirements`; later gates still required. |
+| Controlled disconnect | disconnect ref present + unlocked profile + fresh evidence | `disconnected` | Fail-closed; recovery or reconnect must be followed by new health run. |
+| Stale lock recovery candidate | stale lock + fresh lock evidence + no detected conflicting owner | `recoverable` | Fail-closed; remediation may be suggested but not accepted as pass. |
+| Lock ownership conflict | `locked_by_other` | `blocked` | Provider/capability blocking; no runtime admission. |
+| Concurrency contention | `suspected` or `detected` | `recoverable` for suspected, `blocked` for detected | Both fail-closed until fresh clear state. |
+| Missing or stale evidence | unavailable/partial/invalid redaction or stale freshness | `blocked` | `overall_status=fail|unknown`; no pass fields. |
 
 ### 5. Extension load and runtime surface signals
 

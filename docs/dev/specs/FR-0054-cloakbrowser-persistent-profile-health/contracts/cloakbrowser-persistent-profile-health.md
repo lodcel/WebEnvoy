@@ -34,6 +34,9 @@ cloakbrowser_persistent_profile_health:
     profile_persistence_status: "persistent" | "ephemeral" | "missing" | "unknown"
     profile_lock_status: "locked_by_current_run" | "locked_by_other" | "stale_lock" | "unlocked" | "unknown"
     concurrent_use_status: "clear" | "suspected" | "detected" | "unknown"
+    runtime_item_health_state: "healthy" | "disconnected" | "recoverable" | "blocked"
+    controlled_disconnect_ref: string | "N/A"
+    recovery_path_status: "not_needed" | "candidate" | "in_progress" | "completed_pending_recheck" | "not_available" | "blocked"
     cleanup_expectation_observed: "preserve_profile_state" | "cleanup_requested" | "unknown"
     freshness: HealthSignalFreshness
     evidence_refs:
@@ -112,12 +115,15 @@ PersistentHealthEvidenceRef:
 4. Every required signal must include freshness and at least one evidence ref unless explicitly `not_applicable`.
 5. Required signals must fail closed when freshness is stale, unknown, historical, not collected, or redaction invalid.
 6. Required profile binding fails closed on identity mismatch, unresolved locator, inaccessible locator, unavailable evidence, or invalid redaction.
-7. Required profile state fails closed on missing or ephemeral persistence, lock owned by another run, stale lock, detected concurrent use, or unknown lock/concurrency state.
+7. Required profile state fails closed on missing or ephemeral persistence, lock owned by another run, stale lock, detected concurrent use, disconnected state, recoverable state, blocked state, or unknown lock/concurrency state.
 8. Required extension surface fails closed when the extension is missing, ambiguous, not loaded, load-error, stale, missing runtime surface, or bound to a profile other than the selected profile.
 9. Required Native Messaging surface fails closed when manifest or host locator is missing/inaccessible, allowed origin mismatches, or transport surface is missing/error.
 10. `health_verification_level` must never exceed `health_checked`.
 11. `does_not_prove` is mandatory and must include every v1 enum listed above.
 12. Health pass cannot satisfy runtime attestation, target tab binding, command success, Native Messaging round-trip success, capability allow, account safety, anti-detection pass, or live evidence attestation.
+13. `runtime_item_health_state=healthy` requires persistent profile state, current-run lock ownership, clear concurrency, fresh evidence, and valid redaction.
+14. `runtime_item_health_state=disconnected|recoverable|blocked` must not appear in `health_passed_requirements` for required persistent runtime admission.
+15. `recovery_path_status=candidate|in_progress|completed_pending_recheck` is not recovery proof; it remains fail-closed until a new health run reports `runtime_item_health_state=healthy`.
 
 ## Minimal valid example
 
@@ -153,6 +159,66 @@ profile_binding:
       status: "available"
       collected_at: "2026-06-09T00:00:00Z"
       sensitivity: "sensitive"
+profile_state:
+  profile_persistence_status: "persistent"
+  profile_lock_status: "locked_by_current_run"
+  concurrent_use_status: "clear"
+  runtime_item_health_state: "healthy"
+  controlled_disconnect_ref: "N/A"
+  recovery_path_status: "not_needed"
+  cleanup_expectation_observed: "preserve_profile_state"
+  freshness:
+    collected_at: "2026-06-09T00:00:00Z"
+    freshness_scope: "current_health_run"
+    freshness_status: "fresh"
+    max_age_policy_ref: "policy:persistent-health:max-age:v1"
+    staleness_reason: "N/A"
+  evidence_refs:
+    - kind: "profile_lock_ref"
+      ref: "artifact:profile-lock:run-123"
+      status: "available"
+      collected_at: "2026-06-09T00:00:00Z"
+      sensitivity: "sensitive"
+extension_surface:
+  extension_binding_ref: "descriptor:extension-binding:persistent"
+  extension_identity_ref: "opaque:extension-id"
+  extension_installation_status: "installed"
+  extension_load_status: "loaded"
+  extension_runtime_surface_status: "surface_visible"
+  extension_profile_binding_status: "bound_to_selected_profile"
+  service_worker_freshness_ref: "artifact:service-worker-freshness:run-123"
+  freshness:
+    collected_at: "2026-06-09T00:00:00Z"
+    freshness_scope: "current_health_run"
+    freshness_status: "fresh"
+    max_age_policy_ref: "policy:persistent-health:max-age:v1"
+    staleness_reason: "N/A"
+  evidence_refs:
+    - kind: "extension_state_ref"
+      ref: "artifact:extension-state:run-123"
+      status: "available"
+      collected_at: "2026-06-09T00:00:00Z"
+      sensitivity: "internal"
+native_messaging_surface:
+  native_messaging_ref: "descriptor:native-messaging:persistent"
+  host_manifest_ref: "redacted:native-host-manifest"
+  allowed_origin_ref: "opaque:allowed-origin"
+  extension_id_ref: "opaque:extension-id"
+  native_host_locator_status: "resolved"
+  allowed_origin_status: "matches_extension"
+  transport_surface_status: "surface_available"
+  freshness:
+    collected_at: "2026-06-09T00:00:00Z"
+    freshness_scope: "current_health_run"
+    freshness_status: "fresh"
+    max_age_policy_ref: "policy:persistent-health:max-age:v1"
+    staleness_reason: "N/A"
+  evidence_refs:
+    - kind: "native_manifest_ref"
+      ref: "artifact:native-manifest:run-123"
+      status: "available"
+      collected_at: "2026-06-09T00:00:00Z"
+      sensitivity: "sensitive"
 outcome:
   overall_status: "pass"
   provider_blocked: false
@@ -160,6 +226,9 @@ outcome:
   health_verification_level: "health_checked"
   health_passed_requirements:
     - "profile_binding"
+    - "profile_state"
+    - "extension_surface"
+    - "native_messaging_surface"
   health_failed_requirements: []
   next_required_gates:
     - "runtime_attestation"
