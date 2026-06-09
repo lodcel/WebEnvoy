@@ -13,10 +13,10 @@
 - 产出：`spec.md`、`contracts/cloakbrowser-persistent-descriptor.md`
 - 重点：确认 `cloakbrowser.persistent` 只表达 static descriptor refs，不定义 health result、runtime ready 或 capability matrix。
 
-### 阶段 2：profile / extension workflow / health inputs 落成
+### 阶段 2：research / profile / extension workflow / health inputs 落成
 
-- 产出：`data-model.md`
-- 重点：冻结 persistent profile reference、profile identity constraints、extension workflow refs 与 health requirement inputs。
+- 产出：`research.md`、`data-model.md`
+- 重点：记录 scoped evidence inputs、未决假设与 fail-closed 影响，并冻结 persistent profile reference、profile identity constraints、extension workflow refs 与 health requirement inputs。
 
 ### 阶段 3：direct 差异与禁止范围收口
 
@@ -54,6 +54,8 @@
   - 对照 issue #1147，确认只覆盖 persistent descriptor。
   - 对照 FR-0033/FR-0036/FR-0038，确认只消费 provider contract / registry / health carrier。
   - 对照 sibling #1146/#1148/#1149，确认没有直接定义 direct launch、cloakserve descriptor 或 capability matrix。
+  - 确认 `research.md` 不声明 runtime readiness，不暴露 private patch schema。
+  - 确认 contract 示例包含 spec section 9 的全部 required limitation refs。
 
 ## TDD 范围
 
@@ -83,5 +85,7 @@
 - FR-0050 spec review 通过。
 - reviewer 确认 PR metadata 使用 `Refs #1147`，且本 formal spec review PR 不自动关闭 #1147。
 - reviewer 确认 persistent profile / extension workflow / health requirement inputs 只以 refs 表达，没有写成 readiness 或 pass evidence。
+- reviewer 确认 `research.md` 支撑第三方 provider 假设，并保留未验证输入与 fail-closed 影响。
+- reviewer 确认 contract 示例可被 downstream consumer 读取，且未删除 required limitation refs。
 - reviewer 确认 direct 差异边界清楚，未推进 #1146 direct launch / final args evidence。
 - reviewer 确认本 suite 不暴露 CloakBrowser private patch schema 或 secret。

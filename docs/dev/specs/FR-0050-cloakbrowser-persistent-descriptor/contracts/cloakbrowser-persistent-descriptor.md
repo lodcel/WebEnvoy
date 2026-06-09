@@ -212,3 +212,143 @@ interface CloakBrowserPersistentDownstreamOwners {
 - FR-0050 only satisfies `static_descriptor_ref`.
 - `health_result_ref`、`launch_evidence_ref` 与 `fixture_ref` 必须由 downstream owner 填充。
 - `direct_descriptor=#1146` 仅用于 sibling boundary；FR-0050 不消费或修改 direct launch shape。
+
+## 10. 最小可消费示例
+
+该示例只用于 downstream parser、fixture、capability matrix 与 health consumer 理解字段形状。它不证明 CloakBrowser installed、profile ready、extension workflow ready、doctor pass、runtime ready 或 live evidence ready。
+
+```json
+{
+  "descriptor_id": "cloakbrowser.persistent",
+  "descriptor_version": "v1",
+  "variant_kind": "persistent",
+  "provider_identity": {
+    "provider_id": "cloakbrowser.persistent",
+    "provider_family": "managed_browser_provider",
+    "provider_version": "v1",
+    "contract_version": "v1",
+    "distribution_channel": "external_adapter",
+    "implementation_owner": "cloakbrowser_provider_adapter"
+  },
+  "provider_mode": "external_managed",
+  "engine": {
+    "engine_family": "chromium",
+    "browser_channel": "CloakBrowser managed Chromium",
+    "browser_version_range": "provider_managed",
+    "headless_policy": "forbidden",
+    "extension_binding_support": "required",
+    "profile_binding_support": "required"
+  },
+  "transport": {
+    "transport_kind": "hybrid",
+    "transport_owner": "provider",
+    "command_surface": [
+      "runtime_control",
+      "page_automation",
+      "diagnostics",
+      "artifact_passthrough"
+    ],
+    "attach_model": "provider_brokered",
+    "native_messaging_support": "required",
+    "cdp_support": "supported",
+    "playwright_support": "supported"
+  },
+  "profile_semantics": {
+    "profile_kind": "cloakbrowser_persistent_profile",
+    "profile_persistence": "required",
+    "login_state_reuse": "expected_when_profile_ready",
+    "profile_locking": "required",
+    "cleanup_expectation": "preserve_profile_state",
+    "profile_reference": {
+      "provider_workspace_ref": "cloakbrowser.workspace_ref:opaque:default",
+      "profile_locator_ref": "cloakbrowser.profile_ref:redacted:selected",
+      "selected_profile_identity_ref": "cloakbrowser.profile_identity_ref:opaque:selected",
+      "locator_sensitivity": "sensitive",
+      "locator_disclosure": "opaque"
+    },
+    "profile_identity_constraints": [
+      "no_cookie_inline",
+      "no_token_inline",
+      "no_license_secret_inline",
+      "no_account_credential_inline",
+      "no_raw_sensitive_path_inline",
+      "no_provider_broker_credential_inline",
+      "requires_profile_identity_match",
+      "requires_profile_lock_health"
+    ]
+  },
+  "extension_workflow": {
+    "workflow_kind": "persistent_profile_extension_workflow",
+    "extension_binding_kind": "provider_managed_persistent_extension",
+    "extension_identity_ref": "cloakbrowser.extension_identity_ref:opaque:managed",
+    "extension_installation_ref": "cloakbrowser.extension_installation_ref:redacted:profile-scoped",
+    "extension_runtime_ref": "cloakbrowser.extension_runtime_ref:opaque:pending-health",
+    "workflow_capability_refs": [
+      "FR-0033.browser_provider_contract.capabilities",
+      "#1149.cloakbrowser_capability_matrix"
+    ],
+    "native_bridge_ref": "cloakbrowser.native_bridge_ref:opaque:pending-health",
+    "artifact_passthrough_ref": "cloakbrowser.artifact_passthrough_ref:opaque:pending-owner"
+  },
+  "health_requirement_inputs": {
+    "expected_binary_source_ref": "FR-0038.input_contract_ref.expected_binary_source:cloakbrowser-provider",
+    "provider_broker_ref": "cloakbrowser.provider_broker_ref:opaque:pending-health",
+    "profile_binding_ref": "cloakbrowser.profile_binding_ref:redacted:selected",
+    "extension_binding_ref": "cloakbrowser.extension_binding_ref:redacted:profile-scoped",
+    "native_messaging_ref": "cloakbrowser.native_messaging_ref:opaque:pending-health",
+    "display_mode_ref": "cloakbrowser.display_mode_ref:opaque:headed-required",
+    "provider_private_patch_presence_ref": "cloakbrowser.private_capability_ref:opaque:presence-required",
+    "capability_readiness_ref": "FR-0038.provider_doctor_report.checks[capability_readiness]"
+  },
+  "capability_declaration_refs": [
+    "FR-0033.browser_provider_contract.capabilities",
+    "FR-0035.provider_capability_verification_model",
+    "FR-0038.provider_doctor_report",
+    "#1149 CloakBrowser Capability Matrix"
+  ],
+  "limitation_refs": [
+    "persistent_requires_cloakbrowser_managed_profile",
+    "persistent_requires_profile_binding",
+    "persistent_requires_extension_workflow_binding",
+    "persistent_requires_native_messaging",
+    "persistent_requires_provider_broker_attachment",
+    "persistent_provider_private_patch_required",
+    "persistent_no_descriptor_level_health_pass",
+    "persistent_no_descriptor_level_runtime_readiness",
+    "persistent_no_latest_head_live_evidence"
+  ],
+  "evidence_reference_slots": [
+    "static_descriptor_ref",
+    "registry_entry_ref",
+    "capability_matrix_ref",
+    "health_result_ref",
+    "launch_evidence_ref",
+    "fixture_ref"
+  ],
+  "downstream_owners": {
+    "capability_matrix": "#1149",
+    "direct_descriptor": "#1146",
+    "cloakserve_descriptor": "#1148",
+    "health_contract": "FR-0038",
+    "provider_contract": "FR-0033",
+    "provider_registry": "FR-0036"
+  },
+  "out_of_scope": [
+    "health_result_schema",
+    "runtime_launch",
+    "capability_matrix_rows",
+    "fixture_payload",
+    "live_evidence",
+    "cloakbrowser_private_patch_schema",
+    "syvert_normalized_result",
+    "xhs_flow"
+  ]
+}
+```
+
+示例消费约束：
+
+- `limitation_refs` 必须包含本文件第 8 节的全部 required refs。
+- `profile_reference`、extension refs、broker refs 与 private capability refs 必须保持 opaque / redacted，不得替换为 raw local path、credential、secret 或 private patch field。
+- `health_requirement_inputs` 只提供 FR-0038 doctor/admission inputs，不是 doctor result payload。
+- `evidence_reference_slots` 中除 `static_descriptor_ref` 外均由 downstream owner 填充。

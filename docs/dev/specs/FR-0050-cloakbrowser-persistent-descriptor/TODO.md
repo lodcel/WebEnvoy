@@ -6,6 +6,8 @@
 - [ ] 确认 persistent profile reference、profile identity constraints 与 cleanup expectation 已覆盖 #1147 scope。
 - [ ] 确认 extension workflow refs 已覆盖 extension identity、installation、runtime、native bridge、workflow capability refs 与 artifact passthrough refs。
 - [ ] 确认 health requirement inputs 只指向 FR-0038 / downstream health owner，没有定义 health result schema。
+- [ ] 确认 `research.md` 覆盖研究问题、证据输入、结论、未决假设和 fail-closed 影响。
+- [ ] 确认 contract 最小可消费示例包含所有 required limitation refs、required refs 与 evidence slots。
 - [ ] 确认本 suite 没有 capability matrix semantics、launch evidence、fixture payload、runtime implementation、fresh live evidence、XHS 或 Syvert scope。
 - [ ] 确认与 #1146 direct descriptor 的差异边界清楚，未定义 direct launch args / final args evidence。
 - [ ] 确认没有 CloakBrowser private patch schema、driver state、license secret、account credential、cookie、token、raw sensitive path 或 broker credential。
