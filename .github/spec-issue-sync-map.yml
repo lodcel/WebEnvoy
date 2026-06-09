@@ -97,3 +97,5 @@ mappings:
     canonical_issue_number: 1145
   - spec_path: docs/dev/specs/FR-0049-cloakbrowser-direct-descriptor/spec.md
     canonical_issue_number: 1146
+  - spec_path: docs/dev/specs/FR-0050-cloakbrowser-persistent-descriptor/spec.md
+    canonical_issue_number: 1147
