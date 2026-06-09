@@ -30,7 +30,9 @@ const startOfficialReadyRuntime = async (
       "ScriptCache",
       `${extensionId}-service-worker.js`
     );
-    const serviceWorkerScript = "globalThis.__webenvoyBuild = 'ready';\n";
+    const serviceWorkerScript =
+      `const WEBENVOY_EXTENSION_URL = "chrome-extension://${extensionId}/build/background.js";\n` +
+      "globalThis.__webenvoyBuild = 'fresh';\n";
     await mkdir(path.dirname(extensionBuildFile), { recursive: true });
     await mkdir(path.dirname(serviceWorkerFile), { recursive: true });
     await writeFile(path.join(extensionDir, "manifest.json"), "{\n  \"manifest_version\": 3\n}\n");
@@ -828,7 +830,7 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
     });
   });
 
-  it("reports closeout runtime readiness as recoverable for an attachable official Chrome runtime", async () => {
+  it("keeps closeout runtime readiness blocked until attach collects current service worker evidence", async () => {
     const runtimeCwd = await createRuntimeCwd();
     const profile = "xhs_closeout_preflight_attachable";
     const persistentExtensionIdentity = await startOfficialReadyRuntime(
@@ -867,10 +869,15 @@ describe("webenvoy cli contract / runtime errors and fallback", () => {
       status: "success",
       summary: {
         closeout_runtime_readiness_preflight: {
-          decision: "RECOVERABLE",
-          runtime_state: "recoverable",
-          recovery_mode: "ready_attach",
-          blocker: null,
+          decision: "NO_GO",
+          runtime_state: "blocked",
+          recovery_mode: "none",
+          blocker: {
+            blocker_layer: "runtime_readiness",
+            blocker_code: "extension_service_worker_freshness_unknown",
+            required_recovery_action:
+              "collect_current_extension_service_worker_freshness_then_restart_runtime"
+          },
           runtime_status: {
             identity_binding_state: "bound",
             transport_state: "ready",

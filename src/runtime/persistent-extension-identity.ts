@@ -510,8 +510,7 @@ export const runIdentityPreflight = async (input: {
     }
     extensionServiceWorkerFreshness =
       await resolveProfileExtensionServiceWorkerFreshness(profileDir, binding.extensionId, {
-        requiredObservationRunId:
-          serviceWorkerCodeIdentityAdmission === "required" ? input.runId ?? null : null,
+        requiredObservationRunId: input.runId ?? null,
         requiredObservationObservedAfter:
           serviceWorkerCodeIdentityAdmission === "required"
             ? input.serviceWorkerObservationObservedAfter ?? null

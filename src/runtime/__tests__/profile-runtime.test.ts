@@ -3556,7 +3556,25 @@ describe("profile-runtime identity preflight", () => {
       baseDir,
       profile: "attach_ready_profile"
     });
-    const service = createTestService();
+    const observedRunIds: string[] = [];
+    const service = createTestService({
+      activeServiceWorkerObserver: async ({ extensionId, runId }) => {
+        observedRunIds.push(runId);
+        const scriptContent = persistentExtensionScriptContent(extensionId);
+        const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+        return {
+          state: "observed" as const,
+          observation: {
+            extensionId,
+            runId,
+            observedActiveServiceWorkerScriptIdentityLocator:
+              `extension-service-worker/official-chrome.persistent/${extensionId}/active/build/background.js`,
+            observedServiceWorkerCodeDigestLocator: `sha256:${scriptDigest}`,
+            observedAt: new Date().toISOString()
+          }
+        };
+      }
+    });
 
     const ownerStart = await service.start({
       cwd: baseDir,
@@ -3599,24 +3617,38 @@ describe("profile-runtime identity preflight", () => {
       "utf8"
     );
 
-    await expect(
-      service.status({
-        cwd: baseDir,
-        profile: "attach_ready_profile",
-        runId: "run-runtime-attach-next-001",
-        params: {
-          persistent_extension_identity: {
-            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            manifest_path: manifestPath
-          }
+    expect(observedRunIds).toEqual(["run-runtime-attach-owner-001"]);
+
+    const preAttachStatus = await service.status({
+      cwd: baseDir,
+      profile: "attach_ready_profile",
+      runId: "run-runtime-attach-next-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
         }
-      })
-    ).resolves.toMatchObject({
+      }
+    });
+    expect(preAttachStatus).toMatchObject({
       profileState: "ready",
       lockHeld: false,
       runtimeReadiness: "blocked",
       transportState: "ready",
       bootstrapState: "ready"
+    });
+    expect(preAttachStatus.identityPreflight).toMatchObject({
+      failureReason: "IDENTITY_PREFLIGHT_PASSED",
+      extensionServiceWorkerFreshness: {
+        state: "unknown",
+        reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING"
+      },
+      provider_doctor_extension_load_check: {
+        status: "unknown",
+        diagnostics: {
+          code: "service_worker_observed_identity_missing"
+        }
+      }
     });
 
     await expect(
@@ -3679,10 +3711,137 @@ describe("profile-runtime identity preflight", () => {
     const lockRaw = await readFile(join(profileDir, "__webenvoy_lock.json"), "utf8");
     const lock = JSON.parse(lockRaw) as ProfileLock;
     expect(lock.ownerRunId).toBe("run-runtime-attach-next-001");
+    expect(observedRunIds).toEqual([
+      "run-runtime-attach-owner-001",
+      "run-runtime-attach-next-001"
+    ]);
 
     const browserStateRaw = await readFile(join(profileDir, BROWSER_STATE_FILENAME), "utf8");
     const browserState = JSON.parse(browserStateRaw) as { runId?: unknown };
     expect(browserState.runId).toBe("run-runtime-attach-next-001");
+    const observationRaw = await readFile(
+      join(
+        profileDir,
+        "Default",
+        "Service Worker",
+        ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+      ),
+      "utf8"
+    );
+    expect(JSON.parse(observationRaw)).toMatchObject({
+      run_id: "run-runtime-attach-next-001",
+      lifecycle_state: "active_worker_observed"
+    });
+  });
+
+  it("fails runtime.attach closed when only prior-run active service worker evidence exists", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "webenvoy-profile-runtime-attach-active-sw-missing-"));
+    tempDirs.push(baseDir);
+    process.env.WEBENVOY_BROWSER_PATH = await createMockBrowserExecutable("Google Chrome 146.0.7680.154");
+    const manifestPath = await createNativeHostManifest({
+      allowedOrigins: ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+    });
+    await seedInstalledPersistentExtension({
+      baseDir,
+      profile: "attach_active_sw_missing_profile"
+    });
+    const observedRunIds: string[] = [];
+    const service = createTestService({
+      activeServiceWorkerObserver: async ({ extensionId, runId }) => {
+        observedRunIds.push(runId);
+        if (runId === "run-runtime-attach-active-sw-owner-001") {
+          const scriptContent = persistentExtensionScriptContent(extensionId);
+          const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
+          return {
+            state: "observed" as const,
+            observation: {
+              extensionId,
+              runId,
+              observedActiveServiceWorkerScriptIdentityLocator:
+                `extension-service-worker/official-chrome.persistent/${extensionId}/active/build/background.js`,
+              observedServiceWorkerCodeDigestLocator: `sha256:${scriptDigest}`,
+              observedAt: new Date().toISOString()
+            }
+          };
+        }
+        return {
+          state: "unavailable" as const,
+          reason: "service_worker_target_missing"
+        };
+      }
+    });
+
+    await service.start({
+      cwd: baseDir,
+      profile: "attach_active_sw_missing_profile",
+      runId: "run-runtime-attach-active-sw-owner-001",
+      params: {
+        persistent_extension_identity: {
+          extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          manifest_path: manifestPath
+        }
+      }
+    });
+
+    const profileDir = join(baseDir, ".webenvoy", "profiles", "attach_active_sw_missing_profile");
+    await writeFile(
+      join(profileDir, BROWSER_STATE_FILENAME),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          launchToken: "attach-active-sw-missing-token-001",
+          profileDir,
+          runId: "run-runtime-attach-active-sw-owner-001",
+          browserPath: "/mock/chrome",
+          controllerPid: 999998,
+          browserPid: 999999,
+          launchedAt: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      service.attach({
+        cwd: baseDir,
+        profile: "attach_active_sw_missing_profile",
+        runId: "run-runtime-attach-active-sw-next-001",
+        params: {
+          persistent_extension_identity: {
+            extension_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest_path: manifestPath
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "ERR_RUNTIME_IDENTITY_MISMATCH",
+      details: {
+        reason: "EXTENSION_SERVICE_WORKER_OBSERVATION_REQUIRED",
+        extension_service_worker_freshness_reason: "ACTIVE_SERVICE_WORKER_OBSERVATION_MISSING"
+      }
+    });
+
+    expect(observedRunIds).toEqual([
+      "run-runtime-attach-active-sw-owner-001",
+      "run-runtime-attach-active-sw-next-001"
+    ]);
+    const lockRaw = await readFile(join(profileDir, "__webenvoy_lock.json"), "utf8");
+    const lock = JSON.parse(lockRaw) as ProfileLock;
+    expect(lock.ownerRunId).toBe("run-runtime-attach-active-sw-owner-001");
+    const observationRaw = await readFile(
+      join(
+        profileDir,
+        "Default",
+        "Service Worker",
+        ACTIVE_SERVICE_WORKER_CODE_IDENTITY_OBSERVATION_FILENAME
+      ),
+      "utf8"
+    );
+    expect(JSON.parse(observationRaw)).toMatchObject({
+      run_id: "run-runtime-attach-active-sw-owner-001"
+    });
   });
 
   it("refreshes bootstrap when ready attach rebinds a complete creator publish target", async () => {

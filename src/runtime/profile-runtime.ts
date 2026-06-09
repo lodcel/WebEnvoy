@@ -1377,7 +1377,9 @@ export class ProfileRuntimeService {
     const identityPreflight = await runIdentityPreflight({
       params: input.params,
       meta,
-      profileDir
+      profileDir,
+      runId: input.runId,
+      serviceWorkerCodeIdentityAdmission: "deferred"
     });
     const observedReadyAttachReadiness = await this.#readObservedRuntimeReadiness({
       runtimeInput: input,
@@ -1549,10 +1551,12 @@ export class ProfileRuntimeService {
         ? lock.controllerPid
         : lock.ownerPid;
 
-    const identityPreflight = await runIdentityPreflight({
+    let identityPreflight = await runIdentityPreflight({
       params: input.params,
       meta,
-      profileDir
+      profileDir,
+      runId: input.runId,
+      serviceWorkerCodeIdentityAdmission: "deferred"
     });
     if (shouldBlockSessionEntryOnIdentityPreflight(identityPreflight)) {
       throw buildIdentityPreflightError(identityPreflight);
@@ -1565,7 +1569,6 @@ export class ProfileRuntimeService {
         retryable: true
       });
     }
-
     const requestedExecutionMode = readRequestedExecutionMode(input.params);
     const fingerprintRuntime = buildFingerprintContextForMeta(input.profile, meta, {
       requestedExecutionMode
@@ -1671,6 +1674,12 @@ export class ProfileRuntimeService {
         retryable: true
       });
     }
+    identityPreflight = await this.#observeAndVerifyActiveServiceWorkerIdentity({
+      runtimeInput: input,
+      identityPreflight,
+      profileDir,
+      meta
+    });
 
     const takeoverMode = runtimeTakeoverEvidence.mode;
     const nextOwnerPid = takeoverMode === "recoverable_rebind" ? process.pid : lock.ownerPid;
