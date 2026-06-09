@@ -12,6 +12,7 @@ export type CloseoutRuntimeBlockerCode =
   | "extension_service_worker_stale"
   | "extension_service_worker_freshness_unknown"
   | "extension_source_mismatch"
+  | "extension_source_unverified"
   | "request_identity_replay";
 
 export interface CloseoutRuntimeReadinessPreflight {
@@ -351,6 +352,22 @@ export const buildCloseoutRuntimeReadinessPreflight = (input: {
       blocker: blocker(
         "extension_source_mismatch",
         "reinstall_runtime_extension_from_current_worktree_then_restart_runtime"
+      ),
+      ...base
+    };
+  }
+
+  if (
+    identityPreflightMode === "official_chrome_persistent_extension" &&
+    extensionSourceEquivalence.decision !== "equivalent"
+  ) {
+    return {
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: blocker(
+        "extension_source_unverified",
+        "prove_runtime_extension_source_matches_current_worktree_then_restart_runtime"
       ),
       ...base
     };

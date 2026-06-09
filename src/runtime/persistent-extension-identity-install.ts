@@ -1099,7 +1099,7 @@ const buildCodeIdentityObservation = (input: {
     rawPathDenylist: [input.extensionPath, input.serviceWorkerPath]
   });
 
-const resolveEnabledUnpackedPath = async (
+export const resolveEnabledUnpackedPath = async (
   profileDir: string,
   extensionId: string
 ): Promise<string | null> => {

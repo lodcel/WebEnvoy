@@ -33,6 +33,15 @@ const readyStatus = () => ({
   }
 });
 
+const equivalentExtensionSource = () => ({
+  decision: "equivalent" as const,
+  reason_codes: ["same_extension_tree_digest"],
+  active_extension_source_path: "/repo/current/extension",
+  expected_extension_source_path: "/repo/current/extension",
+  active_extension_digest: "digest-a",
+  expected_extension_digest: "digest-a"
+});
+
 const recoverableStaleBootstrapEvidence = () => ({
   identityBound: true,
   ownerConflictFree: true,
@@ -82,6 +91,8 @@ describe("closeout runtime readiness preflight", () => {
   it("blocks a ready runtime when the managed extension service worker cache is stale", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -257,14 +268,7 @@ describe("closeout runtime readiness preflight", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
         expectedExtensionPath: "/repo/current/extension",
-        extensionSourceEquivalence: {
-          decision: "equivalent",
-          reason_codes: ["same_extension_tree_digest"],
-          active_extension_source_path: "/repo/current/extension",
-          expected_extension_source_path: "/repo/current/extension",
-          active_extension_digest: "digest-a",
-          expected_extension_digest: "digest-a"
-        },
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -295,6 +299,8 @@ describe("closeout runtime readiness preflight", () => {
   it("blocks an official Chrome persistent runtime when service worker freshness evidence is missing", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -318,6 +324,8 @@ describe("closeout runtime readiness preflight", () => {
   it("exposes FR-0047 code identity and provider doctor check on ready runtime", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -363,6 +371,8 @@ describe("closeout runtime readiness preflight", () => {
   it("blocks redaction-invalid service worker code identity evidence", () => {
     expect(
       buildCloseoutRuntimeReadinessPreflight({
+        expectedExtensionPath: "/repo/current/extension",
+        extensionSourceEquivalence: equivalentExtensionSource(),
         status: {
           ...readyStatus(),
           identityPreflight: {
@@ -398,6 +408,72 @@ describe("closeout runtime readiness preflight", () => {
         }
       }
     });
+  });
+
+  it("blocks official Chrome closeout when active extension source proof is not checked", () => {
+    const result = buildCloseoutRuntimeReadinessPreflight({
+      expectedExtensionPath: "/repo/current/extension",
+      extensionSourceEquivalence: {
+        decision: "not_checked",
+        reason_codes: ["active_extension_source_missing"],
+        active_extension_source_path: null,
+        expected_extension_source_path: "/repo/current/extension",
+        active_extension_digest: null,
+        expected_extension_digest: null
+      },
+      status: {
+        ...readyStatus(),
+        identityPreflight: {
+          mode: "official_chrome_persistent_extension",
+          extensionServiceWorkerFreshness: {
+            state: "fresh",
+            reason: "SERVICE_WORKER_CACHE_CURRENT",
+            extensionPath: "/repo/current/extension",
+            serviceWorkerPath: "/profile/Default/Service Worker",
+            codeIdentityObservation: {
+              expected_extension_bundle_identity_locator:
+                "extension-bundle/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/service-worker/build/background.js",
+              observed_active_service_worker_script_identity_locator:
+                "extension-service-worker/official-chrome.persistent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/active/background",
+              expected_bundle_digest_locator: "sha256:digest-a",
+              observed_service_worker_code_digest_locator: "sha256:digest-a",
+              active_worker_lifecycle_state: "active_worker_observed",
+              freshness_comparison_result: "match",
+              provider_doctor_extension_load_check: {
+                category: "extension_load",
+                status: "pass",
+                blocking: "none"
+              }
+            }
+          }
+        }
+      }
+    });
+
+    expect(result).toMatchObject({
+      decision: "NO_GO",
+      runtime_state: "blocked",
+      recovery_mode: "none",
+      blocker: {
+        blocker_code: "extension_source_unverified",
+        required_recovery_action:
+          "prove_runtime_extension_source_matches_current_worktree_then_restart_runtime"
+      },
+      runtime_status: {
+        extension_service_worker_freshness_state: "fresh",
+        extension_source_path: null,
+        expected_extension_source_path: null,
+        extension_source_equivalence: {
+          decision: "not_checked",
+          reason_codes: ["active_extension_source_missing"],
+          active_extension_source_path: null,
+          expected_extension_source_path: null
+        }
+      }
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("/repo/current/extension");
+    expect(serialized).not.toContain("/profile/Default/Service Worker");
   });
 
   it("still blocks a ready runtime when extension source content differs", () => {
