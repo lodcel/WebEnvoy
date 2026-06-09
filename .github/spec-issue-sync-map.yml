@@ -111,3 +111,5 @@ mappings:
     canonical_issue_number: 1155
   - spec_path: docs/dev/specs/FR-0059-cloakbrowser-fingerprint-seed-policy/spec.md
     canonical_issue_number: 1156
+  - spec_path: docs/dev/specs/FR-0060-cloakbrowser-docker-xvfb-doctor/spec.md
+    canonical_issue_number: 1157
