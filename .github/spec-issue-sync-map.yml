@@ -101,6 +101,8 @@ mappings:
     canonical_issue_number: 1147
   - spec_path: docs/dev/specs/FR-0051-cloakbrowser-cloakserve-descriptor/spec.md
     canonical_issue_number: 1148
+  - spec_path: docs/dev/specs/FR-0052-cloakbrowser-capability-matrix/spec.md
+    canonical_issue_number: 1149
   - spec_path: docs/dev/specs/FR-0053-cloakbrowser-direct-launch-health/spec.md
     canonical_issue_number: 1150
   - spec_path: docs/dev/specs/FR-0054-cloakbrowser-persistent-profile-health/spec.md
