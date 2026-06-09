@@ -136,42 +136,136 @@ cloakbrowser_direct_launch_health_report:
 ## Minimal valid example
 
 ```yaml
-identity:
-  direct_launch_health_report_id: "cloakbrowser-direct-health-run-123"
-  direct_launch_health_version: "v1"
-  provider_id: "cloakbrowser.direct"
-  variant_kind: "direct"
-  provider_contract_ref: "FR-0033.browser_provider_contract.v1"
-  descriptor_ref: "FR-0049.cloakbrowser.direct.v1"
-  doctor_contract_ref: "FR-0038.provider_doctor_report.v1"
-  generated_at: "2026-06-09T13:30:00Z"
-  scope: "local_launch_admission"
-  run_ref: "run:123"
-  artifact_identity: "artifact:cloakbrowser-direct-health:123"
-outcome:
-  overall_status: "warn"
-  provider_blocked: false
-  admission_blocked: false
-  doctor_verification_projection: "doctor_checked"
-  direct_launch_health_level: "health_checked"
-  blocked_checks: []
-  warnings:
-    - "optional_extension_not_required"
-  next_required_gates:
-    - "runtime_attestation"
-    - "launch_evidence_validation"
-    - "capability_matrix_selection"
-    - "live_evidence"
-  semantic_conclusion:
-    proves:
-      - "health_admission_evidence"
-    does_not_prove:
-      - "browser_honored_args"
-      - "runtime_ready"
-      - "capability_allowed"
-      - "target_tab_ready"
-      - "anti_detection_pass"
-      - "live_evidence_attested"
+cloakbrowser_direct_launch_health_report:
+  identity:
+    direct_launch_health_report_id: "cloakbrowser-direct-health-run-123"
+    direct_launch_health_version: "v1"
+    provider_id: "cloakbrowser.direct"
+    variant_kind: "direct"
+    provider_contract_ref: "FR-0033.browser_provider_contract.v1"
+    descriptor_ref: "FR-0049.cloakbrowser.direct.v1"
+    doctor_contract_ref: "FR-0038.provider_doctor_report.v1"
+    generated_at: "2026-06-09T13:30:00Z"
+    scope: "local_launch_admission"
+    run_ref: "run:123"
+    artifact_identity: "artifact:cloakbrowser-direct-health:123"
+  input_refs:
+    expected_binary_source:
+      source_id: "cloakbrowser-direct-binary"
+      source_kind: "provider_launcher"
+      locator_ref: "artifact:redacted-provider-launcher"
+      locator_sensitivity: "sensitive"
+      expected_access: "launchable"
+    expected_version_policy:
+      policy_ref: "policy:provider-managed-version"
+      provider_managed_version_required: true
+      accepted_evidence_refs:
+        - "artifact:version-output:run-123"
+    expected_launch_args_evidence_ref:
+      final_args_evidence_ref: "artifact:final-args:run-123"
+      required_freshness: "current_run"
+      required_redaction_state: "redacted"
+    expected_environment_probe_policy:
+      require_headful_display: true
+      forbid_raw_environment_dump: true
+      accepted_environment_facts:
+        - "display_available"
+        - "headless_not_used"
+        - "workspace_artifact_reachable"
+        - "launcher_environment_explained"
+    expected_transport_policy:
+      transport_kind: "hybrid"
+      accepted_transport_facts:
+        - "provider_control_surface_explained"
+        - "cdp_attach_precondition_observed"
+        - "playwright_attach_precondition_observed"
+        - "diagnostic_artifact_passthrough_available"
+      does_not_include:
+        - "target_tab_ready"
+        - "page_automation_success"
+        - "live_evidence_attested"
+    optional_extension_policy:
+      extension_required_for_admission: false
+      accepted_locator_kinds:
+        - "extension_asset_ref"
+        - "workspace_artifact_ref"
+      stable_extension_identity: "not_promised"
+      native_messaging_support: "not_applicable"
+    fingerprint_seed_policy_ref: "FR-0059.cloakbrowser_fingerprint_seed_evidence_policy.v1"
+  checks:
+    - check_id: "binary-probe"
+      category: "binary_probe"
+      status: "pass"
+      severity: "info"
+      blocking: "none"
+      summary: "Provider launcher locator is available and launchable."
+      diagnostics:
+        code: "binary_probe_pass"
+        observed: "launchable"
+        expected: "launchable"
+        remediation_hint: null
+        proves:
+          - "health_admission_evidence"
+        does_not_prove:
+          - "runtime_ready"
+      evidence_refs:
+        - kind: "binary_locator_ref"
+          ref: "artifact:redacted-provider-launcher"
+          status: "available"
+          collected_at: "2026-06-09T13:30:00Z"
+          sensitivity: "sensitive"
+          redaction_state: "redacted"
+    - check_id: "admission-summary"
+      category: "admission_summary"
+      status: "warn"
+      severity: "warning"
+      blocking: "none"
+      summary: "Direct launch health is sufficient for later runtime gate entry."
+      diagnostics:
+        code: "admission_summary_warn"
+        observed: "optional_extension_not_required"
+        expected: "runtime_gate_still_required"
+        remediation_hint: null
+        proves:
+          - "health_admission_evidence"
+        does_not_prove:
+          - "browser_honored_args"
+          - "runtime_ready"
+          - "capability_allowed"
+          - "target_tab_ready"
+          - "anti_detection_pass"
+          - "live_evidence_attested"
+      evidence_refs:
+        - kind: "health_artifact_ref"
+          ref: "artifact:cloakbrowser-direct-health:123"
+          status: "available"
+          collected_at: "2026-06-09T13:30:00Z"
+          sensitivity: "internal"
+          redaction_state: "not_required"
+  outcome:
+    overall_status: "warn"
+    provider_blocked: false
+    admission_blocked: false
+    doctor_verification_projection: "doctor_checked"
+    direct_launch_health_level: "health_checked"
+    blocked_checks: []
+    warnings:
+      - "optional_extension_not_required"
+    next_required_gates:
+      - "runtime_attestation"
+      - "launch_evidence_validation"
+      - "capability_matrix_selection"
+      - "live_evidence"
+    semantic_conclusion:
+      proves:
+        - "health_admission_evidence"
+      does_not_prove:
+        - "browser_honored_args"
+        - "runtime_ready"
+        - "capability_allowed"
+        - "target_tab_ready"
+        - "anti_detection_pass"
+        - "live_evidence_attested"
 ```
 
 ## Invalid examples
