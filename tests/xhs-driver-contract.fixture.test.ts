@@ -37,6 +37,16 @@ describe("xhs driver contract fixtures for #1165", () => {
     expect(xhsDriverContractFixtures.bindingFailure.request_admission_result).toMatchObject({
       admission_decision: "blocked"
     });
+    expect(xhsDriverContractFixtures.bindingFailure.xhs_page_runtime_readiness).toMatchObject({
+      owner_ref: "#1162",
+      page_readiness: {
+        status: "blocked"
+      },
+      provider_admission_readiness: {
+        status: "blocked"
+      },
+      gate_decision: "deny"
+    });
     expect(xhsDriverContractFixtures.providerCapabilityFailure.active_api_fetch_fallback_gate.reason_codes).toEqual(
       expect.arrayContaining([
         "FINGERPRINT_VALIDATION_NOT_READY",
@@ -45,6 +55,10 @@ describe("xhs driver contract fixtures for #1165", () => {
         "HEADLESS_NOT_FALSE"
       ])
     );
+    expect(xhsDriverContractFixtures.providerCapabilityFailure.provider_admission_readiness).toMatchObject({
+      status: "blocked",
+      source: "provider_admission_result"
+    });
 
     for (const pattern of sensitiveLeakPatterns) {
       expect(strings.some((value) => pattern.test(value))).toBe(false);

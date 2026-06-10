@@ -24,6 +24,7 @@ import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
 import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY, bindIssue835ControlledLiveWriteEnvelopeToSessionForContract, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseControlledLiveWriteInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue835ControlledLiveWriteEnvelopeForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
 import { declareXhsDriverProviderRequirementsForContract, requiresXhsOfficialChromeRuntimePreparationForContract } from "./xhs-provider-requirements.js";
+import { buildXhsPageRuntimeReadinessForContract, toXhsPageRuntimeReadinessSummaryFields } from "./xhs-page-runtime-readiness.js";
 import { buildXhsDriverRuntimeBindingForContract, toXhsDriverRuntimeBindingSummaryFields } from "./xhs-runtime-binding.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
@@ -2091,6 +2092,7 @@ const buildInProcessGateOnlyResult = (input) => {
             }
         }),
         ...toXhsDriverRuntimeBindingSummaryFields(input.runtimeBindingBoundary),
+        ...input.pageRuntimeReadinessSummaryFields,
         ...payload,
         session_id: sessionId,
         requested_execution_mode: input.gate.requestedExecutionMode,
@@ -2479,6 +2481,33 @@ const xhsReadCommand = async (context, inputConfig) => {
         providerRequirements
     });
     const runtimeBindingSummaryFields = toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
+    const buildPageRuntimeReadinessSummaryFields = (input) => toXhsPageRuntimeReadinessSummaryFields(buildXhsPageRuntimeReadinessForContract({
+        command: context.command,
+        runId: context.run_id,
+        requestedExecutionMode: gate.requestedExecutionMode,
+        runtimeBindingBoundary,
+        providerRequirements,
+        runtimeStatus: input.runtimeStatus,
+        providerAdmissionResult: asObject(input.providerAdmissionResult)
+    }));
+    const attachPageRuntimeReadinessToRuntimePreflightError = (error, runtimeStatus) => {
+        const details = asObject(error.details);
+        const baseDetails = details ?? {
+            ability_id: envelope.ability.id,
+            stage: "execution",
+            reason: "OFFICIAL_CHROME_RUNTIME_PREFLIGHT_FAILED"
+        };
+        const readinessFields = buildPageRuntimeReadinessSummaryFields({
+            runtimeStatus: runtimeStatus ?? baseDetails
+        });
+        const readinessFieldsToAttach = Object.fromEntries(Object.entries(readinessFields).filter(([key]) => baseDetails[key] === undefined));
+        error.details = {
+            ...baseDetails,
+            ...readinessFieldsToAttach
+        };
+        return error;
+    };
+    const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({});
     const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
         command: context.command,
         ability: envelope.ability,
@@ -2504,7 +2533,8 @@ const xhsReadCommand = async (context, inputConfig) => {
                         xhs_driver_provider_requirements: providerRequirements,
                         provider_requirement_refs: providerRequirements.provider_requirement_refs
                     }
-                    : {})
+                    : {}),
+                ...initialPageRuntimeReadinessSummaryFields
             })
         };
     }
@@ -2673,7 +2703,8 @@ const xhsReadCommand = async (context, inputConfig) => {
                 parsedInput,
                 preparedIssue209LiveRead,
                 dataRefKey: inputConfig.fixtureDataRefKey,
-                runtimeBindingBoundary
+                runtimeBindingBoundary,
+                pageRuntimeReadinessSummaryFields: initialPageRuntimeReadinessSummaryFields
             }), commandAliasDiagnostics);
         }
         const bridge = resolveRuntimeBridge();
@@ -2687,15 +2718,35 @@ const xhsReadCommand = async (context, inputConfig) => {
             requestedExecutionMode: gate.requestedExecutionMode,
             recoveryProbeRequested
         })) {
-            officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(context, envelope.ability, gate.requestedExecutionMode, bridge, fingerprintContext, {
-                ...gate,
-                targetResourceId: resolveBootstrapTargetResourceId(context.command, parsedInput)
+            try {
+                officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(context, envelope.ability, gate.requestedExecutionMode, bridge, fingerprintContext, {
+                    ...gate,
+                    targetResourceId: resolveBootstrapTargetResourceId(context.command, parsedInput)
+                });
+            }
+            catch (error) {
+                if (error instanceof CliError) {
+                    throw attachPageRuntimeReadinessToRuntimePreflightError(error);
+                }
+                throw error;
+            }
+        }
+        const pageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
+            runtimeStatus: officialChromeRuntimeStatus
+        });
+        let bridgeSessionId;
+        try {
+            bridgeSessionId = await bridge.ensureSession({
+                profile: context.profile,
+                ...(forwardTimeoutMs ? { timeoutMs: forwardTimeoutMs } : {})
             });
         }
-        const bridgeSessionId = await bridge.ensureSession({
-            profile: context.profile,
-            ...(forwardTimeoutMs ? { timeoutMs: forwardTimeoutMs } : {})
-        });
+        catch (error) {
+            if (error instanceof CliError) {
+                throw attachPageRuntimeReadinessToRuntimePreflightError(error, officialChromeRuntimeStatus);
+            }
+            throw error;
+        }
         if (context.profile && recoveryProbeRequested) {
             await profileRuntime.claimXhsCloseoutSingleProbe({
                 cwd: context.cwd,
@@ -2781,6 +2832,7 @@ const xhsReadCommand = async (context, inputConfig) => {
                 }
                 : {}),
             ...runtimeBindingSummaryFields,
+            ...pageRuntimeReadinessSummaryFields,
             ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
         };
         const commandParams = appendFingerprintContext({
@@ -2827,6 +2879,7 @@ const xhsReadCommand = async (context, inputConfig) => {
                 }
                 : {}),
             ...runtimeBindingSummaryFields,
+            ...pageRuntimeReadinessSummaryFields,
             ability: envelope.ability,
             input: parsedInput,
             options: runtimeGateOptions,
@@ -2926,6 +2979,10 @@ const xhsReadCommand = async (context, inputConfig) => {
         }
         const consumerGateResult = asObject(bridgeResult.payload.consumer_gate_result);
         const requestAdmissionResult = pickCanonicalSummaryField(bridgeResult.payload, "request_admission_result");
+        const canonicalPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
+            runtimeStatus: officialChromeRuntimeStatus,
+            providerAdmissionResult: requestAdmissionResult
+        });
         const executionAudit = pickCanonicalSummaryField(bridgeResult.payload, "execution_audit");
         const closeoutEvidenceSummaryFields = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(bridgeResult.payload, gate.options);
         const mergedBridgeSummary = {
@@ -2942,6 +2999,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
             ...bridgeSummaryForMapping,
             ...runtimeBindingSummaryFields,
+            ...canonicalPageRuntimeReadinessSummaryFields,
             session_id: bridgeSessionId,
             requested_execution_mode: gate.requestedExecutionMode,
             ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),
@@ -3019,7 +3077,7 @@ const xhsReadCommand = async (context, inputConfig) => {
     }
     catch (error) {
         if (error instanceof NativeMessagingTransportError) {
-            throw toTransportCliError(error, envelope.ability);
+            throw attachPageRuntimeReadinessToRuntimePreflightError(toTransportCliError(error, envelope.ability));
         }
         throw error;
     }
