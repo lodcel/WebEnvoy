@@ -86,6 +86,11 @@ import {
   declareXhsDriverProviderRequirementsForContract,
   requiresXhsOfficialChromeRuntimePreparationForContract
 } from "./xhs-provider-requirements.js";
+import {
+  buildXhsDriverRuntimeBindingForContract,
+  toXhsDriverRuntimeBindingSummaryFields,
+  type XhsDriverRuntimeBindingBoundary
+} from "./xhs-runtime-binding.js";
 
 type AbilityLayer = "L3" | "L2" | "L1";
 type AbilityActionName = AbilityAction;
@@ -2705,6 +2710,7 @@ const buildInProcessGateOnlyResult = (input: {
   parsedInput: JsonObject;
   preparedIssue209LiveRead: ReturnType<typeof prepareIssue209LiveReadEnvelopeForContract>;
   dataRefKey: XhsDataRefKey;
+  runtimeBindingBoundary: XhsDriverRuntimeBindingBoundary | null;
 }): CommandExecutionResult => {
   const profile = input.context.profile ?? "gate_only_profile";
   const sessionId = `gate-only-${input.context.run_id}`;
@@ -2773,6 +2779,7 @@ const buildInProcessGateOnlyResult = (input: {
         count: 0
       }
     }),
+    ...toXhsDriverRuntimeBindingSummaryFields(input.runtimeBindingBoundary),
     ...payload,
     session_id: sessionId,
     requested_execution_mode: input.gate.requestedExecutionMode,
@@ -2812,6 +2819,7 @@ const buildExplicitCloseoutEvidenceResult = (input: {
   runtimeGateOptions: JsonObject;
   sessionId: string;
   dataRefKey: XhsDataRefKey;
+  runtimeBindingBoundary: XhsDriverRuntimeBindingBoundary | null;
 }): CommandExecutionResult => {
   const profile = input.context.profile ?? "unknown";
   const gateBundle = buildLoopbackGate(
@@ -2855,6 +2863,7 @@ const buildExplicitCloseoutEvidenceResult = (input: {
         count: 0
       }
     }),
+    ...toXhsDriverRuntimeBindingSummaryFields(input.runtimeBindingBoundary),
     ...gatePayload,
     ...closeoutEvidenceSummaryFields,
     session_id: input.sessionId,
@@ -3302,6 +3311,19 @@ const xhsReadCommand = async (
     ability: envelope.ability,
     requestedExecutionMode: gate.requestedExecutionMode
   });
+  const runtimeBindingBoundary = buildXhsDriverRuntimeBindingForContract({
+    command: context.command,
+    ability: envelope.ability,
+    runId: context.run_id,
+    operationId: envelope.requestId ?? context.run_id,
+    targetDomain: gate.targetDomain,
+    targetTabId: gate.targetTabId,
+    targetPage: gate.targetPage,
+    requestedExecutionMode: gate.requestedExecutionMode,
+    providerRequirements
+  });
+  const runtimeBindingSummaryFields =
+    toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
   const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
     command: context.command,
     ability: envelope.ability,
@@ -3320,12 +3342,15 @@ const xhsReadCommand = async (
     return {
       summary: mapCapabilitySummaryForContract(
         envelope.ability.id,
-        buildCapabilityResult(envelope.ability, {
-          data_ref: dataRefValue ? { [inputConfig.fixtureDataRefKey]: dataRefValue } : {},
-          metrics: {
-            count: 0
-          }
-        })
+        {
+          ...buildCapabilityResult(envelope.ability, {
+            data_ref: dataRefValue ? { [inputConfig.fixtureDataRefKey]: dataRefValue } : {},
+            metrics: {
+              count: 0
+            }
+          }),
+          ...runtimeBindingSummaryFields
+        }
       )
     };
   }
@@ -3507,7 +3532,8 @@ const xhsReadCommand = async (
           gate,
           parsedInput,
           preparedIssue209LiveRead,
-          dataRefKey: inputConfig.fixtureDataRefKey
+          dataRefKey: inputConfig.fixtureDataRefKey,
+          runtimeBindingBoundary
         }),
         commandAliasDiagnostics
       );
@@ -3636,6 +3662,7 @@ const xhsReadCommand = async (
             provider_requirement_refs: providerRequirements.provider_requirement_refs
           }
         : {}),
+      ...runtimeBindingSummaryFields,
       ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
     };
     const commandParams = appendFingerprintContext(
@@ -3685,6 +3712,7 @@ const xhsReadCommand = async (
               provider_requirement_refs: providerRequirements.provider_requirement_refs
             }
           : {}),
+        ...runtimeBindingSummaryFields,
         ability: envelope.ability,
         input: parsedInput,
         options: runtimeGateOptions,
@@ -3840,6 +3868,7 @@ const xhsReadCommand = async (
     delete bridgeSummaryForMapping.closeout_audit_required;
     const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
       ...bridgeSummaryForMapping,
+      ...runtimeBindingSummaryFields,
       session_id: bridgeSessionId,
       requested_execution_mode: gate.requestedExecutionMode,
       ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),
