@@ -749,6 +749,116 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).toContain("<redacted:proxy_credential>");
   });
 
+  it("redacts common auth, cookie and api-key header secrets in free-text evidence", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "Authorization: Bearer live-auth-token-001"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "X-Api-Key: raw-api-key-001",
+      platform_message: "Set-Cookie: sessionid=raw-cookie-001; HttpOnly"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/cookie",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "Cookie: xhs_session=raw-cookie-002; a1=raw-cookie-003"
+      },
+      {
+        risk_signal_id: "risk/fr-0032/run-846/api-token",
+        detected_at: "2026-05-28T00:02:13.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "API-Token: raw-api-token-001"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(5);
+    expect(serialized).not.toContain("live-auth-token-001");
+    expect(serialized).not.toContain("raw-api-key-001");
+    expect(serialized).not.toContain("raw-cookie-001");
+    expect(serialized).not.toContain("raw-cookie-002");
+    expect(serialized).not.toContain("raw-cookie-003");
+    expect(serialized).not.toContain("raw-api-token-001");
+    expect(serialized).toContain("Authorization: Bearer <redacted:token>");
+    expect(serialized).toContain("X-Api-Key: <redacted:token>");
+    expect(serialized).toContain("Set-Cookie: <redacted:token>");
+    expect(serialized).toContain("Cookie: <redacted:token>");
+    expect(serialized).toContain("API-Token: <redacted:token>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.platform_message",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.1.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        })
+      ])
+    );
+  });
+
+  it("evaluates header secret evidence through default redaction without leaking raw values", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "Authorization: Bearer live-auth-token-001"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/header-secrets",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "Cookie: xhs_session=raw-cookie-002; X-Api-Key: raw-api-key-001"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedFindings = JSON.stringify(evaluation.redaction_findings);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(evaluation.redacted_field_count).toBeGreaterThanOrEqual(2);
+    expect(serializedFindings).not.toContain("live-auth-token-001");
+    expect(serializedFindings).not.toContain("raw-cookie-002");
+    expect(serializedFindings).not.toContain("raw-api-key-001");
+    expect(serializedFindings).toContain("<redacted:token>");
+  });
+
   it("passes a full upload, submit, publish, evidence and cleanup success candidate", () => {
     expect(evaluateFr0032LiveWriteEvidence(baseInput())).toMatchObject({
       decision: "PASS",

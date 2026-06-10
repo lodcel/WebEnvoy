@@ -30,6 +30,20 @@ const pathRedactionKind = (path) => {
     }
     return "private";
 };
+const secretHeaderReplacePatterns = [
+    /\b((?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+)(?!\s*<redacted:token>)[^\s"',;)]+/gi,
+    /\b((?:authorization|proxy-authorization)\s*[:=])(?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>)(\s*)[^\s"',;)]+/gi,
+    /\b((?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=])(?!(?:\s*<redacted:token>))(\s*)[^\s"',;)]+/gi,
+    /\b(set-cookie\s*[:=])(?!(?:\s*<redacted:token>))(\s*)[^\r\n"']+/gi,
+    /(?<!-)\b(cookie\s*[:=])(?!(?:\s*<redacted:token>))(\s*)[^\r\n"']+/gi
+];
+const secretHeaderDetectPatterns = [
+    /\b(?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+(?!\s*<redacted:token>)[^\s"',;)]+/i,
+    /\b(?:authorization|proxy-authorization)\s*[:=](?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>)\s*[^\s"',;)]+/i,
+    /\b(?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=](?!\s*<redacted:token>)\s*[^\s"',;)]+/i,
+    /\bset-cookie\s*[:=](?!\s*<redacted:token>)\s*[^\r\n"']+/i,
+    /(?<!-)\bcookie\s*[:=](?!\s*<redacted:token>)\s*[^\r\n"']+/i
+];
 const redactStringValue = (value, pathParts) => {
     const path = pathParts.join(".");
     if (alreadyRedacted(value)) {
@@ -67,6 +81,17 @@ const redactStringValue = (value, pathParts) => {
     if (secretQueryPattern.test(redacted)) {
         redacted = redacted.replace(secretQueryPattern, "$1<redacted:token>");
         addFinding("secret", "secret_handle", "<redacted:token>");
+    }
+    for (const pattern of secretHeaderReplacePatterns) {
+        const nextRedacted = redacted.replace(pattern, (...match) => {
+            const prefix = String(match[1]);
+            const separator = typeof match[2] === "string" ? match[2] : "";
+            return `${prefix}${separator}<redacted:token>`;
+        });
+        if (nextRedacted !== redacted) {
+            redacted = nextRedacted;
+            addFinding("secret", "secret_handle", "<redacted:token>");
+        }
     }
     const seedPattern = /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/gi;
     if (seedPattern.test(redacted)) {
@@ -119,6 +144,7 @@ const hasUnredactedSensitiveString = (value) => {
         return (hasPrivatePath(valueToInspect) ||
             /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(valueToInspect) ||
             /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(valueToInspect) ||
+            secretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
             /[?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=((?!<redacted:)[^&#\s"']+)/i.test(valueToInspect) ||
             /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(valueToInspect) ||
             /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/i.test(valueToInspect));
