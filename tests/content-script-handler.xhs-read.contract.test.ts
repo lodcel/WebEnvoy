@@ -6,6 +6,7 @@ import {
   type BackgroundToContentMessage
 } from "../extension/content-script-handler.js";
 import type { XhsSearchEnvironment } from "../extension/xhs-search-types.js";
+import { xhsDriverContractFixtures } from "./fixtures/xhs-driver-contract-fixtures.js";
 
 const approvedLiveOptions = {
   target_domain: "www.xiaohongshu.com",
@@ -413,9 +414,14 @@ describe("content-script handler xhs read commands", () => {
     const requestAdmissionResult = (payload.request_admission_result ?? {}) as Record<string, unknown>;
 
     expect(result.ok).toBe(false);
-    expect(details.reason).toBe("EXECUTION_MODE_GATE_BLOCKED");
-    expect(requestAdmissionResult.admission_decision).toBe("blocked");
-    expect(payload.execution_audit).toBeNull();
+    expect(result.error).toMatchObject(xhsDriverContractFixtures.bindingFailure.error);
+    expect(details).toMatchObject(xhsDriverContractFixtures.bindingFailure.details);
+    expect(requestAdmissionResult).toMatchObject(
+      xhsDriverContractFixtures.bindingFailure.request_admission_result
+    );
+    expect(payload.execution_audit).toBe(
+      xhsDriverContractFixtures.bindingFailure.execution_audit
+    );
   });
 
   it("rejects xhs.detail when note_id is missing on the extension path", async () => {
@@ -752,14 +758,16 @@ describe("content-script handler xhs read commands", () => {
 
     expect(result.ok).toBe(true);
     expect(readCapturedRequestContext).not.toHaveBeenCalled();
-    expect(summary.route_evidence).toMatchObject({
-      route_role: "primary",
-      path_kind: "api",
-      evidence_status: "success",
-      route_evidence_class: "active_api_fetch_fallback",
-      consumed_template: {
-        route_evidence_class: "passive_api_capture",
-        template_identity: expect.stringContaining("/api/sns/web/v1/feed")
+    expect(summary).toMatchObject({
+      ...xhsDriverContractFixtures.success.summary,
+      route_evidence: {
+        ...xhsDriverContractFixtures.success.summary.route_evidence,
+        consumed_template: {
+          ...xhsDriverContractFixtures.success.summary.route_evidence.consumed_template,
+          template_identity: expect.stringContaining(
+            xhsDriverContractFixtures.success.summary.route_evidence.consumed_template.template_identity
+          )
+        }
       }
     });
     expect(fetchJson).toHaveBeenCalledWith(
@@ -961,19 +969,15 @@ describe("content-script handler xhs read commands", () => {
 	    const activeGate = (details.active_api_fetch_fallback_gate ?? {}) as Record<string, unknown>;
 
 	    expect(result.ok).toBe(false);
-	    expect(result.error).toMatchObject({
-	      code: "ERR_EXECUTION_FAILED"
-	    });
-	    expect(details).toMatchObject({
-	      reason: "ACTIVE_API_FETCH_FALLBACK_GATE_BLOCKED"
-	    });
+	    expect(result.error).toMatchObject(
+	      xhsDriverContractFixtures.providerCapabilityFailure.error
+	    );
+	    expect(details).toMatchObject(xhsDriverContractFixtures.providerCapabilityFailure.details);
 	    expect(activeGate.reason_codes).toEqual(
-	      expect.arrayContaining([
-	        "FINGERPRINT_VALIDATION_NOT_READY",
-	        "RUNTIME_ATTESTATION_REQUIRED",
-	        "EXECUTION_SURFACE_NOT_REAL_BROWSER",
-	        "HEADLESS_NOT_FALSE"
-	      ])
+	      expect.arrayContaining(
+	        xhsDriverContractFixtures.providerCapabilityFailure.active_api_fetch_fallback_gate
+	          .reason_codes
+	      )
 	    );
 	    expect(callSignature).not.toHaveBeenCalled();
 	    expect(fetchJson).not.toHaveBeenCalled();
@@ -1011,22 +1015,12 @@ describe("content-script handler xhs read commands", () => {
     const observability = (payload.observability ?? {}) as Record<string, unknown>;
 
     expect(result.ok).toBe(true);
-    expect(((payload.summary ?? {}) as Record<string, unknown>).route_evidence).toMatchObject({
-      evidence_class: "page_state_fallback",
-      fallback_reason: "REQUEST_CONTEXT_MISSING",
-      page_kind: "user_home"
-    });
-    expect(observability).toMatchObject({
-      page_state: {
-        fallback_used: true
-      }
-    });
+    expect(((payload.summary ?? {}) as Record<string, unknown>)).toMatchObject(
+      xhsDriverContractFixtures.fallback.summary
+    );
+    expect(observability).toMatchObject(xhsDriverContractFixtures.fallback.observability);
     expect((observability.key_requests as unknown[] | undefined) ?? []).toEqual([
-      expect.objectContaining({
-        stage: "page_state_fallback",
-        outcome: "completed",
-        fallback_reason: "REQUEST_CONTEXT_MISSING"
-      })
+      expect.objectContaining(xhsDriverContractFixtures.fallback.key_request)
     ]);
   });
 });
