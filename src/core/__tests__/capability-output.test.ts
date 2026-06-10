@@ -120,6 +120,30 @@ describe("mapCapabilitySummaryForContract", () => {
     );
   });
 
+  it("rejects forbidden fields for the current XHS search notes read ability", () => {
+    expectOutputMappingFailure(
+      () =>
+        mapCapabilitySummaryForContract("xhs.search.notes.v1", {
+          capability_result: {
+            ability_id: "xhs.search.notes.v1",
+            layer: "L3",
+            action: "read",
+            outcome: "success",
+            data_ref: {
+              search_id: "search-001"
+            }
+          },
+          evidence: {
+            normalized: {
+              notes: []
+            }
+          }
+        }),
+      "XHS_READ_OUTPUT_FORBIDDEN_FIELD",
+      "xhs.search.notes.v1"
+    );
+  });
+
   it("rejects forbidden fields for XHS read abilities even when action self-reports as write", () => {
     expectOutputMappingFailure(
       () =>
@@ -211,6 +235,31 @@ describe("mapCapabilitySummaryForContract", () => {
         }),
       "XHS_READ_OUTPUT_SECTION_INVALID",
       "xhs.user.home.v1"
+    );
+  });
+
+  it("rejects explicit envelope violations for the current XHS search notes read ability", () => {
+    expectOutputMappingFailure(
+      () =>
+        mapCapabilitySummaryForContract("xhs.search.notes.v1", {
+          capability_result: {
+            ability_id: "xhs.search.notes.v1",
+            layer: "L3",
+            action: "read",
+            outcome: "success",
+            data_ref: {
+              search_id: "search-001"
+            }
+          },
+          output_envelope: {
+            raw: {},
+            operational: {},
+            evidence: {},
+            publish_result: {}
+          }
+        }),
+      "XHS_READ_OUTPUT_SECTION_INVALID",
+      "xhs.search.notes.v1"
     );
   });
 

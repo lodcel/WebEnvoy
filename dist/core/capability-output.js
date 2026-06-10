@@ -3,6 +3,7 @@ const CAPABILITY_LAYERS = new Set(["L3", "L2", "L1"]);
 const CAPABILITY_ACTIONS = new Set(["read", "write", "download"]);
 const CAPABILITY_OUTCOMES = new Set(["success", "partial"]);
 const XHS_READ_ABILITY_IDS = new Set([
+    "xhs.search.notes.v1",
     "xhs.note.search.v1",
     "xhs.note.detail.v1",
     "xhs.user.home.v1"
