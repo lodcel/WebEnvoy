@@ -133,3 +133,5 @@ mappings:
     canonical_issue_number: 1176
   - spec_path: docs/dev/specs/FR-0067-extension-native-bridge-gate/spec.md
     canonical_issue_number: 1177
+  - spec_path: docs/dev/specs/FR-0068-live-write-commit-default-lock/spec.md
+    canonical_issue_number: 1180
