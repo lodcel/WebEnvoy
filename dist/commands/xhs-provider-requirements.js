@@ -4,23 +4,22 @@ const XHS_EVIDENCE_POLICY_REFS = [
     "FR-0041.evidence_redaction_policy.v1"
 ];
 const XHS_READ_RUNTIME_REQUIREMENTS = [
-    "browser_in_page_execution",
     "profile_binding",
     "extension_binding",
     "native_messaging",
-    "target_tab_binding",
+    "target_tab",
     "real_browser",
     "headless_forbidden",
-    "provider_evidence_ref",
-    "runtime_attestation"
+    "runtime_bootstrap_ready",
+    "provider_doctor_passed"
 ];
 const XHS_DIAGNOSTIC_RUNTIME_REQUIREMENTS = [
     "profile_binding",
     "extension_binding",
     "native_messaging",
-    "target_tab_binding",
-    "provider_evidence_ref",
-    "runtime_attestation"
+    "target_tab",
+    "runtime_bootstrap_ready",
+    "provider_doctor_passed"
 ];
 const XHS_PROVIDER_REQUIREMENT_FAIL_CLOSED_REASONS = [
     "capability_not_declared",

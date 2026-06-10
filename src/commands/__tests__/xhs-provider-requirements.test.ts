@@ -43,17 +43,31 @@ describe("XHS provider requirement declarations", () => {
     });
     expect(declaration.required_runtime_requirements).toEqual(
       expect.arrayContaining([
-        "browser_in_page_execution",
         "profile_binding",
         "extension_binding",
         "native_messaging",
-        "target_tab_binding",
+        "target_tab",
         "real_browser",
         "headless_forbidden",
-        "provider_evidence_ref",
-        "runtime_attestation"
+        "runtime_bootstrap_ready",
+        "provider_doctor_passed"
       ])
     );
+    const allowedRuntimeRequirements = new Set([
+      "profile_binding",
+      "extension_binding",
+      "native_messaging",
+      "target_tab",
+      "real_browser",
+      "headless_forbidden",
+      "runtime_bootstrap_ready",
+      "provider_doctor_passed"
+    ]);
+    expect(
+      declaration.required_runtime_requirements.every((requirement) =>
+        allowedRuntimeRequirements.has(requirement)
+      )
+    ).toBe(true);
     expect(JSON.stringify(declaration)).not.toContain("official_chrome");
     expect(JSON.stringify(declaration)).not.toContain("CloakBrowser");
     expect(requiresXhsProviderRuntimePreparationForContract(declaration)).toBe(true);
