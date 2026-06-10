@@ -109,6 +109,8 @@ mappings:
     canonical_issue_number: 1151
   - spec_path: docs/dev/specs/FR-0055-cloakserve-limitation-gate/spec.md
     canonical_issue_number: 1152
+  - spec_path: docs/dev/specs/FR-0056-extension-capability-gate/spec.md
+    canonical_issue_number: 1153
   - spec_path: docs/dev/specs/FR-0057-cloakbrowser-native-messaging-bridge-doctor/spec.md
     canonical_issue_number: 1154
   - spec_path: docs/dev/specs/FR-0058-cloakbrowser-final-args-evidence/spec.md
