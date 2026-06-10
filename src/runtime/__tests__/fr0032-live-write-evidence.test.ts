@@ -803,6 +803,83 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("redacts hyphenated account identifier key-value forms by default", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "account-id=xhs-raw-001 user-id = user-123"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/hyphenated-account-kv",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "tenant-id=tenant-007 workspace-id = ws-raw-008"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serialized).not.toContain("xhs-raw-001");
+    expect(serialized).not.toContain("user-123");
+    expect(serialized).not.toContain("tenant-007");
+    expect(serialized).not.toContain("ws-raw-008");
+    expect(serialized).toContain("<redacted:account_identifier>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator"
+        })
+      ])
+    );
+  });
+
+  it("evaluates hyphenated account identifier key-value forms without leaking raw values", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "account-id=xhs-raw-001"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/hyphenated-account-kv",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "user-id=user-123 tenant-id = tenant-007"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("xhs-raw-001");
+    expect(serializedEvaluation).not.toContain("user-123");
+    expect(serializedEvaluation).not.toContain("tenant-007");
+    expect(serializedEvaluation).toContain("<redacted:account_identifier>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
   it("redacts file URI private paths and URL-encoded private paths", () => {
     const input = baseInput();
     input.upload_artifact_identity = {
@@ -883,6 +960,79 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).not.toContain("file:///home/example");
     expect(serializedFindings).toContain("<redacted:path:source_media>");
     expect(serializedFindings).toContain("<redacted:path:private>");
+  });
+
+  it("redacts Windows forward-slash private paths and file URI forms", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "C:/Users/alice/Pictures/Private Album/seed image.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "file:///C:/Users/alice/AppData/Local/WebEnvoy/proof file.json"
+    };
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serialized).not.toContain("C:/Users/alice");
+    expect(serialized).not.toContain("file:///C:/Users/alice");
+    expect(serialized).not.toContain("Private Album");
+    expect(serialized).not.toContain("proof file.json");
+    expect(serialized).toContain("<redacted:path:source_media>");
+    expect(serialized).toContain("<redacted:path:private>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.upload_artifact_identity.source_media_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        })
+      ])
+    );
+  });
+
+  it("evaluates Windows forward-slash private paths without leaking raw values", () => {
+    const input = baseInput();
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "file:///C:/Users/alice/AppData/Local/WebEnvoy/proof file.json"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/windows-forward-slash",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "artifact_ref=C:/Users/alice/Library/WebEnvoy/private proof.json"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("C:/Users/alice");
+    expect(serializedEvaluation).not.toContain("file:///C:/Users/alice");
+    expect(serializedEvaluation).not.toContain("proof file.json");
+    expect(serializedEvaluation).not.toContain("private proof.json");
+    expect(serializedEvaluation).toContain("<redacted:path:private>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
   });
 
   it("fully redacts private and source media paths that contain spaces", () => {

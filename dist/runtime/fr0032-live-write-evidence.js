@@ -14,10 +14,10 @@ const unsafeRedactedPlaceholderContent = (value) => {
 };
 const privatePosixPathPattern = /(?:^|[\s"'=/])(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/i;
 const encodedPrivatePosixPathPattern = /(?:^|[\s"'=/:])(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/i;
-const windowsPrivatePathPattern = /[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\r\n"']+/i;
+const windowsPrivatePathPattern = /[A-Za-z]:(?:\\|\/)(?:Users|Documents and Settings)(?:\\|\/)[^\r\n"']+/i;
 const privatePosixPathReplacePattern = /(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/gi;
 const encodedPrivatePosixPathReplacePattern = /(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/gi;
-const windowsPrivatePathReplacePattern = /[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\r\n"']+/gi;
+const windowsPrivatePathReplacePattern = /[A-Za-z]:(?:\\|\/)(?:Users|Documents and Settings)(?:\\|\/)[^\r\n"']+/gi;
 const hasPrivatePath = (value) => privatePosixPathPattern.test(value) ||
     encodedPrivatePosixPathPattern.test(value) ||
     windowsPrivatePathPattern.test(value);
@@ -59,8 +59,8 @@ const redactedTokenSuffixDetectPatterns = [
 ];
 const secretKeyValuePattern = /\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\s"',;)&#]+/gi;
 const secretKeyValueDetectPattern = /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)&#]+/i;
-const accountIdentifierKeyValuePattern = /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)\s*[:=]\s*[^\s"',)]+/gi;
-const accountIdentifierKeyValueDetectPattern = /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)\s*[:=]\s*[^\s"',)]+/i;
+const accountIdentifierKeyValuePattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/gi;
+const accountIdentifierKeyValueDetectPattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/i;
 const freeTextPhonePattern = /(^|[^\w+])(\+\d[\d .()-]{7,}\d)(?=$|[^\d])/gi;
 const freeTextPhoneDetectPattern = /(^|[^\w+])\+\d[\d .()-]{7,}\d(?=$|[^\d])/i;
 const freeTextAccountIdentifierPattern = /\b((?:account|account\s+id|account\s+identifier|user|user\s+id|uid|username|tenant|workspace|organization)\s+)([A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*|[A-Za-z0-9_-]*\d[A-Za-z][A-Za-z0-9_-]*)(?=$|[\s"',;)])/gi;
