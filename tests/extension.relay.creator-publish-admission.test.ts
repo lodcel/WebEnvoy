@@ -14,6 +14,35 @@ const readyProfileOptions = {
   }
 } as const;
 
+const providerRequirementRef =
+  "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit";
+
+const xhsDriverProviderRequirements = {
+  declaration_id: "xhs-driver-provider-requirements:xhs.creator_publish.admit:write_admit:v1",
+  declaration_version: "v1",
+  provider_requirement_ref: providerRequirementRef,
+  provider_requirement_refs: [providerRequirementRef],
+  required_actions: ["diagnose"],
+  live_write_capability_gate_input: {
+    taxonomy_version: "v1",
+    requested_capability_level: "write_admit",
+    maximum_capability_level: "write_admit",
+    minimum_required_level: "write_admit",
+    capability_owner: "#1179",
+    workflow_ref: "xhs.creator_publish.admit",
+    target_scope_ref: "xhs.creator_publish.admit:creator.xiaohongshu.com/creator_publish_tab",
+    provider_requirement_ref: providerRequirementRef,
+    operator_unlock_ref: null,
+    default_commit_lock_ref: null,
+    account_safety_ref: "FR-0066.account_safety_gate.v1/current-scope-required",
+    runtime_target_binding_ref: null,
+    anti_detection_gate_ref: null,
+    live_evidence_gate_ref: null,
+    evidence_refs: [providerRequirementRef]
+  },
+  default_live_write_commit_lock: "locked"
+} as const;
+
 const creatorPublishOptions = {
   issue_scope: "issue_753",
   target_domain: "creator.xiaohongshu.com",
@@ -22,6 +51,8 @@ const creatorPublishOptions = {
   action_type: "write",
   requested_execution_mode: "dry_run",
   risk_state: "allowed",
+  xhs_driver_provider_requirements: xhsDriverProviderRequirements,
+  provider_requirement_refs: [providerRequirementRef],
   ...readyProfileOptions
 } as const;
 
@@ -97,8 +128,15 @@ describe("extension background relay / creator publish admission", () => {
       target_tab_id: 32,
       target_page: "creator_publish_tab",
       profile_readiness: readyProfileOptions.profile_readiness,
-      account_readiness: readyProfileOptions.account_readiness
+      account_readiness: readyProfileOptions.account_readiness,
+      provider_requirement_refs: [providerRequirementRef],
+      xhs_driver_provider_requirements: xhsDriverProviderRequirements,
+      default_live_write_commit_lock: "locked"
     });
+    expect(asRecord(targetAdmission?.xhs_driver_provider_requirements)?.required_actions).toEqual([
+      "diagnose"
+    ]);
+    expect(targetAdmission).not.toHaveProperty("live_write_capability_gate_result");
     expect(targetAdmission?.out_of_scope_actions).toEqual([
       "editor_text_write",
       "image_upload",

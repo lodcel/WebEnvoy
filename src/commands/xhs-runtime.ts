@@ -3349,7 +3349,13 @@ const xhsReadCommand = async (
               count: 0
             }
           }),
-          ...runtimeBindingSummaryFields
+          ...runtimeBindingSummaryFields,
+          ...(providerRequirements
+            ? {
+                xhs_driver_provider_requirements: providerRequirements,
+                provider_requirement_refs: providerRequirements.provider_requirement_refs
+              }
+            : {})
         }
       )
     };

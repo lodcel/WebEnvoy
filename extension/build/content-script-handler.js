@@ -2198,6 +2198,14 @@ export class ContentScriptHandler {
                     ...(asRecord(options.account_readiness)
                         ? { account_readiness: asRecord(options.account_readiness) ?? {} }
                         : {}),
+                    ...(asRecord(options.xhs_driver_provider_requirements)
+                        ? { xhs_driver_provider_requirements: asRecord(options.xhs_driver_provider_requirements) ?? {} }
+                        : {}),
+                    ...(Array.isArray(options.provider_requirement_refs)
+                        ? {
+                            provider_requirement_refs: options.provider_requirement_refs.filter((ref) => typeof ref === "string")
+                        }
+                        : {}),
                     ...(Array.isArray(options.admission_gate_reasons)
                         ? {
                             admission_gate_reasons: options.admission_gate_reasons.filter((reason) => typeof reason === "string")

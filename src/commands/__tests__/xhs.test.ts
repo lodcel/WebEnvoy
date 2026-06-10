@@ -10010,6 +10010,65 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
+  it("attaches #1179 provider requirements to xhs.creator_publish.admit fixture dry-run output", async () => {
+    const previousFixtureSuccess = process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+    process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = "1";
+
+    try {
+      const result = await executeCommand(
+        {
+          cwd: "/tmp/webenvoy",
+          command: "xhs.creator_publish.admit",
+          profile: "profile-1179-provider-requirements-001",
+          run_id: "run-1179-provider-requirements-001",
+          params: {
+            target_domain: "creator.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "creator_publish_tab",
+            requested_execution_mode: "dry_run",
+            risk_state: "allowed",
+            fixture_success: true
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      );
+
+      expect(result).toMatchObject({
+        summary: {
+          provider_requirement_refs: [
+            "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit"
+          ],
+          xhs_driver_provider_requirements: {
+            ability_scope: {
+              command: "xhs.creator_publish.admit",
+              ability_id: "xhs.creator.publish.v1",
+              ability_action: "write"
+            },
+            required_actions: ["diagnose"],
+            live_write_capability_gate_input: {
+              requested_capability_level: "write_admit",
+              maximum_capability_level: "write_admit",
+              minimum_required_level: "write_admit"
+            },
+            default_live_write_commit_lock: "locked"
+          }
+        }
+      });
+      expect(result.summary.xhs_driver_provider_requirements.required_actions).not.toContain(
+        "write_admit"
+      );
+      expect(result.summary.xhs_driver_provider_requirements).not.toHaveProperty(
+        "live_write_capability_gate_result"
+      );
+    } finally {
+      if (previousFixtureSuccess === undefined) {
+        delete process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+      } else {
+        process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = previousFixtureSuccess;
+      }
+    }
+  });
+
   it("rejects a caller-supplied ability envelope that does not match the dedicated XHS command", async () => {
     await expect(
       executeCommand(

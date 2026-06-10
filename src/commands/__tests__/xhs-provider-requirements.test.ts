@@ -99,7 +99,7 @@ describe("XHS provider requirement declarations", () => {
     expect(requiresXhsProviderRuntimePreparationForContract(declaration)).toBe(false);
   });
 
-  it("does not declare FR-0061 provider requirements for creator/write commands", () => {
+  it("declares #1179 write-admit provider requirements for creator publish admission", () => {
     const declaration = declareXhsDriverProviderRequirementsForContract({
       command: "xhs.creator_publish.admit",
       ability: {
@@ -110,7 +110,61 @@ describe("XHS provider requirement declarations", () => {
       requestedExecutionMode: "live_write"
     });
 
-    expect(declaration).toBeNull();
+    expect(declaration).not.toBeNull();
+    if (!declaration) {
+      throw new Error("expected creator publish admission declaration");
+    }
+    expect(declaration).toMatchObject({
+      declaration_id: "xhs-driver-provider-requirements:xhs.creator_publish.admit:write_admit:v1",
+      provider_requirement_ref:
+        "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit",
+      ability_scope: {
+        command: "xhs.creator_publish.admit",
+        ability_id: "xhs.creator.publish.v1",
+        ability_layer: "L3",
+        ability_action: "write"
+      },
+      required_actions: ["diagnose"],
+      required_execution_layers: ["L3"],
+      minimum_support_state: "runtime_attested",
+      provider_requirement_refs: [
+        "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit"
+      ],
+      live_write_capability_gate_input: {
+        taxonomy_version: "v1",
+        requested_capability_level: "write_admit",
+        maximum_capability_level: "write_admit",
+        minimum_required_level: "write_admit",
+        capability_owner: "#1179",
+        workflow_ref: "xhs.creator_publish.admit",
+        provider_requirement_ref:
+          "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit"
+      },
+      profile_manifest_provider_allowlist_ref: "FR-0065.profile_manifest_provider_allowlist.v1",
+      account_safety_gate_ref: "FR-0066.account_safety_gate.v1",
+      default_live_write_commit_lock: "locked"
+    });
+    expect(declaration.required_actions).not.toContain("write_admit");
+    expect(declaration).not.toHaveProperty("live_write_capability_gate_result");
+    expect(declaration.downstream_slice_refs).toEqual(
+      expect.arrayContaining(["#1174", "#1175", "#1176", "#1178", "#1180", "#1211"])
+    );
+    expect(declaration.fail_closed_reasons).toEqual(
+      expect.arrayContaining([
+        "profile_manifest_missing",
+        "account_safety_unknown",
+        "default_commit_lock_active",
+        "live_evidence_missing",
+        "capability_level_escalation_not_allowed"
+      ])
+    );
+    expect(declaration.non_proofs).toEqual(
+      expect.arrayContaining([
+        "write_admit_provider_requirement_does_not_enable_live_write_commit",
+        "write_admit_provider_requirement_does_not_publish_or_submit"
+      ])
+    );
+    expect(JSON.stringify(declaration)).not.toContain("publish_ready");
   });
 
   it("does not declare fallback provider requirement refs for other non-read commands", () => {
