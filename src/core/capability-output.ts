@@ -131,8 +131,7 @@ const assertXhsReadOutputBoundaryForContract = (
   capabilityResult: JsonObject
 ): void => {
   if (
-    !XHS_READ_ABILITY_IDS.has(abilityId) ||
-    capabilityResult.action !== "read"
+    !XHS_READ_ABILITY_IDS.has(abilityId)
   ) {
     return;
   }
@@ -142,6 +141,13 @@ const assertXhsReadOutputBoundaryForContract = (
     throw invalidXhsReadOutputBoundary(abilityId, violation.reason, {
       field: violation.field,
       path: violation.path
+    });
+  }
+
+  if (capabilityResult.action !== "read") {
+    throw invalidXhsReadOutputBoundary(abilityId, "XHS_READ_ABILITY_ACTION_MISMATCH", {
+      field: "capability_result.action",
+      path: "capability_result.action"
     });
   }
 };

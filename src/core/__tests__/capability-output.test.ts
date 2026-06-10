@@ -120,6 +120,29 @@ describe("mapCapabilitySummaryForContract", () => {
     );
   });
 
+  it("rejects forbidden fields for XHS read abilities even when action self-reports as write", () => {
+    expectOutputMappingFailure(
+      () =>
+        mapCapabilitySummaryForContract(abilityId, {
+          capability_result: {
+            ability_id: abilityId,
+            layer: "L3",
+            action: "write",
+            outcome: "success",
+            data_ref: {
+              search_id: "search-001"
+            }
+          },
+          evidence: {
+            live_write_commit: {
+              attempt_id: "write-001"
+            }
+          }
+        }),
+      "XHS_READ_OUTPUT_FORBIDDEN_FIELD"
+    );
+  });
+
   it("rejects normalized sections in XHS read output", () => {
     expectOutputMappingFailure(
       () =>
@@ -144,6 +167,28 @@ describe("mapCapabilitySummaryForContract", () => {
     );
   });
 
+  it("rejects malformed XHS read actions after enforcing the output boundary", () => {
+    expectOutputMappingFailure(
+      () =>
+        mapCapabilitySummaryForContract("xhs.note.detail.v1", {
+          capability_result: {
+            ability_id: "xhs.note.detail.v1",
+            layer: "L3",
+            action: "write",
+            outcome: "success",
+            data_ref: {
+              note_id: "note-001"
+            }
+          },
+          evidence: {
+            route_evidence_class: "passive_api_capture"
+          }
+        }),
+      "XHS_READ_ABILITY_ACTION_MISMATCH",
+      "xhs.note.detail.v1"
+    );
+  });
+
   it("rejects non-FR-0061 sections in explicit XHS driver envelopes", () => {
     expectOutputMappingFailure(
       () =>
@@ -162,6 +207,31 @@ describe("mapCapabilitySummaryForContract", () => {
             operational: {},
             evidence: {},
             diagnostics: {}
+          }
+        }),
+      "XHS_READ_OUTPUT_SECTION_INVALID",
+      "xhs.user.home.v1"
+    );
+  });
+
+  it("rejects invalid XHS driver envelope sections even when action self-reports as write", () => {
+    expectOutputMappingFailure(
+      () =>
+        mapCapabilitySummaryForContract("xhs.user.home.v1", {
+          capability_result: {
+            ability_id: "xhs.user.home.v1",
+            layer: "L3",
+            action: "write",
+            outcome: "success",
+            data_ref: {
+              user_id: "user-001"
+            }
+          },
+          output_envelope: {
+            raw: {},
+            operational: {},
+            evidence: {},
+            publish_result: {}
           }
         }),
       "XHS_READ_OUTPUT_SECTION_INVALID",
