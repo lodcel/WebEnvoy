@@ -1972,6 +1972,62 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("allows ordinary log fields after redacted authorization headers", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "Authorization: Bearer raw-auth-token-001 status=200 method=POST ok=true"
+    };
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serializedRedacted = JSON.stringify(redacted.evidence);
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serializedRedacted).not.toContain("raw-auth-token-001");
+    expect(serializedRedacted).toContain("Authorization: Bearer <redacted:token>");
+    expect(serializedRedacted).toContain("status=200");
+    expect(serializedRedacted).toContain("method=POST");
+    expect(serializedRedacted).toContain("ok=true");
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("raw-auth-token-001");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
+  it("still redacts attached authorization suffixes before ordinary log fields", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message:
+        "Authorization: Bearer <redacted:token>raw-auth-suffix status=200 method=POST"
+    };
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serialized).not.toContain("raw-auth-suffix");
+    expect(serialized).toContain("Authorization: Bearer <redacted:token> status=200");
+    expect(serialized).toContain("method=POST");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        })
+      ])
+    );
+  });
+
   it("keeps legitimate redacted token placeholders safe at value boundaries", () => {
     const input = baseInput();
     input.risk_signals = [

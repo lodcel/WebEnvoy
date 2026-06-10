@@ -56,7 +56,7 @@ const quotedSecretHeaderDetectPatterns = [
     /["'](?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)["']\s*:\s*["'](?!\s*<redacted:token>(?=["']))\s*[^"']+["']/i,
     /["'](?:set-cookie|cookie)["']\s*:\s*["'](?!\s*<redacted:token>(?=["']))\s*[^"']+["']/i
 ];
-const tokenSuffixBoundaryFieldPattern = "(?:authorization|proxy-authorization|x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token|xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]|(?:set-cookie|cookie)\\s*:";
+const tokenSuffixBoundaryFieldPattern = "(?:(?:status|status_code|code|method|ok|success|duration|elapsed|retry|attempt|trace_id|request_id|run_id|timestamp|ts)\\s*[:=]|(?:authorization|proxy-authorization|x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token|xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]|(?:set-cookie|cookie)\\s*:)";
 const redactedTokenSuffixReplacePatterns = [
     new RegExp(`\\b((?:authorization|proxy-authorization)\\s*[:=]\\s*(?:bearer|basic|digest|token)\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`, "gi"),
     new RegExp(`\\b((?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\\s*[:=]\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`, "gi"),
