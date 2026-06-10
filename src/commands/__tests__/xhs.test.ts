@@ -10010,6 +10010,58 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
+  it("attaches #1179 provider requirements to xhs.creator_publish.admit fixture dry-run output", async () => {
+    const previousFixtureSuccess = process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+    process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = "1";
+
+    try {
+      await expect(
+        executeCommand(
+          {
+            cwd: "/tmp/webenvoy",
+            command: "xhs.creator_publish.admit",
+            profile: "profile-1179-provider-requirements-001",
+            run_id: "run-1179-provider-requirements-001",
+            params: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed",
+              fixture_success: true
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).resolves.toMatchObject({
+        summary: {
+          provider_requirement_refs: [
+            "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit"
+          ],
+          xhs_driver_provider_requirements: {
+            ability_scope: {
+              command: "xhs.creator_publish.admit",
+              ability_id: "xhs.creator.publish.v1",
+              ability_action: "write"
+            },
+            live_write_capability_gate_result: {
+              effective_capability_level: "write_admit",
+              gate_status: "ready_for_downstream_gate",
+              decision: "allow"
+            },
+            default_live_write_commit_lock: "locked"
+          }
+        }
+      });
+    } finally {
+      if (previousFixtureSuccess === undefined) {
+        delete process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+      } else {
+        process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = previousFixtureSuccess;
+      }
+    }
+  });
+
   it("rejects a caller-supplied ability envelope that does not match the dedicated XHS command", async () => {
     await expect(
       executeCommand(

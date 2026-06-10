@@ -1062,6 +1062,19 @@ export class InMemoryContentScriptRuntime {
                     target_page: options.target_page ?? null,
                     profile_readiness: asRecord(options.profile_readiness),
                     account_readiness: asRecord(options.account_readiness),
+                    provider_requirement_refs: Array.isArray(options.provider_requirement_refs)
+                      ? options.provider_requirement_refs
+                      : [],
+                    xhs_driver_provider_requirements: asRecord(
+                      options.xhs_driver_provider_requirements
+                    ),
+                    live_write_capability_gate_result: asRecord(
+                      asRecord(options.xhs_driver_provider_requirements)
+                        ?.live_write_capability_gate_result
+                    ),
+                    default_live_write_commit_lock:
+                      asRecord(options.xhs_driver_provider_requirements)
+                        ?.default_live_write_commit_lock ?? null,
                     out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
                   }
                 }

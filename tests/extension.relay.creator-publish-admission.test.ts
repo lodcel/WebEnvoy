@@ -14,6 +14,28 @@ const readyProfileOptions = {
   }
 } as const;
 
+const providerRequirementRef =
+  "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit";
+
+const xhsDriverProviderRequirements = {
+  declaration_id: "xhs-driver-provider-requirements:xhs.creator_publish.admit:write_admit:v1",
+  declaration_version: "v1",
+  provider_requirement_ref: providerRequirementRef,
+  provider_requirement_refs: [providerRequirementRef],
+  live_write_capability_gate_result: {
+    taxonomy_version: "v1",
+    requested_capability_level: "write_admit",
+    effective_capability_level: "write_admit",
+    gate_status: "ready_for_downstream_gate",
+    decision: "allow",
+    blocking_reasons: [],
+    downstream_owner: "#1180",
+    evidence_refs_consumed: [providerRequirementRef],
+    verified_at: "N/A"
+  },
+  default_live_write_commit_lock: "locked"
+} as const;
+
 const creatorPublishOptions = {
   issue_scope: "issue_753",
   target_domain: "creator.xiaohongshu.com",
@@ -22,6 +44,8 @@ const creatorPublishOptions = {
   action_type: "write",
   requested_execution_mode: "dry_run",
   risk_state: "allowed",
+  xhs_driver_provider_requirements: xhsDriverProviderRequirements,
+  provider_requirement_refs: [providerRequirementRef],
   ...readyProfileOptions
 } as const;
 
@@ -97,7 +121,15 @@ describe("extension background relay / creator publish admission", () => {
       target_tab_id: 32,
       target_page: "creator_publish_tab",
       profile_readiness: readyProfileOptions.profile_readiness,
-      account_readiness: readyProfileOptions.account_readiness
+      account_readiness: readyProfileOptions.account_readiness,
+      provider_requirement_refs: [providerRequirementRef],
+      xhs_driver_provider_requirements: xhsDriverProviderRequirements,
+      live_write_capability_gate_result: {
+        effective_capability_level: "write_admit",
+        gate_status: "ready_for_downstream_gate",
+        decision: "allow"
+      },
+      default_live_write_commit_lock: "locked"
     });
     expect(targetAdmission?.out_of_scope_actions).toEqual([
       "editor_text_write",

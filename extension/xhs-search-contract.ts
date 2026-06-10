@@ -52,6 +52,8 @@ export interface XhsSearchOptions {
   validation_action?: string;
   validation_text?: string;
   editor_focus_attestation?: EditorInputFocusAttestation | Record<string, unknown>;
+  xhs_driver_provider_requirements?: Record<string, unknown>;
+  provider_requirement_refs?: string[];
 }
 
 export interface SignatureResult {

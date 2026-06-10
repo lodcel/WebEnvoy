@@ -292,6 +292,19 @@ export const createGateOnlySuccess = (input: {
               target_page: gate.consumer_gate_result.target_page,
               profile_readiness: asRecord(input.options?.profile_readiness),
               account_readiness: asRecord(input.options?.account_readiness),
+              provider_requirement_refs: Array.isArray(input.options?.provider_requirement_refs)
+                ? input.options.provider_requirement_refs
+                : [],
+              xhs_driver_provider_requirements: asRecord(
+                input.options?.xhs_driver_provider_requirements
+              ),
+              live_write_capability_gate_result: asRecord(
+                asRecord(input.options?.xhs_driver_provider_requirements)
+                  ?.live_write_capability_gate_result
+              ),
+              default_live_write_commit_lock:
+                asRecord(input.options?.xhs_driver_provider_requirements)
+                  ?.default_live_write_commit_lock ?? null,
               out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
             }
           }

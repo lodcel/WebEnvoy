@@ -73,6 +73,8 @@ export interface XhsSearchOptions {
   editor_focus_attestation?: EditorInputFocusAttestation | Record<string, unknown>;
   profile_readiness?: Record<string, unknown>;
   account_readiness?: Record<string, unknown>;
+  xhs_driver_provider_requirements?: Record<string, unknown>;
+  provider_requirement_refs?: string[];
   admission_gate_reasons?: string[];
 }
 
