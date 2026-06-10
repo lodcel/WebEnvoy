@@ -198,7 +198,7 @@ export const declareXhsDriverProviderRequirementsForContract = (input) => {
             command: input.command,
             ability: input.ability,
             requiredRuntimeRequirements: XHS_READ_RUNTIME_REQUIREMENTS,
-            requiredActions: ["write_admit", "diagnose"],
+            requiredActions: ["diagnose"],
             requiredExecutionLayers: ["L3"],
             requestedExecutionMode: input.requestedExecutionMode,
             downstreamSliceRefs: XHS_CREATOR_PUBLISH_ADMIT_DOWNSTREAM_SLICE_REFS,

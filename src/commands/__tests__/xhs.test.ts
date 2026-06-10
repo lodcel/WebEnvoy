@@ -10044,6 +10044,7 @@ describe("normalizeGateOptionsForContract", () => {
               ability_id: "xhs.creator.publish.v1",
               ability_action: "write"
             },
+            required_actions: ["diagnose"],
             live_write_capability_gate_input: {
               requested_capability_level: "write_admit",
               maximum_capability_level: "write_admit",
@@ -10053,6 +10054,9 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       });
+      expect(result.summary.xhs_driver_provider_requirements.required_actions).not.toContain(
+        "write_admit"
+      );
       expect(result.summary.xhs_driver_provider_requirements).not.toHaveProperty(
         "live_write_capability_gate_result"
       );

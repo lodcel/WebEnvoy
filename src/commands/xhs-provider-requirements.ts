@@ -10,7 +10,7 @@ export type XhsProviderRuntimeRequirement =
   | "runtime_bootstrap_ready"
   | "provider_doctor_passed";
 
-export type XhsProviderRequiredAction = "read" | "diagnose" | "write_admit";
+export type XhsProviderRequiredAction = "read" | "diagnose";
 export type XhsProviderSupportState =
   | "statically_verified"
   | "health_checked"
@@ -318,7 +318,7 @@ export const declareXhsDriverProviderRequirementsForContract = (input: {
       command: input.command,
       ability: input.ability,
       requiredRuntimeRequirements: XHS_READ_RUNTIME_REQUIREMENTS,
-      requiredActions: ["write_admit", "diagnose"],
+      requiredActions: ["diagnose"],
       requiredExecutionLayers: ["L3"],
       requestedExecutionMode: input.requestedExecutionMode,
       downstreamSliceRefs: XHS_CREATOR_PUBLISH_ADMIT_DOWNSTREAM_SLICE_REFS,

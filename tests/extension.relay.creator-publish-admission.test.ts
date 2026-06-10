@@ -22,6 +22,7 @@ const xhsDriverProviderRequirements = {
   declaration_version: "v1",
   provider_requirement_ref: providerRequirementRef,
   provider_requirement_refs: [providerRequirementRef],
+  required_actions: ["diagnose"],
   live_write_capability_gate_input: {
     taxonomy_version: "v1",
     requested_capability_level: "write_admit",
@@ -132,6 +133,9 @@ describe("extension background relay / creator publish admission", () => {
       xhs_driver_provider_requirements: xhsDriverProviderRequirements,
       default_live_write_commit_lock: "locked"
     });
+    expect(asRecord(targetAdmission?.xhs_driver_provider_requirements)?.required_actions).toEqual([
+      "diagnose"
+    ]);
     expect(targetAdmission).not.toHaveProperty("live_write_capability_gate_result");
     expect(targetAdmission?.out_of_scope_actions).toEqual([
       "editor_text_write",

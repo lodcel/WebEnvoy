@@ -124,7 +124,7 @@ describe("XHS provider requirement declarations", () => {
         ability_layer: "L3",
         ability_action: "write"
       },
-      required_actions: ["write_admit", "diagnose"],
+      required_actions: ["diagnose"],
       required_execution_layers: ["L3"],
       minimum_support_state: "runtime_attested",
       provider_requirement_refs: [
@@ -144,6 +144,7 @@ describe("XHS provider requirement declarations", () => {
       account_safety_gate_ref: "FR-0066.account_safety_gate.v1",
       default_live_write_commit_lock: "locked"
     });
+    expect(declaration.required_actions).not.toContain("write_admit");
     expect(declaration).not.toHaveProperty("live_write_capability_gate_result");
     expect(declaration.downstream_slice_refs).toEqual(
       expect.arrayContaining(["#1174", "#1175", "#1176", "#1178", "#1180", "#1211"])
