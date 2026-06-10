@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   declareXhsDriverProviderRequirementsForContract,
+  requiresXhsOfficialChromeRuntimePreparationForContract,
   requiresXhsProviderRuntimePreparationForContract
 } from "../xhs.js";
 
@@ -124,6 +125,42 @@ describe("XHS provider requirement declarations", () => {
     });
 
     expect(declaration).toBeNull();
+  });
+
+  it("keeps runtime preparation for non-read recon/live commands without FR-0061 provider refs", () => {
+    const mediaReconDeclaration = declareXhsDriverProviderRequirementsForContract({
+      command: "xhs.media_upload.discover",
+      ability: {
+        id: "xhs.creator.publish.v1",
+        layer: "L3",
+        action: "write"
+      },
+      requestedExecutionMode: "recon"
+    });
+    const controlledLiveWriteDeclaration = declareXhsDriverProviderRequirementsForContract({
+      command: "xhs.creator_publish.controlled_live_write",
+      ability: {
+        id: "xhs.creator.publish.v1",
+        layer: "L3",
+        action: "write"
+      },
+      requestedExecutionMode: "live_write"
+    });
+
+    expect(mediaReconDeclaration).toBeNull();
+    expect(controlledLiveWriteDeclaration).toBeNull();
+    expect(
+      requiresXhsOfficialChromeRuntimePreparationForContract({
+        providerRequirements: mediaReconDeclaration,
+        requestedExecutionMode: "recon"
+      })
+    ).toBe(true);
+    expect(
+      requiresXhsOfficialChromeRuntimePreparationForContract({
+        providerRequirements: controlledLiveWriteDeclaration,
+        requestedExecutionMode: "live_write"
+      })
+    ).toBe(true);
   });
 
   it("does not declare read provider requirements for the legacy xhs.search editor_input write alias", () => {

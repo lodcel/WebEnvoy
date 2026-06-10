@@ -1,6 +1,7 @@
 export { buildOfficialChromeRuntimeStatusParams } from "../runtime/official-chrome-runtime.js";
 export {
   declareXhsDriverProviderRequirementsForContract,
+  requiresXhsOfficialChromeRuntimePreparationForContract,
   requiresXhsProviderRuntimePreparationForContract
 } from "./xhs-provider-requirements.js";
 export { evaluateXhsSearchPrimaryPassiveApiReadinessForContract } from "../runtime/xhs-search-primary-passive-api-readiness.js";

@@ -23,7 +23,7 @@ import { readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBun
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
 import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY, bindIssue835ControlledLiveWriteEnvelopeToSessionForContract, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseControlledLiveWriteInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue835ControlledLiveWriteEnvelopeForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
-import { declareXhsDriverProviderRequirementsForContract, requiresXhsProviderRuntimePreparationForContract } from "./xhs-provider-requirements.js";
+import { declareXhsDriverProviderRequirementsForContract, requiresXhsOfficialChromeRuntimePreparationForContract } from "./xhs-provider-requirements.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_ABILITY_ID = "xhs.editor.input.v1";
@@ -2657,11 +2657,11 @@ const xhsReadCommand = async (context, inputConfig) => {
         });
         const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
         let officialChromeRuntimeStatus = null;
-        const providerRuntimePreparationRequired = (providerRequirements
-            ? requiresXhsProviderRuntimePreparationForContract(providerRequirements)
-            : false) ||
-            recoveryProbeRequested;
-        if (providerRuntimePreparationRequired) {
+        if (requiresXhsOfficialChromeRuntimePreparationForContract({
+            providerRequirements,
+            requestedExecutionMode: gate.requestedExecutionMode,
+            recoveryProbeRequested
+        })) {
             officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(context, envelope.ability, gate.requestedExecutionMode, bridge, fingerprintContext, {
                 ...gate,
                 targetResourceId: resolveBootstrapTargetResourceId(context.command, parsedInput)

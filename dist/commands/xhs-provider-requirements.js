@@ -111,3 +111,8 @@ export const declareXhsDriverProviderRequirementsForContract = (input) => {
 export const requiresXhsProviderRuntimePreparationForContract = (declaration) => declaration.minimum_support_state === "runtime_attested" ||
     declaration.minimum_support_state === "runtime_observed" ||
     declaration.minimum_support_state === "live_evidence_attested";
+export const requiresXhsOfficialChromeRuntimePreparationForContract = (input) => (input.providerRequirements
+    ? requiresXhsProviderRuntimePreparationForContract(input.providerRequirements)
+    : false) ||
+    input.recoveryProbeRequested === true ||
+    isRuntimeBoundExecutionMode(input.requestedExecutionMode);

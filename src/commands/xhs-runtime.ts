@@ -84,7 +84,7 @@ import {
 } from "./xhs-input.js";
 import {
   declareXhsDriverProviderRequirementsForContract,
-  requiresXhsProviderRuntimePreparationForContract
+  requiresXhsOfficialChromeRuntimePreparationForContract
 } from "./xhs-provider-requirements.js";
 
 type AbilityLayer = "L3" | "L2" | "L1";
@@ -3519,12 +3519,13 @@ const xhsReadCommand = async (
     });
     const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
     let officialChromeRuntimeStatus: JsonObject | null = null;
-    const providerRuntimePreparationRequired =
-      (providerRequirements
-        ? requiresXhsProviderRuntimePreparationForContract(providerRequirements)
-        : false) ||
-      recoveryProbeRequested;
-    if (providerRuntimePreparationRequired) {
+    if (
+      requiresXhsOfficialChromeRuntimePreparationForContract({
+        providerRequirements,
+        requestedExecutionMode: gate.requestedExecutionMode,
+        recoveryProbeRequested
+      })
+    ) {
       officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(
         context,
         envelope.ability,
