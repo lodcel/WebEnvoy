@@ -1028,6 +1028,99 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).toContain("<redacted:token>");
   });
 
+  it("redacts free-text token and api-key key-value secrets", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "token=raw-token-001 access_token = raw-access-token-001"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "api_key=raw-api-key-001 API Key: raw-spaced-api-key-001"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/token-kv",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "Auth_Token=raw-auth-token-001 token=<redacted:token>"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(3);
+    expect(serialized).not.toContain("raw-token-001");
+    expect(serialized).not.toContain("raw-access-token-001");
+    expect(serialized).not.toContain("raw-api-key-001");
+    expect(serialized).not.toContain("raw-spaced-api-key-001");
+    expect(serialized).not.toContain("raw-auth-token-001");
+    expect(serialized).toContain("token=<redacted:token>");
+    expect(serialized).toContain("access_token = <redacted:token>");
+    expect(serialized).toContain("api_key=<redacted:token>");
+    expect(serialized).toContain("API Key: <redacted:token>");
+    expect(serialized).toContain("Auth_Token=<redacted:token>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        })
+      ])
+    );
+  });
+
+  it("evaluates free-text token key-value secrets through default redaction", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "token=raw-token-001"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/token-kv",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "access_token=raw-access-token-001 api_key=raw-api-key-001 token=<redacted:token>"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedFindings = JSON.stringify(evaluation.redaction_findings);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(evaluation.redacted_field_count).toBeGreaterThanOrEqual(2);
+    expect(serializedFindings).not.toContain("raw-token-001");
+    expect(serializedFindings).not.toContain("raw-access-token-001");
+    expect(serializedFindings).not.toContain("raw-api-key-001");
+    expect(serializedFindings).toContain("<redacted:token>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
   it("passes a full upload, submit, publish, evidence and cleanup success candidate", () => {
     expect(evaluateFr0032LiveWriteEvidence(baseInput())).toMatchObject({
       decision: "PASS",
