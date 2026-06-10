@@ -131,3 +131,5 @@ mappings:
     canonical_issue_number: 1175
   - spec_path: docs/dev/specs/FR-0066-account-safety-gate/spec.md
     canonical_issue_number: 1176
+  - spec_path: docs/dev/specs/FR-0067-extension-native-bridge-gate/spec.md
+    canonical_issue_number: 1177
