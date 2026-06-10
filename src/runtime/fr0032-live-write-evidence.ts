@@ -350,6 +350,41 @@ const secretHeaderDetectPatterns = [
   /(?<!-)\bcookie\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\r\n"']+/i
 ];
 
+const tokenSuffixBoundaryFieldPattern =
+  "(?:authorization|proxy-authorization|x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token|xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]|(?:set-cookie|cookie)\\s*:";
+
+const redactedTokenSuffixReplacePatterns = [
+  new RegExp(
+    `\\b((?:authorization|proxy-authorization)\\s*[:=]\\s*(?:bearer|basic|digest|token)\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`,
+    "gi"
+  ),
+  new RegExp(
+    `\\b((?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\\s*[:=]\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`,
+    "gi"
+  ),
+  new RegExp(
+    `\\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)&#]+`,
+    "gi"
+  ),
+  /\b((?:set-cookie|cookie)\s*[:=]\s*)<redacted:token>(?:\s*;(?!\s*(?:httponly|secure|samesite|path|domain|expires|max-age)\b)\s*[^;\r\n"']+)+/gi
+];
+
+const redactedTokenSuffixDetectPatterns = [
+  new RegExp(
+    `\\b(?:authorization|proxy-authorization)\\s*[:=]\\s*(?:bearer|basic|digest|token)\\s*<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`,
+    "i"
+  ),
+  new RegExp(
+    `\\b(?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\\s*[:=]\\s*<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`,
+    "i"
+  ),
+  new RegExp(
+    `\\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]\\s*<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)&#]+`,
+    "i"
+  ),
+  /\b(?:set-cookie|cookie)\s*[:=]\s*<redacted:token>(?:\s*;(?!\s*(?:httponly|secure|samesite|path|domain|expires|max-age)\b)\s*[^;\r\n"']+)+/i
+];
+
 const secretKeyValuePattern =
   /\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\s"',;)&#]+/gi;
 
@@ -357,10 +392,10 @@ const secretKeyValueDetectPattern =
   /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)&#]+/i;
 
 const accountIdentifierKeyValuePattern =
-  /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/gi;
+  /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)\s*[:=]\s*[^\s"',)]+/gi;
 
 const accountIdentifierKeyValueDetectPattern =
-  /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/i;
+  /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)\s*[:=]\s*[^\s"',)]+/i;
 
 const freeTextPhonePattern = /(^|[^\w+])(\+\d[\d .()-]{7,}\d)(?=$|[^\d])/gi;
 const freeTextPhoneDetectPattern = /(^|[^\w+])\+\d[\d .()-]{7,}\d(?=$|[^\d])/i;
@@ -420,6 +455,14 @@ const redactStringValue = (
   if (secretQueryPattern.test(redacted)) {
     redacted = redacted.replace(secretQueryPattern, "$1<redacted:token>");
     addFinding("secret", "secret_handle", "<redacted:token>");
+  }
+
+  for (const pattern of redactedTokenSuffixReplacePatterns) {
+    const nextRedacted = redacted.replace(pattern, "$1<redacted:token>");
+    if (nextRedacted !== redacted) {
+      redacted = nextRedacted;
+      addFinding("secret", "secret_handle", "<redacted:token>");
+    }
   }
 
   const keyValueRedacted = redacted.replace(secretKeyValuePattern, "$1$2<redacted:token>");
@@ -521,6 +564,7 @@ const hasUnredactedSensitiveString = (value: unknown): boolean => {
         valueToInspect
       ) ||
       secretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
+      redactedTokenSuffixDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
       /[?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=((?!<redacted:)[^&#\s"']+)/i.test(
         valueToInspect
       ) ||

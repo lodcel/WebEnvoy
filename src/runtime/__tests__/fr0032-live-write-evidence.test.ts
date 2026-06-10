@@ -723,6 +723,86 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("redacts spaced account identifier key-value forms by default", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "account_id = xhs-raw-001 username = creator-42"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/spaced-account-kv",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "tenant_id = tenant-007 workspace_id = ws-raw-008"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(2);
+    expect(serialized).not.toContain("xhs-raw-001");
+    expect(serialized).not.toContain("creator-42");
+    expect(serialized).not.toContain("tenant-007");
+    expect(serialized).not.toContain("ws-raw-008");
+    expect(serialized).toContain("<redacted:account_identifier>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator",
+          replacement: "<redacted:account_identifier>"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator",
+          replacement: "<redacted:account_identifier>"
+        })
+      ])
+    );
+  });
+
+  it("evaluates spaced account identifier key-value forms without leaking raw values", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "account_id = xhs-raw-001"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/spaced-account-kv",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "username = creator-42 tenant_id = tenant-007"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("xhs-raw-001");
+    expect(serializedEvaluation).not.toContain("creator-42");
+    expect(serializedEvaluation).not.toContain("tenant-007");
+    expect(serializedEvaluation).toContain("<redacted:account_identifier>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
   it("redacts file URI private paths and URL-encoded private paths", () => {
     const input = baseInput();
     input.upload_artifact_identity = {
@@ -1183,7 +1263,7 @@ describe("FR-0032 live write evidence evaluator", () => {
     input.submit_evidence = {
       ...input.submit_evidence!,
       platform_message:
-        "token=<redacted:token>raw-token-suffix access_token=<redacted:token>raw-access-suffix Authorization: Bearer <redacted:token>raw-auth-suffix"
+        "token=<redacted:token> raw-token-001 access_token=<redacted:token>raw-access-suffix Authorization: Bearer <redacted:token> raw-auth-token-001"
     };
     input.cleanup_result = {
       ...baseCleanup(input.publish_result_identity),
@@ -1198,7 +1278,7 @@ describe("FR-0032 live write evidence evaluator", () => {
         kind: "browser_env_abnormal",
         severity: "warning",
         details_ref:
-          "Set-Cookie: <redacted:token>raw-cookie-suffix; Cookie: <redacted:token>raw-cookie-suffix-2"
+          "Set-Cookie: <redacted:token>raw-cookie-suffix; Cookie: <redacted:token>; session=raw-cookie-001"
       }
     ];
 
@@ -1207,12 +1287,13 @@ describe("FR-0032 live write evidence evaluator", () => {
 
     expect(redacted.redaction_state).toBe("redacted");
     expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(3);
-    expect(serialized).not.toContain("raw-token-suffix");
+    expect(serialized).not.toContain("raw-token-001");
     expect(serialized).not.toContain("raw-access-suffix");
-    expect(serialized).not.toContain("raw-auth-suffix");
+    expect(serialized).not.toContain("raw-auth-token-001");
     expect(serialized).not.toContain("raw-api-suffix");
     expect(serialized).not.toContain("raw-header-suffix");
     expect(serialized).not.toContain("raw-cookie-suffix");
+    expect(serialized).not.toContain("raw-cookie-001");
     expect(serialized).toContain("token=<redacted:token>");
     expect(serialized).toContain("access_token=<redacted:token>");
     expect(serialized).toContain("Authorization: Bearer <redacted:token>");
@@ -1310,7 +1391,7 @@ describe("FR-0032 live write evidence evaluator", () => {
     input.submit_evidence = {
       ...input.submit_evidence!,
       platform_message:
-        "token=<redacted:token>raw-token-suffix Authorization: Bearer <redacted:token>raw-auth-suffix"
+        "token=<redacted:token> raw-token-001 Authorization: Bearer <redacted:token> raw-auth-token-001"
     };
     input.risk_signals = [
       {
@@ -1320,7 +1401,7 @@ describe("FR-0032 live write evidence evaluator", () => {
         kind: "browser_env_abnormal",
         severity: "warning",
         details_ref:
-          "access_token=<redacted:token>raw-access-suffix api_key=<redacted:token>raw-api-suffix"
+          "access_token=<redacted:token>raw-access-suffix api_key=<redacted:token>raw-api-suffix Cookie: <redacted:token>; session=raw-cookie-001"
       }
     ];
 
@@ -1333,10 +1414,11 @@ describe("FR-0032 live write evidence evaluator", () => {
       full_live_write_success: true,
       blockers: []
     });
-    expect(serializedFindings).not.toContain("raw-token-suffix");
-    expect(serializedFindings).not.toContain("raw-auth-suffix");
+    expect(serializedFindings).not.toContain("raw-token-001");
+    expect(serializedFindings).not.toContain("raw-auth-token-001");
     expect(serializedFindings).not.toContain("raw-access-suffix");
     expect(serializedFindings).not.toContain("raw-api-suffix");
+    expect(serializedFindings).not.toContain("raw-cookie-001");
     expect(serializedFindings).toContain("<redacted:token>");
     expect(evaluation.blockers).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
