@@ -109,6 +109,70 @@ describe("XHS page/runtime readiness contract", () => {
     );
   });
 
+  it.each(["pending", "recoverable", "unknown"] as const)(
+    "keeps overall readiness blocked when one dimension is blocked and runtime is %s",
+    (runtimeReadiness) => {
+      const providerRequirements = declareXhsDriverProviderRequirementsForContract({
+        command: "xhs.detail",
+        ability: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        requestedExecutionMode: "live_read_limited"
+      });
+      const runtimeBindingBoundary = buildXhsDriverRuntimeBindingForContract({
+        command: "xhs.detail",
+        ability: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        runId: `run-1162-blocked-precedence-${runtimeReadiness}`,
+        operationId: `request-1162-blocked-precedence-${runtimeReadiness}`,
+        targetDomain: "www.xiaohongshu.com",
+        targetTabId: 32,
+        targetPage: "explore_detail_tab",
+        requestedExecutionMode: "live_read_limited",
+        providerRequirements
+      });
+
+      const readiness = buildXhsPageRuntimeReadinessForContract({
+        command: "xhs.detail",
+        runId: `run-1162-blocked-precedence-${runtimeReadiness}`,
+        requestedExecutionMode: "live_read_limited",
+        runtimeBindingBoundary,
+        providerRequirements,
+        runtimeStatus: {
+          runtimeReadiness,
+          executionSurface: "real_browser",
+          headless: false
+        },
+        providerAdmissionResult: {
+          admission_decision: "allowed",
+          provider_requirement_refs: providerRequirements?.provider_requirement_refs
+        }
+      });
+
+      expect(readiness).toMatchObject({
+        page_readiness: {
+          status: "blocked"
+        },
+        runtime_readiness: {
+          status: runtimeReadiness
+        },
+        provider_admission_readiness: {
+          status: "ready"
+        },
+        overall_readiness: "blocked",
+        gate_decision: "deny"
+      });
+      expect(readiness?.blocking_reasons).toEqual(
+        expect.arrayContaining(["page:target_binding_not_bound"])
+      );
+    }
+  );
+
   it("does not treat provider requirement declarations as provider admission pass evidence", () => {
     const providerRequirements = declareXhsDriverProviderRequirementsForContract({
       command: "xhs.search",

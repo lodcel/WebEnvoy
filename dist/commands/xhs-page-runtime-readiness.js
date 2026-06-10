@@ -120,6 +120,9 @@ const toOverallReadiness = (statuses) => {
     if (statuses.every(statusIsPassing)) {
         return "ready";
     }
+    if (statuses.some((status) => status === "blocked")) {
+        return "blocked";
+    }
     if (statuses.some((status) => status === "pending" || status === "recoverable")) {
         return "pending";
     }

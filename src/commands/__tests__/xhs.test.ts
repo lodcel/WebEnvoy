@@ -7817,8 +7817,9 @@ describe("normalizeGateOptionsForContract", () => {
         }
       });
 
-      await expect(
-        executeCommand(
+      let executionError: unknown = null;
+      try {
+        await executeCommand(
           {
             cwd,
             command: "xhs.search",
@@ -7846,9 +7847,36 @@ describe("normalizeGateOptionsForContract", () => {
             }
           } as RuntimeContext,
           createCommandRegistry()
-        )
-      ).rejects.toMatchObject({
-        code: "ERR_RUNTIME_UNAVAILABLE"
+        );
+      } catch (error) {
+        executionError = error;
+      }
+
+      expect(executionError).toMatchObject({
+        code: "ERR_RUNTIME_UNAVAILABLE",
+        details: {
+          xhs_page_runtime_readiness: {
+            owner_ref: "#1162",
+            page_readiness: {
+              status: "blocked"
+            },
+            runtime_readiness: {
+              required: true,
+              status: expect.stringMatching(/^(blocked|pending|recoverable|unknown)$/),
+              source: "official_chrome_runtime_readiness"
+            },
+            provider_admission_readiness: {
+              status: "blocked"
+            },
+            overall_readiness: "blocked",
+            gate_decision: "deny"
+          },
+          page_runtime_readiness_decision: "deny",
+          page_runtime_readiness_blocking_reasons: expect.arrayContaining([
+            "page:target_binding_not_bound",
+            "provider:provider_admission_result_missing"
+          ])
+        }
       });
 
       const persisted = await profileStore.readMeta("xhs_rhythm_probe_readiness_profile");
