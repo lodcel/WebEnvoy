@@ -1035,6 +1035,117 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("redacts runtime temp and privileged home private paths", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "/private/tmp/webenvoy/artifact secret.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "/tmp/webenvoy/proof artifact.json"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/runtime-private-path",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "/root/.config/webenvoy/profile"
+      },
+      {
+        risk_signal_id: "risk/fr-0032/run-846/encoded-runtime-private-path",
+        detected_at: "2026-05-28T00:02:13.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "artifact_ref=%2fprivate%2ftmp%2fwebenvoy%2fencoded%20artifact.png"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serialized).not.toContain("/private/tmp");
+    expect(serialized).not.toContain("/tmp/webenvoy");
+    expect(serialized).not.toContain("/root/.config");
+    expect(serialized).not.toContain("artifact secret.png");
+    expect(serialized).not.toContain("proof artifact.json");
+    expect(serialized).not.toContain("webenvoy/profile");
+    expect(serialized).not.toContain("%2fprivate%2ftmp");
+    expect(serialized).not.toContain("encoded%20artifact.png");
+    expect(serialized).toContain("<redacted:path:source_media>");
+    expect(serialized).toContain("<redacted:path:private>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.upload_artifact_identity.source_media_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.1.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        })
+      ])
+    );
+  });
+
+  it("evaluates runtime temp and root private paths without leaking raw values", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "/private/tmp/webenvoy/artifact secret.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "/tmp/webenvoy/proof artifact.json"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/root-private-path",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "/root/.config/webenvoy/profile"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("/private/tmp");
+    expect(serializedEvaluation).not.toContain("/tmp/webenvoy");
+    expect(serializedEvaluation).not.toContain("/root/.config");
+    expect(serializedEvaluation).not.toContain("artifact secret.png");
+    expect(serializedEvaluation).not.toContain("proof artifact.json");
+    expect(serializedEvaluation).toContain("<redacted:path:source_media>");
+    expect(serializedEvaluation).toContain("<redacted:path:private>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
   it("fully redacts private and source media paths that contain spaces", () => {
     const input = baseInput();
     input.upload_artifact_identity = {

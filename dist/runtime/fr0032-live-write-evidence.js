@@ -12,11 +12,11 @@ const unsafeRedactedPlaceholderContent = (value) => {
     }
     return redactedPlaceholderPattern.exec(value)?.[1] ?? null;
 };
-const privatePosixPathPattern = /(?:^|[\s"'=/])(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/i;
-const encodedPrivatePosixPathPattern = /(?:^|[\s"'=/:])(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/i;
+const privatePosixPathPattern = /(?:^|[\s"'=/])(?:\/Users\/|\/home\/|\/root\/|\/tmp\/|\/private\/tmp\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/i;
+const encodedPrivatePosixPathPattern = /(?:^|[\s"'=/:])(?:%2fUsers%2f|%2fhome%2f|%2froot%2f|%2ftmp%2f|%2fprivate%2ftmp%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/i;
 const windowsPrivatePathPattern = /[A-Za-z]:(?:\\|\/)(?:Users|Documents and Settings)(?:\\|\/)[^\r\n"']+/i;
-const privatePosixPathReplacePattern = /(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/gi;
-const encodedPrivatePosixPathReplacePattern = /(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/gi;
+const privatePosixPathReplacePattern = /(?:\/Users\/|\/home\/|\/root\/|\/tmp\/|\/private\/tmp\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/gi;
+const encodedPrivatePosixPathReplacePattern = /(?:%2fUsers%2f|%2fhome%2f|%2froot%2f|%2ftmp%2f|%2fprivate%2ftmp%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/gi;
 const windowsPrivatePathReplacePattern = /[A-Za-z]:(?:\\|\/)(?:Users|Documents and Settings)(?:\\|\/)[^\r\n"']+/gi;
 const hasPrivatePath = (value) => privatePosixPathPattern.test(value) ||
     encodedPrivatePosixPathPattern.test(value) ||
