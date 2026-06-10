@@ -429,7 +429,7 @@ const unquotedGenericSecretKeyValueDetectPattern = new RegExp(
 );
 
 const secretQueryKeyPattern =
-  "xsec(?:_|%5f)token|token|access(?:_|%5f)token|refresh(?:_|%5f)token|api(?:_|%5f)key|secret|password|cookie|auth|authorization|x(?:-|%2d)amz(?:-|%2d)signature|x(?:-|%2d)amz(?:-|%2d)credential|x(?:-|%2d)amz(?:-|%2d)security(?:-|%2d)token|ossaccesskeyid|awsaccesskeyid|signature";
+  "xsec(?:_|%5f)token|token|access(?:_|%5f)token|refresh(?:_|%5f)token|id(?:_|%5f)token|api(?:_|%5f)key|client(?:_|%5f)secret|client(?:_|%5f)assertion|secret|password|cookie|auth|authorization|x(?:-|%2d)amz(?:-|%2d)signature|x(?:-|%2d)amz(?:-|%2d)credential|x(?:-|%2d)amz(?:-|%2d)security(?:-|%2d)token|ossaccesskeyid|awsaccesskeyid|signature";
 
 const secretQueryPattern = new RegExp(
   `((?:[?&]|&amp;)(?:${secretQueryKeyPattern})=)[^&#\\s"']+`,

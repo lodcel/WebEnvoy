@@ -1538,6 +1538,37 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serialized).toContain("x-amz%2Dsecurity%2Dtoken=<redacted:token>");
   });
 
+  it("redacts OAuth and OIDC secret-bearing query keys", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      platform_staging_ref:
+        "https://oauth.example/callback?client_secret=raw-client-secret&id_token=raw-id-token&client_assertion=raw-client-assertion"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator:
+        "https://oauth.example/callback?client%5Fsecret=raw-encoded-client-secret&id%5Ftoken=raw-encoded-id-token&client%5Fassertion=raw-encoded-client-assertion"
+    };
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serialized).not.toContain("raw-client-secret");
+    expect(serialized).not.toContain("raw-id-token");
+    expect(serialized).not.toContain("raw-client-assertion");
+    expect(serialized).not.toContain("raw-encoded-client-secret");
+    expect(serialized).not.toContain("raw-encoded-id-token");
+    expect(serialized).not.toContain("raw-encoded-client-assertion");
+    expect(serialized).toContain("client_secret=<redacted:token>");
+    expect(serialized).toContain("id_token=<redacted:token>");
+    expect(serialized).toContain("client_assertion=<redacted:token>");
+    expect(serialized).toContain("client%5Fsecret=<redacted:token>");
+    expect(serialized).toContain("id%5Ftoken=<redacted:token>");
+    expect(serialized).toContain("client%5Fassertion=<redacted:token>");
+  });
+
   it("evaluates quoted generic secrets and encoded query keys without leaking raw values", () => {
     const input = baseInput();
     input.upload_artifact_identity = {
@@ -1566,6 +1597,44 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedEvaluation).not.toContain("789");
     expect(serializedEvaluation).toContain("<redacted:token>");
     expect(serializedEvaluation).toContain("<redacted:account_identifier>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
+  it("evaluates OAuth and OIDC query secrets without leaking raw values", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      platform_staging_ref:
+        "https://oauth.example/callback?client_secret=raw-client-secret&id_token=raw-id-token"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/oauth-query-secret",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref:
+          "https://oauth.example/callback?client%5Fsecret=raw-encoded-client-secret&id%5Ftoken=raw-encoded-id-token"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("raw-client-secret");
+    expect(serializedEvaluation).not.toContain("raw-id-token");
+    expect(serializedEvaluation).not.toContain("raw-encoded-client-secret");
+    expect(serializedEvaluation).not.toContain("raw-encoded-id-token");
+    expect(serializedEvaluation).toContain("<redacted:token>");
     expect(evaluation.blockers).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
     );
