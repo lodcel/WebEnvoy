@@ -127,3 +127,5 @@ mappings:
     canonical_issue_number: 1161
   - spec_path: docs/dev/specs/FR-0064-operator-unlock/spec.md
     canonical_issue_number: 1178
+  - spec_path: docs/dev/specs/FR-0065-profile-manifest-provider-allowlist/spec.md
+    canonical_issue_number: 1175
