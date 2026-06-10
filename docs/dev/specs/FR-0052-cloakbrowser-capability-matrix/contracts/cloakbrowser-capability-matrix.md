@@ -140,6 +140,36 @@ interface CloakBrowserVariantInputs {
     | "not_required"
     | "future_fr0060_required"
     | "docker_xvfb_doctor_input_allowed"
+  limitation_disposition: Array<
+    | "direct_no_persistent_profile_guarantee"
+    | "direct_no_descriptor_level_runtime_readiness"
+    | "direct_no_latest_head_live_evidence"
+    | "direct_final_args_evidence_redacted_only"
+    | "direct_fingerprint_seed_not_disclosed"
+    | "direct_extension_paths_are_locator_only"
+    | "direct_no_stable_extension_identity"
+    | "direct_no_native_messaging"
+    | "direct_provider_private_patch_not_core_contract"
+    | "persistent_requires_profile_binding"
+    | "persistent_requires_extension_workflow_binding"
+    | "persistent_requires_native_messaging"
+    | "persistent_no_descriptor_level_runtime_readiness"
+    | "persistent_no_latest_head_live_evidence"
+    | "persistent_no_descriptor_level_health_pass"
+    | "persistent_provider_private_patch_required"
+    | "cloakserve_external_lifecycle"
+    | "cloakserve_distribution_experimental"
+    | "cloakserve_headless_policy_unknown"
+    | "cloakserve_profile_binding_unknown"
+    | "cloakserve_cdp_endpoint_security_not_attested"
+    | "cloakserve_no_descriptor_level_runtime_readiness"
+    | "cloakserve_no_latest_head_live_evidence"
+    | "cloakserve_default_extension_disabled"
+    | "cloakserve_no_webenvoy_extension_binding"
+    | "cloakserve_no_native_messaging"
+    | "cloakserve_extension_workflow_experimental_only"
+    | "cloakserve_provider_private_patch_required"
+  >
 }
 ```
 
@@ -152,6 +182,7 @@ Rules:
 - final args evidence proves input shape only; it does not prove browser honored args.
 - fingerprint seed evidence must never expose raw seed, seed hash value or private patch payload.
 - Docker / Xvfb doctor input does not prove runtime ready, target tab ready or capability allowed.
+- `limitation_disposition` must be a non-empty array of allowed tokens from this contract. It classifies fail-closed limitation/admission disposition only; it is not evidence pass, runtime readiness or live evidence.
 
 ## Support levels
 
@@ -198,6 +229,7 @@ Allowed strategy keys:
 - `fingerprint_seed_policy_ref`
 - `docker_xvfb_doctor_ref`
 - `limitation_gate_ref`
+- `launch_evidence_ref`
 - `runtime_attestation_ref`
 - `runtime_observation_ref`
 - `live_evidence_ref`
