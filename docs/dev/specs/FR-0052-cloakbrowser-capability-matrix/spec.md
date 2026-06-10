@@ -6,7 +6,7 @@ Canonical Issue: #1149
 
 `#1149` 属于 `#1114 CloakBrowser Provider` 的 cross-variant capability matrix work item。前置 descriptor 输入已经由 `FR-0049 cloakbrowser.direct Descriptor`、`FR-0050 cloakbrowser.persistent Descriptor` 和 `FR-0051 cloakbrowser.cloakserve Descriptor` 冻结；相邻 evidence / health 输入由 `FR-0053`、`FR-0054`、`FR-0057`、`FR-0058`、`FR-0059`、`FR-0060` 提供可消费边界。
 
-因此本 FR 只冻结 CloakBrowser 三个 provider variant 的 capability matrix：`cloakbrowser.direct`、`cloakbrowser.persistent`、`cloakbrowser.cloakserve`。每个 capability row 必须写明 support level、supported actions、execution layers、profile / extension / Native Messaging / final args / fingerprint seed evidence 输入、verification threshold、limitation refs、evidence ref strategy 与 downstream owner。
+因此本 FR 只冻结 CloakBrowser 三个 provider variant 的 capability matrix：`cloakbrowser.direct`、`cloakbrowser.persistent`、`cloakbrowser.cloakserve`。每个 capability row 必须写明 support level、supported actions、execution layers、profile / extension / Native Messaging / final args / fingerprint seed evidence 输入、minimum support state、evidence policy requirements、limitation refs、evidence ref strategy 与 downstream owner。
 
 本 PR 是 formal spec review carrier。它不实现 runtime code、provider adapter、doctor command、launch behavior、limitation gate、fixtures、browser patching、XHS、Syvert 或任何 live/browser action；也不声明 runtime-ready、target-tab-ready、anti-detection pass 或 live evidence attested。
 
@@ -14,7 +14,7 @@ Canonical Issue: #1149
 
 1. 冻结 `cloakbrowser.direct`、`cloakbrowser.persistent`、`cloakbrowser.cloakserve` 的 capability matrix。
 2. 比较三种 variant 在 profile、extension、Native Messaging、final args 与 fingerprint seed evidence 上的支持差异。
-3. 为每个 capability row 明确 support level、verification threshold、limitation refs、evidence ref strategy 与 fail-closed policy。
+3. 为每个 capability row 明确 support level、minimum support state、evidence policy requirements、limitation refs、evidence ref strategy 与 fail-closed policy。
 4. 消费 `FR-0035 Provider Capability Verification Model`，确保 unsupported / partial / blocked 输入按 fail-closed 处理。
 5. 为 #1152 limitation gate、#1153 runtime/evidence convergence 以及后续 health / launch evidence / fixture owner 提供 `capability_matrix_ref` 输入。
 
@@ -53,7 +53,8 @@ Canonical Issue: #1149
 - `supported_execution_layers`
 - `required_runtime_requirements`
 - `support_level`
-- `verification_threshold`
+- `minimum_support_state`
+- `evidence_policy_requirements`
 - `variant_inputs`
 - `limitations`
 - `verification_sources`
@@ -65,9 +66,10 @@ Canonical Issue: #1149
 
 - `provider_id` 只能是 `cloakbrowser.direct`、`cloakbrowser.persistent` 或 `cloakbrowser.cloakserve`。
 - `support_level` 必须使用 `FR-0035.support_state` 语义。本 formal matrix PR 的最高可证明等级不得高于 `statically_verified`；健康或 doctor contract 只能作为 future / accepted ref strategy，不能被本 PR标记为已通过。
-- `verification_threshold` 必须表达 consumer 要求该 capability 进入业务 admission 前最低需要的 support state。
+- `minimum_support_state` 必须只使用 `FR-0035.support_state` 词汇，不得混入 prose、policy ref、`N/A` 或条件短语。
+- `evidence_policy_requirements` 必须承载 runtime attestation、FR-0058 final args、FR-0059 fingerprint seed policy、Docker / Xvfb、health checks、limitation gate 等额外证据/策略要求，且只能是逗号分隔 token 或 `none`。
 - `verification_sources` 当前只能使用 `provider_declaration`、`static_contract_check`、`manual_review_attestation`；`provider_health_check`、`runtime_attestation`、`runtime_observation` 与 `live_evidence_gate` 只能作为 future source requirement 或 downstream ref。
-- `variant_inputs` 必须同时覆盖 profile、extension、Native Messaging、final args 与 fingerprint seed evidence disposition。
+- `variant_inputs` 必须按 row materialization 同时覆盖 profile、extension、Native Messaging、final args、fingerprint seed、environment 与 limitation disposition。
 - `evidence_ref_strategy` 只能指向证据载体策略，不内联日志、profile path、secret、page content、raw argv、raw seed 或 live artifact。
 - `limitations` 非空且命中当前最低要求时，必须按 `FR-0035` 写出 deny/defer 或 blocked/deny 结论。
 
@@ -98,18 +100,18 @@ Canonical Issue: #1149
 
 #### 4.1 `cloakbrowser.direct`
 
-| capability_id | support_level | verification_threshold | limitation | verification source | evidence ref strategy |
-|---|---|---|---|---|---|
-| `browser-runtime.launch` | `statically_verified` | `runtime_attested` before business admission | provider-managed direct launch; no persistent profile guarantee; final args and fingerprint seed evidence are slots only | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future `direct_launch_health_ref=FR-0053`; future `final_args_evidence_ref=FR-0058`; future launch/runtime owner fills runtime refs |
-| `page-automation.read` | `statically_verified` | `runtime_attested`; `runtime_observed` when page behavior is required | hybrid Playwright/CDP page automation declared; target tab and browser-internal HTTP proof absent in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future runtime/evidence owner supplies runtime observation or live evidence ref |
-| `page-automation.write` | `statically_verified` | `runtime_observed` plus applicable risk/live gate | write is partial until runtime, target tab, risk gates and live evidence exist; no live write evidence in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future runtime/live owner supplies accepted gate refs |
-| `page-automation.download` | `statically_verified` | `runtime_observed` when artifact production is required | download declaration is static only; no artifact proof or filesystem policy evidence in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future artifact/evidence owner supplies artifact ref |
-| `provider.diagnose` | `statically_verified` | `health_checked` for diagnostic admission only | diagnostics surface declared; health schema remains downstream | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; `FR-0053` and `FR-0060` may provide scoped doctor refs |
-| `extension-runtime.bridge` | `declared` | `runtime_attested` if requested; otherwise deny/defer | extension paths may be supplied but stable extension identity is not promised; not a persistent bridge | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future extension evidence owner required before admission |
-| `native-bridge.messaging` | `unsupported` | N/A | direct descriptor has `native_messaging_support=none` | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; no Native Messaging health ref allowed for direct unless a later formal owner revises descriptor |
-| `artifact-passthrough.launch-evidence` | `declared` | `runtime_observed` or higher when required | evidence slot exists but no launch evidence record exists in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future launch evidence owner fills `launch_evidence_ref` |
-| `artifact-passthrough.final-args-evidence` | `declared` | current-run accepted `FR-0058` when required | final args evidence proves input shape only, not browser honored args | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0058` artifact ref; stale/unknown reconstruction fails closed |
-| `fingerprint.seed-reproducibility` | `declared` | accepted `FR-0059` policy ref when reproducibility is required | provider-managed seed does not prove reproducible or applied; raw seed must not be disclosed | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0059` policy/evidence ref; raw seed and seed hash value forbidden |
+| capability_id | support_level | minimum_support_state | evidence_policy_requirements | limitation | verification source | evidence ref strategy |
+|---|---|---|---|---|---|---|
+| `browser-runtime.launch` | `statically_verified` | `runtime_attested` | `direct_launch_health_ref`, `final_args_evidence_ref`, `runtime_attestation_ref` | provider-managed direct launch; no persistent profile guarantee; final args and fingerprint seed evidence are slots only | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future `direct_launch_health_ref=FR-0053`; future `final_args_evidence_ref=FR-0058`; future launch/runtime owner fills runtime refs |
+| `page-automation.read` | `statically_verified` | `runtime_attested` | `target_tab_binding_ref`, `runtime_attestation_ref`, `runtime_observation_ref` | hybrid Playwright/CDP page automation declared; target tab and browser-internal HTTP proof absent in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future runtime/evidence owner supplies runtime observation or live evidence ref |
+| `page-automation.write` | `statically_verified` | `runtime_observed` | `runtime_attestation_ref`, `runtime_observation_ref`, `risk_gate_ref`, `live_evidence_ref` | write is partial until runtime, target tab, risk gates and live evidence exist; no live write evidence in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future runtime/live owner supplies accepted gate refs |
+| `page-automation.download` | `statically_verified` | `runtime_observed` | `runtime_observation_ref`, `artifact_policy_ref`, `download_artifact_ref` | download declaration is static only; no artifact proof or filesystem policy evidence in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future artifact/evidence owner supplies artifact ref |
+| `provider.diagnose` | `statically_verified` | `health_checked` | `direct_launch_health_ref`, `docker_xvfb_doctor_ref` | diagnostics surface declared; health schema remains downstream | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; `FR-0053` and `FR-0060` may provide scoped doctor refs |
+| `extension-runtime.bridge` | `declared` | `runtime_attested` | `extension_identity_ref`, `extension_runtime_ref`, `runtime_attestation_ref` | extension paths may be supplied but stable extension identity is not promised; not a persistent bridge | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; future extension evidence owner required before admission |
+| `native-bridge.messaging` | `unsupported` | `unsupported` | `none` | direct descriptor has `native_messaging_support=none` | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0049`; no Native Messaging health ref allowed for direct unless a later formal owner revises descriptor |
+| `artifact-passthrough.launch-evidence` | `declared` | `runtime_observed` | `launch_evidence_ref`, `redaction_record_ref`, `artifact_identity_ref` | evidence slot exists but no launch evidence record exists in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future launch evidence owner fills `launch_evidence_ref` |
+| `artifact-passthrough.final-args-evidence` | `declared` | `runtime_observed` | `final_args_evidence_ref`, `redaction_record_ref` | final args evidence proves input shape only, not browser honored args; stale, unredacted or unknown reconstruction fails closed | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0058` artifact ref; stale/unknown reconstruction fails closed |
+| `fingerprint.seed-reproducibility` | `declared` | `statically_verified` | `fingerprint_seed_policy_ref` | provider-managed seed does not prove reproducible or applied; raw seed must not be disclosed; caller-supplied seed policy is required for reproducibility admission | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0059` policy/evidence ref; raw seed and seed hash value forbidden |
 
 Direct rows must be interpreted with this required-field expansion:
 
@@ -126,20 +128,35 @@ Direct rows must be interpreted with this required-field expansion:
 | `artifact-passthrough.final-args-evidence` | `artifact_passthrough` | `pass_through` | `artifact_ref` | `final_args_evidence_record` | `FR-0035 default`; deny if final args evidence is missing, stale, unredacted or reconstruction unknown | #1155 |
 | `fingerprint.seed-reproducibility` | `fingerprint_policy` | `diagnose`, `gate_input` | `policy_ref`, `artifact_ref` | `fingerprint_seed_policy` | `FR-0035 default`; deny reproducibility if seed origin is not caller-supplied or evidence violates FR-0059 | #1156 |
 
+Direct row `variant_inputs` materialization:
+
+| capability_id | profile | extension | native_messaging | final_args_evidence | fingerprint_seed_evidence | environment | limitation_disposition |
+|---|---|---|---|---|---|---|---|
+| `browser-runtime.launch` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `current_run_fr0058_required` | `future_fr0059_required` | `docker_xvfb_doctor_input_allowed` | `direct_no_persistent_profile_guarantee`, `direct_no_descriptor_level_runtime_readiness`, `direct_no_latest_head_live_evidence` |
+| `page-automation.read` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `not_required` | `not_required` | `not_required` | `direct_no_descriptor_level_runtime_readiness`, `direct_no_latest_head_live_evidence` |
+| `page-automation.write` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `not_required` | `not_required` | `not_required` | `direct_no_descriptor_level_runtime_readiness`, `direct_no_latest_head_live_evidence` |
+| `page-automation.download` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `not_required` | `not_required` | `not_required` | `direct_no_descriptor_level_runtime_readiness`, `direct_no_latest_head_live_evidence` |
+| `provider.diagnose` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `future_fr0058_required` | `future_fr0059_required` | `docker_xvfb_doctor_input_allowed` | `direct_final_args_evidence_redacted_only`, `direct_fingerprint_seed_not_disclosed` |
+| `extension-runtime.bridge` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `not_required` | `not_required` | `not_required` | `direct_extension_paths_are_locator_only`, `direct_no_stable_extension_identity` |
+| `native-bridge.messaging` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `not_required` | `not_required` | `not_required` | `direct_no_native_messaging` |
+| `artifact-passthrough.launch-evidence` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `future_fr0058_required` | `not_required` | `docker_xvfb_doctor_input_allowed` | `direct_final_args_evidence_redacted_only`, `direct_no_latest_head_live_evidence` |
+| `artifact-passthrough.final-args-evidence` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `current_run_fr0058_required` | `not_required` | `not_required` | `direct_final_args_evidence_redacted_only` |
+| `fingerprint.seed-reproducibility` | `ephemeral_provider_profile` | `locator_only` | `unsupported` | `not_required` | `caller_supplied_fr0059_required` | `not_required` | `direct_fingerprint_seed_not_disclosed`, `direct_provider_private_patch_not_core_contract` |
+
 #### 4.2 `cloakbrowser.persistent`
 
-| capability_id | support_level | verification_threshold | limitation | verification source | evidence ref strategy |
-|---|---|---|---|---|---|
-| `browser-runtime.launch` | `statically_verified` | `runtime_attested` before business admission | requires persistent profile, extension workflow, Native Messaging and broker attachment; descriptor is not health pass | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future `persistent_profile_health_ref=FR-0054`; future `native_bridge_doctor_ref=FR-0057`; future launch/runtime owner fills refs |
-| `page-automation.read` | `statically_verified` | `runtime_attested`; `runtime_observed` when page behavior is required | hybrid Playwright/CDP plus extension workflow declared; runtime attach and target tab not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future runtime/evidence owner supplies observation/live ref |
-| `page-automation.write` | `statically_verified` | `runtime_observed` plus applicable risk/live gate | partial until runtime attestation, profile lock, account safety, risk gates and live evidence are present | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future runtime/live owner supplies accepted gate refs |
-| `page-automation.download` | `statically_verified` | `runtime_observed` when artifact production is required | artifact passthrough requires runtime/evidence owner and download policy evidence | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future artifact/evidence owner supplies artifact ref |
-| `provider.diagnose` | `statically_verified` | `health_checked` for diagnostic admission only | diagnostic surface declared; health payload remains downstream | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; `FR-0054`, `FR-0057`, `FR-0060` may provide scoped doctor refs |
-| `extension-runtime.bridge` | `statically_verified` | `runtime_attested` before bridge admission | required refs exist only as descriptor inputs; extension installation/runtime/service worker readiness not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future persistent health / service worker refs required |
-| `native-bridge.messaging` | `statically_verified` | `runtime_attested` before bridge admission | required refs exist only as descriptor inputs; Native Messaging round trip not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; `FR-0057` handoff and future runtime attestation required |
-| `artifact-passthrough.launch-evidence` | `declared` | `runtime_observed` or higher when required | evidence slot exists but no launch evidence record exists in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future launch evidence owner fills `launch_evidence_ref` |
-| `artifact-passthrough.final-args-evidence` | `declared` | current-run accepted `FR-0058` when required | provider attach snapshot may be reconstructed; it does not prove broker attach success | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0058` artifact ref; stale/unknown reconstruction fails closed |
-| `fingerprint.seed-reproducibility` | `declared` | accepted `FR-0059` policy ref when reproducibility is required | private patch and provider-managed seed internals are not WebEnvoy contract fields | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0059` policy/evidence ref; raw seed and seed hash value forbidden |
+| capability_id | support_level | minimum_support_state | evidence_policy_requirements | limitation | verification source | evidence ref strategy |
+|---|---|---|---|---|---|---|
+| `browser-runtime.launch` | `statically_verified` | `runtime_attested` | `persistent_profile_health_ref`, `native_bridge_doctor_ref`, `runtime_attestation_ref` | requires persistent profile, extension workflow, Native Messaging and broker attachment; descriptor is not health pass | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future `persistent_profile_health_ref=FR-0054`; future `native_bridge_doctor_ref=FR-0057`; future launch/runtime owner fills refs |
+| `page-automation.read` | `statically_verified` | `runtime_attested` | `persistent_profile_health_ref`, `native_bridge_doctor_ref`, `target_tab_binding_ref`, `runtime_observation_ref` | hybrid Playwright/CDP plus extension workflow declared; runtime attach and target tab not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future runtime/evidence owner supplies observation/live ref |
+| `page-automation.write` | `statically_verified` | `runtime_observed` | `persistent_profile_health_ref`, `native_bridge_doctor_ref`, `runtime_observation_ref`, `risk_gate_ref`, `live_evidence_ref` | partial until runtime attestation, profile lock, account safety, risk gates and live evidence are present | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future runtime/live owner supplies accepted gate refs |
+| `page-automation.download` | `statically_verified` | `runtime_observed` | `persistent_profile_health_ref`, `native_bridge_doctor_ref`, `runtime_observation_ref`, `artifact_policy_ref`, `download_artifact_ref` | artifact passthrough requires runtime/evidence owner and download policy evidence | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future artifact/evidence owner supplies artifact ref |
+| `provider.diagnose` | `statically_verified` | `health_checked` | `persistent_profile_health_ref`, `native_bridge_doctor_ref`, `docker_xvfb_doctor_ref` | diagnostic surface declared; health payload remains downstream | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; `FR-0054`, `FR-0057`, `FR-0060` may provide scoped doctor refs |
+| `extension-runtime.bridge` | `statically_verified` | `runtime_attested` | `persistent_profile_health_ref`, `extension_runtime_ref`, `runtime_attestation_ref` | required refs exist only as descriptor inputs; extension installation/runtime/service worker readiness not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; future persistent health / service worker refs required |
+| `native-bridge.messaging` | `statically_verified` | `runtime_attested` | `native_bridge_doctor_ref`, `native_messaging_round_trip_ref`, `runtime_attestation_ref` | required refs exist only as descriptor inputs; Native Messaging round trip not proven | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0050`; `FR-0057` handoff and future runtime attestation required |
+| `artifact-passthrough.launch-evidence` | `declared` | `runtime_observed` | `launch_evidence_ref`, `redaction_record_ref`, `artifact_identity_ref` | evidence slot exists but no launch evidence record exists in this PR | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future launch evidence owner fills `launch_evidence_ref` |
+| `artifact-passthrough.final-args-evidence` | `declared` | `runtime_observed` | `final_args_evidence_ref`, `redaction_record_ref` | provider attach snapshot may be reconstructed; it does not prove broker attach success; stale, unredacted or unknown reconstruction fails closed | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0058` artifact ref; stale/unknown reconstruction fails closed |
+| `fingerprint.seed-reproducibility` | `declared` | `statically_verified` | `fingerprint_seed_policy_ref` | private patch and provider-managed seed internals are not WebEnvoy contract fields; caller-supplied seed policy is required for reproducibility admission | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0059` policy/evidence ref; raw seed and seed hash value forbidden |
 
 Persistent rows must be interpreted with this required-field expansion:
 
@@ -156,20 +173,35 @@ Persistent rows must be interpreted with this required-field expansion:
 | `artifact-passthrough.final-args-evidence` | `artifact_passthrough` | `pass_through` | `artifact_ref` | `final_args_evidence_record` | `FR-0035 default`; deny if final args evidence is missing, stale, unredacted or reconstruction unknown | #1155 |
 | `fingerprint.seed-reproducibility` | `fingerprint_policy` | `diagnose`, `gate_input` | `policy_ref`, `artifact_ref` | `fingerprint_seed_policy` | `FR-0035 default`; deny reproducibility if seed origin is not caller-supplied or evidence violates FR-0059 | #1156 |
 
+Persistent row `variant_inputs` materialization:
+
+| capability_id | profile | extension | native_messaging | final_args_evidence | fingerprint_seed_evidence | environment | limitation_disposition |
+|---|---|---|---|---|---|---|---|
+| `browser-runtime.launch` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `future_fr0058_required` | `future_fr0059_required` | `docker_xvfb_doctor_input_allowed` | `persistent_requires_profile_binding`, `persistent_requires_extension_workflow_binding`, `persistent_requires_native_messaging`, `persistent_no_descriptor_level_runtime_readiness` |
+| `page-automation.read` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `not_required` | `not_required` | `not_required` | `persistent_requires_profile_binding`, `persistent_requires_extension_workflow_binding`, `persistent_requires_native_messaging`, `persistent_no_descriptor_level_runtime_readiness` |
+| `page-automation.write` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `not_required` | `not_required` | `not_required` | `persistent_requires_profile_binding`, `persistent_requires_extension_workflow_binding`, `persistent_requires_native_messaging`, `persistent_no_descriptor_level_runtime_readiness`, `persistent_no_latest_head_live_evidence` |
+| `page-automation.download` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `not_required` | `not_required` | `not_required` | `persistent_requires_profile_binding`, `persistent_requires_extension_workflow_binding`, `persistent_requires_native_messaging`, `persistent_no_descriptor_level_runtime_readiness` |
+| `provider.diagnose` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `future_fr0058_required` | `future_fr0059_required` | `docker_xvfb_doctor_input_allowed` | `persistent_no_descriptor_level_health_pass`, `persistent_no_descriptor_level_runtime_readiness` |
+| `extension-runtime.bridge` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `not_required` | `not_required` | `not_required` | `persistent_requires_profile_binding`, `persistent_requires_extension_workflow_binding`, `persistent_no_descriptor_level_health_pass` |
+| `native-bridge.messaging` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `not_required` | `not_required` | `not_required` | `persistent_requires_profile_binding`, `persistent_requires_native_messaging`, `persistent_no_descriptor_level_health_pass` |
+| `artifact-passthrough.launch-evidence` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `future_fr0058_required` | `not_required` | `docker_xvfb_doctor_input_allowed` | `persistent_no_descriptor_level_runtime_readiness`, `persistent_no_latest_head_live_evidence` |
+| `artifact-passthrough.final-args-evidence` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `current_run_fr0058_required` | `not_required` | `not_required` | `persistent_no_descriptor_level_runtime_readiness` |
+| `fingerprint.seed-reproducibility` | `persistent_profile_required` | `persistent_extension_required` | `required_descriptor_input` | `not_required` | `caller_supplied_fr0059_required` | `not_required` | `persistent_provider_private_patch_required`, `persistent_no_latest_head_live_evidence` |
+
 #### 4.3 `cloakbrowser.cloakserve`
 
-| capability_id | support_level | verification_threshold | limitation | verification source | evidence ref strategy |
-|---|---|---|---|---|---|
-| `browser-runtime.launch` | `declared` | `runtime_attested` plus limitation gate before business admission | external lifecycle, experimental distribution, headless policy unknown and profile binding unknown | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152 must resolve limitation gate before selection |
-| `page-automation.read` | `declared` | `runtime_attested`; `runtime_observed` when page behavior is required | CDP support declared but endpoint security, target tab and headed route are not attested | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152 and future runtime/evidence owner required |
-| `page-automation.write` | `declared` | `runtime_observed` plus applicable risk/live gate | experimental route; live/write must deny until limitation gate and runtime/live evidence exist | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152 and future runtime/live owner required |
-| `page-automation.download` | `declared` | `runtime_observed` when artifact production is required | artifact passthrough not proven; endpoint and filesystem policy not attested | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; future artifact/evidence owner required |
-| `provider.diagnose` | `declared` | `health_checked` for diagnostic admission only | diagnostic surface may exist but provider lifecycle is external and experimental | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152/future doctor owner required |
-| `extension-runtime.bridge` | `unsupported` | N/A | default extension binding disabled; WebEnvoy extension bridge unsupported by default | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; no extension health ref allowed without later opt-in owner |
-| `native-bridge.messaging` | `unsupported` | N/A | descriptor has `native_messaging_support=none` | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; no Native Messaging health ref allowed for cloakserve |
-| `artifact-passthrough.launch-evidence` | `declared` | `runtime_observed` or higher when required | evidence slot exists but endpoint security and launch evidence are not attested | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future launch evidence owner plus #1152 limitation gate required |
-| `artifact-passthrough.final-args-evidence` | `declared` | accepted reconstructed `FR-0058` when required | reconstructed / diagnostic only; cannot prove extension bridge, headed route or live attach success | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0058` artifact ref; unknown reconstruction fails closed |
-| `fingerprint.seed-reproducibility` | `declared` | accepted `FR-0059` policy ref when reproducibility is required | provider-private patch required; raw seed and private patch schema forbidden | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0059` policy/evidence ref; raw seed and private patch fields forbidden |
+| capability_id | support_level | minimum_support_state | evidence_policy_requirements | limitation | verification source | evidence ref strategy |
+|---|---|---|---|---|---|---|
+| `browser-runtime.launch` | `declared` | `runtime_attested` | `limitation_gate_ref`, `runtime_attestation_ref` | external lifecycle, experimental distribution, headless policy unknown and profile binding unknown | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152 must resolve limitation gate before selection |
+| `page-automation.read` | `declared` | `runtime_attested` | `limitation_gate_ref`, `target_tab_binding_ref`, `runtime_attestation_ref`, `runtime_observation_ref` | CDP support declared but endpoint security, target tab and headed route are not attested | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152 and future runtime/evidence owner required |
+| `page-automation.write` | `declared` | `runtime_observed` | `limitation_gate_ref`, `runtime_observation_ref`, `risk_gate_ref`, `live_evidence_ref` | experimental route; live/write must deny until limitation gate and runtime/live evidence exist | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152 and future runtime/live owner required |
+| `page-automation.download` | `declared` | `runtime_observed` | `limitation_gate_ref`, `runtime_observation_ref`, `artifact_policy_ref`, `download_artifact_ref` | artifact passthrough not proven; endpoint and filesystem policy not attested | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; future artifact/evidence owner required |
+| `provider.diagnose` | `declared` | `health_checked` | `limitation_gate_ref`, `docker_xvfb_doctor_ref` | diagnostic surface may exist but provider lifecycle is external and experimental | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; #1152/future doctor owner required |
+| `extension-runtime.bridge` | `unsupported` | `unsupported` | `none` | default extension binding disabled; WebEnvoy extension bridge unsupported by default | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; no extension health ref allowed without later opt-in owner |
+| `native-bridge.messaging` | `unsupported` | `unsupported` | `none` | descriptor has `native_messaging_support=none` | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | `static_descriptor_ref=FR-0051`; no Native Messaging health ref allowed for cloakserve |
+| `artifact-passthrough.launch-evidence` | `declared` | `runtime_observed` | `limitation_gate_ref`, `launch_evidence_ref`, `redaction_record_ref`, `artifact_identity_ref` | evidence slot exists but endpoint security and launch evidence are not attested | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future launch evidence owner plus #1152 limitation gate required |
+| `artifact-passthrough.final-args-evidence` | `declared` | `runtime_observed` | `final_args_evidence_ref`, `redaction_record_ref` | reconstructed / diagnostic only; cannot prove extension bridge, headed route or live attach success; stale, unredacted or unknown reconstruction fails closed | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0058` artifact ref; unknown reconstruction fails closed |
+| `fingerprint.seed-reproducibility` | `declared` | `statically_verified` | `fingerprint_seed_policy_ref` | provider-private patch required; raw seed and private patch schema forbidden; caller-supplied seed policy is required for reproducibility admission | `provider_declaration`, `static_contract_check`, `manual_review_attestation` | future `FR-0059` policy/evidence ref; raw seed and private patch fields forbidden |
 
 Cloakserve rows must be interpreted with this required-field expansion:
 
@@ -185,6 +217,21 @@ Cloakserve rows must be interpreted with this required-field expansion:
 | `artifact-passthrough.launch-evidence` | `artifact_passthrough` | `pass_through` | `artifact_ref` | `launch_evidence_record` | `FR-0035 default`; declared slot cannot satisfy evidence minimum | #1152/future launch evidence owner |
 | `artifact-passthrough.final-args-evidence` | `artifact_passthrough` | `pass_through` | `artifact_ref` | `final_args_evidence_record` | `FR-0035 default`; deny if reconstructed evidence is unknown, stale or unredacted | #1155 |
 | `fingerprint.seed-reproducibility` | `fingerprint_policy` | `diagnose`, `gate_input` | `policy_ref`, `artifact_ref` | `fingerprint_seed_policy` | `FR-0035 default`; deny reproducibility if seed origin is not caller-supplied or evidence violates FR-0059 | #1156 |
+
+Cloakserve row `variant_inputs` materialization:
+
+| capability_id | profile | extension | native_messaging | final_args_evidence | fingerprint_seed_evidence | environment | limitation_disposition |
+|---|---|---|---|---|---|---|---|
+| `browser-runtime.launch` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `future_fr0058_required` | `future_fr0059_required` | `docker_xvfb_doctor_input_allowed` | `cloakserve_external_lifecycle`, `cloakserve_distribution_experimental`, `cloakserve_headless_policy_unknown`, `cloakserve_profile_binding_unknown` |
+| `page-automation.read` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `not_required` | `not_required` | `not_required` | `cloakserve_cdp_endpoint_security_not_attested`, `cloakserve_no_descriptor_level_runtime_readiness`, `cloakserve_no_latest_head_live_evidence` |
+| `page-automation.write` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `not_required` | `not_required` | `not_required` | `cloakserve_cdp_endpoint_security_not_attested`, `cloakserve_no_descriptor_level_runtime_readiness`, `cloakserve_no_latest_head_live_evidence` |
+| `page-automation.download` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `not_required` | `not_required` | `not_required` | `cloakserve_cdp_endpoint_security_not_attested`, `cloakserve_profile_binding_unknown`, `cloakserve_no_latest_head_live_evidence` |
+| `provider.diagnose` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `future_fr0058_required` | `future_fr0059_required` | `docker_xvfb_doctor_input_allowed` | `cloakserve_external_lifecycle`, `cloakserve_distribution_experimental` |
+| `extension-runtime.bridge` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `not_required` | `not_required` | `not_required` | `cloakserve_default_extension_disabled`, `cloakserve_no_webenvoy_extension_binding` |
+| `native-bridge.messaging` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `not_required` | `not_required` | `not_required` | `cloakserve_no_native_messaging` |
+| `artifact-passthrough.launch-evidence` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `future_fr0058_required` | `not_required` | `docker_xvfb_doctor_input_allowed` | `cloakserve_cdp_endpoint_security_not_attested`, `cloakserve_no_latest_head_live_evidence` |
+| `artifact-passthrough.final-args-evidence` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `current_run_fr0058_required` | `not_required` | `not_required` | `cloakserve_extension_workflow_experimental_only`, `cloakserve_cdp_endpoint_security_not_attested` |
+| `fingerprint.seed-reproducibility` | `unknown_fail_closed` | `unsupported_by_default` | `unsupported` | `not_required` | `caller_supplied_fr0059_required` | `not_required` | `cloakserve_provider_private_patch_required`, `cloakserve_no_latest_head_live_evidence` |
 
 ### 5. Health and evidence input disposition
 
@@ -301,7 +348,7 @@ And if already in admission, decision must be `blocked/deny` with `capability_no
 
 ## 异常与边界场景
 
-- matrix row 缺少 support level、verification threshold、variant inputs、limitation、verification source 或 evidence ref strategy 时，视为 FR-0052 不完整。
+- matrix row 缺少 support level、minimum support state、evidence policy requirements、variant inputs、limitation、verification source 或 evidence ref strategy 时，视为 FR-0052 不完整。
 - row 尝试定义 descriptor shape、health result payload、launch evidence record、limitation gate output、fixture payload 或 runtime implementation detail 时，视为 scope violation。
 - row 把 direct Native Messaging 或 cloakserve extension / Native Messaging 写成 supported 时，必须阻断。
 - row 把 persistent profile / extension / Native Messaging refs 写成 ready/pass evidence 时，必须阻断。
@@ -312,7 +359,7 @@ And if already in admission, decision must be `blocked/deny` with `capability_no
 
 1. `FR-0052` 只定义 CloakBrowser capability matrix，并映射 canonical issue `#1149`。
 2. 三个 provider variants 均有 capability rows，并比较 profile、extension、Native Messaging、final args 和 fingerprint seed evidence 输入。
-3. 每个 capability row 都写明 support level、verification threshold、limitation、verification source 与 evidence ref strategy。
+3. 每个 capability row 都写明 support level、minimum support state、evidence policy requirements、variant inputs、limitation、verification source 与 evidence ref strategy。
 4. matrix 消费 `FR-0049`、`FR-0050`、`FR-0051`、`FR-0035` 和相邻 health/evidence contracts，不改写 descriptor shape 或 health schema。
 5. unsupported / partial / declared rows 明确按 `FR-0035` fail closed。
 6. suite 未触碰 runtime/code、scripts、workflows、live evidence、browser runtime action、Syvert、XHS、#1152/#1153 implementation 或 issue closeout。

@@ -20,7 +20,8 @@ Each `CloakBrowserCapabilityRow` must contain:
 - `supported_execution_layers`
 - `required_runtime_requirements`
 - `support_level`
-- `verification_threshold`
+- `minimum_support_state`
+- `evidence_policy_requirements`
 - `variant_inputs`
 - `limitations`
 - `verification_sources`
@@ -28,7 +29,7 @@ Each `CloakBrowserCapabilityRow` must contain:
 - `fail_closed_policy`
 - `downstream_owner`
 
-The variant matrices in `spec.md` instantiate these fields by combining the visible matrix table with each provider-specific required-field expansion table. Consumers must treat the combined row as the contract input; no required field may be inferred from descriptor presence alone.
+The variant matrices in `spec.md` instantiate these fields by combining the visible matrix table, each provider-specific required-field expansion table, and each provider-specific `variant_inputs` materialization table. Consumers must treat the combined row as the contract input; no required field may be inferred from descriptor presence alone.
 
 ## Provider ids
 
@@ -56,6 +57,56 @@ Allowed values:
 - `fingerprint.seed-reproducibility`
 
 Unknown requested capability ids must be handled through `FR-0035` unsupported / fail-closed behavior.
+
+## Minimum support state
+
+`minimum_support_state` is the minimum `FR-0035.support_state` needed before the row may be used for the requested target.
+
+Allowed values consume the exact `FR-0035.support_state` vocabulary:
+
+- `unsupported`
+- `declared`
+- `statically_verified`
+- `health_checked`
+- `runtime_attested`
+- `runtime_observed`
+- `live_evidence_attested`
+- `blocked`
+
+Rules:
+
+- `minimum_support_state` is a machine-comparable enum, not prose.
+- It must not contain conditional phrases such as `before business admission`, `when required`, `accepted FR-0058`, `accepted FR-0059`, or `N/A`.
+- A row whose `support_level` is lower than `minimum_support_state` must deny/defer; if already in admission, it must blocked/deny.
+- `unsupported` rows must use `minimum_support_state=unsupported` and must deny.
+
+## Evidence policy requirements
+
+`evidence_policy_requirements` carries non-enum requirements that used to be easy to mix into threshold prose:
+
+- `none`
+- `runtime_attestation_ref`
+- `runtime_observation_ref`
+- `target_tab_binding_ref`
+- `risk_gate_ref`
+- `live_evidence_ref`
+- `direct_launch_health_ref`
+- `persistent_profile_health_ref`
+- `extension_identity_ref`
+- `extension_runtime_ref`
+- `native_bridge_doctor_ref`
+- `native_messaging_round_trip_ref`
+- `final_args_evidence_ref`
+- `fingerprint_seed_policy_ref`
+- `docker_xvfb_doctor_ref`
+- `limitation_gate_ref`
+- `artifact_policy_ref`
+- `download_artifact_ref`
+- `launch_evidence_ref`
+- `redaction_record_ref`
+- `artifact_identity_ref`
+
+These policy refs are evidence requirements, not current evidence availability. Row cells must contain only comma-separated tokens from this list. `none` is allowed only when the row is unsupported and must deny.
 
 ## Variant inputs
 
@@ -94,6 +145,7 @@ interface CloakBrowserVariantInputs {
 
 Rules:
 
+- `variant_inputs` must be materialized per row, not inferred from provider-level defaults alone.
 - `profile=unknown_fail_closed` blocks profile-bound capabilities until a later owner supplies narrower evidence and policy.
 - `extension=locator_only` does not prove stable extension identity or runtime bridge readiness.
 - `native_messaging=required_descriptor_input` does not prove Native Messaging round trip.
@@ -120,19 +172,6 @@ This contract does not emit:
 - `runtime_observed`
 - `live_evidence_attested`
 
-## Verification threshold
-
-`verification_threshold` is the minimum support state needed before the row may be used for the requested target.
-
-Allowed threshold values consume `FR-0035.support_state` and may include:
-
-- `health_checked` for diagnostic admission only
-- `runtime_attested` for runtime/profile/extension/native requirements
-- `runtime_observed` for observed page behavior or artifact production
-- `live_evidence_attested` when an applicable live evidence gate is in scope
-
-The threshold is a requirement, not current evidence. A row whose `support_level` is lower than its threshold must deny/defer or blocked/deny when admitted.
-
 ## Verification sources
 
 Allowed current sources:
@@ -151,7 +190,10 @@ Allowed strategy keys:
 - `capability_matrix_ref`
 - `direct_launch_health_ref`
 - `persistent_profile_health_ref`
+- `extension_identity_ref`
+- `extension_runtime_ref`
 - `native_bridge_doctor_ref`
+- `native_messaging_round_trip_ref`
 - `final_args_evidence_ref`
 - `fingerprint_seed_policy_ref`
 - `docker_xvfb_doctor_ref`

@@ -26,7 +26,8 @@ Each row expresses one provider variant's static support conclusion for one capa
 - `supported_execution_layers`
 - `required_runtime_requirements`
 - `support_level`
-- `verification_threshold`
+- `minimum_support_state`
+- `evidence_policy_requirements`
 - `variant_inputs`
 - `limitations`
 - `verification_sources`
@@ -37,9 +38,10 @@ Each row expresses one provider variant's static support conclusion for one capa
 约束：
 
 - `provider_id` 只能来自 `FR-0049`、`FR-0050` 或 `FR-0051`。
-- `spec.md` 的 per-variant matrix table 与 required-field expansion table 共同组成完整 row；consumer 读取 row 时必须同时消费两者。
+- `spec.md` 的 per-variant matrix table、required-field expansion table 与 `variant_inputs` materialization table 共同组成完整 row；consumer 读取 row 时必须同时消费三者。
 - `support_level` 消费 `FR-0035.support_state`，不创建新枚举。
-- `verification_threshold` 是 admission 前需要达到的最低状态，不是本 PR 已经达到的状态。
+- `minimum_support_state` 消费 `FR-0035.support_state`，且只能是机器枚举，不得混入 prose、policy refs 或 `N/A`。
+- `evidence_policy_requirements` 承载 runtime、health、FR-0058、FR-0059、Docker / Xvfb、limitation gate、artifact 等额外策略要求，不是 support-state enum；row cell 只能是逗号分隔 token 或 unsupported row 的 `none`。
 - `verification_sources` 消费 `FR-0035.verification_source`，不创建 health schema。
 - `evidence_ref_strategy` 是 locator strategy，不是 evidence record。
 - `downstream_owner` 只能指向后续 owner，不表示对应输出已存在。
@@ -77,15 +79,52 @@ interface CloakBrowserVariantInputs {
 }
 ```
 
-Minimum interpretation:
+Provider-level minimum interpretation:
 
 - `cloakbrowser.direct`: `profile=ephemeral_provider_profile`, `extension=locator_only`, `native_messaging=unsupported`.
 - `cloakbrowser.persistent`: `profile=persistent_profile_required`, `extension=persistent_extension_required`, `native_messaging=required_descriptor_input`.
 - `cloakbrowser.cloakserve`: `profile=unknown_fail_closed`, `extension=unsupported_by_default`, `native_messaging=unsupported`.
 
+Provider-level defaults are insufficient to materialize a row. `spec.md` must still define row-specific `variant_inputs` for every capability so final args, fingerprint seed, environment and limitation dispositions are deterministic per row.
+
 Final args and fingerprint seed inputs remain evidence strategies until #1155/#1156 or a later accepted evidence owner supplies current, redacted and scoped artifacts.
 
-## 4. Support level lifecycle
+## 4. Evidence policy requirements model
+
+`evidence_policy_requirements` is a structured set of refs/policies required before a row can satisfy its `minimum_support_state`.
+
+Allowed values:
+
+- `none`
+- `runtime_attestation_ref`
+- `runtime_observation_ref`
+- `target_tab_binding_ref`
+- `risk_gate_ref`
+- `live_evidence_ref`
+- `direct_launch_health_ref`
+- `persistent_profile_health_ref`
+- `extension_identity_ref`
+- `extension_runtime_ref`
+- `native_bridge_doctor_ref`
+- `native_messaging_round_trip_ref`
+- `final_args_evidence_ref`
+- `fingerprint_seed_policy_ref`
+- `docker_xvfb_doctor_ref`
+- `limitation_gate_ref`
+- `artifact_policy_ref`
+- `download_artifact_ref`
+- `launch_evidence_ref`
+- `redaction_record_ref`
+- `artifact_identity_ref`
+
+Rules:
+
+- These values are evidence/policy requirements, not proof that evidence exists.
+- Row cells must contain only comma-separated tokens from the allowed list. `none` is allowed only when the row is unsupported and must deny.
+- They must not be encoded in `minimum_support_state`.
+- A missing, stale, invalid or redaction-invalid required policy ref must fail closed when the row enters admission.
+
+## 5. Support level lifecycle
 
 This suite's lifecycle stops at static matrix freeze:
 
@@ -103,7 +142,7 @@ This suite does not produce:
 
 Future owner outputs may provide those sources, but they must enter the consuming flow through their own issue / PR.
 
-## 5. Evidence ref strategy
+## 6. Evidence ref strategy
 
 Allowed evidence strategy keys:
 
@@ -125,7 +164,7 @@ Allowed evidence strategy keys:
 - 用 `N/A`、old artifact、runtime ping、bootstrap ack、stub/fake host 或 descriptor presence 代替 required evidence。
 - 把 future ref slot 解释为 evidence passed。
 
-## 6. Fail-closed policy
+## 7. Fail-closed policy
 
 All matrix rows inherit `FR-0035` default decision policy:
 
@@ -139,7 +178,7 @@ All matrix rows inherit `FR-0035` default decision policy:
 
 Business `read/write/download` default admission must not accept `declared`. When the consumer minimum support state is higher than this matrix's current support level, it must deny/defer; if the record has entered admission, it must blocked/deny.
 
-## 7. Ownership boundaries
+## 8. Ownership boundaries
 
 | Data | Owner | Defined by this FR |
 |---|---|---|

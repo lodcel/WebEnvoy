@@ -16,7 +16,7 @@
 ### 阶段 2：capability rows 落成
 
 - 产出：`data-model.md`
-- 重点：为 direct / persistent / cloakserve 每个 capability 写明 support level、verification threshold、variant inputs、limitation、verification source 与 evidence ref strategy。
+- 重点：为 direct / persistent / cloakserve 每个 capability 写明 support level、minimum support state、evidence policy requirements、variant inputs、limitation、verification source 与 evidence ref strategy。
 
 ### 阶段 3：fail-closed 与 downstream owner 收口
 
@@ -54,14 +54,14 @@
 - 语义自检：
   - 对照 issue #1149 和 parent #1114，确认只覆盖 capability matrix。
   - 对照 FR-0049/FR-0050/FR-0051，确认只消费 descriptor identity、mode、engine、transport、profile/extension/native refs、final args / fingerprint boundary 与 limitations。
-  - 对照 FR-0035，确认 support state、verification source、verification threshold、evidence strategy 与 fail-closed 口径一致。
+  - 对照 FR-0035，确认 support state、minimum support state、evidence policy requirements、verification source、evidence strategy 与 fail-closed 口径一致。
   - 对照 FR-0053/FR-0054/FR-0057/FR-0058/FR-0059/FR-0060，确认只引用 evidence / health input strategy，不声明其结果已通过。
 
 ## TDD 范围
 
 - 当前只冻结 formal capability matrix contract，不进入实现代码 TDD。
 - 后续 implementation 或 parser issue 应优先补以下测试：
-  - matrix parser 拒绝缺少 support level、verification threshold、variant inputs、limitation、verification source 或 evidence ref strategy 的 row。
+  - matrix parser 拒绝缺少 support level、minimum support state、evidence policy requirements、variant inputs、limitation、verification source 或 evidence ref strategy 的 row。
   - direct matrix 对 Native Messaging capability 输出 unsupported。
   - persistent matrix 不把 profile / extension / Native Messaging descriptor refs 解释为 health pass 或 runtime ready。
   - cloakserve matrix 对 extension bridge / Native Messaging 输出 unsupported，并对 experimental read/write/download 输出 declared plus limitation gate requirement。
@@ -83,6 +83,6 @@
 
 - FR-0052 spec review 通过。
 - reviewer 确认本 PR 使用 `Refs #1149` / refs-only，且 GitHub `closingIssuesReferences=[]`。
-- reviewer 确认每个 capability row 均包含 support level、verification threshold、variant inputs、limitation、verification source 与 evidence ref strategy。
+- reviewer 确认每个 capability row 均包含 support level、minimum support state、evidence policy requirements、variant inputs、limitation、verification source 与 evidence ref strategy。
 - reviewer 确认 unsupported / partial / declared rows 按 `FR-0035` fail closed。
 - reviewer 确认本 suite 没有定义 descriptor shape、health schema、limitation gate output、launch evidence、fixtures、runtime implementation 或 live evidence。

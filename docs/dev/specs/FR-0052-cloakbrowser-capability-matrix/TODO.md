@@ -3,7 +3,7 @@
 ## Review 阶段
 
 - [ ] 确认 `FR-0052` 只定义 CloakBrowser capability matrix。
-- [ ] 确认 direct / persistent / cloakserve 每个 capability row 均包含 support level、verification threshold、variant inputs、limitation、verification source 与 evidence ref strategy。
+- [ ] 确认 direct / persistent / cloakserve 每个 capability row 均包含 support level、minimum support state、evidence policy requirements、variant inputs、limitation、verification source 与 evidence ref strategy。
 - [ ] 确认 matrix 消费 `FR-0049`、`FR-0050`、`FR-0051` 与 `FR-0035`，没有重写 descriptor shape。
 - [ ] 确认本 suite 没有 health result schema、limitation gate result、launch evidence record、fixture payload、runtime implementation 或 live evidence。
 - [ ] 确认 direct Native Messaging row 为 unsupported。
