@@ -405,8 +405,31 @@ const secretKeyValuePattern =
 const secretKeyValueDetectPattern =
   /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)&#]+/i;
 
+const genericSecretKeyPattern =
+  "xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password|auth|x-amz-signature|x-amz-credential|x-amz-security-token|ossaccesskeyid|awsaccesskeyid|signature";
+
+const quotedGenericSecretKeyValuePattern = new RegExp(
+  `(["'](?:${genericSecretKeyPattern})["']\\s*:\\s*["'])(?!<redacted:token>(?=["']))[^"']+(["'])`,
+  "gi"
+);
+
+const unquotedGenericSecretKeyValuePattern = new RegExp(
+  `(["'](?:${genericSecretKeyPattern})["']\\s*:\\s*)(?!<redacted:token>(?=$|[,}\\]\\s]))[^,}\\]\\s"']+`,
+  "gi"
+);
+
+const quotedGenericSecretKeyValueDetectPattern = new RegExp(
+  `["'](?:${genericSecretKeyPattern})["']\\s*:\\s*["'](?!<redacted:token>(?=["']))[^"']+["']`,
+  "i"
+);
+
+const unquotedGenericSecretKeyValueDetectPattern = new RegExp(
+  `["'](?:${genericSecretKeyPattern})["']\\s*:\\s*(?!<redacted:token>(?=$|[,}\\]\\s]))[^,}\\]\\s"']+`,
+  "i"
+);
+
 const secretQueryKeyPattern =
-  "xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization|x-amz-signature|x-amz-credential|x-amz-security-token|ossaccesskeyid|awsaccesskeyid|signature";
+  "xsec(?:_|%5f)token|token|access(?:_|%5f)token|refresh(?:_|%5f)token|api(?:_|%5f)key|secret|password|cookie|auth|authorization|x(?:-|%2d)amz(?:-|%2d)signature|x(?:-|%2d)amz(?:-|%2d)credential|x(?:-|%2d)amz(?:-|%2d)security(?:-|%2d)token|ossaccesskeyid|awsaccesskeyid|signature";
 
 const secretQueryPattern = new RegExp(
   `((?:[?&]|&amp;)(?:${secretQueryKeyPattern})=)[^&#\\s"']+`,
@@ -429,6 +452,12 @@ const quotedAccountIdentifierKeyValuePattern =
 
 const quotedAccountIdentifierKeyValueDetectPattern =
   /["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*["'](?!<redacted:account_identifier>(?=["']))[^"']+["']/i;
+
+const unquotedAccountIdentifierKeyValuePattern =
+  /(["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*)(?!<redacted:account_identifier>(?=$|[,}\]\s]))[^,}\]\s"']+/gi;
+
+const unquotedAccountIdentifierKeyValueDetectPattern =
+  /["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*(?!<redacted:account_identifier>(?=$|[,}\]\s]))[^,}\]\s"']+/i;
 
 const freeTextPhonePattern = /(^|[^\w+])(\+\d[\d .()-]{7,}\d)(?=$|[^\d])/gi;
 const freeTextPhoneDetectPattern = /(^|[^\w+])\+\d[\d .()-]{7,}\d(?=$|[^\d])/i;
@@ -523,6 +552,24 @@ const redactStringValue = (
     }
   }
 
+  const quotedGenericSecretRedacted = redacted.replace(
+    quotedGenericSecretKeyValuePattern,
+    "$1<redacted:token>$2"
+  );
+  if (quotedGenericSecretRedacted !== redacted) {
+    redacted = quotedGenericSecretRedacted;
+    addFinding("secret", "secret_handle", "<redacted:token>");
+  }
+
+  const unquotedGenericSecretRedacted = redacted.replace(
+    unquotedGenericSecretKeyValuePattern,
+    "$1<redacted:token>"
+  );
+  if (unquotedGenericSecretRedacted !== redacted) {
+    redacted = unquotedGenericSecretRedacted;
+    addFinding("secret", "secret_handle", "<redacted:token>");
+  }
+
   const seedPattern =
     /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/gi;
   if (seedPattern.test(redacted)) {
@@ -556,6 +603,15 @@ const redactStringValue = (
   );
   if (quotedAccountIdentifierRedacted !== redacted) {
     redacted = quotedAccountIdentifierRedacted;
+    addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+  }
+
+  const unquotedAccountIdentifierRedacted = redacted.replace(
+    unquotedAccountIdentifierKeyValuePattern,
+    "$1<redacted:account_identifier>"
+  );
+  if (unquotedAccountIdentifierRedacted !== redacted) {
+    redacted = unquotedAccountIdentifierRedacted;
     addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
   }
 
@@ -617,9 +673,12 @@ const hasUnredactedSensitiveString = (value: unknown): boolean => {
       redactedTokenSuffixDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
       secretQueryDetectPattern.test(valueToInspect) ||
       secretKeyValueDetectPattern.test(valueToInspect) ||
+      quotedGenericSecretKeyValueDetectPattern.test(valueToInspect) ||
+      unquotedGenericSecretKeyValueDetectPattern.test(valueToInspect) ||
       /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(valueToInspect) ||
       accountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
       quotedAccountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
+      unquotedAccountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
       freeTextPhoneDetectPattern.test(valueToInspect) ||
       freeTextAccountIdentifierDetectPattern.test(valueToInspect)
     );
