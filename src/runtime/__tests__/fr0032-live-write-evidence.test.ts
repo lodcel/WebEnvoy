@@ -310,6 +310,41 @@ describe("FR-0032 live write evidence evaluator", () => {
     });
   });
 
+  it("compares residual record provenance on raw refs before redacted disclosure", () => {
+    const input = baseInput();
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      cleanup_outcome: "cleanup_failed",
+      completed_at: null,
+      residual_record: {
+        ...baseResidualRecord(),
+        residual_record_id: "/Users/alice/Library/Application Support/WebEnvoy/residual cleanup.json"
+      }
+    };
+    input.residual_record = {
+      ...baseResidualRecord(),
+      residual_record_id: "/Users/bob/Library/Application Support/WebEnvoy/residual top.json"
+    };
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "NO_GO",
+      cleanup_satisfied: true,
+      cleanup_success: false,
+      residual_record_id: "<redacted:path:private>",
+      redaction_state: "redacted",
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "RESIDUAL_RECORD_REQUIRED" })
+      ])
+    });
+    expect(serializedEvaluation).not.toContain("/Users/alice");
+    expect(serializedEvaluation).not.toContain("/Users/bob");
+    expect(serializedEvaluation).not.toContain("residual cleanup.json");
+    expect(serializedEvaluation).not.toContain("residual top.json");
+  });
+
   it("requires a stop signal and residual record when cleanup has no safe action", () => {
     const input = baseInput();
     input.cleanup_result = {
@@ -426,6 +461,36 @@ describe("FR-0032 live write evidence evaluator", () => {
         expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })
       ])
     });
+  });
+
+  it("compares stop signal cleanup provenance on raw refs before redacted disclosure", () => {
+    const input = baseInput();
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      cleanup_result_id: "/Users/alice/Library/Application Support/WebEnvoy/cleanup proof.json"
+    };
+    input.risk_signals = [blockingRiskSignal()];
+    input.stop_signal = {
+      ...blockingStopSignal(),
+      cleanup_result_id: "/Users/bob/Library/Application Support/WebEnvoy/cleanup proof.json"
+    };
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "NO_GO",
+      cleanup_result_id: "<redacted:path:private>",
+      stop_signal_required: true,
+      stop_signal_satisfied: false,
+      redaction_state: "redacted",
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "STOP_SIGNAL_REQUIRED" })
+      ])
+    });
+    expect(serializedEvaluation).not.toContain("/Users/alice");
+    expect(serializedEvaluation).not.toContain("/Users/bob");
+    expect(serializedEvaluation).not.toContain("cleanup proof.json");
   });
 
   it("closes publish gate when submit is blocked by risk even without a separate risk signal", () => {
