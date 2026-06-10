@@ -1085,6 +1085,97 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("redacts raw secret suffixes appended to redacted token placeholders", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message:
+        "token=<redacted:token>raw-token-suffix access_token=<redacted:token>raw-access-suffix Authorization: Bearer <redacted:token>raw-auth-suffix"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator:
+        "api_key=<redacted:token>raw-api-suffix X-Api-Key: <redacted:token>raw-header-suffix"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/token-suffix",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref:
+          "Set-Cookie: <redacted:token>raw-cookie-suffix; Cookie: <redacted:token>raw-cookie-suffix-2"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(3);
+    expect(serialized).not.toContain("raw-token-suffix");
+    expect(serialized).not.toContain("raw-access-suffix");
+    expect(serialized).not.toContain("raw-auth-suffix");
+    expect(serialized).not.toContain("raw-api-suffix");
+    expect(serialized).not.toContain("raw-header-suffix");
+    expect(serialized).not.toContain("raw-cookie-suffix");
+    expect(serialized).toContain("token=<redacted:token>");
+    expect(serialized).toContain("access_token=<redacted:token>");
+    expect(serialized).toContain("Authorization: Bearer <redacted:token>");
+    expect(serialized).toContain("api_key=<redacted:token>");
+    expect(serialized).toContain("X-Api-Key: <redacted:token>");
+    expect(serialized).toContain("Set-Cookie: <redacted:token>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        })
+      ])
+    );
+  });
+
+  it("keeps legitimate redacted token placeholders safe at value boundaries", () => {
+    const input = baseInput();
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/redacted-token-boundaries",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref:
+          "token=<redacted:token> access_token=<redacted:token> api_key=<redacted:token>; Authorization: Bearer <redacted:token> X-Api-Key: <redacted:token>; Set-Cookie: <redacted:token>; HttpOnly"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(serialized).toContain("token=<redacted:token>");
+    expect(serialized).toContain("access_token=<redacted:token> api_key=<redacted:token>");
+    expect(serialized).toContain("Authorization: Bearer <redacted:token>");
+    expect(serialized).toContain("X-Api-Key: <redacted:token>");
+    expect(serialized).toContain("Set-Cookie: <redacted:token>; HttpOnly");
+    expect(redacted.findings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "live_write_evidence.risk_signals.0.details_ref" })
+      ])
+    );
+  });
+
   it("evaluates free-text token key-value secrets through default redaction", () => {
     const input = baseInput();
     input.submit_evidence = {
@@ -1115,6 +1206,44 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).not.toContain("raw-token-001");
     expect(serializedFindings).not.toContain("raw-access-token-001");
     expect(serializedFindings).not.toContain("raw-api-key-001");
+    expect(serializedFindings).toContain("<redacted:token>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
+  it("evaluates redacted token placeholders with raw suffixes through default redaction", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message:
+        "token=<redacted:token>raw-token-suffix Authorization: Bearer <redacted:token>raw-auth-suffix"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/token-suffix",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref:
+          "access_token=<redacted:token>raw-access-suffix api_key=<redacted:token>raw-api-suffix"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedFindings = JSON.stringify(evaluation.redaction_findings);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedFindings).not.toContain("raw-token-suffix");
+    expect(serializedFindings).not.toContain("raw-auth-suffix");
+    expect(serializedFindings).not.toContain("raw-access-suffix");
+    expect(serializedFindings).not.toContain("raw-api-suffix");
     expect(serializedFindings).toContain("<redacted:token>");
     expect(evaluation.blockers).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])

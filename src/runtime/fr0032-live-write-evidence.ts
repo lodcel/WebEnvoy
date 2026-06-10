@@ -335,26 +335,26 @@ const pathRedactionKind = (path: string): string => {
 };
 
 const secretHeaderReplacePatterns = [
-  /\b((?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+)(?!\s*<redacted:token>)[^\s"',;)]+/gi,
-  /\b((?:authorization|proxy-authorization)\s*[:=])(?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>)(\s*)[^\s"',;)]+/gi,
-  /\b((?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=])(?!(?:\s*<redacted:token>))(\s*)[^\s"',;)]+/gi,
-  /\b(set-cookie\s*[:=])(?!(?:\s*<redacted:token>))(\s*)[^\r\n"']+/gi,
-  /(?<!-)\b(cookie\s*[:=])(?!(?:\s*<redacted:token>))(\s*)[^\r\n"']+/gi
+  /\b((?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+)(?!\s*<redacted:token>(?=$|[\s"',;)&#]))[^\s"',;)]+/gi,
+  /\b((?:authorization|proxy-authorization)\s*[:=])(?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=$|[\s"',;)&#]))(\s*)[^\s"',;)]+/gi,
+  /\b((?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\s"',;)]+/gi,
+  /\b(set-cookie\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\r\n"']+/gi,
+  /(?<!-)\b(cookie\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\r\n"']+/gi
 ];
 
 const secretHeaderDetectPatterns = [
-  /\b(?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+(?!\s*<redacted:token>)[^\s"',;)]+/i,
-  /\b(?:authorization|proxy-authorization)\s*[:=](?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>)\s*[^\s"',;)]+/i,
-  /\b(?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=](?!\s*<redacted:token>)\s*[^\s"',;)]+/i,
-  /\bset-cookie\s*[:=](?!\s*<redacted:token>)\s*[^\r\n"']+/i,
-  /(?<!-)\bcookie\s*[:=](?!\s*<redacted:token>)\s*[^\r\n"']+/i
+  /\b(?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+(?!\s*<redacted:token>(?=$|[\s"',;)&#]))[^\s"',;)]+/i,
+  /\b(?:authorization|proxy-authorization)\s*[:=](?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)]+/i,
+  /\b(?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)]+/i,
+  /\bset-cookie\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\r\n"']+/i,
+  /(?<!-)\bcookie\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\r\n"']+/i
 ];
 
 const secretKeyValuePattern =
-  /\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=])(?!(?:\s*<redacted:token>))(\s*)[^\s"',;)&#]+/gi;
+  /\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\s"',;)&#]+/gi;
 
 const secretKeyValueDetectPattern =
-  /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>)\s*[^\s"',;)&#]+/i;
+  /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)&#]+/i;
 
 const redactStringValue = (
   value: string,
