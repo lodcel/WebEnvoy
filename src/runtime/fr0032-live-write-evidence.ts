@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   type Fr0032UploadArtifactIdentity,
   type Fr0032UploadEntryGate
@@ -21,6 +23,7 @@ export type Fr0032PublishVisibilityScope =
 
 export type Fr0032LiveWriteBlockerCode =
   | "ENTRY_GATE_NOT_GO"
+  | "REDACTION_INVALID"
   | "UPLOAD_ARTIFACT_MISSING"
   | "UPLOAD_NOT_ACCEPTED"
   | "SUBMIT_EVIDENCE_MISSING"
@@ -66,6 +69,28 @@ export type Fr0032LiveWriteRiskKind =
   | "submit_failure"
   | "publish_identity_missing"
   | "cleanup_failure";
+
+export type Fr0032LiveWriteEvidenceSensitivity = "sensitive" | "secret";
+export type Fr0032LiveWriteEvidenceLocatorKind =
+  | "private_locator"
+  | "secret_handle"
+  | "public_locator";
+export type Fr0032LiveWriteEvidenceRedactionState = "redacted" | "not_required" | "invalid";
+
+export interface Fr0032LiveWriteEvidenceRedactionFinding {
+  path: string;
+  sensitivity: Fr0032LiveWriteEvidenceSensitivity;
+  locator_kind: Fr0032LiveWriteEvidenceLocatorKind;
+  redaction_state: "redacted" | "invalid";
+  replacement: string;
+}
+
+export interface Fr0032LiveWriteEvidenceRedactionResult {
+  evidence: EvaluateFr0032LiveWriteEvidenceInput;
+  redaction_state: Fr0032LiveWriteEvidenceRedactionState;
+  redacted_field_count: number;
+  findings: Fr0032LiveWriteEvidenceRedactionFinding[];
+}
 
 export interface Fr0032SubmitEvidence {
   submit_action_ref: string;
@@ -253,11 +278,192 @@ export interface Fr0032LiveWriteEvaluation {
   stop_signal_present: boolean;
   stop_signal_required: boolean;
   stop_signal_satisfied: boolean;
+  redaction_state: Fr0032LiveWriteEvidenceRedactionState;
+  redacted_field_count: number;
+  redaction_findings: Fr0032LiveWriteEvidenceRedactionFinding[];
   blockers: Array<{
     blocker_code: Fr0032LiveWriteBlockerCode;
     message: string;
   }>;
 }
+
+const opaqueRedactionRef = (kind: string, value: string): string => {
+  const digest = createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return `${kind}:redacted:${digest}`;
+};
+
+const alreadyRedacted = (value: string): boolean =>
+  /^<redacted:[^>]+>$/.test(value) || /^[a-z-]+:redacted:[a-f0-9]{16}$/.test(value);
+
+const privatePosixPathPattern =
+  /(?:^|[\s"'=/])(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\s"']+/i;
+const encodedPrivatePosixPathPattern =
+  /(?:^|[\s"'=/:])(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\s"']+/i;
+const windowsPrivatePathPattern =
+  /[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\s"']+/i;
+const privatePosixPathReplacePattern =
+  /(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\s"']+/gi;
+const encodedPrivatePosixPathReplacePattern =
+  /(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\s"']+/gi;
+const windowsPrivatePathReplacePattern =
+  /[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\s"']+/gi;
+
+const hasPrivatePath = (value: string): boolean =>
+  privatePosixPathPattern.test(value) ||
+  encodedPrivatePosixPathPattern.test(value) ||
+  windowsPrivatePathPattern.test(value);
+
+const pathRedactionKind = (path: string): string => {
+  if (path.endsWith(".profile_ref") || path.includes("profile")) {
+    return "profile";
+  }
+  if (path.includes("source_media_ref")) {
+    return "source_media";
+  }
+  return "private";
+};
+
+const redactStringValue = (
+  value: string,
+  pathParts: string[]
+): { value: string; findings: Fr0032LiveWriteEvidenceRedactionFinding[] } => {
+  const path = pathParts.join(".");
+  if (alreadyRedacted(value)) {
+    return { value, findings: [] };
+  }
+
+  const findings: Fr0032LiveWriteEvidenceRedactionFinding[] = [];
+  let redacted = value;
+  const addFinding = (
+    sensitivity: Fr0032LiveWriteEvidenceSensitivity,
+    locator_kind: Fr0032LiveWriteEvidenceLocatorKind,
+    replacement: string
+  ): void => {
+    findings.push({
+      path,
+      sensitivity,
+      locator_kind,
+      redaction_state: "redacted",
+      replacement
+    });
+  };
+
+  if (path.endsWith(".profile_ref")) {
+    redacted = opaqueRedactionRef("profile-ref", redacted);
+    addFinding("sensitive", "private_locator", redacted);
+    return { value: redacted, findings };
+  }
+
+  const proxyCredentialPattern = /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/gi;
+  if (proxyCredentialPattern.test(redacted)) {
+    redacted = redacted.replace(proxyCredentialPattern, "<redacted:proxy_credential>");
+    addFinding("secret", "secret_handle", "<redacted:proxy_credential>");
+  }
+
+  const secretQueryPattern =
+    /([?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=)[^&#\s"']+/gi;
+  if (secretQueryPattern.test(redacted)) {
+    redacted = redacted.replace(secretQueryPattern, "$1<redacted:token>");
+    addFinding("secret", "secret_handle", "<redacted:token>");
+  }
+
+  const seedPattern =
+    /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/gi;
+  if (seedPattern.test(redacted)) {
+    redacted = redacted.replace(seedPattern, "<redacted:fingerprint_seed>");
+    addFinding("secret", "secret_handle", "<redacted:fingerprint_seed>");
+  }
+
+  if (hasPrivatePath(redacted)) {
+    const replacement = `<redacted:path:${pathRedactionKind(path)}>`;
+    redacted = redacted
+      .replace(privatePosixPathReplacePattern, replacement)
+      .replace(encodedPrivatePosixPathReplacePattern, replacement)
+      .replace(windowsPrivatePathReplacePattern, replacement);
+    addFinding("sensitive", "private_locator", replacement);
+  }
+
+  const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+  if (emailPattern.test(redacted)) {
+    redacted = redacted.replace(emailPattern, "<redacted:account_identifier>");
+    addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+  }
+
+  const accountIdentifierPattern =
+    /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/gi;
+  if (accountIdentifierPattern.test(redacted)) {
+    redacted = redacted.replace(accountIdentifierPattern, "<redacted:account_identifier>");
+    addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+  }
+
+  return { value: redacted, findings };
+};
+
+const redactEvidenceValue = (
+  value: unknown,
+  pathParts: string[],
+  findings: Fr0032LiveWriteEvidenceRedactionFinding[]
+): unknown => {
+  if (typeof value === "string") {
+    const result = redactStringValue(value, pathParts);
+    findings.push(...result.findings);
+    return result.value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => redactEvidenceValue(item, [...pathParts, String(index)], findings));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        redactEvidenceValue(item, [...pathParts, key], findings)
+      ])
+    );
+  }
+  return value;
+};
+
+const hasUnredactedSensitiveString = (value: unknown): boolean => {
+  if (typeof value === "string") {
+    return (
+      !alreadyRedacted(value) &&
+      (hasPrivatePath(value) ||
+        /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(value) ||
+        /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(
+          value
+        ) ||
+        /[?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=((?!<redacted:)[^&#\s"']+)/i.test(
+          value
+        ))
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasUnredactedSensitiveString);
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value).some(hasUnredactedSensitiveString);
+  }
+  return false;
+};
+
+export const redactFr0032LiveWriteEvidence = (
+  input: EvaluateFr0032LiveWriteEvidenceInput
+): Fr0032LiveWriteEvidenceRedactionResult => {
+  const findings: Fr0032LiveWriteEvidenceRedactionFinding[] = [];
+  const evidence = redactEvidenceValue(input, ["live_write_evidence"], findings);
+  const redaction_state = hasUnredactedSensitiveString(evidence)
+    ? "invalid"
+    : findings.length > 0
+      ? "redacted"
+      : "not_required";
+
+  return {
+    evidence: evidence as EvaluateFr0032LiveWriteEvidenceInput,
+    redaction_state,
+    redacted_field_count: new Set(findings.map((finding) => finding.path)).size,
+    findings
+  };
+};
 
 const pushBlocker = (
   blockers: Fr0032LiveWriteEvaluation["blockers"],
@@ -351,14 +557,24 @@ const deriveAttemptState = (input: {
 export const evaluateFr0032LiveWriteEvidence = (
   input: EvaluateFr0032LiveWriteEvidenceInput
 ): Fr0032LiveWriteEvaluation => {
+  const redaction = redactFr0032LiveWriteEvidence(input);
+  const redactedInput = redaction.evidence;
   const blockers: Fr0032LiveWriteEvaluation["blockers"] = [];
-  const riskSignals = input.risk_signals ?? [];
+  const riskSignals = redactedInput.risk_signals ?? [];
 
-  if (!entryGatePassed(input.entry_gate)) {
+  if (redaction.redaction_state === "invalid") {
+    pushBlocker(
+      blockers,
+      "REDACTION_INVALID",
+      "live-write evidence contains unredacted sensitive or secret-bearing values"
+    );
+  }
+
+  if (!entryGatePassed(redactedInput.entry_gate)) {
     pushBlocker(blockers, "ENTRY_GATE_NOT_GO", "fresh FR-0032 entry gate GO is required");
   }
 
-  const uploadArtifact = input.upload_artifact_identity;
+  const uploadArtifact = redactedInput.upload_artifact_identity;
   if (!uploadArtifact) {
     pushBlocker(blockers, "UPLOAD_ARTIFACT_MISSING", "upload artifact identity is required");
   } else if (!uploadArtifact.accepted_by_platform || !uploadArtifact.visible_in_editor) {
@@ -369,7 +585,7 @@ export const evaluateFr0032LiveWriteEvidence = (
     );
   }
 
-  const submitEvidence = input.submit_evidence;
+  const submitEvidence = redactedInput.submit_evidence;
   if (!submitEvidence) {
     pushBlocker(blockers, "SUBMIT_EVIDENCE_MISSING", "submit evidence is required");
   } else if (submitEvidence.submit_result_state !== "accepted") {
@@ -383,7 +599,7 @@ export const evaluateFr0032LiveWriteEvidence = (
     }
   }
 
-  const publishIdentity = input.publish_result_identity;
+  const publishIdentity = redactedInput.publish_result_identity;
   if (!publishIdentity || !hasStablePublishIdentity(publishIdentity)) {
     pushBlocker(
       blockers,
@@ -403,12 +619,12 @@ export const evaluateFr0032LiveWriteEvidence = (
     }
   }
 
-  const cleanupResult = input.cleanup_result;
+  const cleanupResult = redactedInput.cleanup_result;
   if (!cleanupResult) {
     pushBlocker(blockers, "CLEANUP_RESULT_MISSING", "cleanup or rollback proof is required");
   }
 
-  const inputResidualRecord = input.residual_record ?? null;
+  const inputResidualRecord = redactedInput.residual_record ?? null;
   const cleanupResidualRecord = cleanupResult?.residual_record ?? null;
   const residualRecord = inputResidualRecord ?? cleanupResidualRecord;
   const cleanupResultId = cleanupResult?.cleanup_result_id ?? null;
@@ -448,13 +664,13 @@ export const evaluateFr0032LiveWriteEvidence = (
   const blockingRiskSignalCount = riskSignals.filter((riskSignal) => riskSignal.severity === "blocking").length;
   const submitBlockedByRisk = submitEvidence?.submit_result_state === "blocked_by_risk";
   const stopSignalRequired = hasBlockingRisk || submitBlockedByRisk || noSafeCleanupAction;
-  const stopSignalId = input.stop_signal?.stop_signal_id ?? null;
-  const blockingStopSignalPresent = input.stop_signal?.severity === "blocking";
+  const stopSignalId = redactedInput.stop_signal?.stop_signal_id ?? null;
+  const blockingStopSignalPresent = redactedInput.stop_signal?.severity === "blocking";
   const stopSignalCleanupMismatch =
-    input.stop_signal !== null &&
-    input.stop_signal !== undefined &&
-    (input.stop_signal.cleanup_result_id !== cleanupResultId ||
-      input.stop_signal.residual_record_id !== residualRecordId);
+    redactedInput.stop_signal !== null &&
+    redactedInput.stop_signal !== undefined &&
+    (redactedInput.stop_signal.cleanup_result_id !== cleanupResultId ||
+      redactedInput.stop_signal.residual_record_id !== residualRecordId);
   const stopSignalSatisfied =
     !stopSignalCleanupMismatch && (!stopSignalRequired || blockingStopSignalPresent);
   if (hasBlockingRisk) {
@@ -482,7 +698,8 @@ export const evaluateFr0032LiveWriteEvidence = (
     hasBlockingRisk ||
     submitBlockedByRisk ||
     noSafeCleanupAction ||
-    (input.stop_signal?.severity === "blocking" && input.stop_signal.later_write_actions_blocked);
+    (redactedInput.stop_signal?.severity === "blocking" &&
+      redactedInput.stop_signal.later_write_actions_blocked);
   const cleanupRequired = uploadSuccess || submitSuccess || publishIdentity !== null || hasBlockingRisk;
   const submitGateOpen = blockers.length === 0 && uploadSuccess && !laterWriteActionsBlocked;
   const publishGateOpen = submitGateOpen && submitSuccess && !laterWriteActionsBlocked;
@@ -527,9 +744,12 @@ export const evaluateFr0032LiveWriteEvidence = (
     risk_signal_present: riskSignalPresent,
     blocking_risk_signal_count: blockingRiskSignalCount,
     stop_signal_id: stopSignalId,
-    stop_signal_present: input.stop_signal !== null && input.stop_signal !== undefined,
+    stop_signal_present: redactedInput.stop_signal !== null && redactedInput.stop_signal !== undefined,
     stop_signal_required: stopSignalRequired,
     stop_signal_satisfied: stopSignalSatisfied,
+    redaction_state: redaction.redaction_state,
+    redacted_field_count: redaction.redacted_field_count,
+    redaction_findings: redaction.findings,
     blockers
   };
 };

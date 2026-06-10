@@ -1,3 +1,131 @@
+import { createHash } from "node:crypto";
+const opaqueRedactionRef = (kind, value) => {
+    const digest = createHash("sha256").update(value).digest("hex").slice(0, 16);
+    return `${kind}:redacted:${digest}`;
+};
+const alreadyRedacted = (value) => /^<redacted:[^>]+>$/.test(value) || /^[a-z-]+:redacted:[a-f0-9]{16}$/.test(value);
+const privatePosixPathPattern = /(?:^|[\s"'=/])(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\s"']+/i;
+const encodedPrivatePosixPathPattern = /(?:^|[\s"'=/:])(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\s"']+/i;
+const windowsPrivatePathPattern = /[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\s"']+/i;
+const privatePosixPathReplacePattern = /(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\s"']+/gi;
+const encodedPrivatePosixPathReplacePattern = /(?:%2fUsers%2f|%2fhome%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\s"']+/gi;
+const windowsPrivatePathReplacePattern = /[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\s"']+/gi;
+const hasPrivatePath = (value) => privatePosixPathPattern.test(value) ||
+    encodedPrivatePosixPathPattern.test(value) ||
+    windowsPrivatePathPattern.test(value);
+const pathRedactionKind = (path) => {
+    if (path.endsWith(".profile_ref") || path.includes("profile")) {
+        return "profile";
+    }
+    if (path.includes("source_media_ref")) {
+        return "source_media";
+    }
+    return "private";
+};
+const redactStringValue = (value, pathParts) => {
+    const path = pathParts.join(".");
+    if (alreadyRedacted(value)) {
+        return { value, findings: [] };
+    }
+    const findings = [];
+    let redacted = value;
+    const addFinding = (sensitivity, locator_kind, replacement) => {
+        findings.push({
+            path,
+            sensitivity,
+            locator_kind,
+            redaction_state: "redacted",
+            replacement
+        });
+    };
+    if (path.endsWith(".profile_ref")) {
+        redacted = opaqueRedactionRef("profile-ref", redacted);
+        addFinding("sensitive", "private_locator", redacted);
+        return { value: redacted, findings };
+    }
+    const proxyCredentialPattern = /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/gi;
+    if (proxyCredentialPattern.test(redacted)) {
+        redacted = redacted.replace(proxyCredentialPattern, "<redacted:proxy_credential>");
+        addFinding("secret", "secret_handle", "<redacted:proxy_credential>");
+    }
+    const secretQueryPattern = /([?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=)[^&#\s"']+/gi;
+    if (secretQueryPattern.test(redacted)) {
+        redacted = redacted.replace(secretQueryPattern, "$1<redacted:token>");
+        addFinding("secret", "secret_handle", "<redacted:token>");
+    }
+    const seedPattern = /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/gi;
+    if (seedPattern.test(redacted)) {
+        redacted = redacted.replace(seedPattern, "<redacted:fingerprint_seed>");
+        addFinding("secret", "secret_handle", "<redacted:fingerprint_seed>");
+    }
+    if (hasPrivatePath(redacted)) {
+        const replacement = `<redacted:path:${pathRedactionKind(path)}>`;
+        redacted = redacted
+            .replace(privatePosixPathReplacePattern, replacement)
+            .replace(encodedPrivatePosixPathReplacePattern, replacement)
+            .replace(windowsPrivatePathReplacePattern, replacement);
+        addFinding("sensitive", "private_locator", replacement);
+    }
+    const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+    if (emailPattern.test(redacted)) {
+        redacted = redacted.replace(emailPattern, "<redacted:account_identifier>");
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    const accountIdentifierPattern = /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/gi;
+    if (accountIdentifierPattern.test(redacted)) {
+        redacted = redacted.replace(accountIdentifierPattern, "<redacted:account_identifier>");
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    return { value: redacted, findings };
+};
+const redactEvidenceValue = (value, pathParts, findings) => {
+    if (typeof value === "string") {
+        const result = redactStringValue(value, pathParts);
+        findings.push(...result.findings);
+        return result.value;
+    }
+    if (Array.isArray(value)) {
+        return value.map((item, index) => redactEvidenceValue(item, [...pathParts, String(index)], findings));
+    }
+    if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+            key,
+            redactEvidenceValue(item, [...pathParts, key], findings)
+        ]));
+    }
+    return value;
+};
+const hasUnredactedSensitiveString = (value) => {
+    if (typeof value === "string") {
+        return (!alreadyRedacted(value) &&
+            (hasPrivatePath(value) ||
+                /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(value) ||
+                /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(value) ||
+                /[?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=((?!<redacted:)[^&#\s"']+)/i.test(value)));
+    }
+    if (Array.isArray(value)) {
+        return value.some(hasUnredactedSensitiveString);
+    }
+    if (value && typeof value === "object") {
+        return Object.values(value).some(hasUnredactedSensitiveString);
+    }
+    return false;
+};
+export const redactFr0032LiveWriteEvidence = (input) => {
+    const findings = [];
+    const evidence = redactEvidenceValue(input, ["live_write_evidence"], findings);
+    const redaction_state = hasUnredactedSensitiveString(evidence)
+        ? "invalid"
+        : findings.length > 0
+            ? "redacted"
+            : "not_required";
+    return {
+        evidence: evidence,
+        redaction_state,
+        redacted_field_count: new Set(findings.map((finding) => finding.path)).size,
+        findings
+    };
+};
 const pushBlocker = (blockers, blocker_code, message) => {
     if (blockers.some((blocker) => blocker.blocker_code === blocker_code)) {
         return;
@@ -60,19 +188,24 @@ const deriveAttemptState = (input) => {
     return "initialized";
 };
 export const evaluateFr0032LiveWriteEvidence = (input) => {
+    const redaction = redactFr0032LiveWriteEvidence(input);
+    const redactedInput = redaction.evidence;
     const blockers = [];
-    const riskSignals = input.risk_signals ?? [];
-    if (!entryGatePassed(input.entry_gate)) {
+    const riskSignals = redactedInput.risk_signals ?? [];
+    if (redaction.redaction_state === "invalid") {
+        pushBlocker(blockers, "REDACTION_INVALID", "live-write evidence contains unredacted sensitive or secret-bearing values");
+    }
+    if (!entryGatePassed(redactedInput.entry_gate)) {
         pushBlocker(blockers, "ENTRY_GATE_NOT_GO", "fresh FR-0032 entry gate GO is required");
     }
-    const uploadArtifact = input.upload_artifact_identity;
+    const uploadArtifact = redactedInput.upload_artifact_identity;
     if (!uploadArtifact) {
         pushBlocker(blockers, "UPLOAD_ARTIFACT_MISSING", "upload artifact identity is required");
     }
     else if (!uploadArtifact.accepted_by_platform || !uploadArtifact.visible_in_editor) {
         pushBlocker(blockers, "UPLOAD_NOT_ACCEPTED", "upload artifact must be accepted by the platform and visible in editor");
     }
-    const submitEvidence = input.submit_evidence;
+    const submitEvidence = redactedInput.submit_evidence;
     if (!submitEvidence) {
         pushBlocker(blockers, "SUBMIT_EVIDENCE_MISSING", "submit evidence is required");
     }
@@ -82,7 +215,7 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
             pushBlocker(blockers, "SUBMIT_BLOCKED_BY_RISK", "submit was blocked by risk and later write actions must stop");
         }
     }
-    const publishIdentity = input.publish_result_identity;
+    const publishIdentity = redactedInput.publish_result_identity;
     if (!publishIdentity || !hasStablePublishIdentity(publishIdentity)) {
         pushBlocker(blockers, "PUBLISH_RESULT_IDENTITY_MISSING", "publish success requires a stable note id, URL, result page or platform record");
     }
@@ -94,11 +227,11 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
             pushBlocker(blockers, "PUBLISH_RESULT_NOT_VERIFIED", "publish result identity must be verified");
         }
     }
-    const cleanupResult = input.cleanup_result;
+    const cleanupResult = redactedInput.cleanup_result;
     if (!cleanupResult) {
         pushBlocker(blockers, "CLEANUP_RESULT_MISSING", "cleanup or rollback proof is required");
     }
-    const inputResidualRecord = input.residual_record ?? null;
+    const inputResidualRecord = redactedInput.residual_record ?? null;
     const cleanupResidualRecord = cleanupResult?.residual_record ?? null;
     const residualRecord = inputResidualRecord ?? cleanupResidualRecord;
     const cleanupResultId = cleanupResult?.cleanup_result_id ?? null;
@@ -124,12 +257,12 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
     const blockingRiskSignalCount = riskSignals.filter((riskSignal) => riskSignal.severity === "blocking").length;
     const submitBlockedByRisk = submitEvidence?.submit_result_state === "blocked_by_risk";
     const stopSignalRequired = hasBlockingRisk || submitBlockedByRisk || noSafeCleanupAction;
-    const stopSignalId = input.stop_signal?.stop_signal_id ?? null;
-    const blockingStopSignalPresent = input.stop_signal?.severity === "blocking";
-    const stopSignalCleanupMismatch = input.stop_signal !== null &&
-        input.stop_signal !== undefined &&
-        (input.stop_signal.cleanup_result_id !== cleanupResultId ||
-            input.stop_signal.residual_record_id !== residualRecordId);
+    const stopSignalId = redactedInput.stop_signal?.stop_signal_id ?? null;
+    const blockingStopSignalPresent = redactedInput.stop_signal?.severity === "blocking";
+    const stopSignalCleanupMismatch = redactedInput.stop_signal !== null &&
+        redactedInput.stop_signal !== undefined &&
+        (redactedInput.stop_signal.cleanup_result_id !== cleanupResultId ||
+            redactedInput.stop_signal.residual_record_id !== residualRecordId);
     const stopSignalSatisfied = !stopSignalCleanupMismatch && (!stopSignalRequired || blockingStopSignalPresent);
     if (hasBlockingRisk) {
         pushBlocker(blockers, "RISK_SIGNAL_BLOCKING", "blocking risk signal stops live write");
@@ -148,7 +281,8 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
     const laterWriteActionsBlocked = hasBlockingRisk ||
         submitBlockedByRisk ||
         noSafeCleanupAction ||
-        (input.stop_signal?.severity === "blocking" && input.stop_signal.later_write_actions_blocked);
+        (redactedInput.stop_signal?.severity === "blocking" &&
+            redactedInput.stop_signal.later_write_actions_blocked);
     const cleanupRequired = uploadSuccess || submitSuccess || publishIdentity !== null || hasBlockingRisk;
     const submitGateOpen = blockers.length === 0 && uploadSuccess && !laterWriteActionsBlocked;
     const publishGateOpen = submitGateOpen && submitSuccess && !laterWriteActionsBlocked;
@@ -191,9 +325,12 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
         risk_signal_present: riskSignalPresent,
         blocking_risk_signal_count: blockingRiskSignalCount,
         stop_signal_id: stopSignalId,
-        stop_signal_present: input.stop_signal !== null && input.stop_signal !== undefined,
+        stop_signal_present: redactedInput.stop_signal !== null && redactedInput.stop_signal !== undefined,
         stop_signal_required: stopSignalRequired,
         stop_signal_satisfied: stopSignalSatisfied,
+        redaction_state: redaction.redaction_state,
+        redacted_field_count: redaction.redacted_field_count,
+        redaction_findings: redaction.findings,
         blockers
     };
 };

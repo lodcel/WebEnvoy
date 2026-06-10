@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateFr0032LiveWriteEvidence,
+  redactFr0032LiveWriteEvidence,
   type EvaluateFr0032LiveWriteEvidenceInput,
   type Fr0032CleanupRollbackProof,
   type Fr0032LiveWriteRiskSignal,
@@ -454,6 +455,198 @@ describe("FR-0032 live write evidence evaluator", () => {
     });
   });
 
+  it("redacts raw live-write profile, path, proxy, seed and account evidence by default", () => {
+    const input = baseInput();
+    input.publish_result_identity = {
+      ...basePublishIdentity(),
+      profile_ref: "/Users/example/Library/Application Support/WebEnvoy/Profiles/xhs-private",
+      published_url:
+        "https://www.xiaohongshu.com/explore/fr0032-test-note?xsec_token=live-token-001",
+      success_signal: {
+        ...basePublishIdentity().success_signal,
+        signal_locator: "account_email=operator@example.com phone=+15551234567 account_id=xhs-raw-001"
+      }
+    };
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "/Users/example/Pictures/private-live-write-seed.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      profile_ref: "profile/xhs_private_seeded",
+      proof_locator: "/home/example/webenvoy/artifacts/live-write/proof.json"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/proxy",
+        detected_at: "2026-05-28T00:02:10.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "proxy://user:password@proxy.example.invalid:8080"
+      },
+      {
+        risk_signal_id: "risk/fr-0032/run-846/seed",
+        detected_at: "2026-05-28T00:02:11.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "fingerprint-seed:raw-seed-value"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(6);
+    expect(serialized).not.toContain("/Users/example");
+    expect(serialized).not.toContain("/home/example");
+    expect(serialized).not.toContain("live-token-001");
+    expect(serialized).not.toContain("operator@example.com");
+    expect(serialized).not.toContain("+15551234567");
+    expect(serialized).not.toContain("xhs-raw-001");
+    expect(serialized).not.toContain("private-live-write-seed.png");
+    expect(serialized).not.toContain("user:password");
+    expect(serialized).not.toContain("raw-seed-value");
+    expect(serialized).toContain("profile-ref:redacted:");
+    expect(serialized).toContain("<redacted:path:private>");
+    expect(serialized).toContain("<redacted:path:source_media>");
+    expect(serialized).toContain("<redacted:proxy_credential>");
+    expect(serialized).toContain("<redacted:fingerprint_seed>");
+    expect(serialized).toContain("<redacted:account_identifier>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.publish_result_identity.profile_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.upload_artifact_identity.source_media_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.1.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        })
+      ])
+    );
+  });
+
+  it("evaluates against redacted live-write evidence without exposing sensitive refs", () => {
+    const input = baseInput();
+    input.publish_result_identity = {
+      ...basePublishIdentity(),
+      profile_ref: "/Users/example/Library/Application Support/WebEnvoy/Profiles/xhs-private",
+      published_url:
+        "https://www.xiaohongshu.com/explore/fr0032-test-note?xsec_token=live-token-001"
+    };
+    input.cleanup_result = baseCleanup(input.publish_result_identity);
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedFindings = JSON.stringify(evaluation.redaction_findings);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true
+    });
+    expect(serializedFindings).not.toContain("/Users/example");
+    expect(serializedFindings).not.toContain("live-token-001");
+    expect(serializedFindings).toContain("profile-ref:redacted:");
+    expect(serializedFindings).toContain("<redacted:token>");
+  });
+
+  it("redacts file URI private paths and URL-encoded private paths", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "file:///Users/example/Pictures/private-live-write-seed.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "file:///home/example/webenvoy/artifacts/live-write/proof.json"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/encoded-path",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "artifact_ref=file:%2FUsers%2Fexample%2FLibrary%2FLogs%2Fwebenvoy.log"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted).toMatchObject({
+      redaction_state: "redacted"
+    });
+    expect(serialized).not.toContain("file:///Users/example");
+    expect(serialized).not.toContain("file:///home/example");
+    expect(serialized).not.toContain("%2FUsers%2Fexample");
+    expect(serialized).not.toContain("private-live-write-seed.png");
+    expect(serialized).not.toContain("proof.json");
+    expect(serialized).not.toContain("webenvoy.log");
+    expect(serialized).toContain("<redacted:path:source_media>");
+    expect(serialized).toContain("<redacted:path:private>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.upload_artifact_identity.source_media_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        })
+      ])
+    );
+  });
+
+  it("evaluates file URI private path evidence through default redaction", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "file:///Users/example/Pictures/private-live-write-seed.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "file:///home/example/webenvoy/artifacts/live-write/proof.json"
+    };
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedFindings = JSON.stringify(evaluation.redaction_findings);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedFindings).not.toContain("file:///Users/example");
+    expect(serializedFindings).not.toContain("file:///home/example");
+    expect(serializedFindings).toContain("<redacted:path:source_media>");
+    expect(serializedFindings).toContain("<redacted:path:private>");
+  });
+
   it("passes a full upload, submit, publish, evidence and cleanup success candidate", () => {
     expect(evaluateFr0032LiveWriteEvidence(baseInput())).toMatchObject({
       decision: "PASS",
@@ -479,6 +672,8 @@ describe("FR-0032 live write evidence evaluator", () => {
       stop_signal_present: false,
       stop_signal_required: false,
       stop_signal_satisfied: true,
+      redaction_state: "redacted",
+      redacted_field_count: 3,
       blockers: []
     });
   });
