@@ -123,3 +123,5 @@ mappings:
     canonical_issue_number: 1158
   - spec_path: docs/dev/specs/FR-0062-live-write-capability-taxonomy/spec.md
     canonical_issue_number: 1174
+  - spec_path: docs/dev/specs/FR-0064-operator-unlock/spec.md
+    canonical_issue_number: 1178
