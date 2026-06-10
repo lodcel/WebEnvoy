@@ -2490,9 +2490,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         runtimeStatus: input.runtimeStatus,
         providerAdmissionResult: asObject(input.providerAdmissionResult)
     }));
-    const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
-        providerAdmissionResult: gate.options.xhs_provider_admission_result
-    });
+    const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({});
     const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
         command: context.command,
         ability: envelope.ability,
@@ -2709,8 +2707,7 @@ const xhsReadCommand = async (context, inputConfig) => {
             });
         }
         const pageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
-            runtimeStatus: officialChromeRuntimeStatus,
-            providerAdmissionResult: gate.options.xhs_provider_admission_result
+            runtimeStatus: officialChromeRuntimeStatus
         });
         const bridgeSessionId = await bridge.ensureSession({
             profile: context.profile,
@@ -2950,9 +2947,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         const requestAdmissionResult = pickCanonicalSummaryField(bridgeResult.payload, "request_admission_result");
         const canonicalPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
             runtimeStatus: officialChromeRuntimeStatus,
-            providerAdmissionResult: requestAdmissionResult !== undefined
-                ? requestAdmissionResult
-                : gate.options.xhs_provider_admission_result
+            providerAdmissionResult: requestAdmissionResult
         });
         const executionAudit = pickCanonicalSummaryField(bridgeResult.payload, "execution_audit");
         const closeoutEvidenceSummaryFields = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(bridgeResult.payload, gate.options);

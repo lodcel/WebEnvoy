@@ -3345,9 +3345,7 @@ const xhsReadCommand = async (
         providerAdmissionResult: asObject(input.providerAdmissionResult)
       })
     );
-  const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
-    providerAdmissionResult: gate.options.xhs_provider_admission_result
-  });
+  const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({});
   const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
     command: context.command,
     ability: envelope.ability,
@@ -3597,8 +3595,7 @@ const xhsReadCommand = async (
       );
     }
     const pageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
-      runtimeStatus: officialChromeRuntimeStatus,
-      providerAdmissionResult: gate.options.xhs_provider_admission_result
+      runtimeStatus: officialChromeRuntimeStatus
     });
     const bridgeSessionId = await bridge.ensureSession({
       profile: context.profile,
@@ -3887,10 +3884,7 @@ const xhsReadCommand = async (
     );
     const canonicalPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
       runtimeStatus: officialChromeRuntimeStatus,
-      providerAdmissionResult:
-        requestAdmissionResult !== undefined
-          ? requestAdmissionResult
-          : gate.options.xhs_provider_admission_result
+      providerAdmissionResult: requestAdmissionResult
     });
     const executionAudit = pickCanonicalSummaryField(
       bridgeResult.payload,

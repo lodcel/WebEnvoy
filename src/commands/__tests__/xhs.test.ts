@@ -8772,7 +8772,12 @@ describe("normalizeGateOptionsForContract", () => {
               },
               admission_context: createApprovedAnonymousReadAdmissionContext(runId, requestId),
               __anonymous_isolation_verified: true,
-              target_site_logged_in: false
+              target_site_logged_in: false,
+              xhs_provider_admission_result: {
+                admission_decision: "allowed",
+                decision: "allow",
+                provider_requirement_refs: ["FR-0061.xhs_provider_requirement.official_chrome_runtime"]
+              }
             }
           }
         } as RuntimeContext,

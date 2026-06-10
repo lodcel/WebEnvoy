@@ -282,4 +282,78 @@ describe("XHS page/runtime readiness contract", () => {
       }
     }
   });
+
+  it("ignores caller-controlled provider admission options when building command readiness", async () => {
+    const previousFixtureSuccess = process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+    process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = "1";
+
+    try {
+      const result = await executeCommand(
+        {
+          cwd: "/tmp/webenvoy",
+          command: "xhs.search",
+          profile: "profile-1162-caller-admission-option-001",
+          run_id: "run-1162-caller-admission-option-001",
+          params: {
+            ability: {
+              id: "xhs.note.search.v1",
+              layer: "L3",
+              action: "read"
+            },
+            input: {
+              query: "caller controlled readiness"
+            },
+            options: {
+              target_domain: "www.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "search_result_tab",
+              requested_execution_mode: "dry_run",
+              fixture_success: true,
+              xhs_provider_admission_result: {
+                admission_decision: "allowed",
+                decision: "allow",
+                provider_requirement_refs: ["FR-0061.xhs_provider_requirement.official_chrome_runtime"]
+              }
+            }
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      );
+
+      expect(result.summary).toMatchObject({
+        xhs_page_runtime_readiness: {
+          page_readiness: {
+            status: "not_required"
+          },
+          runtime_readiness: {
+            status: "not_required"
+          },
+          provider_admission_readiness: {
+            status: "blocked",
+            blocking_reasons: expect.arrayContaining([
+              "provider_admission_result_missing",
+              "provider_admission_not_allowed",
+              "provider_requirement_refs_not_attested"
+            ])
+          },
+          overall_readiness: "blocked",
+          gate_decision: "deny"
+        },
+        page_runtime_readiness_decision: "deny"
+      });
+      expect(result.summary.page_runtime_readiness_blocking_reasons).toEqual(
+        expect.arrayContaining([
+          "provider:provider_admission_result_missing",
+          "provider:provider_admission_not_allowed",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      );
+    } finally {
+      if (previousFixtureSuccess === undefined) {
+        delete process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
+      } else {
+        process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = previousFixtureSuccess;
+      }
+    }
+  });
 });
