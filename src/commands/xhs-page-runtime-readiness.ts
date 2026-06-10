@@ -78,12 +78,14 @@ const buildPageReadiness = (input: {
         ...(asString(evidenceRefs?.extension_bridge_ref) ? [] : ["extension_bridge_missing"])
       ]
     : [];
-  const blockingReasons = dedupe([
-    ...(required && state !== "bound" ? ["target_binding_not_bound"] : []),
-    ...(required && freshnessScope !== "current_run" ? ["target_binding_not_current_run"] : []),
-    ...snapshotBlockingReasons,
-    ...missingEvidenceReasons
-  ]);
+  const blockingReasons = required
+    ? dedupe([
+        ...(state !== "bound" ? ["target_binding_not_bound"] : []),
+        ...(freshnessScope !== "current_run" ? ["target_binding_not_current_run"] : []),
+        ...snapshotBlockingReasons,
+        ...missingEvidenceReasons
+      ])
+    : [];
   const status: ReadinessStatus = !required
     ? "not_required"
     : blockingReasons.length === 0
@@ -123,14 +125,19 @@ const buildRuntimeReadiness = (input: {
     runtimeStatus?.executionSurface ?? runtimeStatus?.execution_surface
   );
   const headless = asBoolean(runtimeStatus?.headless);
-  const blockingReasons = dedupe([
+  const hardBlockingReasons = [
     ...(runtimeStatus ? [] : ["runtime_status_missing"]),
-    ...(runtimeReadiness === "ready" ? [] : ["runtime_readiness_not_ready"]),
     ...(executionSurface === "real_browser" ? [] : ["execution_surface_not_real_browser"]),
     ...(headless === false ? [] : ["headless_not_false"])
+  ];
+  const blockingReasons = dedupe([
+    ...(runtimeReadiness === "ready" ? [] : ["runtime_readiness_not_ready"]),
+    ...hardBlockingReasons
   ]);
   const status: ReadinessStatus =
-    runtimeReadiness === "pending" || runtimeReadiness === "recoverable" || runtimeReadiness === "unknown"
+    hardBlockingReasons.length > 0
+      ? "blocked"
+      : runtimeReadiness === "pending" || runtimeReadiness === "recoverable" || runtimeReadiness === "unknown"
       ? runtimeReadiness
       : blockingReasons.length === 0
         ? "ready"

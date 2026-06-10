@@ -173,6 +173,99 @@ describe("XHS page/runtime readiness contract", () => {
     }
   );
 
+  it.each(["pending", "recoverable", "unknown"] as const)(
+    "keeps runtime readiness blocked when hard runtime blockers exist while runtime is %s",
+    (runtimeReadiness) => {
+      const providerRequirements = declareXhsDriverProviderRequirementsForContract({
+        command: "xhs.detail",
+        ability: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        requestedExecutionMode: "live_read_limited"
+      });
+      const runtimeBindingBoundary = buildXhsDriverRuntimeBindingForContract({
+        command: "xhs.detail",
+        ability: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        runId: `run-1162-runtime-hard-blocker-${runtimeReadiness}`,
+        operationId: `request-1162-runtime-hard-blocker-${runtimeReadiness}`,
+        targetDomain: "www.xiaohongshu.com",
+        targetTabId: 32,
+        targetPage: "explore_detail_tab",
+        requestedExecutionMode: "live_read_limited",
+        providerRequirements
+      });
+      const readyPageRuntimeBindingBoundary = runtimeBindingBoundary
+        ? {
+            ...runtimeBindingBoundary,
+            target_binding_snapshot: {
+              ...runtimeBindingBoundary.target_binding_snapshot,
+              state: "bound",
+              freshness_scope: "current_run",
+              evidence_refs: {
+                dom_observation_ref: "dom-observation-1162",
+                runtime_state_ref: "runtime-state-1162",
+                extension_bridge_ref: "extension-bridge-1162"
+              },
+              blocking_reasons: []
+            }
+          }
+        : null;
+
+      const readiness = buildXhsPageRuntimeReadinessForContract({
+        command: "xhs.detail",
+        runId: `run-1162-runtime-hard-blocker-${runtimeReadiness}`,
+        requestedExecutionMode: "live_read_limited",
+        runtimeBindingBoundary: readyPageRuntimeBindingBoundary,
+        providerRequirements,
+        runtimeStatus: {
+          runtimeReadiness,
+          executionSurface: "native_host_stub",
+          headless: true
+        },
+        providerAdmissionResult: {
+          admission_decision: "allowed",
+          provider_requirement_refs: providerRequirements?.provider_requirement_refs
+        }
+      });
+
+      expect(readiness).toMatchObject({
+        page_readiness: {
+          status: "ready",
+          blocking_reasons: []
+        },
+        runtime_readiness: {
+          status: "blocked",
+          runtime_readiness: runtimeReadiness,
+          blocking_reasons: expect.arrayContaining([
+            "runtime_readiness_not_ready",
+            "execution_surface_not_real_browser",
+            "headless_not_false"
+          ])
+        },
+        provider_admission_readiness: {
+          status: "ready"
+        },
+        overall_readiness: "blocked",
+        gate_decision: "deny"
+      });
+      expect(readiness?.blocking_reasons).toEqual(
+        expect.arrayContaining([
+          "runtime:execution_surface_not_real_browser",
+          "runtime:headless_not_false"
+        ])
+      );
+      expect(readiness?.blocking_reasons).not.toEqual(
+        expect.arrayContaining(["page:dom_observation_missing"])
+      );
+    }
+  );
+
   it("does not treat provider requirement declarations as provider admission pass evidence", () => {
     const providerRequirements = declareXhsDriverProviderRequirementsForContract({
       command: "xhs.search",
@@ -319,7 +412,8 @@ describe("XHS page/runtime readiness contract", () => {
         xhs_page_runtime_readiness: {
           owner_ref: "#1162",
           page_readiness: {
-            status: "not_required"
+            status: "not_required",
+            blocking_reasons: []
           },
           runtime_readiness: {
             status: "not_required"
@@ -332,6 +426,10 @@ describe("XHS page/runtime readiness contract", () => {
         },
         page_runtime_readiness_decision: "deny"
       });
+      const blockingReasons = result.summary.page_runtime_readiness_blocking_reasons;
+      expect(blockingReasons).not.toContain("page:dom_observation_missing");
+      expect(blockingReasons).not.toContain("page:runtime_state_missing");
+      expect(blockingReasons).not.toContain("page:extension_bridge_missing");
       expect(result.summary.xhs_runtime_binding).toMatchObject({
         binding_status: "declared"
       });
