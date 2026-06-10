@@ -24,6 +24,7 @@ import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
 import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY, bindIssue835ControlledLiveWriteEnvelopeToSessionForContract, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseControlledLiveWriteInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue835ControlledLiveWriteEnvelopeForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
 import { declareXhsDriverProviderRequirementsForContract, requiresXhsOfficialChromeRuntimePreparationForContract } from "./xhs-provider-requirements.js";
+import { buildXhsDriverRuntimeBindingForContract, toXhsDriverRuntimeBindingSummaryFields } from "./xhs-runtime-binding.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_ABILITY_ID = "xhs.editor.input.v1";
@@ -2089,6 +2090,7 @@ const buildInProcessGateOnlyResult = (input) => {
                 count: 0
             }
         }),
+        ...toXhsDriverRuntimeBindingSummaryFields(input.runtimeBindingBoundary),
         ...payload,
         session_id: sessionId,
         requested_execution_mode: input.gate.requestedExecutionMode,
@@ -2144,6 +2146,7 @@ const buildExplicitCloseoutEvidenceResult = (input) => {
                 count: 0
             }
         }),
+        ...toXhsDriverRuntimeBindingSummaryFields(input.runtimeBindingBoundary),
         ...gatePayload,
         ...closeoutEvidenceSummaryFields,
         session_id: input.sessionId,
@@ -2464,6 +2467,18 @@ const xhsReadCommand = async (context, inputConfig) => {
         ability: envelope.ability,
         requestedExecutionMode: gate.requestedExecutionMode
     });
+    const runtimeBindingBoundary = buildXhsDriverRuntimeBindingForContract({
+        command: context.command,
+        ability: envelope.ability,
+        runId: context.run_id,
+        operationId: envelope.requestId ?? context.run_id,
+        targetDomain: gate.targetDomain,
+        targetTabId: gate.targetTabId,
+        targetPage: gate.targetPage,
+        requestedExecutionMode: gate.requestedExecutionMode,
+        providerRequirements
+    });
+    const runtimeBindingSummaryFields = toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
     const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
         command: context.command,
         ability: envelope.ability,
@@ -2476,12 +2491,15 @@ const xhsReadCommand = async (context, inputConfig) => {
             ? String(parsedInput[inputConfig.fixtureDataRefKey])
             : null;
         return {
-            summary: mapCapabilitySummaryForContract(envelope.ability.id, buildCapabilityResult(envelope.ability, {
-                data_ref: dataRefValue ? { [inputConfig.fixtureDataRefKey]: dataRefValue } : {},
-                metrics: {
-                    count: 0
-                }
-            }))
+            summary: mapCapabilitySummaryForContract(envelope.ability.id, {
+                ...buildCapabilityResult(envelope.ability, {
+                    data_ref: dataRefValue ? { [inputConfig.fixtureDataRefKey]: dataRefValue } : {},
+                    metrics: {
+                        count: 0
+                    }
+                }),
+                ...runtimeBindingSummaryFields
+            })
         };
     }
     if (envelope.input.force_bad_output === true) {
@@ -2648,7 +2666,8 @@ const xhsReadCommand = async (context, inputConfig) => {
                 gate,
                 parsedInput,
                 preparedIssue209LiveRead,
-                dataRefKey: inputConfig.fixtureDataRefKey
+                dataRefKey: inputConfig.fixtureDataRefKey,
+                runtimeBindingBoundary
             }), commandAliasDiagnostics);
         }
         const bridge = resolveRuntimeBridge();
@@ -2755,6 +2774,7 @@ const xhsReadCommand = async (context, inputConfig) => {
                     provider_requirement_refs: providerRequirements.provider_requirement_refs
                 }
                 : {}),
+            ...runtimeBindingSummaryFields,
             ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
         };
         const commandParams = appendFingerprintContext({
@@ -2800,6 +2820,7 @@ const xhsReadCommand = async (context, inputConfig) => {
                     provider_requirement_refs: providerRequirements.provider_requirement_refs
                 }
                 : {}),
+            ...runtimeBindingSummaryFields,
             ability: envelope.ability,
             input: parsedInput,
             options: runtimeGateOptions,
@@ -2914,6 +2935,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         delete bridgeSummaryForMapping.closeout_audit_required;
         const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
             ...bridgeSummaryForMapping,
+            ...runtimeBindingSummaryFields,
             session_id: bridgeSessionId,
             requested_execution_mode: gate.requestedExecutionMode,
             ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),

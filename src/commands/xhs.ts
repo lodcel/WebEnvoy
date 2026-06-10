@@ -4,6 +4,11 @@ export {
   requiresXhsOfficialChromeRuntimePreparationForContract,
   requiresXhsProviderRuntimePreparationForContract
 } from "./xhs-provider-requirements.js";
+export {
+  buildXhsDriverRuntimeBindingForContract,
+  toXhsDriverRuntimeBindingSummaryFields,
+  type XhsDriverRuntimeBindingBoundary
+} from "./xhs-runtime-binding.js";
 export { evaluateXhsSearchPrimaryPassiveApiReadinessForContract } from "../runtime/xhs-search-primary-passive-api-readiness.js";
 export {
   ensureOfficialChromeRuntimeReady,
