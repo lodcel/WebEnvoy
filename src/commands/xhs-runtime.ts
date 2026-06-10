@@ -3330,22 +3330,6 @@ const xhsReadCommand = async (
   });
   const runtimeBindingSummaryFields =
     toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
-  const toProviderAdmissionReadinessInput = (value: unknown): JsonObject | null => {
-    const providerAdmissionResult = asObject(value);
-    if (!providerAdmissionResult) {
-      return null;
-    }
-    if (
-      Array.isArray(providerAdmissionResult.provider_requirement_refs) ||
-      Array.isArray(providerAdmissionResult.required_provider_requirement_refs)
-    ) {
-      return providerAdmissionResult;
-    }
-    return {
-      ...providerAdmissionResult,
-      provider_requirement_refs: providerRequirements?.provider_requirement_refs ?? []
-    };
-  };
   const buildPageRuntimeReadinessSummaryFields = (input: {
     runtimeStatus?: JsonObject | null;
     providerAdmissionResult?: unknown;
@@ -3358,7 +3342,7 @@ const xhsReadCommand = async (
         runtimeBindingBoundary,
         providerRequirements,
         runtimeStatus: input.runtimeStatus,
-        providerAdmissionResult: toProviderAdmissionReadinessInput(input.providerAdmissionResult)
+        providerAdmissionResult: asObject(input.providerAdmissionResult)
       })
     );
   const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({

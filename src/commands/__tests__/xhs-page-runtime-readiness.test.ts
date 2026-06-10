@@ -80,10 +80,14 @@ describe("XHS page/runtime readiness contract", () => {
       },
       provider_admission_readiness: {
         status: "ready",
-        source: "provider_admission_result"
+        source: "provider_admission_result",
+        blocking_reasons: []
       },
       overall_readiness: "blocked",
       gate_decision: "deny"
+    });
+    expect(readiness?.provider_admission_readiness).not.toMatchObject({
+      blocking_reasons: expect.arrayContaining(["provider_requirement_refs_not_attested"])
     });
     expect(readiness?.blocking_reasons).toEqual(
       expect.arrayContaining([
@@ -158,6 +162,59 @@ describe("XHS page/runtime readiness contract", () => {
         "runtime_binding_declaration_does_not_prove_runtime_ready"
       ])
     );
+  });
+
+  it("keeps allowed provider admission blocked when provider requirement refs are not attested", () => {
+    const providerRequirements = declareXhsDriverProviderRequirementsForContract({
+      command: "xhs.detail",
+      ability: {
+        id: "xhs.note.detail.v1",
+        layer: "L3",
+        action: "read"
+      },
+      requestedExecutionMode: "live_read_limited"
+    });
+    const runtimeBindingBoundary = buildXhsDriverRuntimeBindingForContract({
+      command: "xhs.detail",
+      ability: {
+        id: "xhs.note.detail.v1",
+        layer: "L3",
+        action: "read"
+      },
+      runId: "run-1162-provider-admission-no-refs-001",
+      operationId: "request-1162-provider-admission-no-refs-001",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 32,
+      targetPage: "explore_detail_tab",
+      requestedExecutionMode: "live_read_limited",
+      providerRequirements
+    });
+
+    const readiness = buildXhsPageRuntimeReadinessForContract({
+      command: "xhs.detail",
+      runId: "run-1162-provider-admission-no-refs-001",
+      requestedExecutionMode: "live_read_limited",
+      runtimeBindingBoundary,
+      providerRequirements,
+      runtimeStatus: {
+        runtimeReadiness: "ready",
+        executionSurface: "real_browser",
+        headless: false
+      },
+      providerAdmissionResult: {
+        admission_decision: "allowed"
+      }
+    });
+
+    expect(readiness?.provider_admission_readiness).toMatchObject({
+      status: "blocked",
+      admission_decision: "allowed",
+      blocking_reasons: ["provider_requirement_refs_not_attested"]
+    });
+    expect(readiness?.blocking_reasons).toContain(
+      "provider:provider_requirement_refs_not_attested"
+    );
+    expect(readiness?.blocking_reasons).not.toContain("provider:provider_admission_not_allowed");
   });
 
   it("attaches page/runtime readiness fields to read command summaries without ready claims", async () => {

@@ -2481,20 +2481,6 @@ const xhsReadCommand = async (context, inputConfig) => {
         providerRequirements
     });
     const runtimeBindingSummaryFields = toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
-    const toProviderAdmissionReadinessInput = (value) => {
-        const providerAdmissionResult = asObject(value);
-        if (!providerAdmissionResult) {
-            return null;
-        }
-        if (Array.isArray(providerAdmissionResult.provider_requirement_refs) ||
-            Array.isArray(providerAdmissionResult.required_provider_requirement_refs)) {
-            return providerAdmissionResult;
-        }
-        return {
-            ...providerAdmissionResult,
-            provider_requirement_refs: providerRequirements?.provider_requirement_refs ?? []
-        };
-    };
     const buildPageRuntimeReadinessSummaryFields = (input) => toXhsPageRuntimeReadinessSummaryFields(buildXhsPageRuntimeReadinessForContract({
         command: context.command,
         runId: context.run_id,
@@ -2502,7 +2488,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         runtimeBindingBoundary,
         providerRequirements,
         runtimeStatus: input.runtimeStatus,
-        providerAdmissionResult: toProviderAdmissionReadinessInput(input.providerAdmissionResult)
+        providerAdmissionResult: asObject(input.providerAdmissionResult)
     }));
     const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
         providerAdmissionResult: gate.options.xhs_provider_admission_result

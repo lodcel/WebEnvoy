@@ -8782,9 +8782,9 @@ describe("normalizeGateOptionsForContract", () => {
       expect(execution.summary).toMatchObject({
         xhs_page_runtime_readiness: {
           provider_admission_readiness: {
-            status: "ready",
+            status: "blocked",
             admission_decision: "allowed",
-            blocking_reasons: []
+            blocking_reasons: ["provider_requirement_refs_not_attested"]
           }
         },
         request_admission_result: {
@@ -8811,6 +8811,9 @@ describe("normalizeGateOptionsForContract", () => {
       );
       expect(execution.summary.page_runtime_readiness_blocking_reasons).not.toContain(
         "provider:provider_admission_not_allowed"
+      );
+      expect(execution.summary.page_runtime_readiness_blocking_reasons).toContain(
+        "provider:provider_requirement_refs_not_attested"
       );
     } finally {
       process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
