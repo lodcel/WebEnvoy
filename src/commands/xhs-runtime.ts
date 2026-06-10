@@ -3520,7 +3520,9 @@ const xhsReadCommand = async (
     const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
     let officialChromeRuntimeStatus: JsonObject | null = null;
     const providerRuntimePreparationRequired =
-      requiresXhsProviderRuntimePreparationForContract(providerRequirements) ||
+      (providerRequirements
+        ? requiresXhsProviderRuntimePreparationForContract(providerRequirements)
+        : false) ||
       recoveryProbeRequested;
     if (providerRuntimePreparationRequired) {
       officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(
@@ -3627,8 +3629,12 @@ const xhsReadCommand = async (
             )
           }
         : {}),
-      xhs_driver_provider_requirements: providerRequirements,
-      provider_requirement_refs: providerRequirements.provider_requirement_refs,
+      ...(providerRequirements
+        ? {
+            xhs_driver_provider_requirements: providerRequirements,
+            provider_requirement_refs: providerRequirements.provider_requirement_refs
+          }
+        : {}),
       ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
     };
     const commandParams = appendFingerprintContext(
@@ -3672,8 +3678,12 @@ const xhsReadCommand = async (
         target_tab_id: gate.targetTabId,
         target_page: gate.targetPage,
         requested_execution_mode: gate.requestedExecutionMode,
-        xhs_driver_provider_requirements: providerRequirements,
-        provider_requirement_refs: providerRequirements.provider_requirement_refs,
+        ...(providerRequirements
+          ? {
+              xhs_driver_provider_requirements: providerRequirements,
+              provider_requirement_refs: providerRequirements.provider_requirement_refs
+            }
+          : {}),
         ability: envelope.ability,
         input: parsedInput,
         options: runtimeGateOptions,

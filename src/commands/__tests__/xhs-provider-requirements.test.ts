@@ -17,6 +17,10 @@ describe("XHS provider requirement declarations", () => {
       requestedExecutionMode: "live_read_high_risk"
     });
 
+    expect(declaration).not.toBeNull();
+    if (!declaration) {
+      throw new Error("expected read command declaration");
+    }
     expect(declaration).toMatchObject({
       declaration_version: "v1",
       driver_contract_ref: "FR-0061.xhs_driver_contract.v1",
@@ -84,12 +88,17 @@ describe("XHS provider requirement declarations", () => {
       requestedExecutionMode: "dry_run"
     });
 
+    expect(declaration).not.toBeNull();
+    if (!declaration) {
+      throw new Error("expected dry-run read declaration");
+    }
     expect(declaration.minimum_support_state).toBe("statically_verified");
     expect(declaration.applies_to_execution_modes).toEqual(["dry_run"]);
+    expect(declaration.required_runtime_requirements).toEqual([]);
     expect(requiresXhsProviderRuntimePreparationForContract(declaration)).toBe(false);
   });
 
-  it("keeps creator publish admit as diagnostic-only input for downstream live-write gates", () => {
+  it("does not declare FR-0061 provider requirements for creator/write commands", () => {
     const declaration = declareXhsDriverProviderRequirementsForContract({
       command: "xhs.creator_publish.admit",
       ability: {
@@ -100,17 +109,20 @@ describe("XHS provider requirement declarations", () => {
       requestedExecutionMode: "live_write"
     });
 
-    expect(declaration).toMatchObject({
-      provider_requirement_ref:
-        "FR-0061.xhs_driver_provider_requirements.v1/xhs.creator_publish.admit.diagnose",
-      required_actions: ["diagnose"],
-      minimum_support_state: "runtime_attested",
-      downstream_slice_refs: ["#1179"]
+    expect(declaration).toBeNull();
+  });
+
+  it("does not declare fallback provider requirement refs for other non-read commands", () => {
+    const declaration = declareXhsDriverProviderRequirementsForContract({
+      command: "xhs.editor_text.write",
+      ability: {
+        id: "xhs.editor.input.v1",
+        layer: "L3",
+        action: "write"
+      },
+      requestedExecutionMode: "live_write"
     });
-    expect(declaration.required_actions).not.toContain("write");
-    expect(declaration.non_proofs).toContain(
-      "driver_requirement_declaration_does_not_enable_write"
-    );
-    expect(requiresXhsProviderRuntimePreparationForContract(declaration)).toBe(true);
+
+    expect(declaration).toBeNull();
   });
 });

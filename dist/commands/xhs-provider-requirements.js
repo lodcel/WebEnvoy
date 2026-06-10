@@ -13,14 +13,6 @@ const XHS_READ_RUNTIME_REQUIREMENTS = [
     "runtime_bootstrap_ready",
     "provider_doctor_passed"
 ];
-const XHS_DIAGNOSTIC_RUNTIME_REQUIREMENTS = [
-    "profile_binding",
-    "extension_binding",
-    "native_messaging",
-    "target_tab",
-    "runtime_bootstrap_ready",
-    "provider_doctor_passed"
-];
 const XHS_PROVIDER_REQUIREMENT_FAIL_CLOSED_REASONS = [
     "capability_not_declared",
     "unsupported_action",
@@ -48,7 +40,6 @@ const XHS_PROVIDER_REQUIREMENT_NON_PROOFS = [
     "driver_requirement_declaration_does_not_enable_write"
 ];
 const XHS_READ_DOWNSTREAM_SLICE_REFS = ["#1166", "#1167", "#1168"];
-const XHS_CREATOR_ADMIT_DOWNSTREAM_SLICE_REFS = ["#1179"];
 const XHS_READ_COMMAND_REQUIREMENT_REFS = {
     "xhs.search": "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read",
     "xhs.detail": "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read",
@@ -62,30 +53,33 @@ const minimumSupportStateForMode = (requestedExecutionMode) => isRuntimeBoundExe
     ? "runtime_attested"
     : "statically_verified";
 const modeListForRequirement = (requestedExecutionMode) => requestedExecutionMode ? [requestedExecutionMode] : ["dry_run", "recon"];
-const buildDeclaration = (input) => ({
-    declaration_id: input.declarationId,
-    declaration_version: "v1",
-    driver_contract_ref: "FR-0061.xhs_driver_contract.v1",
-    provider_requirement_ref: input.providerRequirementRef,
-    ability_scope: {
-        command: input.command,
-        ability_id: input.ability.id,
-        ability_layer: input.ability.layer,
-        ability_action: input.ability.action
-    },
-    required_runtime_requirements: [...input.requiredRuntimeRequirements],
-    required_actions: [...input.requiredActions],
-    required_execution_layers: [...input.requiredExecutionLayers],
-    minimum_support_state: minimumSupportStateForMode(input.requestedExecutionMode),
-    provider_contract_refs: [...XHS_PROVIDER_CONTRACT_REFS],
-    capability_verification_ref: "FR-0035.provider_capability_verification_model.v1",
-    evidence_policy_refs: [...XHS_EVIDENCE_POLICY_REFS],
-    applies_to_execution_modes: modeListForRequirement(input.requestedExecutionMode),
-    provider_requirement_refs: [input.providerRequirementRef],
-    fail_closed_reasons: [...XHS_PROVIDER_REQUIREMENT_FAIL_CLOSED_REASONS],
-    non_proofs: [...XHS_PROVIDER_REQUIREMENT_NON_PROOFS],
-    downstream_slice_refs: [...input.downstreamSliceRefs]
-});
+const buildDeclaration = (input) => {
+    const minimumSupportState = minimumSupportStateForMode(input.requestedExecutionMode);
+    return {
+        declaration_id: input.declarationId,
+        declaration_version: "v1",
+        driver_contract_ref: "FR-0061.xhs_driver_contract.v1",
+        provider_requirement_ref: input.providerRequirementRef,
+        ability_scope: {
+            command: input.command,
+            ability_id: input.ability.id,
+            ability_layer: input.ability.layer,
+            ability_action: input.ability.action
+        },
+        required_runtime_requirements: minimumSupportState === "statically_verified" ? [] : [...input.requiredRuntimeRequirements],
+        required_actions: [...input.requiredActions],
+        required_execution_layers: [...input.requiredExecutionLayers],
+        minimum_support_state: minimumSupportState,
+        provider_contract_refs: [...XHS_PROVIDER_CONTRACT_REFS],
+        capability_verification_ref: "FR-0035.provider_capability_verification_model.v1",
+        evidence_policy_refs: [...XHS_EVIDENCE_POLICY_REFS],
+        applies_to_execution_modes: modeListForRequirement(input.requestedExecutionMode),
+        provider_requirement_refs: [input.providerRequirementRef],
+        fail_closed_reasons: [...XHS_PROVIDER_REQUIREMENT_FAIL_CLOSED_REASONS],
+        non_proofs: [...XHS_PROVIDER_REQUIREMENT_NON_PROOFS],
+        downstream_slice_refs: [...input.downstreamSliceRefs]
+    };
+};
 export const declareXhsDriverProviderRequirementsForContract = (input) => {
     const readRequirementRef = XHS_READ_COMMAND_REQUIREMENT_REFS[input.command];
     if (readRequirementRef) {
@@ -101,30 +95,7 @@ export const declareXhsDriverProviderRequirementsForContract = (input) => {
             downstreamSliceRefs: XHS_READ_DOWNSTREAM_SLICE_REFS
         });
     }
-    if (input.command === "xhs.creator_publish.admit") {
-        return buildDeclaration({
-            declarationId: "xhs-driver-provider-requirements:xhs.creator_publish.admit:diagnose:v1",
-            providerRequirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.creator_publish.admit.diagnose",
-            command: input.command,
-            ability: input.ability,
-            requiredRuntimeRequirements: XHS_DIAGNOSTIC_RUNTIME_REQUIREMENTS,
-            requiredActions: ["diagnose"],
-            requiredExecutionLayers: ["L3"],
-            requestedExecutionMode: input.requestedExecutionMode,
-            downstreamSliceRefs: XHS_CREATOR_ADMIT_DOWNSTREAM_SLICE_REFS
-        });
-    }
-    return buildDeclaration({
-        declarationId: `xhs-driver-provider-requirements:${input.command}:diagnose:v1`,
-        providerRequirementRef: `FR-0061.xhs_driver_provider_requirements.v1/${input.command}.diagnose`,
-        command: input.command,
-        ability: input.ability,
-        requiredRuntimeRequirements: XHS_DIAGNOSTIC_RUNTIME_REQUIREMENTS,
-        requiredActions: ["diagnose"],
-        requiredExecutionLayers: [input.ability.layer],
-        requestedExecutionMode: input.requestedExecutionMode,
-        downstreamSliceRefs: []
-    });
+    return null;
 };
 export const requiresXhsProviderRuntimePreparationForContract = (declaration) => declaration.minimum_support_state === "runtime_attested" ||
     declaration.minimum_support_state === "runtime_observed" ||
