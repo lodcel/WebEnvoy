@@ -186,7 +186,7 @@ interface TargetBindingSnapshotV1 {
 1. `bound` requires current-run evidence for candidate, URL, DOM, runtime state and extension bridge refs.
 2. `bound` is only target binding pass input. It does not prove page ready, runtime ready, signed continuity, read success, provider capability, live evidence or write enablement.
 3. Non-bound states must include at least one blocking reason when consumed by a required target binding consumer.
-4. `stale` and `lost` must not be promoted to `bound`; consumers must restart discovery and collect fresh evidence.
+4. `stale` and `lost` must not be promoted to `bound`; consumers must reset to `unbound`, restart discovery and collect fresh evidence.
 5. Historical evidence, same-head old artifact, old run bridge ack or old DOM observation cannot satisfy current-run `bound`.
 6. Unknown state, invalid transition, source owner mismatch, redaction invalid or unsupported enum must fail closed.
 7. #1162 owns page/runtime ready semantics. This contract only hands off target binding snapshot and diagnostic refs.
@@ -204,10 +204,15 @@ interface TargetBindingSnapshotV1 {
 | `runtime_state_detected` | `extension_bridge_confirmed`, `stale`, `lost` |
 | `extension_bridge_confirmed` | `bound`, `stale`, `lost` |
 | `bound` | `stale`, `lost` |
-| `stale` | `candidate_found`, `unbound` |
+| `stale` | `unbound` |
 | `lost` | `unbound` |
 
 Any transition not listed is invalid unless a later formal owner extends this contract.
+
+Canonical implications:
+
+- `unbound -> stale` and `unbound -> lost` are invalid because there is no candidate-bearing evidence to invalidate.
+- `stale -> candidate_found` and `lost -> candidate_found` are invalid direct transitions; the state machine must reset to `unbound` before a new current-run discovery can enter `candidate_found`.
 
 ## Forbidden fields and claims
 

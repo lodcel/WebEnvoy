@@ -126,27 +126,26 @@ Canonical Issue: #1161
 
 ### 5. 允许状态转移
 
-系统必须冻结以下基本转移：
+系统必须冻结以下 canonical transition table：
 
 | from | to | 最小条件 |
 |---|---|---|
 | `unbound` | `candidate_found` | 当前 run 发现 redacted target candidate。 |
-| `candidate_found` | `url_matched` | candidate normalized URL / target domain / page class 命中允许 scope。 |
-| `url_matched` | `dom_ready` | 同一 candidate 上采集到 current-run DOM readiness observation。 |
-| `dom_ready` | `runtime_state_detected` | 同一 candidate 上采集到 runtime state / page namespace marker ref。 |
-| `runtime_state_detected` | `extension_bridge_confirmed` | bridge addressing evidence 与同一 candidate、run_id、provider/runtime ref 对齐。 |
-| `extension_bridge_confirmed` | `bound` | candidate、URL、DOM、runtime state、bridge evidence 全部 current-run fresh，且 redaction pass。 |
-| any non-terminal state | `stale` | 已采集 evidence 过期、run/head/freshness 不满足、candidate 导航后无法证明仍为同一 target。 |
-| any non-terminal state | `lost` | candidate 关闭、不可达、URL 离开目标范围、source owner mismatch 或 target identity conflict。 |
-| `bound` | `stale` | 已 bound evidence 过期、导航、bridge freshness 失效或 downstream 要求更高 freshness。 |
-| `bound` | `lost` | bound candidate 不可达、tab/frame 关闭、identity conflict 或 bridge owner mismatch。 |
-| `stale` | `candidate_found` | 新 current-run discovery 发现新的 candidate；旧 evidence 不可复用。 |
-| `lost` | `unbound` | reset / abandon lost candidate；后续必须重新 discovery。 |
+| `candidate_found` | `url_matched`, `stale`, `lost` | URL scope match succeeds; or candidate evidence expires / is lost before URL match. |
+| `url_matched` | `dom_ready`, `stale`, `lost` | DOM observation succeeds; or matched candidate becomes stale / lost before DOM observation. |
+| `dom_ready` | `runtime_state_detected`, `stale`, `lost` | Runtime state observation succeeds; or DOM-bound candidate becomes stale / lost before runtime observation. |
+| `runtime_state_detected` | `extension_bridge_confirmed`, `stale`, `lost` | Bridge addressing evidence succeeds; or runtime-bound candidate becomes stale / lost before bridge confirmation. |
+| `extension_bridge_confirmed` | `bound`, `stale`, `lost` | All required evidence converges; or bridge-confirmed candidate becomes stale / lost before convergence. |
+| `bound` | `stale`, `lost` | 已 bound evidence 过期、导航、bridge freshness 失效、downstream 要求更高 freshness；或 bound candidate 不可达、tab/frame 关闭、identity conflict / bridge owner mismatch。 |
+| `stale` | `unbound` | reset / abandon stale candidate；后续必须从 `unbound` 重新 discovery。 |
+| `lost` | `unbound` | reset / abandon lost candidate；后续必须从 `unbound` 重新 discovery。 |
 
 约束：
 
 - 不允许跳过前置状态直接进入 `bound`。
-- 不允许从 `stale` 或 `lost` 原地恢复为 `bound`；必须重新采集 current-run evidence。
+- 不允许 `unbound -> stale` 或 `unbound -> lost`；没有 candidate 时只能保持 `unbound` 并记录 blocking reason。
+- 不允许 `stale -> candidate_found` 或 `lost -> candidate_found` 直跳；必须先 reset 到 `unbound`，再采集新的 current-run candidate。
+- 不允许从 `stale` 或 `lost` 原地恢复为 `bound`；必须 reset 后重新采集 current-run evidence。
 - 不允许使用 same-head historical artifact、旧 run、旧 bridge ack 或旧 DOM observation 满足当前 `bound`。
 - 不允许通过手工 override、PR metadata 或 issue label 把 non-pass state 提升为 pass。
 
@@ -283,7 +282,7 @@ Canonical Issue: #1161
 
 ### 1. Candidate 缺失或 target identity 冲突
 
-如果没有 `target_candidate_ref`，或同一 run 中出现多个无法区分的 candidate，状态必须保持 `unbound` 或进入 `lost`，并设置 `missing_candidate` 或 `candidate_identity_conflict`。
+如果没有 `target_candidate_ref`，状态必须保持 `unbound` 并设置 `missing_candidate`；如果同一 run 中出现多个无法区分的 candidate，已存在 candidate 的状态必须进入 `lost` 并设置 `candidate_identity_conflict`。
 
 ### 2. URL scope mismatch
 
