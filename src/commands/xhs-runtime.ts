@@ -82,6 +82,10 @@ import {
   prepareIssue209LiveReadEnvelopeForContract,
   XhsExecutionMode
 } from "./xhs-input.js";
+import {
+  declareXhsDriverProviderRequirementsForContract,
+  requiresXhsProviderRuntimePreparationForContract
+} from "./xhs-provider-requirements.js";
 
 type AbilityLayer = "L3" | "L2" | "L1";
 type AbilityActionName = AbilityAction;
@@ -3293,6 +3297,11 @@ const xhsReadCommand = async (
   });
   const explicitIssueScope = asString(envelope.options.issue_scope);
   const parsedInput = inputConfig.parseInput(envelope, gate);
+  const providerRequirements = declareXhsDriverProviderRequirementsForContract({
+    command: context.command,
+    ability: envelope.ability,
+    requestedExecutionMode: gate.requestedExecutionMode
+  });
   const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
     command: context.command,
     ability: envelope.ability,
@@ -3364,7 +3373,6 @@ const xhsReadCommand = async (
     options: gate.options
   });
   const liveXhsCommandRequested = isLiveXhsExecutionMode(gate.requestedExecutionMode);
-  const reconXhsCommandRequested = gate.requestedExecutionMode === "recon";
   const xhsLiveReadBaselineGateRequested = isXhsLiveReadBaselineGateCommand({
     command: context.command,
     options: gate.options,
@@ -3511,7 +3519,10 @@ const xhsReadCommand = async (
     });
     const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
     let officialChromeRuntimeStatus: JsonObject | null = null;
-    if (liveXhsCommandRequested || recoveryProbeRequested || reconXhsCommandRequested) {
+    const providerRuntimePreparationRequired =
+      requiresXhsProviderRuntimePreparationForContract(providerRequirements) ||
+      recoveryProbeRequested;
+    if (providerRuntimePreparationRequired) {
       officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(
         context,
         envelope.ability,
@@ -3616,6 +3627,8 @@ const xhsReadCommand = async (
             )
           }
         : {}),
+      xhs_driver_provider_requirements: providerRequirements,
+      provider_requirement_refs: providerRequirements.provider_requirement_refs,
       ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
     };
     const commandParams = appendFingerprintContext(
@@ -3659,6 +3672,8 @@ const xhsReadCommand = async (
         target_tab_id: gate.targetTabId,
         target_page: gate.targetPage,
         requested_execution_mode: gate.requestedExecutionMode,
+        xhs_driver_provider_requirements: providerRequirements,
+        provider_requirement_refs: providerRequirements.provider_requirement_refs,
         ability: envelope.ability,
         input: parsedInput,
         options: runtimeGateOptions,

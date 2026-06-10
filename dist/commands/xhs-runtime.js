@@ -23,6 +23,7 @@ import { readXhsCloseoutValidationGateView, resolveXhsCloseoutValidationProbeBun
 import { RuntimeStoreError, SQLiteRuntimeStore, resolveRuntimeStorePath } from "../runtime/store/sqlite-runtime-store.js";
 import { prepareOfficialChromeRuntime } from "../runtime/official-chrome-runtime.js";
 import { buildCapabilityResult, ISSUE209_INTERNAL_ADMISSION_DRAFT_KEY, ISSUE835_INTERNAL_ADMISSION_DRAFT_KEY, bindIssue835ControlledLiveWriteEnvelopeToSessionForContract, normalizeGateOptionsForContract, parseAbilityEnvelopeForContract, parseCreatorPublishAdmissionInputForContract, parseControlledLiveWriteInputForContract, parseDetailInputForContract, parseEditorTextWriteInputForContract, parseEditorInputValidateInputForContract, parseMediaUploadDiscoveryInputForContract, parseSearchInputForContract, parseUserHomeInputForContract, prepareIssue835ControlledLiveWriteEnvelopeForContract, prepareIssue209LiveReadEnvelopeForContract } from "./xhs-input.js";
+import { declareXhsDriverProviderRequirementsForContract, requiresXhsProviderRuntimePreparationForContract } from "./xhs-provider-requirements.js";
 const XHS_EDITOR_INPUT_VALIDATE_COMMAND = "xhs.editor_input.validate";
 const XHS_EDITOR_TEXT_WRITE_COMMAND = "xhs.editor_text.write";
 const XHS_EDITOR_INPUT_ABILITY_ID = "xhs.editor.input.v1";
@@ -2458,6 +2459,11 @@ const xhsReadCommand = async (context, inputConfig) => {
     });
     const explicitIssueScope = asString(envelope.options.issue_scope);
     const parsedInput = inputConfig.parseInput(envelope, gate);
+    const providerRequirements = declareXhsDriverProviderRequirementsForContract({
+        command: context.command,
+        ability: envelope.ability,
+        requestedExecutionMode: gate.requestedExecutionMode
+    });
     const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
         command: context.command,
         ability: envelope.ability,
@@ -2519,7 +2525,6 @@ const xhsReadCommand = async (context, inputConfig) => {
         options: gate.options
     });
     const liveXhsCommandRequested = isLiveXhsExecutionMode(gate.requestedExecutionMode);
-    const reconXhsCommandRequested = gate.requestedExecutionMode === "recon";
     const xhsLiveReadBaselineGateRequested = isXhsLiveReadBaselineGateCommand({
         command: context.command,
         options: gate.options,
@@ -2652,7 +2657,9 @@ const xhsReadCommand = async (context, inputConfig) => {
         });
         const forwardTimeoutMs = resolveXhsCommandForwardTimeoutMsForContract(context.params, context.command);
         let officialChromeRuntimeStatus = null;
-        if (liveXhsCommandRequested || recoveryProbeRequested || reconXhsCommandRequested) {
+        const providerRuntimePreparationRequired = requiresXhsProviderRuntimePreparationForContract(providerRequirements) ||
+            recoveryProbeRequested;
+        if (providerRuntimePreparationRequired) {
             officialChromeRuntimeStatus = await prepareXhsOfficialChromeRuntime(context, envelope.ability, gate.requestedExecutionMode, bridge, fingerprintContext, {
                 ...gate,
                 targetResourceId: resolveBootstrapTargetResourceId(context.command, parsedInput)
@@ -2740,6 +2747,8 @@ const xhsReadCommand = async (context, inputConfig) => {
                     __runtime_latest_head_sha: resolveXhsCloseoutRuntimeLatestHeadShaForContract(context.cwd)
                 }
                 : {}),
+            xhs_driver_provider_requirements: providerRequirements,
+            provider_requirement_refs: providerRequirements.provider_requirement_refs,
             ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
         };
         const commandParams = appendFingerprintContext({
@@ -2779,6 +2788,8 @@ const xhsReadCommand = async (context, inputConfig) => {
             target_tab_id: gate.targetTabId,
             target_page: gate.targetPage,
             requested_execution_mode: gate.requestedExecutionMode,
+            xhs_driver_provider_requirements: providerRequirements,
+            provider_requirement_refs: providerRequirements.provider_requirement_refs,
             ability: envelope.ability,
             input: parsedInput,
             options: runtimeGateOptions,
