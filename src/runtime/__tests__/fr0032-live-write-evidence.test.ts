@@ -606,6 +606,61 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("redacts free-text phone and account identifiers by default", () => {
+    const input = baseInput();
+    input.publish_result_identity = {
+      ...basePublishIdentity(),
+      success_signal: {
+        ...basePublishIdentity().success_signal,
+        signal_locator:
+          "contact +15551234567 for account xhs-raw-001; user id user-live-002; uid uid-live-003"
+      }
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/free-text-account",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "operator phone +15557654321 workspace ws-live-004"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(2);
+    expect(serialized).not.toContain("+15551234567");
+    expect(serialized).not.toContain("xhs-raw-001");
+    expect(serialized).not.toContain("user-live-002");
+    expect(serialized).not.toContain("uid-live-003");
+    expect(serialized).not.toContain("+15557654321");
+    expect(serialized).not.toContain("ws-live-004");
+    expect(serialized).toContain("contact <redacted:account_identifier>");
+    expect(serialized).toContain("account <redacted:account_identifier>");
+    expect(serialized).toContain("user id <redacted:account_identifier>");
+    expect(serialized).toContain("uid <redacted:account_identifier>");
+    expect(serialized).toContain("workspace <redacted:account_identifier>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.publish_result_identity.success_signal.signal_locator",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator",
+          replacement: "<redacted:account_identifier>"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator",
+          replacement: "<redacted:account_identifier>"
+        })
+      ])
+    );
+  });
+
   it("evaluates against redacted live-write evidence without exposing sensitive refs", () => {
     const input = baseInput();
     input.publish_result_identity = {
@@ -628,6 +683,44 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).not.toContain("live-token-001");
     expect(serializedFindings).toContain("profile-ref:redacted:");
     expect(serializedFindings).toContain("<redacted:token>");
+  });
+
+  it("evaluates free-text account identifiers through default redaction without leaking raw values", () => {
+    const input = baseInput();
+    input.publish_result_identity = {
+      ...basePublishIdentity(),
+      success_signal: {
+        ...basePublishIdentity().success_signal,
+        signal_locator: "contact +15551234567 for account xhs-raw-001"
+      }
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/free-text-account",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "user id user-live-002"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("+15551234567");
+    expect(serializedEvaluation).not.toContain("xhs-raw-001");
+    expect(serializedEvaluation).not.toContain("user-live-002");
+    expect(serializedEvaluation).toContain("<redacted:account_identifier>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
   });
 
   it("redacts file URI private paths and URL-encoded private paths", () => {

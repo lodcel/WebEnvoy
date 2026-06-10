@@ -356,6 +356,21 @@ const secretKeyValuePattern =
 const secretKeyValueDetectPattern =
   /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)&#]+/i;
 
+const accountIdentifierKeyValuePattern =
+  /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/gi;
+
+const accountIdentifierKeyValueDetectPattern =
+  /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/i;
+
+const freeTextPhonePattern = /(^|[^\w+])(\+\d[\d .()-]{7,}\d)(?=$|[^\d])/gi;
+const freeTextPhoneDetectPattern = /(^|[^\w+])\+\d[\d .()-]{7,}\d(?=$|[^\d])/i;
+
+const freeTextAccountIdentifierPattern =
+  /\b((?:account|account\s+id|account\s+identifier|user|user\s+id|uid|username|tenant|workspace|organization)\s+)([A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*|[A-Za-z0-9_-]*\d[A-Za-z][A-Za-z0-9_-]*)(?=$|[\s"',;)])/gi;
+
+const freeTextAccountIdentifierDetectPattern =
+  /\b(?:account|account\s+id|account\s+identifier|user|user\s+id|uid|username|tenant|workspace|organization)\s+(?:[A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*|[A-Za-z0-9_-]*\d[A-Za-z][A-Za-z0-9_-]*)(?=$|[\s"',;)])/i;
+
 const redactStringValue = (
   value: string,
   pathParts: string[]
@@ -447,10 +462,21 @@ const redactStringValue = (
     addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
   }
 
-  const accountIdentifierPattern =
-    /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/gi;
-  if (accountIdentifierPattern.test(redacted)) {
-    redacted = redacted.replace(accountIdentifierPattern, "<redacted:account_identifier>");
+  if (accountIdentifierKeyValueDetectPattern.test(redacted)) {
+    redacted = redacted.replace(accountIdentifierKeyValuePattern, "<redacted:account_identifier>");
+    addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+  }
+
+  if (freeTextPhoneDetectPattern.test(redacted)) {
+    redacted = redacted.replace(freeTextPhonePattern, "$1<redacted:account_identifier>");
+    addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+  }
+
+  if (freeTextAccountIdentifierDetectPattern.test(redacted)) {
+    redacted = redacted.replace(
+      freeTextAccountIdentifierPattern,
+      "$1<redacted:account_identifier>"
+    );
     addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
   }
 
@@ -500,9 +526,9 @@ const hasUnredactedSensitiveString = (value: unknown): boolean => {
       ) ||
       secretKeyValueDetectPattern.test(valueToInspect) ||
       /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(valueToInspect) ||
-      /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/i.test(
-        valueToInspect
-      )
+      accountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
+      freeTextPhoneDetectPattern.test(valueToInspect) ||
+      freeTextAccountIdentifierDetectPattern.test(valueToInspect)
     );
   }
   if (Array.isArray(value)) {
