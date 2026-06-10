@@ -130,15 +130,20 @@ const findXhsReadOutputBoundaryViolation = (value, path = []) => {
         }
         if (XHS_READ_OUTPUT_ENVELOPE_FIELDS.has(key)) {
             const envelope = asObject(child);
-            if (envelope) {
-                for (const section of Object.keys(envelope)) {
-                    if (!XHS_READ_OUTPUT_ALLOWED_ENVELOPE_SECTIONS.has(section)) {
-                        return {
-                            reason: "XHS_READ_OUTPUT_SECTION_INVALID",
-                            field: section,
-                            path: [...nextPath, section].join(".")
-                        };
-                    }
+            if (!envelope) {
+                return {
+                    reason: "XHS_READ_OUTPUT_ENVELOPE_INVALID",
+                    field: key,
+                    path: nextPath.join(".")
+                };
+            }
+            for (const section of Object.keys(envelope)) {
+                if (!XHS_READ_OUTPUT_ALLOWED_ENVELOPE_SECTIONS.has(section)) {
+                    return {
+                        reason: "XHS_READ_OUTPUT_SECTION_INVALID",
+                        field: section,
+                        path: [...nextPath, section].join(".")
+                    };
                 }
             }
         }

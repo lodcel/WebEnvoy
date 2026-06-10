@@ -214,6 +214,85 @@ describe("mapCapabilitySummaryForContract", () => {
     );
   });
 
+  it("accepts structured XHS read driver envelopes with only FR-0061 sections", () => {
+    expect(
+      mapCapabilitySummaryForContract("xhs.user.home.v1", {
+        capability_result: {
+          ability_id: "xhs.user.home.v1",
+          layer: "L3",
+          action: "read",
+          outcome: "success",
+          data_ref: {
+            user_id: "user-001"
+          }
+        },
+        output_envelope: {
+          raw: {
+            user_id: "user-001"
+          },
+          operational: {
+            route: "user_home"
+          },
+          evidence: {
+            route_evidence_class: "passive_api_capture"
+          }
+        }
+      })
+    ).toMatchObject({
+      output_envelope: {
+        raw: {
+          user_id: "user-001"
+        },
+        operational: {
+          route: "user_home"
+        },
+        evidence: {
+          route_evidence_class: "passive_api_capture"
+        }
+      }
+    });
+  });
+
+  it("rejects non-object output_envelope values for XHS read abilities", () => {
+    expectOutputMappingFailure(
+      () =>
+        mapCapabilitySummaryForContract("xhs.note.search.v1", {
+          capability_result: {
+            ability_id: "xhs.note.search.v1",
+            layer: "L3",
+            action: "read",
+            outcome: "success",
+            data_ref: {
+              search_id: "search-001"
+            }
+          },
+          output_envelope: "diagnostics"
+        }),
+      "XHS_READ_OUTPUT_ENVELOPE_INVALID",
+      "xhs.note.search.v1"
+    );
+  });
+
+  it("rejects non-object xhs_driver_output values for XHS read abilities", () => {
+    expectOutputMappingFailure(
+      () =>
+        mapCapabilitySummaryForContract("xhs.note.detail.v1", {
+          capability_result: {
+            ability_id: "xhs.note.detail.v1",
+            layer: "L3",
+            action: "read",
+            outcome: "success",
+            data_ref: {
+              note_id: "note-001"
+            }
+          },
+          xhs_driver_output: []
+        }),
+      "XHS_READ_OUTPUT_ENVELOPE_INVALID",
+      "xhs.note.detail.v1"
+    );
+  });
+
   it("rejects invalid XHS driver envelope sections even when action self-reports as write", () => {
     expectOutputMappingFailure(
       () =>
@@ -263,6 +342,26 @@ describe("mapCapabilitySummaryForContract", () => {
       publish_result: {
         status: "pending_review"
       }
+    });
+  });
+
+  it("does not reject non-object explicit envelopes for non-XHS abilities", () => {
+    expect(
+      mapCapabilitySummaryForContract("generic.note.search.v1", {
+        capability_result: {
+          ability_id: "generic.note.search.v1",
+          layer: "L2",
+          action: "read",
+          outcome: "success"
+        },
+        output_envelope: "diagnostics"
+      })
+    ).toMatchObject({
+      capability_result: {
+        ability_id: "generic.note.search.v1",
+        action: "read"
+      },
+      output_envelope: "diagnostics"
     });
   });
 });
