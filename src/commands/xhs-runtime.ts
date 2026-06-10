@@ -87,6 +87,10 @@ import {
   requiresXhsOfficialChromeRuntimePreparationForContract
 } from "./xhs-provider-requirements.js";
 import {
+  buildXhsPageRuntimeReadinessForContract,
+  toXhsPageRuntimeReadinessSummaryFields
+} from "./xhs-page-runtime-readiness.js";
+import {
   buildXhsDriverRuntimeBindingForContract,
   toXhsDriverRuntimeBindingSummaryFields,
   type XhsDriverRuntimeBindingBoundary
@@ -2711,6 +2715,7 @@ const buildInProcessGateOnlyResult = (input: {
   preparedIssue209LiveRead: ReturnType<typeof prepareIssue209LiveReadEnvelopeForContract>;
   dataRefKey: XhsDataRefKey;
   runtimeBindingBoundary: XhsDriverRuntimeBindingBoundary | null;
+  pageRuntimeReadinessSummaryFields: JsonObject;
 }): CommandExecutionResult => {
   const profile = input.context.profile ?? "gate_only_profile";
   const sessionId = `gate-only-${input.context.run_id}`;
@@ -2780,6 +2785,7 @@ const buildInProcessGateOnlyResult = (input: {
       }
     }),
     ...toXhsDriverRuntimeBindingSummaryFields(input.runtimeBindingBoundary),
+    ...input.pageRuntimeReadinessSummaryFields,
     ...payload,
     session_id: sessionId,
     requested_execution_mode: input.gate.requestedExecutionMode,
@@ -3324,6 +3330,16 @@ const xhsReadCommand = async (
   });
   const runtimeBindingSummaryFields =
     toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
+  const initialPageRuntimeReadiness = buildXhsPageRuntimeReadinessForContract({
+    command: context.command,
+    runId: context.run_id,
+    requestedExecutionMode: gate.requestedExecutionMode,
+    runtimeBindingBoundary,
+    providerRequirements,
+    providerAdmissionResult: asObject(gate.options.xhs_provider_admission_result)
+  });
+  const initialPageRuntimeReadinessSummaryFields =
+    toXhsPageRuntimeReadinessSummaryFields(initialPageRuntimeReadiness);
   const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
     command: context.command,
     ability: envelope.ability,
@@ -3355,7 +3371,8 @@ const xhsReadCommand = async (
                 xhs_driver_provider_requirements: providerRequirements,
                 provider_requirement_refs: providerRequirements.provider_requirement_refs
               }
-            : {})
+            : {}),
+          ...initialPageRuntimeReadinessSummaryFields
         }
       )
     };
@@ -3539,7 +3556,8 @@ const xhsReadCommand = async (
           parsedInput,
           preparedIssue209LiveRead,
           dataRefKey: inputConfig.fixtureDataRefKey,
-          runtimeBindingBoundary
+          runtimeBindingBoundary,
+          pageRuntimeReadinessSummaryFields: initialPageRuntimeReadinessSummaryFields
         }),
         commandAliasDiagnostics
       );
@@ -3570,6 +3588,17 @@ const xhsReadCommand = async (
         }
       );
     }
+    const pageRuntimeReadiness = buildXhsPageRuntimeReadinessForContract({
+      command: context.command,
+      runId: context.run_id,
+      requestedExecutionMode: gate.requestedExecutionMode,
+      runtimeBindingBoundary,
+      providerRequirements,
+      runtimeStatus: officialChromeRuntimeStatus,
+      providerAdmissionResult: asObject(gate.options.xhs_provider_admission_result)
+    });
+    const pageRuntimeReadinessSummaryFields =
+      toXhsPageRuntimeReadinessSummaryFields(pageRuntimeReadiness);
     const bridgeSessionId = await bridge.ensureSession({
       profile: context.profile,
       ...(forwardTimeoutMs ? { timeoutMs: forwardTimeoutMs } : {})
@@ -3669,6 +3698,7 @@ const xhsReadCommand = async (
           }
         : {}),
       ...runtimeBindingSummaryFields,
+      ...pageRuntimeReadinessSummaryFields,
       ...(typeof context.profile === "string" ? { __runtime_profile_ref: context.profile } : {})
     };
     const commandParams = appendFingerprintContext(
@@ -3719,6 +3749,7 @@ const xhsReadCommand = async (
             }
           : {}),
         ...runtimeBindingSummaryFields,
+        ...pageRuntimeReadinessSummaryFields,
         ability: envelope.ability,
         input: parsedInput,
         options: runtimeGateOptions,
@@ -3875,6 +3906,7 @@ const xhsReadCommand = async (
     const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
       ...bridgeSummaryForMapping,
       ...runtimeBindingSummaryFields,
+      ...pageRuntimeReadinessSummaryFields,
       session_id: bridgeSessionId,
       requested_execution_mode: gate.requestedExecutionMode,
       ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),

@@ -5,6 +5,11 @@ export {
   requiresXhsProviderRuntimePreparationForContract
 } from "./xhs-provider-requirements.js";
 export {
+  buildXhsPageRuntimeReadinessForContract,
+  toXhsPageRuntimeReadinessSummaryFields,
+  type XhsPageRuntimeReadinessContract
+} from "./xhs-page-runtime-readiness.js";
+export {
   buildXhsDriverRuntimeBindingForContract,
   toXhsDriverRuntimeBindingSummaryFields,
   type XhsDriverRuntimeBindingBoundary

@@ -43,6 +43,26 @@ export const xhsDriverContractFixtures = {
     details: {
       reason: "EXECUTION_MODE_GATE_BLOCKED"
     },
+    xhs_page_runtime_readiness: {
+      owner_ref: "#1162",
+      page_readiness: {
+        status: "blocked",
+        source: "target_binding_snapshot",
+        blocking_reasons: ["target_binding_not_bound"]
+      },
+      runtime_readiness: {
+        status: "not_required",
+        source: "execution_mode",
+        blocking_reasons: []
+      },
+      provider_admission_readiness: {
+        status: "blocked",
+        source: "provider_admission_result",
+        blocking_reasons: ["provider_admission_result_missing"]
+      },
+      overall_readiness: "blocked",
+      gate_decision: "deny"
+    },
     request_admission_result: {
       admission_decision: "blocked"
     },
@@ -61,6 +81,14 @@ export const xhsDriverContractFixtures = {
         "RUNTIME_ATTESTATION_REQUIRED",
         "EXECUTION_SURFACE_NOT_REAL_BROWSER",
         "HEADLESS_NOT_FALSE"
+      ]
+    },
+    provider_admission_readiness: {
+      status: "blocked",
+      source: "provider_admission_result",
+      blocking_reasons: [
+        "provider_admission_not_allowed",
+        "provider_requirement_refs_not_attested"
       ]
     }
   }
