@@ -140,16 +140,11 @@ describe("XHS provider requirement declarations", () => {
         provider_requirement_ref:
           "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit"
       },
-      live_write_capability_gate_result: {
-        effective_capability_level: "write_admit",
-        gate_status: "ready_for_downstream_gate",
-        decision: "allow",
-        downstream_owner: "#1180"
-      },
       profile_manifest_provider_allowlist_ref: "FR-0065.profile_manifest_provider_allowlist.v1",
       account_safety_gate_ref: "FR-0066.account_safety_gate.v1",
       default_live_write_commit_lock: "locked"
     });
+    expect(declaration).not.toHaveProperty("live_write_capability_gate_result");
     expect(declaration.downstream_slice_refs).toEqual(
       expect.arrayContaining(["#1174", "#1175", "#1176", "#1178", "#1180", "#1211"])
     );

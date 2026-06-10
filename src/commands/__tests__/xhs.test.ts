@@ -10015,25 +10015,25 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = "1";
 
     try {
-      await expect(
-        executeCommand(
-          {
-            cwd: "/tmp/webenvoy",
-            command: "xhs.creator_publish.admit",
-            profile: "profile-1179-provider-requirements-001",
-            run_id: "run-1179-provider-requirements-001",
-            params: {
-              target_domain: "creator.xiaohongshu.com",
-              target_tab_id: 32,
-              target_page: "creator_publish_tab",
-              requested_execution_mode: "dry_run",
-              risk_state: "allowed",
-              fixture_success: true
-            }
-          } as RuntimeContext,
-          createCommandRegistry()
-        )
-      ).resolves.toMatchObject({
+      const result = await executeCommand(
+        {
+          cwd: "/tmp/webenvoy",
+          command: "xhs.creator_publish.admit",
+          profile: "profile-1179-provider-requirements-001",
+          run_id: "run-1179-provider-requirements-001",
+          params: {
+            target_domain: "creator.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "creator_publish_tab",
+            requested_execution_mode: "dry_run",
+            risk_state: "allowed",
+            fixture_success: true
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      );
+
+      expect(result).toMatchObject({
         summary: {
           provider_requirement_refs: [
             "issue-1179.xhs_creator_publish_admit_provider_requirements.v1/write_admit"
@@ -10044,15 +10044,18 @@ describe("normalizeGateOptionsForContract", () => {
               ability_id: "xhs.creator.publish.v1",
               ability_action: "write"
             },
-            live_write_capability_gate_result: {
-              effective_capability_level: "write_admit",
-              gate_status: "ready_for_downstream_gate",
-              decision: "allow"
+            live_write_capability_gate_input: {
+              requested_capability_level: "write_admit",
+              maximum_capability_level: "write_admit",
+              minimum_required_level: "write_admit"
             },
             default_live_write_commit_lock: "locked"
           }
         }
       });
+      expect(result.summary.xhs_driver_provider_requirements).not.toHaveProperty(
+        "live_write_capability_gate_result"
+      );
     } finally {
       if (previousFixtureSuccess === undefined) {
         delete process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;

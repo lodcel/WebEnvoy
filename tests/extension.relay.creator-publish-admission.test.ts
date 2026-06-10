@@ -22,16 +22,22 @@ const xhsDriverProviderRequirements = {
   declaration_version: "v1",
   provider_requirement_ref: providerRequirementRef,
   provider_requirement_refs: [providerRequirementRef],
-  live_write_capability_gate_result: {
+  live_write_capability_gate_input: {
     taxonomy_version: "v1",
     requested_capability_level: "write_admit",
-    effective_capability_level: "write_admit",
-    gate_status: "ready_for_downstream_gate",
-    decision: "allow",
-    blocking_reasons: [],
-    downstream_owner: "#1180",
-    evidence_refs_consumed: [providerRequirementRef],
-    verified_at: "N/A"
+    maximum_capability_level: "write_admit",
+    minimum_required_level: "write_admit",
+    capability_owner: "#1179",
+    workflow_ref: "xhs.creator_publish.admit",
+    target_scope_ref: "xhs.creator_publish.admit:creator.xiaohongshu.com/creator_publish_tab",
+    provider_requirement_ref: providerRequirementRef,
+    operator_unlock_ref: null,
+    default_commit_lock_ref: null,
+    account_safety_ref: "FR-0066.account_safety_gate.v1/current-scope-required",
+    runtime_target_binding_ref: null,
+    anti_detection_gate_ref: null,
+    live_evidence_gate_ref: null,
+    evidence_refs: [providerRequirementRef]
   },
   default_live_write_commit_lock: "locked"
 } as const;
@@ -124,13 +130,9 @@ describe("extension background relay / creator publish admission", () => {
       account_readiness: readyProfileOptions.account_readiness,
       provider_requirement_refs: [providerRequirementRef],
       xhs_driver_provider_requirements: xhsDriverProviderRequirements,
-      live_write_capability_gate_result: {
-        effective_capability_level: "write_admit",
-        gate_status: "ready_for_downstream_gate",
-        decision: "allow"
-      },
       default_live_write_commit_lock: "locked"
     });
+    expect(targetAdmission).not.toHaveProperty("live_write_capability_gate_result");
     expect(targetAdmission?.out_of_scope_actions).toEqual([
       "editor_text_write",
       "image_upload",

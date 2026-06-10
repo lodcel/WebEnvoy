@@ -39,17 +39,6 @@ export type XhsLiveWriteCapabilityGateInput = {
   live_evidence_gate_ref: null;
   evidence_refs: string[];
 };
-export type XhsLiveWriteCapabilityGateResult = {
-  taxonomy_version: "v1";
-  requested_capability_level: XhsLiveWriteCapabilityLevel;
-  effective_capability_level: XhsLiveWriteCapabilityLevel;
-  gate_status: "ready_for_downstream_gate";
-  decision: "allow";
-  blocking_reasons: [];
-  downstream_owner: "#1180";
-  evidence_refs_consumed: string[];
-  verified_at: "N/A";
-};
 
 export type XhsDriverProviderRequirementDeclaration = {
   declaration_id: string;
@@ -77,7 +66,6 @@ export type XhsDriverProviderRequirementDeclaration = {
   non_proofs: string[];
   downstream_slice_refs: string[];
   live_write_capability_gate_input?: XhsLiveWriteCapabilityGateInput;
-  live_write_capability_gate_result?: XhsLiveWriteCapabilityGateResult;
   profile_manifest_provider_allowlist_ref?: "FR-0065.profile_manifest_provider_allowlist.v1";
   account_safety_gate_ref?: "FR-0066.account_safety_gate.v1";
   required_secret_kinds?: string[];
@@ -226,7 +214,6 @@ const buildDeclaration = (input: {
   failClosedReasons?: string[];
   nonProofs?: string[];
   liveWriteCapabilityGateInput?: XhsLiveWriteCapabilityGateInput;
-  liveWriteCapabilityGateResult?: XhsLiveWriteCapabilityGateResult;
   profileManifestProviderAllowlistRef?: "FR-0065.profile_manifest_provider_allowlist.v1";
   accountSafetyGateRef?: "FR-0066.account_safety_gate.v1";
   requiredSecretKinds?: string[];
@@ -259,9 +246,6 @@ const buildDeclaration = (input: {
     downstream_slice_refs: [...input.downstreamSliceRefs],
     ...(input.liveWriteCapabilityGateInput
       ? { live_write_capability_gate_input: input.liveWriteCapabilityGateInput }
-      : {}),
-    ...(input.liveWriteCapabilityGateResult
-      ? { live_write_capability_gate_result: input.liveWriteCapabilityGateResult }
       : {}),
     ...(input.profileManifestProviderAllowlistRef
       ? { profile_manifest_provider_allowlist_ref: input.profileManifestProviderAllowlistRef }
@@ -297,25 +281,6 @@ const buildCreatorPublishAdmitCapabilityGateInput = (
     "FR-0066.account_safety_gate.v1",
     providerRequirementRef
   ]
-});
-
-const buildCreatorPublishAdmitCapabilityGateResult = (
-  providerRequirementRef: string
-): XhsLiveWriteCapabilityGateResult => ({
-  taxonomy_version: "v1",
-  requested_capability_level: "write_admit",
-  effective_capability_level: "write_admit",
-  gate_status: "ready_for_downstream_gate",
-  decision: "allow",
-  blocking_reasons: [],
-  downstream_owner: "#1180",
-  evidence_refs_consumed: [
-    "FR-0062.live_write_capability_taxonomy.v1",
-    "FR-0065.profile_manifest_provider_allowlist.v1",
-    "FR-0066.account_safety_gate.v1",
-    providerRequirementRef
-  ],
-  verified_at: "N/A"
 });
 
 export const declareXhsDriverProviderRequirementsForContract = (input: {
@@ -360,9 +325,6 @@ export const declareXhsDriverProviderRequirementsForContract = (input: {
       failClosedReasons: XHS_CREATOR_PUBLISH_ADMIT_FAIL_CLOSED_REASONS,
       nonProofs: XHS_CREATOR_PUBLISH_ADMIT_NON_PROOFS,
       liveWriteCapabilityGateInput: buildCreatorPublishAdmitCapabilityGateInput(
-        XHS_CREATOR_PUBLISH_ADMIT_REQUIREMENT_REF
-      ),
-      liveWriteCapabilityGateResult: buildCreatorPublishAdmitCapabilityGateResult(
         XHS_CREATOR_PUBLISH_ADMIT_REQUIREMENT_REF
       ),
       profileManifestProviderAllowlistRef: "FR-0065.profile_manifest_provider_allowlist.v1",

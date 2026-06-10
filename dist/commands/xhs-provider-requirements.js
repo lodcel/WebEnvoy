@@ -140,9 +140,6 @@ const buildDeclaration = (input) => {
         ...(input.liveWriteCapabilityGateInput
             ? { live_write_capability_gate_input: input.liveWriteCapabilityGateInput }
             : {}),
-        ...(input.liveWriteCapabilityGateResult
-            ? { live_write_capability_gate_result: input.liveWriteCapabilityGateResult }
-            : {}),
         ...(input.profileManifestProviderAllowlistRef
             ? { profile_manifest_provider_allowlist_ref: input.profileManifestProviderAllowlistRef }
             : {}),
@@ -174,22 +171,6 @@ const buildCreatorPublishAdmitCapabilityGateInput = (providerRequirementRef) => 
         "FR-0066.account_safety_gate.v1",
         providerRequirementRef
     ]
-});
-const buildCreatorPublishAdmitCapabilityGateResult = (providerRequirementRef) => ({
-    taxonomy_version: "v1",
-    requested_capability_level: "write_admit",
-    effective_capability_level: "write_admit",
-    gate_status: "ready_for_downstream_gate",
-    decision: "allow",
-    blocking_reasons: [],
-    downstream_owner: "#1180",
-    evidence_refs_consumed: [
-        "FR-0062.live_write_capability_taxonomy.v1",
-        "FR-0065.profile_manifest_provider_allowlist.v1",
-        "FR-0066.account_safety_gate.v1",
-        providerRequirementRef
-    ],
-    verified_at: "N/A"
 });
 export const declareXhsDriverProviderRequirementsForContract = (input) => {
     const readRequirement = XHS_READ_COMMAND_REQUIREMENTS[input.command];
@@ -224,7 +205,6 @@ export const declareXhsDriverProviderRequirementsForContract = (input) => {
             failClosedReasons: XHS_CREATOR_PUBLISH_ADMIT_FAIL_CLOSED_REASONS,
             nonProofs: XHS_CREATOR_PUBLISH_ADMIT_NON_PROOFS,
             liveWriteCapabilityGateInput: buildCreatorPublishAdmitCapabilityGateInput(XHS_CREATOR_PUBLISH_ADMIT_REQUIREMENT_REF),
-            liveWriteCapabilityGateResult: buildCreatorPublishAdmitCapabilityGateResult(XHS_CREATOR_PUBLISH_ADMIT_REQUIREMENT_REF),
             profileManifestProviderAllowlistRef: "FR-0065.profile_manifest_provider_allowlist.v1",
             accountSafetyGateRef: "FR-0066.account_safety_gate.v1",
             requiredSecretKinds: XHS_CREATOR_PUBLISH_ADMIT_REQUIRED_SECRET_KINDS,

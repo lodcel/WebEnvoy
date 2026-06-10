@@ -1068,10 +1068,6 @@ export class InMemoryContentScriptRuntime {
                     xhs_driver_provider_requirements: asRecord(
                       options.xhs_driver_provider_requirements
                     ),
-                    live_write_capability_gate_result: asRecord(
-                      asRecord(options.xhs_driver_provider_requirements)
-                        ?.live_write_capability_gate_result
-                    ),
                     default_live_write_commit_lock:
                       asRecord(options.xhs_driver_provider_requirements)
                         ?.default_live_write_commit_lock ?? null,
