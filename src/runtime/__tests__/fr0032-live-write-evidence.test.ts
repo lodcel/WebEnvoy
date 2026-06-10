@@ -1408,6 +1408,107 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("redacts signed upload and staging URL credential query parameters", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      platform_staging_ref:
+        "https://bucket.example/upload?X-Amz-Signature=rawsig&amp;X-Amz-Credential=rawcred&amp;OSSAccessKeyId=rawkey"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator:
+        "https://cdn.example/proof?Signature=rawsignature&X-Amz-Security-Token=rawsecurity"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/signed-url",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "https://oss.example/upload?AWSAccessKeyId=rawawskey&signature=rawlowercase"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(3);
+    expect(serialized).not.toContain("rawsig");
+    expect(serialized).not.toContain("rawcred");
+    expect(serialized).not.toContain("rawkey");
+    expect(serialized).not.toContain("rawsignature");
+    expect(serialized).not.toContain("rawsecurity");
+    expect(serialized).not.toContain("rawawskey");
+    expect(serialized).not.toContain("rawlowercase");
+    expect(serialized).toContain("X-Amz-Signature=<redacted:token>");
+    expect(serialized).toContain("&amp;X-Amz-Credential=<redacted:token>");
+    expect(serialized).toContain("&amp;OSSAccessKeyId=<redacted:token>");
+    expect(serialized).toContain("Signature=<redacted:token>");
+    expect(serialized).toContain("X-Amz-Security-Token=<redacted:token>");
+    expect(serialized).toContain("AWSAccessKeyId=<redacted:token>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.upload_artifact_identity.platform_staging_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        })
+      ])
+    );
+  });
+
+  it("evaluates signed upload URL query credentials through default redaction", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      platform_staging_ref:
+        "https://bucket.example/upload?X-Amz-Signature=rawsig&amp;X-Amz-Credential=rawcred&amp;OSSAccessKeyId=rawkey"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/signed-url",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "https://cdn.example/proof?Signature=rawsignature&X-Amz-Security-Token=rawsecurity"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(evaluation.redacted_field_count).toBeGreaterThanOrEqual(2);
+    expect(serializedEvaluation).not.toContain("rawsig");
+    expect(serializedEvaluation).not.toContain("rawcred");
+    expect(serializedEvaluation).not.toContain("rawkey");
+    expect(serializedEvaluation).not.toContain("rawsignature");
+    expect(serializedEvaluation).not.toContain("rawsecurity");
+    expect(serializedEvaluation).toContain("<redacted:token>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
   it("redacts raw secret suffixes appended to redacted token placeholders", () => {
     const input = baseInput();
     input.submit_evidence = {

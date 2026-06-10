@@ -59,6 +59,9 @@ const redactedTokenSuffixDetectPatterns = [
 ];
 const secretKeyValuePattern = /\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\s"',;)&#]+/gi;
 const secretKeyValueDetectPattern = /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)&#]+/i;
+const secretQueryKeyPattern = "xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization|x-amz-signature|x-amz-credential|x-amz-security-token|ossaccesskeyid|awsaccesskeyid|signature";
+const secretQueryPattern = new RegExp(`((?:[?&]|&amp;)(?:${secretQueryKeyPattern})=)[^&#\\s"']+`, "gi");
+const secretQueryDetectPattern = new RegExp(`(?:[?&]|&amp;)(?:${secretQueryKeyPattern})=((?!<redacted:)[^&#\\s"']+)`, "i");
 const accountIdentifierKeyValuePattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/gi;
 const accountIdentifierKeyValueDetectPattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/i;
 const freeTextPhonePattern = /(^|[^\w+])(\+\d[\d .()-]{7,}\d)(?=$|[^\d])/gi;
@@ -98,9 +101,9 @@ const redactStringValue = (value, pathParts) => {
         redacted = redacted.replace(proxyCredentialPattern, "<redacted:proxy_credential>");
         addFinding("secret", "secret_handle", "<redacted:proxy_credential>");
     }
-    const secretQueryPattern = /([?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=)[^&#\s"']+/gi;
-    if (secretQueryPattern.test(redacted)) {
-        redacted = redacted.replace(secretQueryPattern, "$1<redacted:token>");
+    const queryRedacted = redacted.replace(secretQueryPattern, "$1<redacted:token>");
+    if (queryRedacted !== redacted) {
+        redacted = queryRedacted;
         addFinding("secret", "secret_handle", "<redacted:token>");
     }
     for (const pattern of redactedTokenSuffixReplacePatterns) {
@@ -186,7 +189,7 @@ const hasUnredactedSensitiveString = (value) => {
             /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(valueToInspect) ||
             secretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
             redactedTokenSuffixDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
-            /[?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=((?!<redacted:)[^&#\s"']+)/i.test(valueToInspect) ||
+            secretQueryDetectPattern.test(valueToInspect) ||
             secretKeyValueDetectPattern.test(valueToInspect) ||
             /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(valueToInspect) ||
             accountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
