@@ -5056,6 +5056,10 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     ? value
     : null;
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const asStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+const asRecordArray = (value) => Array.isArray(value)
+    ? value.filter((item) => asRecord(item) !== null)
+    : [];
 const asInteger = (value) => typeof value === "number" && Number.isInteger(value) ? value : null;
 const asOptionalBoolean = (value) => typeof value === "boolean" ? value : null;
 const resolveRiskState = (value) => resolveSharedRiskState(value);
@@ -5262,6 +5266,55 @@ const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                             ?.default_live_write_commit_lock ?? null,
                         out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
                     }
+                }
+                : {}),
+            ...(asRecord(input.options?.xhs_driver_provider_requirements)
+                ? {
+                    xhs_driver_provider_requirements: asRecord(input.options?.xhs_driver_provider_requirements) ?? {}
+                }
+                : {}),
+            ...(asStringArray(input.options?.provider_requirement_refs).length > 0
+                ? { provider_requirement_refs: asStringArray(input.options?.provider_requirement_refs) }
+                : {}),
+            ...(asNonEmptyString(input.options?.runtime_binding_ref)
+                ? { runtime_binding_ref: asNonEmptyString(input.options?.runtime_binding_ref) }
+                : {}),
+            ...(asNonEmptyString(input.options?.target_binding_snapshot_ref)
+                ? {
+                    target_binding_snapshot_ref: asNonEmptyString(input.options?.target_binding_snapshot_ref)
+                }
+                : {}),
+            ...(asRecord(input.options?.xhs_runtime_binding)
+                ? { xhs_runtime_binding: asRecord(input.options?.xhs_runtime_binding) ?? {} }
+                : {}),
+            ...(asRecord(input.options?.target_binding_snapshot)
+                ? { target_binding_snapshot: asRecord(input.options?.target_binding_snapshot) ?? {} }
+                : {}),
+            ...(asRecordArray(input.options?.target_binding_transition_evidence).length > 0
+                ? {
+                    target_binding_transition_evidence: asRecordArray(input.options?.target_binding_transition_evidence)
+                }
+                : {}),
+            ...(asStringArray(input.options?.downstream_slice_refs).length > 0
+                ? { downstream_slice_refs: asStringArray(input.options?.downstream_slice_refs) }
+                : {}),
+            ...(asStringArray(input.options?.non_proofs).length > 0
+                ? { non_proofs: asStringArray(input.options?.non_proofs) }
+                : {}),
+            ...(asNonEmptyString(input.options?.page_runtime_readiness_ref)
+                ? { page_runtime_readiness_ref: asNonEmptyString(input.options?.page_runtime_readiness_ref) }
+                : {}),
+            ...(asRecord(input.options?.xhs_page_runtime_readiness)
+                ? { xhs_page_runtime_readiness: asRecord(input.options?.xhs_page_runtime_readiness) ?? {} }
+                : {}),
+            ...(asNonEmptyString(input.options?.page_runtime_readiness_decision)
+                ? {
+                    page_runtime_readiness_decision: asNonEmptyString(input.options?.page_runtime_readiness_decision)
+                }
+                : {}),
+            ...(asStringArray(input.options?.page_runtime_readiness_blocking_reasons).length > 0
+                ? {
+                    page_runtime_readiness_blocking_reasons: asStringArray(input.options?.page_runtime_readiness_blocking_reasons)
                 }
                 : {}),
             scope_context: gate.scope_context,
@@ -11239,6 +11292,56 @@ const serializeCanonicalShape = (value) => {
     return shape ? serializeSearchRequestShape(shape) : null;
 };
 const layer2InteractionSummary = (layer2Interaction) => layer2Interaction ? { layer2_interaction: layer2Interaction } : {};
+const asStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+const asRecordArray = (value) => Array.isArray(value)
+    ? value.filter((item) => asRecord(item) !== null)
+    : [];
+const buildProviderAwareReadPathSummaryFields = (options) => {
+    const providerRequirementRefs = asStringArray(options.provider_requirement_refs);
+    const targetBindingTransitionEvidence = asRecordArray(options.target_binding_transition_evidence);
+    const downstreamSliceRefs = asStringArray(options.downstream_slice_refs);
+    const nonProofs = asStringArray(options.non_proofs);
+    const pageRuntimeReadinessBlockingReasons = asStringArray(options.page_runtime_readiness_blocking_reasons);
+    return {
+        ...(asRecord(options.xhs_driver_provider_requirements)
+            ? {
+                xhs_driver_provider_requirements: asRecord(options.xhs_driver_provider_requirements)
+            }
+            : {}),
+        ...(providerRequirementRefs.length > 0
+            ? { provider_requirement_refs: providerRequirementRefs }
+            : {}),
+        ...(asString(options.runtime_binding_ref)
+            ? { runtime_binding_ref: asString(options.runtime_binding_ref) }
+            : {}),
+        ...(asString(options.target_binding_snapshot_ref)
+            ? { target_binding_snapshot_ref: asString(options.target_binding_snapshot_ref) }
+            : {}),
+        ...(asRecord(options.xhs_runtime_binding)
+            ? { xhs_runtime_binding: asRecord(options.xhs_runtime_binding) }
+            : {}),
+        ...(asRecord(options.target_binding_snapshot)
+            ? { target_binding_snapshot: asRecord(options.target_binding_snapshot) }
+            : {}),
+        ...(targetBindingTransitionEvidence.length > 0
+            ? { target_binding_transition_evidence: targetBindingTransitionEvidence }
+            : {}),
+        ...(downstreamSliceRefs.length > 0 ? { downstream_slice_refs: downstreamSliceRefs } : {}),
+        ...(nonProofs.length > 0 ? { non_proofs: nonProofs } : {}),
+        ...(asString(options.page_runtime_readiness_ref)
+            ? { page_runtime_readiness_ref: asString(options.page_runtime_readiness_ref) }
+            : {}),
+        ...(asRecord(options.xhs_page_runtime_readiness)
+            ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) }
+            : {}),
+        ...(asString(options.page_runtime_readiness_decision)
+            ? { page_runtime_readiness_decision: asString(options.page_runtime_readiness_decision) }
+            : {}),
+        ...(pageRuntimeReadinessBlockingReasons.length > 0
+            ? { page_runtime_readiness_blocking_reasons: pageRuntimeReadinessBlockingReasons }
+            : {})
+    };
+};
 const XHS_SEARCH_REPLAY_ORIGIN_ALLOWLIST = new Set([
     "https://www.xiaohongshu.com",
     "https://edith.xiaohongshu.com"
@@ -12514,6 +12617,7 @@ const executeXhsSearch = async (input, env) => {
                             approval_record: gate.approval_record,
                             risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                             audit_record: auditRecord,
+                            ...buildProviderAwareReadPathSummaryFields(input.options),
                             ...layer2InteractionSummary(layer2Interaction),
                             route_evidence: {
                                 evidence_class: "dom_state_extraction",
@@ -12784,6 +12888,7 @@ const executeXhsSearch = async (input, env) => {
                 approval_record: gate.approval_record,
                 risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                 audit_record: auditRecord,
+                ...buildProviderAwareReadPathSummaryFields(input.options),
                 ...layer2InteractionSummary(layer2Interaction),
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence,
@@ -19563,6 +19668,47 @@ class ContentScriptHandler {
                     ...(Array.isArray(options.provider_requirement_refs)
                         ? {
                             provider_requirement_refs: options.provider_requirement_refs.filter((ref) => typeof ref === "string")
+                        }
+                        : {}),
+                    ...(typeof options.runtime_binding_ref === "string"
+                        ? { runtime_binding_ref: options.runtime_binding_ref }
+                        : {}),
+                    ...(typeof options.target_binding_snapshot_ref === "string"
+                        ? { target_binding_snapshot_ref: options.target_binding_snapshot_ref }
+                        : {}),
+                    ...(asRecord(options.xhs_runtime_binding)
+                        ? { xhs_runtime_binding: asRecord(options.xhs_runtime_binding) ?? {} }
+                        : {}),
+                    ...(asRecord(options.target_binding_snapshot)
+                        ? { target_binding_snapshot: asRecord(options.target_binding_snapshot) ?? {} }
+                        : {}),
+                    ...(Array.isArray(options.target_binding_transition_evidence)
+                        ? {
+                            target_binding_transition_evidence: options.target_binding_transition_evidence.filter((item) => asRecord(item) !== null)
+                        }
+                        : {}),
+                    ...(Array.isArray(options.downstream_slice_refs)
+                        ? {
+                            downstream_slice_refs: options.downstream_slice_refs.filter((ref) => typeof ref === "string")
+                        }
+                        : {}),
+                    ...(Array.isArray(options.non_proofs)
+                        ? {
+                            non_proofs: options.non_proofs.filter((proof) => typeof proof === "string")
+                        }
+                        : {}),
+                    ...(typeof options.page_runtime_readiness_ref === "string"
+                        ? { page_runtime_readiness_ref: options.page_runtime_readiness_ref }
+                        : {}),
+                    ...(asRecord(options.xhs_page_runtime_readiness)
+                        ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) ?? {} }
+                        : {}),
+                    ...(typeof options.page_runtime_readiness_decision === "string"
+                        ? { page_runtime_readiness_decision: options.page_runtime_readiness_decision }
+                        : {}),
+                    ...(Array.isArray(options.page_runtime_readiness_blocking_reasons)
+                        ? {
+                            page_runtime_readiness_blocking_reasons: options.page_runtime_readiness_blocking_reasons.filter((reason) => typeof reason === "string")
                         }
                         : {}),
                     ...(Array.isArray(options.admission_gate_reasons)

@@ -154,6 +154,87 @@ export const approvedLiveOptions = {
   }
 } as const;
 
+export const providerAwareSearchReadPathOptions = {
+  xhs_driver_provider_requirements: {
+    declaration_id: "xhs-driver-provider-requirements:xhs.search:read:v1",
+    declaration_version: "v1",
+    provider_requirement_ref: "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read",
+    provider_requirement_refs: ["FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"],
+    ability_scope: {
+      command: "xhs.search",
+      ability_id: "xhs.note.search.v1",
+      ability_layer: "L3",
+      ability_action: "read"
+    },
+    required_actions: ["read", "diagnose"],
+    non_proofs: [
+      "driver_requirement_declaration_does_not_prove_provider_capability_allowed",
+      "driver_requirement_declaration_does_not_prove_runtime_ready"
+    ],
+    downstream_slice_refs: ["#1166", "#1167", "#1168"]
+  },
+  provider_requirement_refs: ["FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"],
+  runtime_binding_ref: "FR-0061.xhs_runtime_binding.v1/run-xhs-live-allowed-001/search",
+  target_binding_snapshot_ref:
+    "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/search",
+  xhs_runtime_binding: {
+    target_domain: "www.xiaohongshu.com",
+    target_page: "search_tab",
+    execution_mode: "read",
+    binding_status: "declared"
+  },
+  target_binding_snapshot: {
+    snapshot_version: "v1",
+    state: "candidate_found",
+    route_bucket: "search",
+    freshness_scope: "current_run",
+    blocking_reasons: ["target_binding_not_bound"]
+  },
+  target_binding_transition_evidence: [
+    {
+      transition_id: "target-binding-transition:run-xhs-live-allowed-001:search:candidate_found",
+      from_state: "unbound",
+      to_state: "candidate_found"
+    }
+  ],
+  downstream_slice_refs: ["#1162", "#1166", "#1167", "#1168"],
+  non_proofs: [
+    "runtime_ready",
+    "provider_capability_allowed",
+    "syvert_normalized_result_complete",
+    "write_enabled"
+  ],
+  page_runtime_readiness_ref: "issue-1162.xhs_page_runtime_readiness.v1/run-xhs-live-allowed-001",
+  xhs_page_runtime_readiness: {
+    owner_ref: "#1162",
+    command: "xhs.search",
+    run_id: "run-xhs-live-allowed-001",
+    page_readiness: {
+      status: "blocked",
+      required: true,
+      blocking_reasons: ["target_binding_not_bound"]
+    },
+    runtime_readiness: {
+      status: "ready",
+      required: true,
+      source: "official_chrome_runtime_readiness"
+    },
+    provider_admission_readiness: {
+      status: "blocked",
+      required: true,
+      source: "provider_admission_result",
+      blocking_reasons: ["provider_requirement_refs_not_attested"]
+    },
+    overall_readiness: "blocked",
+    gate_decision: "deny"
+  },
+  page_runtime_readiness_decision: "deny",
+  page_runtime_readiness_blocking_reasons: [
+    "page:target_binding_not_bound",
+    "provider:provider_requirement_refs_not_attested"
+  ]
+} as const;
+
 export const approvedLimitedLiveOptions = {
   ...approvedLiveOptions,
   requested_execution_mode: "live_read_limited",

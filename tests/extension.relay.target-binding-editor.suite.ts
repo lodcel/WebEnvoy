@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, approvedLiveOptions, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
+import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, approvedLiveOptions, providerAwareSearchReadPathOptions, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
 
 describe("extension background relay contract / target binding and editor input", () => {
   it("blocks issue_208 write action in paused state and returns reversible write tier", async () => {
@@ -1575,6 +1575,7 @@ describe("extension background relay contract / target binding and editor input"
             query: "露营装备"
           },
           options: {
+            ...providerAwareSearchReadPathOptions,
             target_domain: "www.xiaohongshu.com",
             target_tab_id: 32,
             target_page: "search_result_tab",
@@ -1659,6 +1660,45 @@ describe("extension background relay contract / target binding and editor input"
           gate_decision: "allowed",
           gate_reasons: ["LIVE_MODE_APPROVED"]
         },
+        provider_requirement_refs: [
+          "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+        ],
+        xhs_driver_provider_requirements: {
+          declaration_id: "xhs-driver-provider-requirements:xhs.search:read:v1",
+          provider_requirement_refs: [
+            "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+          ],
+          non_proofs: expect.arrayContaining([
+            "driver_requirement_declaration_does_not_prove_runtime_ready"
+          ])
+        },
+        runtime_binding_ref: "FR-0061.xhs_runtime_binding.v1/run-xhs-live-allowed-001/search",
+        target_binding_snapshot_ref:
+          "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/search",
+        xhs_runtime_binding: {
+          binding_status: "declared"
+        },
+        target_binding_snapshot: {
+          state: "candidate_found",
+          blocking_reasons: ["target_binding_not_bound"]
+        },
+        xhs_page_runtime_readiness: {
+          owner_ref: "#1162",
+          overall_readiness: "blocked",
+          gate_decision: "deny",
+          page_readiness: {
+            status: "blocked"
+          },
+          provider_admission_readiness: {
+            status: "blocked",
+            blocking_reasons: ["provider_requirement_refs_not_attested"]
+          }
+        },
+        page_runtime_readiness_decision: "deny",
+        page_runtime_readiness_blocking_reasons: [
+          "page:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested"
+        ],
         approval_record: {
           approved: true,
           approver: "reviewer-a",

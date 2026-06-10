@@ -348,6 +348,56 @@ const serializeCanonicalShape = (value) => {
     return shape ? serializeSearchRequestShape(shape) : null;
 };
 const layer2InteractionSummary = (layer2Interaction) => layer2Interaction ? { layer2_interaction: layer2Interaction } : {};
+const asStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+const asRecordArray = (value) => Array.isArray(value)
+    ? value.filter((item) => asRecord(item) !== null)
+    : [];
+const buildProviderAwareReadPathSummaryFields = (options) => {
+    const providerRequirementRefs = asStringArray(options.provider_requirement_refs);
+    const targetBindingTransitionEvidence = asRecordArray(options.target_binding_transition_evidence);
+    const downstreamSliceRefs = asStringArray(options.downstream_slice_refs);
+    const nonProofs = asStringArray(options.non_proofs);
+    const pageRuntimeReadinessBlockingReasons = asStringArray(options.page_runtime_readiness_blocking_reasons);
+    return {
+        ...(asRecord(options.xhs_driver_provider_requirements)
+            ? {
+                xhs_driver_provider_requirements: asRecord(options.xhs_driver_provider_requirements)
+            }
+            : {}),
+        ...(providerRequirementRefs.length > 0
+            ? { provider_requirement_refs: providerRequirementRefs }
+            : {}),
+        ...(asString(options.runtime_binding_ref)
+            ? { runtime_binding_ref: asString(options.runtime_binding_ref) }
+            : {}),
+        ...(asString(options.target_binding_snapshot_ref)
+            ? { target_binding_snapshot_ref: asString(options.target_binding_snapshot_ref) }
+            : {}),
+        ...(asRecord(options.xhs_runtime_binding)
+            ? { xhs_runtime_binding: asRecord(options.xhs_runtime_binding) }
+            : {}),
+        ...(asRecord(options.target_binding_snapshot)
+            ? { target_binding_snapshot: asRecord(options.target_binding_snapshot) }
+            : {}),
+        ...(targetBindingTransitionEvidence.length > 0
+            ? { target_binding_transition_evidence: targetBindingTransitionEvidence }
+            : {}),
+        ...(downstreamSliceRefs.length > 0 ? { downstream_slice_refs: downstreamSliceRefs } : {}),
+        ...(nonProofs.length > 0 ? { non_proofs: nonProofs } : {}),
+        ...(asString(options.page_runtime_readiness_ref)
+            ? { page_runtime_readiness_ref: asString(options.page_runtime_readiness_ref) }
+            : {}),
+        ...(asRecord(options.xhs_page_runtime_readiness)
+            ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) }
+            : {}),
+        ...(asString(options.page_runtime_readiness_decision)
+            ? { page_runtime_readiness_decision: asString(options.page_runtime_readiness_decision) }
+            : {}),
+        ...(pageRuntimeReadinessBlockingReasons.length > 0
+            ? { page_runtime_readiness_blocking_reasons: pageRuntimeReadinessBlockingReasons }
+            : {})
+    };
+};
 const XHS_SEARCH_REPLAY_ORIGIN_ALLOWLIST = new Set([
     "https://www.xiaohongshu.com",
     "https://edith.xiaohongshu.com"
@@ -1623,6 +1673,7 @@ export const executeXhsSearch = async (input, env) => {
                             approval_record: gate.approval_record,
                             risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                             audit_record: auditRecord,
+                            ...buildProviderAwareReadPathSummaryFields(input.options),
                             ...layer2InteractionSummary(layer2Interaction),
                             route_evidence: {
                                 evidence_class: "dom_state_extraction",
@@ -1893,6 +1944,7 @@ export const executeXhsSearch = async (input, env) => {
                 approval_record: gate.approval_record,
                 risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                 audit_record: auditRecord,
+                ...buildProviderAwareReadPathSummaryFields(input.options),
                 ...layer2InteractionSummary(layer2Interaction),
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence,
