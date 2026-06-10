@@ -1,3 +1,279 @@
+import { createHash } from "node:crypto";
+const opaqueRedactionRef = (kind, value) => {
+    const digest = createHash("sha256").update(value).digest("hex").slice(0, 16);
+    return `${kind}:redacted:${digest}`;
+};
+const safeRedactedPlaceholderPattern = /^<redacted:(?:proxy_credential|token|fingerprint_seed|account_identifier|path:(?:profile|source_media|private))>$/;
+const redactedPlaceholderPattern = /^<redacted:([^>]+)>$/;
+const alreadyRedacted = (value) => safeRedactedPlaceholderPattern.test(value) || /^[a-z-]+:redacted:[a-f0-9]{16}$/.test(value);
+const unsafeRedactedPlaceholderContent = (value) => {
+    if (alreadyRedacted(value)) {
+        return null;
+    }
+    return redactedPlaceholderPattern.exec(value)?.[1] ?? null;
+};
+const privatePosixPathPattern = /(?:^|[\s"'=/])(?:\/Users\/|\/home\/|\/root\/|\/tmp\/|\/private\/tmp\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/i;
+const encodedPrivatePosixPathPattern = /(?:^|[\s"'=/:])(?:%2fUsers%2f|%2fhome%2f|%2froot%2f|%2ftmp%2f|%2fprivate%2ftmp%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/i;
+const windowsPrivatePathPattern = /[A-Za-z]:(?:\\|\/)(?:Users|Documents and Settings)(?:\\|\/)[^\r\n"']+/i;
+const privatePosixPathReplacePattern = /(?:\/Users\/|\/home\/|\/root\/|\/tmp\/|\/private\/tmp\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\r\n"']+/gi;
+const encodedPrivatePosixPathReplacePattern = /(?:%2fUsers%2f|%2fhome%2f|%2froot%2f|%2ftmp%2f|%2fprivate%2ftmp%2f|%2fprivate%2fvar%2f|%2fvar%2ffolders%2f|%2fVolumes%2f)[^\r\n"']+/gi;
+const windowsPrivatePathReplacePattern = /[A-Za-z]:(?:\\|\/)(?:Users|Documents and Settings)(?:\\|\/)[^\r\n"']+/gi;
+const hasPrivatePath = (value) => privatePosixPathPattern.test(value) ||
+    encodedPrivatePosixPathPattern.test(value) ||
+    windowsPrivatePathPattern.test(value);
+const pathRedactionKind = (path) => {
+    if (path.endsWith(".profile_ref") || path.includes("profile")) {
+        return "profile";
+    }
+    if (path.includes("source_media_ref")) {
+        return "source_media";
+    }
+    return "private";
+};
+const secretHeaderReplacePatterns = [
+    /\b((?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+)(?!\s*<redacted:token>(?=$|[\s"',;)&#]))[^\s"',;)]+/gi,
+    /\b((?:authorization|proxy-authorization)\s*[:=])(?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=$|[\s"',;)&#]))(\s*)[^\s"',;)]+/gi,
+    /\b((?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\s"',;)]+/gi,
+    /\b(set-cookie\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\r\n"']+/gi,
+    /(?<!-)\b(cookie\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\r\n"']+/gi
+];
+const secretHeaderDetectPatterns = [
+    /\b(?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic|digest|token)\s+(?!\s*<redacted:token>(?=$|[\s"',;)&#]))[^\s"',;)]+/i,
+    /\b(?:authorization|proxy-authorization)\s*[:=](?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)]+/i,
+    /\b(?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)]+/i,
+    /\bset-cookie\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\r\n"']+/i,
+    /(?<!-)\bcookie\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\r\n"']+/i
+];
+const quotedSecretHeaderReplacePatterns = [
+    /(["'](?:authorization|proxy-authorization)["']\s*:\s*["']\s*(?:bearer|basic|digest|token)\s+)(?!<redacted:token>(?=["']))[^"']+(["'])/gi,
+    /(["'](?:authorization|proxy-authorization)["']\s*:\s*["'])(?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=["']))\s*[^"']+(["'])/gi,
+    /(["'](?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)["']\s*:\s*["']\s*)(?!<redacted:token>(?=["']))[^"']+(["'])/gi,
+    /(["'](?:set-cookie|cookie)["']\s*:\s*["']\s*)(?!<redacted:token>(?=["']))[^"']+(["'])/gi
+];
+const quotedSecretHeaderDetectPatterns = [
+    /["'](?:authorization|proxy-authorization)["']\s*:\s*["']\s*(?:bearer|basic|digest|token)\s+(?!<redacted:token>(?=["']))[^"']+["']/i,
+    /["'](?:authorization|proxy-authorization)["']\s*:\s*["'](?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=["']))\s*[^"']+["']/i,
+    /["'](?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)["']\s*:\s*["'](?!\s*<redacted:token>(?=["']))\s*[^"']+["']/i,
+    /["'](?:set-cookie|cookie)["']\s*:\s*["'](?!\s*<redacted:token>(?=["']))\s*[^"']+["']/i
+];
+const tokenSuffixBoundaryFieldPattern = "(?:(?:status|status_code|code|method|ok|success|duration|elapsed|retry|attempt|trace_id|request_id|run_id|timestamp|ts)\\s*[:=]|(?:authorization|proxy-authorization|x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token|xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]|(?:set-cookie|cookie)\\s*:)";
+const redactedTokenSuffixReplacePatterns = [
+    new RegExp(`\\b((?:authorization|proxy-authorization)\\s*[:=]\\s*(?:bearer|basic|digest|token)\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`, "gi"),
+    new RegExp(`\\b((?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\\s*[:=]\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`, "gi"),
+    new RegExp(`\\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)&#]+`, "gi"),
+    /\b((?:set-cookie|cookie)\s*[:=]\s*)<redacted:token>(?:\s*;(?!\s*(?:httponly|secure|samesite|path|domain|expires|max-age)\b)\s*[^;\r\n"']+)+/gi
+];
+const redactedTokenSuffixDetectPatterns = [
+    new RegExp(`\\b(?:authorization|proxy-authorization)\\s*[:=]\\s*(?:bearer|basic|digest|token)\\s*<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`, "i"),
+    new RegExp(`\\b(?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)\\s*[:=]\\s*<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`, "i"),
+    new RegExp(`\\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]\\s*<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)&#]+`, "i"),
+    /\b(?:set-cookie|cookie)\s*[:=]\s*<redacted:token>(?:\s*;(?!\s*(?:httponly|secure|samesite|path|domain|expires|max-age)\b)\s*[^;\r\n"']+)+/i
+];
+const secretKeyValuePattern = /\b((?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=])(?!(?:\s*<redacted:token>(?=$|[\s"',;)&#])))(\s*)[^\s"',;)&#]+/gi;
+const secretKeyValueDetectPattern = /\b(?:xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\s"',;)&#]+/i;
+const genericSecretKeyPattern = "xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password|auth|x-amz-signature|x-amz-credential|x-amz-security-token|ossaccesskeyid|awsaccesskeyid|signature";
+const quotedGenericSecretKeyValuePattern = new RegExp(`(["'](?:${genericSecretKeyPattern})["']\\s*:\\s*["'])(?!<redacted:token>(?=["']))[^"']+(["'])`, "gi");
+const unquotedGenericSecretKeyValuePattern = new RegExp(`(["'](?:${genericSecretKeyPattern})["']\\s*:\\s*)(?!<redacted:token>(?=$|[,}\\]\\s]))[^,}\\]\\s"']+`, "gi");
+const quotedGenericSecretKeyValueDetectPattern = new RegExp(`["'](?:${genericSecretKeyPattern})["']\\s*:\\s*["'](?!<redacted:token>(?=["']))[^"']+["']`, "i");
+const unquotedGenericSecretKeyValueDetectPattern = new RegExp(`["'](?:${genericSecretKeyPattern})["']\\s*:\\s*(?!<redacted:token>(?=$|[,}\\]\\s]))[^,}\\]\\s"']+`, "i");
+const secretQueryKeyPattern = "xsec(?:_|%5f)token|token|access(?:_|%5f)token|refresh(?:_|%5f)token|id(?:_|%5f)token|api(?:_|%5f)key|client(?:_|%5f)secret|client(?:_|%5f)assertion|secret|password|cookie|auth|authorization|x(?:-|%2d)amz(?:-|%2d)signature|x(?:-|%2d)amz(?:-|%2d)credential|x(?:-|%2d)amz(?:-|%2d)security(?:-|%2d)token|ossaccesskeyid|awsaccesskeyid|signature";
+const secretQueryPattern = new RegExp(`((?:[?&]|&amp;)(?:${secretQueryKeyPattern})=)[^&#\\s"']+`, "gi");
+const secretQueryDetectPattern = new RegExp(`(?:[?&]|&amp;)(?:${secretQueryKeyPattern})=((?!<redacted:)[^&#\\s"']+)`, "i");
+const seedSecretKeyPattern = "fingerprint[-_ ]?seed|main[-_ ]?world[-_ ]?secret|bootstrap[-_ ]?secret|seed";
+const seedSecretPattern = new RegExp(`\\b(?:${seedSecretKeyPattern})\\s*[:=]\\s*[^\\s"',)]+`, "gi");
+const seedSecretDetectPattern = new RegExp(`\\b(?:${seedSecretKeyPattern})\\s*[:=]\\s*[^\\s"',)]+`, "i");
+const accountIdentifierKeyValuePattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/gi;
+const accountIdentifierKeyValueDetectPattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/i;
+const quotedAccountIdentifierKeyValuePattern = /(["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*["'])(?!<redacted:account_identifier>(?=["']))[^"']+(["'])/gi;
+const quotedAccountIdentifierKeyValueDetectPattern = /["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*["'](?!<redacted:account_identifier>(?=["']))[^"']+["']/i;
+const unquotedAccountIdentifierKeyValuePattern = /(["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*)(?!<redacted:account_identifier>(?=$|[,}\]\s]))[^,}\]\s"']+/gi;
+const unquotedAccountIdentifierKeyValueDetectPattern = /["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*(?!<redacted:account_identifier>(?=$|[,}\]\s]))[^,}\]\s"']+/i;
+const freeTextPhonePattern = /(^|[^\w+])(\+\d[\d .()-]{7,}\d)(?=$|[^\d])/gi;
+const freeTextPhoneDetectPattern = /(^|[^\w+])\+\d[\d .()-]{7,}\d(?=$|[^\d])/i;
+const freeTextAccountIdentifierPattern = /\b((?:account|account\s+id|account\s+identifier|user|user\s+id|uid|username|tenant|workspace|organization)\s+)([A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*|[A-Za-z0-9_-]*\d[A-Za-z][A-Za-z0-9_-]*)(?=$|[\s"',;)])/gi;
+const freeTextAccountIdentifierDetectPattern = /\b(?:account|account\s+id|account\s+identifier|user|user\s+id|uid|username|tenant|workspace|organization)\s+(?:[A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*|[A-Za-z0-9_-]*\d[A-Za-z][A-Za-z0-9_-]*)(?=$|[\s"',;)])/i;
+const redactStringValue = (value, pathParts) => {
+    const path = pathParts.join(".");
+    if (alreadyRedacted(value)) {
+        return { value, findings: [] };
+    }
+    const placeholderContent = unsafeRedactedPlaceholderContent(value);
+    if (placeholderContent !== null) {
+        const contentResult = redactStringValue(placeholderContent, pathParts);
+        if (contentResult.findings.length > 0) {
+            return contentResult;
+        }
+    }
+    const findings = [];
+    let redacted = value;
+    const addFinding = (sensitivity, locator_kind, replacement) => {
+        findings.push({
+            path,
+            sensitivity,
+            locator_kind,
+            redaction_state: "redacted",
+            replacement
+        });
+    };
+    if (path.endsWith(".profile_ref")) {
+        redacted = opaqueRedactionRef("profile-ref", redacted);
+        addFinding("sensitive", "private_locator", redacted);
+        return { value: redacted, findings };
+    }
+    const proxyCredentialPattern = /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/gi;
+    if (proxyCredentialPattern.test(redacted)) {
+        redacted = redacted.replace(proxyCredentialPattern, "<redacted:proxy_credential>");
+        addFinding("secret", "secret_handle", "<redacted:proxy_credential>");
+    }
+    const queryRedacted = redacted.replace(secretQueryPattern, "$1<redacted:token>");
+    if (queryRedacted !== redacted) {
+        redacted = queryRedacted;
+        addFinding("secret", "secret_handle", "<redacted:token>");
+    }
+    for (const pattern of redactedTokenSuffixReplacePatterns) {
+        const nextRedacted = redacted.replace(pattern, "$1<redacted:token>");
+        if (nextRedacted !== redacted) {
+            redacted = nextRedacted;
+            addFinding("secret", "secret_handle", "<redacted:token>");
+        }
+    }
+    const keyValueRedacted = redacted.replace(secretKeyValuePattern, "$1$2<redacted:token>");
+    if (keyValueRedacted !== redacted) {
+        redacted = keyValueRedacted;
+        addFinding("secret", "secret_handle", "<redacted:token>");
+    }
+    for (const pattern of secretHeaderReplacePatterns) {
+        const nextRedacted = redacted.replace(pattern, (...match) => {
+            const prefix = String(match[1]);
+            const separator = typeof match[2] === "string" ? match[2] : "";
+            return `${prefix}${separator}<redacted:token>`;
+        });
+        if (nextRedacted !== redacted) {
+            redacted = nextRedacted;
+            addFinding("secret", "secret_handle", "<redacted:token>");
+        }
+    }
+    for (const pattern of quotedSecretHeaderReplacePatterns) {
+        const nextRedacted = redacted.replace(pattern, "$1<redacted:token>$2");
+        if (nextRedacted !== redacted) {
+            redacted = nextRedacted;
+            addFinding("secret", "secret_handle", "<redacted:token>");
+        }
+    }
+    const quotedGenericSecretRedacted = redacted.replace(quotedGenericSecretKeyValuePattern, "$1<redacted:token>$2");
+    if (quotedGenericSecretRedacted !== redacted) {
+        redacted = quotedGenericSecretRedacted;
+        addFinding("secret", "secret_handle", "<redacted:token>");
+    }
+    const unquotedGenericSecretRedacted = redacted.replace(unquotedGenericSecretKeyValuePattern, "$1<redacted:token>");
+    if (unquotedGenericSecretRedacted !== redacted) {
+        redacted = unquotedGenericSecretRedacted;
+        addFinding("secret", "secret_handle", "<redacted:token>");
+    }
+    if (seedSecretDetectPattern.test(redacted)) {
+        redacted = redacted.replace(seedSecretPattern, "<redacted:fingerprint_seed>");
+        addFinding("secret", "secret_handle", "<redacted:fingerprint_seed>");
+    }
+    if (hasPrivatePath(redacted)) {
+        const replacement = `<redacted:path:${pathRedactionKind(path)}>`;
+        redacted = redacted
+            .replace(privatePosixPathReplacePattern, replacement)
+            .replace(encodedPrivatePosixPathReplacePattern, replacement)
+            .replace(windowsPrivatePathReplacePattern, replacement);
+        addFinding("sensitive", "private_locator", replacement);
+    }
+    const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+    if (emailPattern.test(redacted)) {
+        redacted = redacted.replace(emailPattern, "<redacted:account_identifier>");
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    if (accountIdentifierKeyValueDetectPattern.test(redacted)) {
+        redacted = redacted.replace(accountIdentifierKeyValuePattern, "<redacted:account_identifier>");
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    const quotedAccountIdentifierRedacted = redacted.replace(quotedAccountIdentifierKeyValuePattern, "$1<redacted:account_identifier>$2");
+    if (quotedAccountIdentifierRedacted !== redacted) {
+        redacted = quotedAccountIdentifierRedacted;
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    const unquotedAccountIdentifierRedacted = redacted.replace(unquotedAccountIdentifierKeyValuePattern, "$1<redacted:account_identifier>");
+    if (unquotedAccountIdentifierRedacted !== redacted) {
+        redacted = unquotedAccountIdentifierRedacted;
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    if (freeTextPhoneDetectPattern.test(redacted)) {
+        redacted = redacted.replace(freeTextPhonePattern, "$1<redacted:account_identifier>");
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    if (freeTextAccountIdentifierDetectPattern.test(redacted)) {
+        redacted = redacted.replace(freeTextAccountIdentifierPattern, "$1<redacted:account_identifier>");
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    return { value: redacted, findings };
+};
+const redactEvidenceValue = (value, pathParts, findings) => {
+    if (typeof value === "string") {
+        const result = redactStringValue(value, pathParts);
+        findings.push(...result.findings);
+        return result.value;
+    }
+    if (Array.isArray(value)) {
+        return value.map((item, index) => redactEvidenceValue(item, [...pathParts, String(index)], findings));
+    }
+    if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+            key,
+            redactEvidenceValue(item, [...pathParts, key], findings)
+        ]));
+    }
+    return value;
+};
+const hasUnredactedSensitiveString = (value) => {
+    if (typeof value === "string") {
+        if (alreadyRedacted(value)) {
+            return false;
+        }
+        const valueToInspect = unsafeRedactedPlaceholderContent(value) ?? value;
+        return (hasPrivatePath(valueToInspect) ||
+            /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(valueToInspect) ||
+            seedSecretDetectPattern.test(valueToInspect) ||
+            secretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
+            quotedSecretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
+            redactedTokenSuffixDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
+            secretQueryDetectPattern.test(valueToInspect) ||
+            secretKeyValueDetectPattern.test(valueToInspect) ||
+            quotedGenericSecretKeyValueDetectPattern.test(valueToInspect) ||
+            unquotedGenericSecretKeyValueDetectPattern.test(valueToInspect) ||
+            /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(valueToInspect) ||
+            accountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
+            quotedAccountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
+            unquotedAccountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
+            freeTextPhoneDetectPattern.test(valueToInspect) ||
+            freeTextAccountIdentifierDetectPattern.test(valueToInspect));
+    }
+    if (Array.isArray(value)) {
+        return value.some(hasUnredactedSensitiveString);
+    }
+    if (value && typeof value === "object") {
+        return Object.values(value).some(hasUnredactedSensitiveString);
+    }
+    return false;
+};
+export const redactFr0032LiveWriteEvidence = (input) => {
+    const findings = [];
+    const evidence = redactEvidenceValue(input, ["live_write_evidence"], findings);
+    const redaction_state = hasUnredactedSensitiveString(evidence)
+        ? "invalid"
+        : findings.length > 0
+            ? "redacted"
+            : "not_required";
+    return {
+        evidence: evidence,
+        redaction_state,
+        redacted_field_count: new Set(findings.map((finding) => finding.path)).size,
+        findings
+    };
+};
 const pushBlocker = (blockers, blocker_code, message) => {
     if (blockers.some((blocker) => blocker.blocker_code === blocker_code)) {
         return;
@@ -60,8 +336,13 @@ const deriveAttemptState = (input) => {
     return "initialized";
 };
 export const evaluateFr0032LiveWriteEvidence = (input) => {
+    const redaction = redactFr0032LiveWriteEvidence(input);
+    const redactedInput = redaction.evidence;
     const blockers = [];
     const riskSignals = input.risk_signals ?? [];
+    if (redaction.redaction_state === "invalid") {
+        pushBlocker(blockers, "REDACTION_INVALID", "live-write evidence contains unredacted sensitive or secret-bearing values");
+    }
     if (!entryGatePassed(input.entry_gate)) {
         pushBlocker(blockers, "ENTRY_GATE_NOT_GO", "fresh FR-0032 entry gate GO is required");
     }
@@ -103,6 +384,12 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
     const residualRecord = inputResidualRecord ?? cleanupResidualRecord;
     const cleanupResultId = cleanupResult?.cleanup_result_id ?? null;
     const residualRecordId = residualRecord?.residual_record_id ?? null;
+    const redactedCleanupResult = redactedInput.cleanup_result;
+    const redactedInputResidualRecord = redactedInput.residual_record ?? null;
+    const redactedCleanupResidualRecord = redactedCleanupResult?.residual_record ?? null;
+    const redactedResidualRecord = inputResidualRecord !== null ? redactedInputResidualRecord : redactedCleanupResidualRecord;
+    const outputCleanupResultId = redactedCleanupResult?.cleanup_result_id ?? null;
+    const outputResidualRecordId = redactedResidualRecord?.residual_record_id ?? null;
     const residualRecordMismatch = inputResidualRecord !== null &&
         cleanupResidualRecord !== null &&
         inputResidualRecord.residual_record_id !== cleanupResidualRecord.residual_record_id;
@@ -124,12 +411,12 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
     const blockingRiskSignalCount = riskSignals.filter((riskSignal) => riskSignal.severity === "blocking").length;
     const submitBlockedByRisk = submitEvidence?.submit_result_state === "blocked_by_risk";
     const stopSignalRequired = hasBlockingRisk || submitBlockedByRisk || noSafeCleanupAction;
-    const stopSignalId = input.stop_signal?.stop_signal_id ?? null;
-    const blockingStopSignalPresent = input.stop_signal?.severity === "blocking";
-    const stopSignalCleanupMismatch = input.stop_signal !== null &&
-        input.stop_signal !== undefined &&
-        (input.stop_signal.cleanup_result_id !== cleanupResultId ||
-            input.stop_signal.residual_record_id !== residualRecordId);
+    const stopSignal = input.stop_signal ?? null;
+    const outputStopSignalId = redactedInput.stop_signal?.stop_signal_id ?? null;
+    const blockingStopSignalPresent = stopSignal?.severity === "blocking";
+    const stopSignalCleanupMismatch = stopSignal !== null &&
+        (stopSignal.cleanup_result_id !== cleanupResultId ||
+            stopSignal.residual_record_id !== residualRecordId);
     const stopSignalSatisfied = !stopSignalCleanupMismatch && (!stopSignalRequired || blockingStopSignalPresent);
     if (hasBlockingRisk) {
         pushBlocker(blockers, "RISK_SIGNAL_BLOCKING", "blocking risk signal stops live write");
@@ -148,7 +435,7 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
     const laterWriteActionsBlocked = hasBlockingRisk ||
         submitBlockedByRisk ||
         noSafeCleanupAction ||
-        (input.stop_signal?.severity === "blocking" && input.stop_signal.later_write_actions_blocked);
+        (stopSignal?.severity === "blocking" && stopSignal.later_write_actions_blocked);
     const cleanupRequired = uploadSuccess || submitSuccess || publishIdentity !== null || hasBlockingRisk;
     const submitGateOpen = blockers.length === 0 && uploadSuccess && !laterWriteActionsBlocked;
     const publishGateOpen = submitGateOpen && submitSuccess && !laterWriteActionsBlocked;
@@ -185,15 +472,18 @@ export const evaluateFr0032LiveWriteEvidence = (input) => {
         full_live_write_success: fullLiveWriteSuccess,
         later_write_actions_blocked: laterWriteActionsBlocked,
         cleanup_required: cleanupRequired,
-        cleanup_result_id: cleanupResultId,
-        residual_record_id: residualRecordId,
+        cleanup_result_id: outputCleanupResultId,
+        residual_record_id: outputResidualRecordId,
         residual_record_required: residualRecordRequired,
         risk_signal_present: riskSignalPresent,
         blocking_risk_signal_count: blockingRiskSignalCount,
-        stop_signal_id: stopSignalId,
-        stop_signal_present: input.stop_signal !== null && input.stop_signal !== undefined,
+        stop_signal_id: outputStopSignalId,
+        stop_signal_present: stopSignal !== null,
         stop_signal_required: stopSignalRequired,
         stop_signal_satisfied: stopSignalSatisfied,
+        redaction_state: redaction.redaction_state,
+        redacted_field_count: redaction.redacted_field_count,
+        redaction_findings: redaction.findings,
         blockers
     };
 };
