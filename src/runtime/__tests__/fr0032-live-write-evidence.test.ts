@@ -647,6 +647,110 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).toContain("<redacted:path:private>");
   });
 
+  it("fully redacts private and source media paths that contain spaces", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "/Users/alice/Pictures/Private Album/seed image.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "/Users/alice/Library/Application Support/WebEnvoy/proof file.json"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/encoded-spaced-path",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref:
+          "artifact_ref=file:%2FUsers%2Falice%2FLibrary%2FApplication%20Support%2FWebEnvoy%2Fproof%20file.json"
+      },
+      {
+        risk_signal_id: "risk/fr-0032/run-846/windows-spaced-path",
+        detected_at: "2026-05-28T00:02:13.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "C:\\Users\\alice\\Pictures\\Private Album\\seed image.png"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serialized).not.toContain("/Users/alice");
+    expect(serialized).not.toContain("Application Support");
+    expect(serialized).not.toContain("Support/WebEnvoy");
+    expect(serialized).not.toContain("proof file.json");
+    expect(serialized).not.toContain("Private Album");
+    expect(serialized).not.toContain("seed image.png");
+    expect(serialized).not.toContain("Application%20Support");
+    expect(serialized).not.toContain("proof%20file.json");
+    expect(serialized).not.toContain("C:\\Users\\alice");
+    expect(serialized).toContain("<redacted:path:source_media>");
+    expect(serialized).toContain("<redacted:path:private>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.upload_artifact_identity.source_media_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator",
+          replacement: "<redacted:path:source_media>"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator",
+          replacement: "<redacted:path:private>"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator",
+          replacement: "<redacted:path:private>"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.1.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator",
+          replacement: "<redacted:path:private>"
+        })
+      ])
+    );
+  });
+
+  it("evaluates spaced private paths through default redaction without leaking suffixes", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "/Users/alice/Pictures/Private Album/seed image.png"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "/Users/alice/Library/Application Support/WebEnvoy/proof file.json"
+    };
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedFindings = JSON.stringify(evaluation.redaction_findings);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedFindings).not.toContain("Application Support");
+    expect(serializedFindings).not.toContain("Support/WebEnvoy");
+    expect(serializedFindings).not.toContain("proof file.json");
+    expect(serializedFindings).not.toContain("Private Album");
+    expect(serializedFindings).not.toContain("seed image.png");
+    expect(serializedFindings).toContain("<redacted:path:source_media>");
+    expect(serializedFindings).toContain("<redacted:path:private>");
+  });
+
   it("redacts sensitive content hidden inside unsafe redacted placeholders", () => {
     const input = baseInput();
     input.upload_artifact_identity = {
