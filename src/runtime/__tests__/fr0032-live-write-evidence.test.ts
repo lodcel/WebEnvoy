@@ -647,6 +647,108 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).toContain("<redacted:path:private>");
   });
 
+  it("redacts sensitive content hidden inside unsafe redacted placeholders", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "<redacted:/Users/example/Pictures/private-live-write-seed.png>"
+    };
+    input.cleanup_result = {
+      ...baseCleanup(input.publish_result_identity),
+      proof_locator: "<redacted:/home/example/webenvoy/artifacts/live-write/proof.json>"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/disguised-proxy",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "<redacted:proxy://user:password@proxy.example.invalid:8080>"
+      },
+      {
+        risk_signal_id: "risk/fr-0032/run-846/disguised-account",
+        detected_at: "2026-05-28T00:02:13.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "<redacted:operator@example.com account_id=xhs-raw-001>"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(4);
+    expect(serialized).not.toContain("/Users/example");
+    expect(serialized).not.toContain("/home/example");
+    expect(serialized).not.toContain("user:password");
+    expect(serialized).not.toContain("operator@example.com");
+    expect(serialized).not.toContain("xhs-raw-001");
+    expect(serialized).toContain("<redacted:path:source_media>");
+    expect(serialized).toContain("<redacted:path:private>");
+    expect(serialized).toContain("<redacted:proxy_credential>");
+    expect(serialized).toContain("<redacted:account_identifier>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.upload_artifact_identity.source_media_ref",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.cleanup_result.proof_locator",
+          sensitivity: "sensitive",
+          locator_kind: "private_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.1.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator"
+        })
+      ])
+    );
+  });
+
+  it("evaluates unsafe redacted placeholders through default redaction", () => {
+    const input = baseInput();
+    input.upload_artifact_identity = {
+      ...input.upload_artifact_identity!,
+      source_media_ref: "<redacted:/Users/example/Pictures/private-live-write-seed.png>"
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/disguised-proxy",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref: "<redacted:proxy://user:password@proxy.example.invalid:8080>"
+      }
+    ];
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedFindings = JSON.stringify(evaluation.redaction_findings);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(evaluation.redacted_field_count).toBeGreaterThanOrEqual(2);
+    expect(serializedFindings).not.toContain("/Users/example");
+    expect(serializedFindings).not.toContain("user:password");
+    expect(serializedFindings).toContain("<redacted:path:source_media>");
+    expect(serializedFindings).toContain("<redacted:proxy_credential>");
+  });
+
   it("passes a full upload, submit, publish, evidence and cleanup success candidate", () => {
     expect(evaluateFr0032LiveWriteEvidence(baseInput())).toMatchObject({
       decision: "PASS",

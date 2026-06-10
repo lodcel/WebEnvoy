@@ -292,8 +292,19 @@ const opaqueRedactionRef = (kind: string, value: string): string => {
   return `${kind}:redacted:${digest}`;
 };
 
+const safeRedactedPlaceholderPattern =
+  /^<redacted:(?:proxy_credential|token|fingerprint_seed|account_identifier|path:(?:profile|source_media|private))>$/;
+const redactedPlaceholderPattern = /^<redacted:([^>]+)>$/;
+
 const alreadyRedacted = (value: string): boolean =>
-  /^<redacted:[^>]+>$/.test(value) || /^[a-z-]+:redacted:[a-f0-9]{16}$/.test(value);
+  safeRedactedPlaceholderPattern.test(value) || /^[a-z-]+:redacted:[a-f0-9]{16}$/.test(value);
+
+const unsafeRedactedPlaceholderContent = (value: string): string | null => {
+  if (alreadyRedacted(value)) {
+    return null;
+  }
+  return redactedPlaceholderPattern.exec(value)?.[1] ?? null;
+};
 
 const privatePosixPathPattern =
   /(?:^|[\s"'=/])(?:\/Users\/|\/home\/|\/private\/var\/|\/var\/folders\/|\/Volumes\/)[^\s"']+/i;
@@ -330,6 +341,13 @@ const redactStringValue = (
   const path = pathParts.join(".");
   if (alreadyRedacted(value)) {
     return { value, findings: [] };
+  }
+  const placeholderContent = unsafeRedactedPlaceholderContent(value);
+  if (placeholderContent !== null) {
+    const contentResult = redactStringValue(placeholderContent, pathParts);
+    if (contentResult.findings.length > 0) {
+      return contentResult;
+    }
   }
 
   const findings: Fr0032LiveWriteEvidenceRedactionFinding[] = [];
@@ -425,16 +443,24 @@ const redactEvidenceValue = (
 
 const hasUnredactedSensitiveString = (value: unknown): boolean => {
   if (typeof value === "string") {
+    if (alreadyRedacted(value)) {
+      return false;
+    }
+    const valueToInspect = unsafeRedactedPlaceholderContent(value) ?? value;
+
     return (
-      !alreadyRedacted(value) &&
-      (hasPrivatePath(value) ||
-        /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(value) ||
-        /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(
-          value
-        ) ||
-        /[?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=((?!<redacted:)[^&#\s"']+)/i.test(
-          value
-        ))
+      hasPrivatePath(valueToInspect) ||
+      /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(valueToInspect) ||
+      /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(
+        valueToInspect
+      ) ||
+      /[?&](?:xsec_token|token|access_token|refresh_token|api_key|secret|password|cookie|auth|authorization)=((?!<redacted:)[^&#\s"']+)/i.test(
+        valueToInspect
+      ) ||
+      /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(valueToInspect) ||
+      /\b(?:account|account_id|user_id|uid|username|phone|mobile|tenant_id|workspace_id|organization_id)[:=][^\s"',)]+/i.test(
+        valueToInspect
+      )
     );
   }
   if (Array.isArray(value)) {
