@@ -119,3 +119,5 @@ mappings:
     canonical_issue_number: 1156
   - spec_path: docs/dev/specs/FR-0060-cloakbrowser-docker-xvfb-doctor/spec.md
     canonical_issue_number: 1157
+  - spec_path: docs/dev/specs/FR-0061-xhs-driver-contract/spec.md
+    canonical_issue_number: 1158
