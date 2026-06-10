@@ -441,6 +441,17 @@ const secretQueryDetectPattern = new RegExp(
   "i"
 );
 
+const seedSecretKeyPattern =
+  "fingerprint[-_ ]?seed|main[-_ ]?world[-_ ]?secret|bootstrap[-_ ]?secret|seed";
+const seedSecretPattern = new RegExp(
+  `\\b(?:${seedSecretKeyPattern})\\s*[:=]\\s*[^\\s"',)]+`,
+  "gi"
+);
+const seedSecretDetectPattern = new RegExp(
+  `\\b(?:${seedSecretKeyPattern})\\s*[:=]\\s*[^\\s"',)]+`,
+  "i"
+);
+
 const accountIdentifierKeyValuePattern =
   /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/gi;
 
@@ -570,10 +581,8 @@ const redactStringValue = (
     addFinding("secret", "secret_handle", "<redacted:token>");
   }
 
-  const seedPattern =
-    /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/gi;
-  if (seedPattern.test(redacted)) {
-    redacted = redacted.replace(seedPattern, "<redacted:fingerprint_seed>");
+  if (seedSecretDetectPattern.test(redacted)) {
+    redacted = redacted.replace(seedSecretPattern, "<redacted:fingerprint_seed>");
     addFinding("secret", "secret_handle", "<redacted:fingerprint_seed>");
   }
 
@@ -665,9 +674,7 @@ const hasUnredactedSensitiveString = (value: unknown): boolean => {
     return (
       hasPrivatePath(valueToInspect) ||
       /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(valueToInspect) ||
-      /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(
-        valueToInspect
-      ) ||
+      seedSecretDetectPattern.test(valueToInspect) ||
       secretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
       quotedSecretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
       redactedTokenSuffixDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||

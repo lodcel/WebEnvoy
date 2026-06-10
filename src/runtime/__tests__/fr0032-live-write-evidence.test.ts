@@ -606,6 +606,59 @@ describe("FR-0032 live write evidence evaluator", () => {
     );
   });
 
+  it("redacts seed and runtime-secret key-value forms with spaced separators", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message:
+        "fingerprint_seed = raw-seed-001 main_world_secret = raw-main-secret bootstrap_secret : raw-bootstrap-secret seed= raw-seed-002"
+    };
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(serialized).not.toContain("raw-seed-001");
+    expect(serialized).not.toContain("raw-main-secret");
+    expect(serialized).not.toContain("raw-bootstrap-secret");
+    expect(serialized).not.toContain("raw-seed-002");
+    expect(serialized).toContain("<redacted:fingerprint_seed>");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "secret",
+          locator_kind: "secret_handle",
+          replacement: "<redacted:fingerprint_seed>"
+        })
+      ])
+    );
+  });
+
+  it("evaluates spaced seed and runtime-secret forms without leaking raw values", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message: "fingerprint_seed = raw-seed-001 main_world_secret = raw-main-secret"
+    };
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("raw-seed-001");
+    expect(serializedEvaluation).not.toContain("raw-main-secret");
+    expect(serializedEvaluation).toContain("<redacted:fingerprint_seed>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
   it("redacts free-text phone and account identifiers by default", () => {
     const input = baseInput();
     input.publish_result_identity = {
