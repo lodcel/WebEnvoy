@@ -101,6 +101,7 @@
 
 - FR-0067 spec review 通过。
 - Reviewer 确认 extension/native bridge state 是 explicit scoped result，不可由 #835 closed state、doctor pass、descriptor refs、runtime ping、bootstrap ack、service worker wake signal、stub/fake host 或 hosted checks 推断。
+- Reviewer 确认 contract input can express `write_admit`, and `write_admit` remains classification/admission-only rather than `write_prepare` or `live_write_commit` readiness.
 - Reviewer 确认 `write_prepare` and `live_write_commit` admission require scoped bridge `state=ready` in addition to other gate lanes。
 - Reviewer 确认 extension smoke and native bridge readiness are both required。
 - Reviewer 确认 unknown / blocked / stale / redaction_invalid / requires_recovery fail closed。

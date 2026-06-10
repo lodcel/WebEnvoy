@@ -163,7 +163,7 @@ Rules:
 ```ts
 interface ExtensionNativeBridgeGateInputV1 {
   schema_version: "extension-native-bridge-gate.v1";
-  requested_capability_level: "write_prepare" | "live_write_commit";
+  requested_capability_level: "write_admit" | "write_prepare" | "live_write_commit";
   requested_scope: ExtensionNativeBridgeScopeV1;
   bridge_state_record: ExtensionNativeBridgeStateRecordV1 | null;
   evaluated_at: string;
@@ -175,6 +175,7 @@ Rules:
 - Missing `bridge_state_record` returns `gate_status=unknown`, `decision=deny`.
 - Any requested scope mismatch returns `gate_status=blocked`, `decision=deny`.
 - Stale `checked_at` / `expires_at` returns `gate_status=stale`, `decision=deny`.
+- `write_admit` requests are classification/admission-only. They may ask whether extension/native bridge readiness exists for the exact scope, but their result must not be promoted into `write_prepare` or `live_write_commit` unless a downstream owner reconsumes a current exact-scope `ready` result with all required gates.
 
 ## Evaluation result
 

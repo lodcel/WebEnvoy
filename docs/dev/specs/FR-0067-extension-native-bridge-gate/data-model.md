@@ -180,10 +180,12 @@ Constraints:
 
 Lifecycle:
 
-1. Evaluator receives a `write_prepare` or `live_write_commit` request.
+1. Evaluator receives a `write_admit`, `write_prepare` or `live_write_commit` request.
 2. It loads the matching bridge state record.
 3. It validates scope, freshness, redaction, extension smoke, native bridge readiness and evidence refs.
 4. It emits result for #1179 / #1180 / #1211 or runtime owner consumption.
+
+`write_admit` consumption is classification/admission-only. It can identify whether the bridge lane is ready for the requested scope, but it cannot itself authorize `write_prepare` or `live_write_commit`.
 
 ## 7. Downstream handoff record
 
