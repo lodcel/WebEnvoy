@@ -3330,16 +3330,40 @@ const xhsReadCommand = async (
   });
   const runtimeBindingSummaryFields =
     toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
-  const initialPageRuntimeReadiness = buildXhsPageRuntimeReadinessForContract({
-    command: context.command,
-    runId: context.run_id,
-    requestedExecutionMode: gate.requestedExecutionMode,
-    runtimeBindingBoundary,
-    providerRequirements,
-    providerAdmissionResult: asObject(gate.options.xhs_provider_admission_result)
+  const toProviderAdmissionReadinessInput = (value: unknown): JsonObject | null => {
+    const providerAdmissionResult = asObject(value);
+    if (!providerAdmissionResult) {
+      return null;
+    }
+    if (
+      Array.isArray(providerAdmissionResult.provider_requirement_refs) ||
+      Array.isArray(providerAdmissionResult.required_provider_requirement_refs)
+    ) {
+      return providerAdmissionResult;
+    }
+    return {
+      ...providerAdmissionResult,
+      provider_requirement_refs: providerRequirements?.provider_requirement_refs ?? []
+    };
+  };
+  const buildPageRuntimeReadinessSummaryFields = (input: {
+    runtimeStatus?: JsonObject | null;
+    providerAdmissionResult?: unknown;
+  }): JsonObject =>
+    toXhsPageRuntimeReadinessSummaryFields(
+      buildXhsPageRuntimeReadinessForContract({
+        command: context.command,
+        runId: context.run_id,
+        requestedExecutionMode: gate.requestedExecutionMode,
+        runtimeBindingBoundary,
+        providerRequirements,
+        runtimeStatus: input.runtimeStatus,
+        providerAdmissionResult: toProviderAdmissionReadinessInput(input.providerAdmissionResult)
+      })
+    );
+  const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
+    providerAdmissionResult: gate.options.xhs_provider_admission_result
   });
-  const initialPageRuntimeReadinessSummaryFields =
-    toXhsPageRuntimeReadinessSummaryFields(initialPageRuntimeReadiness);
   const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
     command: context.command,
     ability: envelope.ability,
@@ -3588,17 +3612,10 @@ const xhsReadCommand = async (
         }
       );
     }
-    const pageRuntimeReadiness = buildXhsPageRuntimeReadinessForContract({
-      command: context.command,
-      runId: context.run_id,
-      requestedExecutionMode: gate.requestedExecutionMode,
-      runtimeBindingBoundary,
-      providerRequirements,
+    const pageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
       runtimeStatus: officialChromeRuntimeStatus,
-      providerAdmissionResult: asObject(gate.options.xhs_provider_admission_result)
+      providerAdmissionResult: gate.options.xhs_provider_admission_result
     });
-    const pageRuntimeReadinessSummaryFields =
-      toXhsPageRuntimeReadinessSummaryFields(pageRuntimeReadiness);
     const bridgeSessionId = await bridge.ensureSession({
       profile: context.profile,
       ...(forwardTimeoutMs ? { timeoutMs: forwardTimeoutMs } : {})
@@ -3884,6 +3901,13 @@ const xhsReadCommand = async (
       bridgeResult.payload,
       "request_admission_result"
     );
+    const canonicalPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
+      runtimeStatus: officialChromeRuntimeStatus,
+      providerAdmissionResult:
+        requestAdmissionResult !== undefined
+          ? requestAdmissionResult
+          : gate.options.xhs_provider_admission_result
+    });
     const executionAudit = pickCanonicalSummaryField(
       bridgeResult.payload,
       "execution_audit"
@@ -3906,7 +3930,7 @@ const xhsReadCommand = async (
     const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
       ...bridgeSummaryForMapping,
       ...runtimeBindingSummaryFields,
-      ...pageRuntimeReadinessSummaryFields,
+      ...canonicalPageRuntimeReadinessSummaryFields,
       session_id: bridgeSessionId,
       requested_execution_mode: gate.requestedExecutionMode,
       ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),

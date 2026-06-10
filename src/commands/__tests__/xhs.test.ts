@@ -8780,6 +8780,13 @@ describe("normalizeGateOptionsForContract", () => {
       );
 
       expect(execution.summary).toMatchObject({
+        xhs_page_runtime_readiness: {
+          provider_admission_readiness: {
+            status: "ready",
+            admission_decision: "allowed",
+            blocking_reasons: []
+          }
+        },
         request_admission_result: {
           admission_decision: "allowed",
           anonymous_isolation_ok: true
@@ -8799,6 +8806,12 @@ describe("normalizeGateOptionsForContract", () => {
           }
         }
       });
+      expect(execution.summary.page_runtime_readiness_blocking_reasons).not.toContain(
+        "provider:provider_admission_result_missing"
+      );
+      expect(execution.summary.page_runtime_readiness_blocking_reasons).not.toContain(
+        "provider:provider_admission_not_allowed"
+      );
     } finally {
       process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
       if (previousBrowserPath === undefined) {

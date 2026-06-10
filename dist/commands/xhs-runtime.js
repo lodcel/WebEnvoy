@@ -2481,15 +2481,32 @@ const xhsReadCommand = async (context, inputConfig) => {
         providerRequirements
     });
     const runtimeBindingSummaryFields = toXhsDriverRuntimeBindingSummaryFields(runtimeBindingBoundary);
-    const initialPageRuntimeReadiness = buildXhsPageRuntimeReadinessForContract({
+    const toProviderAdmissionReadinessInput = (value) => {
+        const providerAdmissionResult = asObject(value);
+        if (!providerAdmissionResult) {
+            return null;
+        }
+        if (Array.isArray(providerAdmissionResult.provider_requirement_refs) ||
+            Array.isArray(providerAdmissionResult.required_provider_requirement_refs)) {
+            return providerAdmissionResult;
+        }
+        return {
+            ...providerAdmissionResult,
+            provider_requirement_refs: providerRequirements?.provider_requirement_refs ?? []
+        };
+    };
+    const buildPageRuntimeReadinessSummaryFields = (input) => toXhsPageRuntimeReadinessSummaryFields(buildXhsPageRuntimeReadinessForContract({
         command: context.command,
         runId: context.run_id,
         requestedExecutionMode: gate.requestedExecutionMode,
         runtimeBindingBoundary,
         providerRequirements,
-        providerAdmissionResult: asObject(gate.options.xhs_provider_admission_result)
+        runtimeStatus: input.runtimeStatus,
+        providerAdmissionResult: toProviderAdmissionReadinessInput(input.providerAdmissionResult)
+    }));
+    const initialPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
+        providerAdmissionResult: gate.options.xhs_provider_admission_result
     });
-    const initialPageRuntimeReadinessSummaryFields = toXhsPageRuntimeReadinessSummaryFields(initialPageRuntimeReadiness);
     const commandAliasDiagnostics = buildXhsCommandAliasDiagnostics({
         command: context.command,
         ability: envelope.ability,
@@ -2705,16 +2722,10 @@ const xhsReadCommand = async (context, inputConfig) => {
                 targetResourceId: resolveBootstrapTargetResourceId(context.command, parsedInput)
             });
         }
-        const pageRuntimeReadiness = buildXhsPageRuntimeReadinessForContract({
-            command: context.command,
-            runId: context.run_id,
-            requestedExecutionMode: gate.requestedExecutionMode,
-            runtimeBindingBoundary,
-            providerRequirements,
+        const pageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
             runtimeStatus: officialChromeRuntimeStatus,
-            providerAdmissionResult: asObject(gate.options.xhs_provider_admission_result)
+            providerAdmissionResult: gate.options.xhs_provider_admission_result
         });
-        const pageRuntimeReadinessSummaryFields = toXhsPageRuntimeReadinessSummaryFields(pageRuntimeReadiness);
         const bridgeSessionId = await bridge.ensureSession({
             profile: context.profile,
             ...(forwardTimeoutMs ? { timeoutMs: forwardTimeoutMs } : {})
@@ -2951,6 +2962,12 @@ const xhsReadCommand = async (context, inputConfig) => {
         }
         const consumerGateResult = asObject(bridgeResult.payload.consumer_gate_result);
         const requestAdmissionResult = pickCanonicalSummaryField(bridgeResult.payload, "request_admission_result");
+        const canonicalPageRuntimeReadinessSummaryFields = buildPageRuntimeReadinessSummaryFields({
+            runtimeStatus: officialChromeRuntimeStatus,
+            providerAdmissionResult: requestAdmissionResult !== undefined
+                ? requestAdmissionResult
+                : gate.options.xhs_provider_admission_result
+        });
         const executionAudit = pickCanonicalSummaryField(bridgeResult.payload, "execution_audit");
         const closeoutEvidenceSummaryFields = mergeXhsCloseoutEvidenceSummaryFieldsForRuntimeContract(bridgeResult.payload, gate.options);
         const mergedBridgeSummary = {
@@ -2967,7 +2984,7 @@ const xhsReadCommand = async (context, inputConfig) => {
         const summary = mapCapabilitySummaryForContract(envelope.ability.id, {
             ...bridgeSummaryForMapping,
             ...runtimeBindingSummaryFields,
-            ...pageRuntimeReadinessSummaryFields,
+            ...canonicalPageRuntimeReadinessSummaryFields,
             session_id: bridgeSessionId,
             requested_execution_mode: gate.requestedExecutionMode,
             ...(closeoutAuditRequired ? { closeout_audit_required: true } : {}),
