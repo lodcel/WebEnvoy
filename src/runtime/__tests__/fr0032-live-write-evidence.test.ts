@@ -1351,6 +1351,97 @@ describe("FR-0032 live write evidence evaluator", () => {
     expect(serializedFindings).toContain("<redacted:token>");
   });
 
+  it("redacts JSON quoted header secrets and account identifiers", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message:
+        '{"Authorization":"Bearer raw-auth-token-001","X-Api-Key":"raw-api-key-001","Cookie":"a1=raw-cookie-001","account_id":"xhs-raw-001"}'
+    };
+    input.risk_signals = [
+      {
+        risk_signal_id: "risk/fr-0032/run-846/quoted-log",
+        detected_at: "2026-05-28T00:02:12.000Z",
+        source: "runtime.audit",
+        kind: "browser_env_abnormal",
+        severity: "warning",
+        details_ref:
+          "{'Set-Cookie':'session=raw-cookie-002','user-id':'user-123','tenant_id':'tenant-007'}"
+      }
+    ];
+
+    const redacted = redactFr0032LiveWriteEvidence(input);
+    const serialized = JSON.stringify(redacted.evidence);
+
+    expect(redacted.redaction_state).toBe("redacted");
+    expect(redacted.redacted_field_count).toBeGreaterThanOrEqual(2);
+    expect(serialized).not.toContain("raw-auth-token-001");
+    expect(serialized).not.toContain("raw-api-key-001");
+    expect(serialized).not.toContain("raw-cookie-001");
+    expect(serialized).not.toContain("raw-cookie-002");
+    expect(serialized).not.toContain("xhs-raw-001");
+    expect(serialized).not.toContain("user-123");
+    expect(serialized).not.toContain("tenant-007");
+    expect(serialized).toContain('\\"Authorization\\":\\"Bearer <redacted:token>\\"');
+    expect(serialized).toContain('\\"X-Api-Key\\":\\"<redacted:token>\\"');
+    expect(serialized).toContain('\\"Cookie\\":\\"<redacted:token>\\"');
+    expect(serialized).toContain('\\"account_id\\":\\"<redacted:account_identifier>\\"');
+    expect(serialized).toContain("'Set-Cookie':'<redacted:token>'");
+    expect(serialized).toContain("'user-id':'<redacted:account_identifier>'");
+    expect(redacted.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.submit_evidence.platform_message",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "secret",
+          locator_kind: "secret_handle"
+        }),
+        expect.objectContaining({
+          path: "live_write_evidence.risk_signals.0.details_ref",
+          sensitivity: "sensitive",
+          locator_kind: "public_locator"
+        })
+      ])
+    );
+  });
+
+  it("evaluates JSON quoted header and account evidence without leaking raw values", () => {
+    const input = baseInput();
+    input.submit_evidence = {
+      ...input.submit_evidence!,
+      platform_message:
+        '{"Authorization":"Bearer raw-auth-token-001","X-Api-Key":"raw-api-key-001","Cookie":"a1=raw-cookie-001","account_id":"xhs-raw-001"}'
+    };
+
+    const evaluation = evaluateFr0032LiveWriteEvidence(input);
+    const serializedEvaluation = JSON.stringify(evaluation);
+
+    expect(evaluation).toMatchObject({
+      decision: "PASS",
+      redaction_state: "redacted",
+      full_live_write_success: true,
+      blockers: []
+    });
+    expect(serializedEvaluation).not.toContain("raw-auth-token-001");
+    expect(serializedEvaluation).not.toContain("raw-api-key-001");
+    expect(serializedEvaluation).not.toContain("raw-cookie-001");
+    expect(serializedEvaluation).not.toContain("xhs-raw-001");
+    expect(serializedEvaluation).toContain("<redacted:token>");
+    expect(serializedEvaluation).toContain("<redacted:account_identifier>");
+    expect(evaluation.blockers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ blocker_code: "REDACTION_INVALID" })])
+    );
+  });
+
   it("redacts free-text token and api-key key-value secrets", () => {
     const input = baseInput();
     input.submit_evidence = {

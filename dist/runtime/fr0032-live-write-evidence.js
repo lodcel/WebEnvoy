@@ -44,6 +44,18 @@ const secretHeaderDetectPatterns = [
     /\bset-cookie\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\r\n"']+/i,
     /(?<!-)\bcookie\s*[:=](?!\s*<redacted:token>(?=$|[\s"',;)&#]))\s*[^\r\n"']+/i
 ];
+const quotedSecretHeaderReplacePatterns = [
+    /(["'](?:authorization|proxy-authorization)["']\s*:\s*["']\s*(?:bearer|basic|digest|token)\s+)(?!<redacted:token>(?=["']))[^"']+(["'])/gi,
+    /(["'](?:authorization|proxy-authorization)["']\s*:\s*["'])(?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=["']))\s*[^"']+(["'])/gi,
+    /(["'](?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)["']\s*:\s*["']\s*)(?!<redacted:token>(?=["']))[^"']+(["'])/gi,
+    /(["'](?:set-cookie|cookie)["']\s*:\s*["']\s*)(?!<redacted:token>(?=["']))[^"']+(["'])/gi
+];
+const quotedSecretHeaderDetectPatterns = [
+    /["'](?:authorization|proxy-authorization)["']\s*:\s*["']\s*(?:bearer|basic|digest|token)\s+(?!<redacted:token>(?=["']))[^"']+["']/i,
+    /["'](?:authorization|proxy-authorization)["']\s*:\s*["'](?!(?:\s*(?:bearer|basic|digest|token)\s+)?\s*<redacted:token>(?=["']))\s*[^"']+["']/i,
+    /["'](?:x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token)["']\s*:\s*["'](?!\s*<redacted:token>(?=["']))\s*[^"']+["']/i,
+    /["'](?:set-cookie|cookie)["']\s*:\s*["'](?!\s*<redacted:token>(?=["']))\s*[^"']+["']/i
+];
 const tokenSuffixBoundaryFieldPattern = "(?:authorization|proxy-authorization|x-api-key|x-api-token|api-key|api-token|x-auth-token|x-access-token|authorization-token|access-token|refresh-token|xsec[-_ ]?token|access[-_ ]?token|refresh[-_ ]?token|api[-_ ]?key|api[-_ ]?token|auth[-_ ]?token|authorization[-_ ]?token|token|secret|password)\\s*[:=]|(?:set-cookie|cookie)\\s*:";
 const redactedTokenSuffixReplacePatterns = [
     new RegExp(`\\b((?:authorization|proxy-authorization)\\s*[:=]\\s*(?:bearer|basic|digest|token)\\s*)<redacted:token>(?:(?!\\s+(?:${tokenSuffixBoundaryFieldPattern}))\\s*)[^\\s"',;)]+`, "gi"),
@@ -64,6 +76,8 @@ const secretQueryPattern = new RegExp(`((?:[?&]|&amp;)(?:${secretQueryKeyPattern
 const secretQueryDetectPattern = new RegExp(`(?:[?&]|&amp;)(?:${secretQueryKeyPattern})=((?!<redacted:)[^&#\\s"']+)`, "i");
 const accountIdentifierKeyValuePattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/gi;
 const accountIdentifierKeyValueDetectPattern = /\b(?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)\s*[:=]\s*[^\s"',)]+/i;
+const quotedAccountIdentifierKeyValuePattern = /(["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*["'])(?!<redacted:account_identifier>(?=["']))[^"']+(["'])/gi;
+const quotedAccountIdentifierKeyValueDetectPattern = /["'](?:account|account[-_ ]?id|user[-_ ]?id|uid|username|phone|mobile|tenant[-_ ]?id|workspace[-_ ]?id|organization[-_ ]?id)["']\s*:\s*["'](?!<redacted:account_identifier>(?=["']))[^"']+["']/i;
 const freeTextPhonePattern = /(^|[^\w+])(\+\d[\d .()-]{7,}\d)(?=$|[^\d])/gi;
 const freeTextPhoneDetectPattern = /(^|[^\w+])\+\d[\d .()-]{7,}\d(?=$|[^\d])/i;
 const freeTextAccountIdentifierPattern = /\b((?:account|account\s+id|account\s+identifier|user|user\s+id|uid|username|tenant|workspace|organization)\s+)([A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*|[A-Za-z0-9_-]*\d[A-Za-z][A-Za-z0-9_-]*)(?=$|[\s"',;)])/gi;
@@ -129,6 +143,13 @@ const redactStringValue = (value, pathParts) => {
             addFinding("secret", "secret_handle", "<redacted:token>");
         }
     }
+    for (const pattern of quotedSecretHeaderReplacePatterns) {
+        const nextRedacted = redacted.replace(pattern, "$1<redacted:token>$2");
+        if (nextRedacted !== redacted) {
+            redacted = nextRedacted;
+            addFinding("secret", "secret_handle", "<redacted:token>");
+        }
+    }
     const seedPattern = /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/gi;
     if (seedPattern.test(redacted)) {
         redacted = redacted.replace(seedPattern, "<redacted:fingerprint_seed>");
@@ -149,6 +170,11 @@ const redactStringValue = (value, pathParts) => {
     }
     if (accountIdentifierKeyValueDetectPattern.test(redacted)) {
         redacted = redacted.replace(accountIdentifierKeyValuePattern, "<redacted:account_identifier>");
+        addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
+    }
+    const quotedAccountIdentifierRedacted = redacted.replace(quotedAccountIdentifierKeyValuePattern, "$1<redacted:account_identifier>$2");
+    if (quotedAccountIdentifierRedacted !== redacted) {
+        redacted = quotedAccountIdentifierRedacted;
         addFinding("sensitive", "public_locator", "<redacted:account_identifier>");
     }
     if (freeTextPhoneDetectPattern.test(redacted)) {
@@ -188,11 +214,13 @@ const hasUnredactedSensitiveString = (value) => {
             /\b(?:https?|socks5?|proxy):\/\/[^/\s:@]+:[^@\s/]+@[^\s"']+/i.test(valueToInspect) ||
             /\b(?:fingerprint[-_ ]?seed|main_world_secret|bootstrap_secret|seed)[:=][^\s"',)]+/i.test(valueToInspect) ||
             secretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
+            quotedSecretHeaderDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
             redactedTokenSuffixDetectPatterns.some((pattern) => pattern.test(valueToInspect)) ||
             secretQueryDetectPattern.test(valueToInspect) ||
             secretKeyValueDetectPattern.test(valueToInspect) ||
             /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(valueToInspect) ||
             accountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
+            quotedAccountIdentifierKeyValueDetectPattern.test(valueToInspect) ||
             freeTextPhoneDetectPattern.test(valueToInspect) ||
             freeTextAccountIdentifierDetectPattern.test(valueToInspect));
     }
