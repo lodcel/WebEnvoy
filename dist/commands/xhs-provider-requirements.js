@@ -40,10 +40,19 @@ const XHS_PROVIDER_REQUIREMENT_NON_PROOFS = [
     "driver_requirement_declaration_does_not_enable_write"
 ];
 const XHS_READ_DOWNSTREAM_SLICE_REFS = ["#1166", "#1167", "#1168"];
-const XHS_READ_COMMAND_REQUIREMENT_REFS = {
-    "xhs.search": "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read",
-    "xhs.detail": "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read",
-    "xhs.user_home": "FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read"
+const XHS_READ_COMMAND_REQUIREMENTS = {
+    "xhs.search": {
+        abilityId: "xhs.note.search.v1",
+        requirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+    },
+    "xhs.detail": {
+        abilityId: "xhs.note.detail.v1",
+        requirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read"
+    },
+    "xhs.user_home": {
+        abilityId: "xhs.user.home.v1",
+        requirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read"
+    }
 };
 const isRuntimeBoundExecutionMode = (requestedExecutionMode) => requestedExecutionMode === "recon" ||
     requestedExecutionMode === "live_read_limited" ||
@@ -81,11 +90,13 @@ const buildDeclaration = (input) => {
     };
 };
 export const declareXhsDriverProviderRequirementsForContract = (input) => {
-    const readRequirementRef = XHS_READ_COMMAND_REQUIREMENT_REFS[input.command];
-    if (readRequirementRef) {
+    const readRequirement = XHS_READ_COMMAND_REQUIREMENTS[input.command];
+    if (readRequirement &&
+        input.ability.action === "read" &&
+        input.ability.id === readRequirement.abilityId) {
         return buildDeclaration({
             declarationId: `xhs-driver-provider-requirements:${input.command}:read:v1`,
-            providerRequirementRef: readRequirementRef,
+            providerRequirementRef: readRequirement.requirementRef,
             command: input.command,
             ability: input.ability,
             requiredRuntimeRequirements: XHS_READ_RUNTIME_REQUIREMENTS,

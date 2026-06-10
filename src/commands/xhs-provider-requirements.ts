@@ -88,10 +88,19 @@ const XHS_PROVIDER_REQUIREMENT_NON_PROOFS = [
 ];
 const XHS_READ_DOWNSTREAM_SLICE_REFS = ["#1166", "#1167", "#1168"];
 
-const XHS_READ_COMMAND_REQUIREMENT_REFS: Record<string, string> = {
-  "xhs.search": "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read",
-  "xhs.detail": "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read",
-  "xhs.user_home": "FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read"
+const XHS_READ_COMMAND_REQUIREMENTS: Record<string, { abilityId: string; requirementRef: string }> = {
+  "xhs.search": {
+    abilityId: "xhs.note.search.v1",
+    requirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+  },
+  "xhs.detail": {
+    abilityId: "xhs.note.detail.v1",
+    requirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read"
+  },
+  "xhs.user_home": {
+    abilityId: "xhs.user.home.v1",
+    requirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read"
+  }
 };
 
 const isRuntimeBoundExecutionMode = (
@@ -158,11 +167,15 @@ export const declareXhsDriverProviderRequirementsForContract = (input: {
   ability: AbilityRef;
   requestedExecutionMode?: XhsExecutionMode | null;
 }): XhsDriverProviderRequirementDeclaration | null => {
-  const readRequirementRef = XHS_READ_COMMAND_REQUIREMENT_REFS[input.command];
-  if (readRequirementRef) {
+  const readRequirement = XHS_READ_COMMAND_REQUIREMENTS[input.command];
+  if (
+    readRequirement &&
+    input.ability.action === "read" &&
+    input.ability.id === readRequirement.abilityId
+  ) {
     return buildDeclaration({
       declarationId: `xhs-driver-provider-requirements:${input.command}:read:v1`,
-      providerRequirementRef: readRequirementRef,
+      providerRequirementRef: readRequirement.requirementRef,
       command: input.command,
       ability: input.ability,
       requiredRuntimeRequirements: XHS_READ_RUNTIME_REQUIREMENTS,

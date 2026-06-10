@@ -125,4 +125,46 @@ describe("XHS provider requirement declarations", () => {
 
     expect(declaration).toBeNull();
   });
+
+  it("does not declare read provider requirements for the legacy xhs.search editor_input write alias", () => {
+    const declaration = declareXhsDriverProviderRequirementsForContract({
+      command: "xhs.search",
+      ability: {
+        id: "xhs.note.search.v1",
+        layer: "L3",
+        action: "write"
+      },
+      requestedExecutionMode: "live_write"
+    });
+
+    expect(declaration).toBeNull();
+  });
+
+  it("does not declare read provider requirements for xhs.search with the editor ability id", () => {
+    const declaration = declareXhsDriverProviderRequirementsForContract({
+      command: "xhs.search",
+      ability: {
+        id: "xhs.editor.input.v1",
+        layer: "L3",
+        action: "write"
+      },
+      requestedExecutionMode: "live_write"
+    });
+
+    expect(declaration).toBeNull();
+  });
+
+  it("does not declare read provider requirements for xhs.search with mismatched read ability id", () => {
+    const declaration = declareXhsDriverProviderRequirementsForContract({
+      command: "xhs.search",
+      ability: {
+        id: "xhs.editor.input.v1",
+        layer: "L3",
+        action: "read"
+      },
+      requestedExecutionMode: "live_read_high_risk"
+    });
+
+    expect(declaration).toBeNull();
+  });
 });
