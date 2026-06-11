@@ -2,7 +2,7 @@
 
 ## Inputs checked
 
-- Issue #1180: `live_write_commit Default Lock`, `kind:fr`, `risk:high`, `integration:local-only`, close semantics `fr-complete`, scope keeps `live_write_commit` locked by default unless all risk gate and operator conditions are satisfied.
+- Issue #1180: `live_write_commit Default Lock`, `kind:fr`, `risk:high`, `integration:local-only`; current formal spec PR references #1180 as a spec/freeze carrier and does not auto-close it or run issue closeout.
 - Issue #1174 / FR-0062: CLOSED. Freezes `read_only`, `write_admit`, `write_prepare`, `live_write_commit`, fail-closed vocabulary and downstream ownership.
 - Issue #1175 / FR-0065: CLOSED. Freezes profile manifest provider allowlist; accepted manifest does not unlock commit.
 - Issue #1176 / FR-0066: CLOSED. Freezes account safety gate; `clear` is necessary but not sufficient.

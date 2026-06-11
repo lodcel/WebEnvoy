@@ -11,7 +11,7 @@
 - [ ] 确认 evidence refs consume redaction expectations and never inline account/profile/secret/path/page/media/live artifact values。
 - [ ] 确认 downstream re-consumption is required before any final commit decision。
 - [ ] 确认本 suite 没有 runtime/source code、tests、fixtures、scripts、workflows、browser/extension/native messaging/account/live/write action、Syvert normalized result、provider adapter implementation 或 issue closeout。
-- [ ] 确认 PR metadata uses `Fixes #1180` only because #1180 close semantics are `fr-complete`, and does not close #1174/#1175/#1176/#1177/#1178/#1179/#1211/#835。
+- [ ] 确认 PR metadata uses `Refs #1180` and does not auto-close #1180/#1174/#1175/#1176/#1177/#1178/#1179/#1211/#835。
 
 ## 实现前待办
 

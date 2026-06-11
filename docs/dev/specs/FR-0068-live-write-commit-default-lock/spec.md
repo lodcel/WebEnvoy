@@ -15,7 +15,7 @@ Canonical Issue: #1180
 
 当前缺口是：即使以上 lanes 各自存在，仍需要一个独立 default lock owner 明确规定 `live_write_commit` 默认不可用。只有当所有 risk gate、operator unlock、provider/runtime/admission/account-safety 条件均被 current exact-scope evidence 证明，且下游明确重消费这些 evidence 时，default lock 才能被考虑解除。本 FR 只冻结 formal contract，不实现 runtime、browser、account、live 或 write 行为。
 
-`#1180` issue meta 声明 `Close Semantics: fr-complete`。因此本 suite 合入后只完成 #1180 的 FR/spec freeze；runtime parser、release gate matrix、actual live evidence、publish implementation、controlled merge 和 issue closeout 仍由后续 owner 承接。
+本 suite 只冻结 #1180 的 FR/spec contract。当前 PR 是 formal spec/freeze carrier，必须以 `Refs #1180` 引用事项，不得 auto-close #1180，也不得运行 issue closeout；runtime parser、release gate matrix、actual live evidence、publish implementation、controlled merge 和 issue closeout 仍由后续 owner 承接。
 
 ## 目标
 

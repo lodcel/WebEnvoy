@@ -26,7 +26,7 @@
 ### 阶段 4：PR 与验证准备
 
 - 产出：`.github/spec-issue-sync-map.yml` 中 #1180 映射、parser-ready PR metadata、验证记录、纯度预检结果。
-- 重点：确保 PR 只包含 FR-0068 suite 与单条 sync-map mapping，closing semantics 为 `Fixes #1180` because issue #1180 close semantics are `fr-complete`.
+- 重点：确保 PR 只包含 FR-0068 suite 与单条 sync-map mapping；PR metadata 必须使用 `Refs #1180`，不得 auto-close #1180 或执行 issue closeout。
 
 ## 实现约束
 
@@ -41,7 +41,7 @@
 
 ## 测试与验证策略
 
-本 PR 的验证范围是 formal suite、sync-map、PR purity、closing semantics 与 hosted checks：
+本 PR 的验证范围是 formal suite、sync-map、PR purity、non-closing reference semantics 与 hosted checks：
 
 - `bash scripts/setup-git-hooks.sh`
 - `bash scripts/docs-guard.sh`
@@ -50,7 +50,7 @@
 - `bash scripts/spec-issue-sync-map.sh assert-mapped docs/dev/specs/FR-0068-live-write-commit-default-lock/spec.md`
 - `bash scripts/check-pr-purity.sh docs/1180-live-write-commit-default-lock main`
 - `git diff --check origin/main...HEAD`
-- same-class closing scan for `#1180` auto-closing patterns and unintended closure of #1174/#1175/#1176/#1177/#1178/#1179/#1211/#835
+- same-class closing scan for `#1180` auto-closing patterns and unintended closure of #1180/#1174/#1175/#1176/#1177/#1178/#1179/#1211/#835
 - same-class scope audit for provider requirement refs, profile manifest refs, extension/native bridge refs, account safety refs, operator unlock refs, runtime target binding refs, anti-detection refs, live evidence claims and browser/account/live/write action claims
 - hosted GitHub checks after Draft PR push
 
@@ -113,7 +113,7 @@
 - Reviewer 确认 operator unlock does not release default lock and default lock does not replace operator unlock.
 - Reviewer 确认 account safety, profile manifest, extension/native bridge, runtime target binding, anti-detection and live evidence remain separate required lanes.
 - Reviewer 确认 downstream re-consumption is required before any final commit gate.
-- Reviewer 确认 PR metadata 使用 `Fixes #1180` only because #1180 close semantics are `fr-complete`, and does not close #1174/#1175/#1176/#1177/#1178/#1179/#1211/#835。
+- Reviewer 确认 PR metadata 使用 `Refs #1180`，不会 auto-close #1180，也不会 close #1174/#1175/#1176/#1177/#1178/#1179/#1211/#835。
 - Reviewer 确认本 suite 未混入 runtime/source code、tests、fixtures、scripts、workflows、browser/extension/native messaging/account/live/write action、Syvert normalized result、provider adapter implementation 或 issue closeout。
 
 ## 回滚方式
