@@ -157,6 +157,60 @@ export const xhsDriverContractFixtures = {
         selection_source: "launch_envelope",
         selection_evidence_refs: ["ev-provider-contract"]
       },
+      version_evidence: {
+        provider_version: "fixture-v1",
+        browser_channel: "Google Chrome stable",
+        browser_version: "unknown",
+        extension_version: "unknown",
+        native_host_version: "unknown",
+        contract_version: "v1",
+        version_evidence_refs: ["ev-version-attestation"]
+      },
+      launch_arguments: {
+        launch_envelope_ref: "launch-envelope:xhs-detail:redacted",
+        launch_envelope_version: "v1",
+        provider_launch_ref: "launch-snapshot:xhs-detail:redacted",
+        browser_mode: {
+          headed: true,
+          headless: false,
+          real_browser_required: true,
+          browser_channel: "Google Chrome stable"
+        },
+        runtime_bindings: {
+          extension_binding_mode: "persistent_profile_extension",
+          native_messaging_mode: "required",
+          runtime_bootstrap_required: true
+        },
+        network_regional_ref: null,
+        fingerprint_policy_ref: null,
+        launch_argument_evidence_refs: ["ev-launch-envelope"]
+      },
+      profile_reference: {
+        profile_ref: "profile-ref:xhs:redacted",
+        profile_binding_mode: "required_existing",
+        profile_lock_status: "locked_by_current_run",
+        login_state_evidence: "ready",
+        profile_persistence_status: "persistent",
+        profile_evidence_refs: ["ev-profile-binding"]
+      },
+      extension_status: {
+        extension_required: true,
+        extension_binding_mode: "persistent_profile_extension",
+        extension_id: "abcdefghijklmnopabcdefghijklmnop",
+        extension_version: "unknown",
+        extension_installation_status: "installed_in_profile",
+        extension_runtime_status: "ready",
+        extension_evidence_refs: ["ev-extension-binding"]
+      },
+      native_messaging_status: {
+        native_messaging_required: true,
+        native_host_name: "com.webenvoy.native",
+        native_host_manifest_ref: "native-manifest-ref:redacted",
+        allowed_origin_ref: "allowed-origin-ref:redacted",
+        native_host_version: "unknown",
+        native_messaging_runtime_status: "ready",
+        native_messaging_evidence_refs: ["ev-native-messaging-binding"]
+      },
       evidence_refs: [
         {
           evidence_ref_id: "ev-provider-contract",
@@ -175,6 +229,18 @@ export const xhsDriverContractFixtures = {
           kind: "launch_envelope_ref",
           ref: "launch-envelope:xhs-detail:redacted",
           source: "launch_envelope",
+          status: "available",
+          collected_at: "2026-06-11T00:00:00Z",
+          freshness: "current_pr_head",
+          sensitivity: "public",
+          redaction_state: "not_required",
+          artifact_identity: null
+        },
+        {
+          evidence_ref_id: "ev-version-attestation",
+          kind: "version_attestation",
+          ref: "version-attestation:xhs:redacted",
+          source: "provider_doctor",
           status: "available",
           collected_at: "2026-06-11T00:00:00Z",
           freshness: "current_pr_head",

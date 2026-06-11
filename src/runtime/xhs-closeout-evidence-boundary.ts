@@ -49,6 +49,7 @@ export type XhsCloseoutEvidenceBoundaryBlockerCode =
   | "route_http_status_invalid"
   | "route_binding_invalid"
   | "missing_provider_evidence_record"
+  | "provider_evidence_shape_invalid"
   | "provider_evidence_contract_version_mismatch"
   | "provider_evidence_scope_invalid"
   | "provider_evidence_base_ref_missing"
@@ -146,6 +147,87 @@ const rawSecretValuePatterns = [
 ];
 const secretKeyPattern = /(?:^|\.)(?:cookie|authorization|xsec_token|token|api[_-]?key|secret|x-s|x-t|x-s-common)(?:$|\.)/iu;
 const forbiddenRawPayloadPathPattern = /(?:^|\.)(?:request|response)\.(?:headers|body)(?:$|\.)/iu;
+const requiredProviderEvidenceRecordSections = [
+  "identity",
+  "selected_provider",
+  "version_evidence",
+  "launch_arguments",
+  "profile_reference",
+  "extension_status",
+  "native_messaging_status",
+  "evidence_refs",
+  "closeout_plan"
+] as const;
+const requiredProviderEvidenceRecordFields: Record<string, readonly string[]> = {
+  identity: [
+    "provider_evidence_record_id",
+    "provider_evidence_contract_version",
+    "run_id",
+    "command_ref",
+    "created_at",
+    "evidence_scope",
+    "base_refs"
+  ],
+  selected_provider: [
+    "provider_id",
+    "provider_contract_ref",
+    "provider_contract_version",
+    "provider_mode",
+    "selection_reason",
+    "selection_source",
+    "selection_evidence_refs"
+  ],
+  version_evidence: [
+    "provider_version",
+    "browser_channel",
+    "browser_version",
+    "extension_version",
+    "native_host_version",
+    "contract_version",
+    "version_evidence_refs"
+  ],
+  launch_arguments: [
+    "launch_envelope_ref",
+    "launch_envelope_version",
+    "provider_launch_ref",
+    "browser_mode",
+    "runtime_bindings",
+    "launch_argument_evidence_refs"
+  ],
+  profile_reference: [
+    "profile_ref",
+    "profile_binding_mode",
+    "profile_lock_status",
+    "login_state_evidence",
+    "profile_persistence_status",
+    "profile_evidence_refs"
+  ],
+  extension_status: [
+    "extension_required",
+    "extension_binding_mode",
+    "extension_version",
+    "extension_installation_status",
+    "extension_runtime_status",
+    "extension_evidence_refs"
+  ],
+  native_messaging_status: [
+    "native_messaging_required",
+    "native_host_version",
+    "native_messaging_runtime_status",
+    "native_messaging_evidence_refs"
+  ],
+  closeout_plan: [
+    "required_evidence_kinds",
+    "required_freshness",
+    "minimum_attestation_level",
+    "coverage_status",
+    "blocking_reasons",
+    "missing_evidence",
+    "redaction_gaps",
+    "next_required_gates",
+    "closeout_decision"
+  ]
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -168,6 +250,9 @@ const hasValue = (value: unknown): boolean => {
   }
   return value !== null && value !== undefined;
 };
+
+const hasOwnField = (record: Record<string, unknown>, field: string): boolean =>
+  Object.prototype.hasOwnProperty.call(record, field);
 
 const normalizeHttpMethod = (value: unknown): string | null => {
   const method = normalizeString(value);
@@ -275,6 +360,53 @@ const freshnessSatisfies = (freshness: string | null, requiredFreshness: string 
     return false;
   }
   return freshnessRank[freshness] >= freshnessRank[requiredFreshness];
+};
+
+const validateProviderEvidenceShape = (
+  providerEvidenceRecord: Record<string, unknown>,
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"]
+): void => {
+  for (const sectionName of requiredProviderEvidenceRecordSections) {
+    if (sectionName === "evidence_refs") {
+      if (!Array.isArray(providerEvidenceRecord.evidence_refs)) {
+        blockers.push(
+          blocker(
+            "provider_evidence_shape_invalid",
+            "provider_evidence",
+            "provider_evidence_record.evidence_refs",
+            "FR-0040 provider evidence record must include evidence_refs"
+          )
+        );
+      }
+      continue;
+    }
+
+    const section = asRecord(providerEvidenceRecord[sectionName]);
+    if (section === null) {
+      blockers.push(
+        blocker(
+          "provider_evidence_shape_invalid",
+          "provider_evidence",
+          `provider_evidence_record.${sectionName}`,
+          `FR-0040 provider evidence record must include ${sectionName}`
+        )
+      );
+      continue;
+    }
+
+    for (const field of requiredProviderEvidenceRecordFields[sectionName] ?? []) {
+      if (!hasOwnField(section, field) || !hasValue(section[field])) {
+        blockers.push(
+          blocker(
+            "provider_evidence_shape_invalid",
+            "provider_evidence",
+            `provider_evidence_record.${sectionName}.${field}`,
+            `FR-0040 provider evidence record is missing ${sectionName}.${field}`
+          )
+        );
+      }
+    }
+  }
 };
 
 const evaluateRouteSemantics = (
@@ -404,6 +536,8 @@ const evaluateProviderEvidence = (
     return null;
   }
 
+  validateProviderEvidenceShape(providerEvidenceRecord, blockers);
+
   const identity = asRecord(providerEvidenceRecord.identity);
   const providerEvidenceScope = normalizeString(identity?.evidence_scope);
   if (identity?.provider_evidence_contract_version !== "v1") {
@@ -510,11 +644,17 @@ const evaluateProviderEvidence = (
 
   for (const ref of evidenceRefs) {
     const field = `provider_evidence_record.evidence_refs.${normalizeString(ref.evidence_ref_id) ?? "unknown"}`;
+    const kind = normalizeString(ref.kind);
+    const requiredForCloseout =
+      kind !== null && XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS.includes(kind as never);
     const status = normalizeString(ref.status);
     const freshness = normalizeString(ref.freshness);
     const sensitivity = normalizeString(ref.sensitivity);
     const redactionState = normalizeString(ref.redaction_state);
-    if (status !== "available" && XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS.includes(normalizeString(ref.kind) as never)) {
+    if (!requiredForCloseout) {
+      continue;
+    }
+    if (status !== "available") {
       blockers.push(
         blocker(
           "provider_evidence_ref_unavailable",
@@ -537,6 +677,7 @@ const evaluateProviderEvidence = (
     if (
       redactionState === null ||
       invalidRedactionStates.has(redactionState) ||
+      (redactionState === "not_required" && sensitivity !== "public") ||
       (sensitivity !== null && sensitiveStates.has(sensitivity) && redactionState !== "redacted") ||
       (sensitivity === "public" && !redactedStates.has(redactionState))
     ) {

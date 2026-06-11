@@ -121,9 +121,71 @@ const baseProviderEvidenceRecord = (
     selection_source: "launch_envelope",
     selection_evidence_refs: ["ev-provider_contract_ref"]
   },
-  evidence_refs: XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS.map((kind) =>
-    evidenceRef(kind, {}, artifactIdentity)
-  ),
+  version_evidence: {
+    provider_version: "fixture-v1",
+    browser_channel: "Google Chrome stable",
+    browser_version: "unknown",
+    extension_version: "unknown",
+    native_host_version: "unknown",
+    contract_version: "v1",
+    version_evidence_refs: ["ev-version_attestation"]
+  },
+  launch_arguments: {
+    launch_envelope_ref: "launch-envelope:xhs:redacted",
+    launch_envelope_version: "v1",
+    provider_launch_ref: "launch-snapshot:xhs:redacted",
+    browser_mode: {
+      headed: true,
+      headless: false,
+      real_browser_required: true,
+      browser_channel: "Google Chrome stable"
+    },
+    runtime_bindings: {
+      extension_binding_mode: "persistent_profile_extension",
+      native_messaging_mode: "required",
+      runtime_bootstrap_required: true
+    },
+    network_regional_ref: null,
+    fingerprint_policy_ref: null,
+    launch_argument_evidence_refs: ["ev-launch_envelope_ref"]
+  },
+  profile_reference: {
+    profile_ref: "profile-ref:xhs:redacted",
+    profile_binding_mode: "required_existing",
+    profile_lock_status: "locked_by_current_run",
+    login_state_evidence: "ready",
+    profile_persistence_status: "persistent",
+    profile_evidence_refs: ["ev-profile_binding_ref"]
+  },
+  extension_status: {
+    extension_required: true,
+    extension_binding_mode: "persistent_profile_extension",
+    extension_id: "abcdefghijklmnopabcdefghijklmnop",
+    extension_version: "unknown",
+    extension_installation_status: "installed_in_profile",
+    extension_runtime_status: "ready",
+    extension_evidence_refs: ["ev-extension_binding_ref"]
+  },
+  native_messaging_status: {
+    native_messaging_required: true,
+    native_host_name: "com.webenvoy.native",
+    native_host_manifest_ref: "native-manifest-ref:redacted",
+    allowed_origin_ref: "allowed-origin-ref:redacted",
+    native_host_version: "unknown",
+    native_messaging_runtime_status: "ready",
+    native_messaging_evidence_refs: ["ev-native_messaging_binding_ref"]
+  },
+  evidence_refs: [
+    ...XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS.map((kind) =>
+      evidenceRef(kind, {}, artifactIdentity)
+    ),
+    evidenceRef("version_attestation", {
+      source: "provider_doctor",
+      sensitivity: "public",
+      redaction_state: "not_required",
+      artifact_identity: null
+    })
+  ],
   closeout_plan: {
     required_evidence_kinds: [...XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS],
     required_freshness: "current_pr_head",
@@ -270,6 +332,143 @@ describe("XHS closeout evidence boundary for #1164", () => {
           blocker_code: "provider_evidence_binding_mismatch",
           blocker_layer: "provider_evidence",
           field: "provider_evidence_record.evidence_refs.closeout_artifact_ref"
+        })
+      ])
+    );
+  });
+
+  it.each([
+    "internal",
+    "sensitive",
+    "secret"
+  ])("rejects required provider refs with non-public not_required redaction: %s", (sensitivity) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
+      ref.kind === "runtime_observation_ref"
+        ? {
+            ...ref,
+            sensitivity,
+            redaction_state: "not_required"
+          }
+        : ref
+    );
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.redaction_gaps).toContain("ev-runtime_observation_ref");
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_redaction_invalid",
+          blocker_layer: "redaction",
+          field: "provider_evidence_record.evidence_refs.ev-runtime_observation_ref"
+        })
+      ])
+    );
+  });
+
+  it("allows not_required redaction only for public required provider refs", () => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
+      ref.kind === "runtime_observation_ref"
+        ? {
+            ...ref,
+            sensitivity: "public",
+            redaction_state: "not_required"
+          }
+        : ref
+    );
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(true);
+    expect(evaluation.redaction_gaps).toEqual([]);
+    expect(evaluation.blockers).toEqual([]);
+  });
+
+  it("rejects truncated provider evidence records as non-FR-0040 closeout evidence", () => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    const truncatedProviderEvidence = {
+      identity: providerEvidence.identity,
+      evidence_refs: providerEvidence.evidence_refs,
+      closeout_plan: providerEvidence.closeout_plan
+    };
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: truncatedProviderEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.selected_provider"
+        }),
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.version_evidence"
+        }),
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.launch_arguments"
+        }),
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.profile_reference"
+        }),
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.extension_status"
+        }),
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.native_messaging_status"
+        })
+      ])
+    );
+  });
+
+  it.each([
+    "version_evidence",
+    "launch_arguments",
+    "profile_reference",
+    "extension_status",
+    "native_messaging_status"
+  ])("rejects provider evidence missing FR-0040 top-level section: %s", (section) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    delete providerEvidence[section];
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: `provider_evidence_record.${section}`
         })
       ])
     );
