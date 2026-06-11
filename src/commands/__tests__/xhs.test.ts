@@ -2131,7 +2131,7 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
-  it("accepts provider-aware XHS closeout evidence boundary bundles through the route evaluator", () => {
+  it("structurally accepts provider-aware XHS closeout evidence boundary bundles through the route evaluator", () => {
     const boundary = structuredClone(
       xhsDriverContractFixtures.closeoutEvidenceBoundary
     ) as Record<string, unknown>;
@@ -2162,7 +2162,81 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("preserves provider-aware XHS closeout evidence boundary payloads for runtime assertion", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+
+    expect(
+      pickXhsCloseoutEvidenceSummaryFieldsForContract({
+        xhs_closeout_evidence_boundary: boundary,
+        summary: {}
+      })
+    ).toMatchObject({
+      xhs_closeout_evidence_boundary: {
+        contract_version: "xhs_closeout_evidence_boundary.v1",
+        route_evidence: expect.objectContaining({
+          route_role: "primary",
+          source_kind: "page_request"
+        }),
+        provider_evidence_record: expect.objectContaining({
+          closeout_plan: expect.objectContaining({
+            closeout_decision: "allow"
+          })
+        })
+      }
+    });
+  });
+
   it("accepts provider-aware XHS closeout evidence boundary through runtime trusted binding", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+    const runtimeLatestHeadSha = resolveXhsCloseoutRuntimeLatestHeadShaForContract(process.cwd());
+    expect(runtimeLatestHeadSha).toMatch(/^[0-9a-f]{40}$/u);
+    boundary.expected_latest_head_sha = runtimeLatestHeadSha;
+    boundary.route_evidence = {
+      ...(boundary.route_evidence as Record<string, unknown>),
+      head_sha: runtimeLatestHeadSha
+    };
+    const summary = {
+      xhs_closeout_evidence_boundary: boundary
+    };
+    const runtimeTrustedBinding = buildXhsCloseoutEvidenceTrustedBindingForContract({
+      cwd: process.cwd(),
+      runId: "run-xhs-closeout-boundary-fixture-001",
+      profileRef: "xhs_runtime_profile_001",
+      targetTabId: 42,
+      summary
+    });
+
+    expect(runtimeTrustedBinding).toMatchObject({
+      latestHeadSha: runtimeLatestHeadSha,
+      requiresLatestHeadSha: true,
+      profileRef: "profile/xhs_runtime_profile_001",
+      requiresProfileRef: true
+    });
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(summary, runtimeTrustedBinding)
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: [],
+      freshness: expect.objectContaining({
+        expected_latest_head_sha: runtimeLatestHeadSha,
+        latest_head_matches: true
+      }),
+      bindings: expect.objectContaining({
+        profile_bound: true,
+        expected_profile_ref: "profile/xhs_runtime_profile_001",
+        observed_profile_ref: "profile/profile-ref:xhs:redacted",
+        expected_target_tab_id: 42
+      })
+    });
+  });
+
+  it("fails closed when provider-aware XHS closeout runtime latest head is missing", () => {
     const boundary = structuredClone(
       xhsDriverContractFixtures.closeoutEvidenceBoundary
     ) as Record<string, unknown>;
@@ -2173,21 +2247,94 @@ describe("normalizeGateOptionsForContract", () => {
           xhs_closeout_evidence_boundary: boundary
         },
         {
-          latestHeadSha: "head-xhs-closeout-boundary-fixture-current-001",
+          requiresLatestHeadSha: true,
           runId: "run-xhs-closeout-boundary-fixture-001",
           profileRef: "xhs_runtime_profile_001",
           targetTabId: 42
         }
       )
     ).toMatchObject({
-      decision: "PASS",
-      passed: true,
-      blockers: [],
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "missing_latest_head" })
+      ]),
+      freshness: expect.objectContaining({
+        latest_head_available: false,
+        latest_head_matches: false
+      })
+    });
+  });
+
+  it("fails closed when provider-aware XHS closeout runtime latest head mismatches payload head", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+    const summary = {
+      xhs_closeout_evidence_boundary: boundary
+    };
+    const runtimeTrustedBinding = buildXhsCloseoutEvidenceTrustedBindingForContract({
+      cwd: process.cwd(),
+      runId: "run-xhs-closeout-boundary-fixture-001",
+      profileRef: "xhs_runtime_profile_001",
+      targetTabId: 42,
+      summary
+    });
+
+    expect(runtimeTrustedBinding).toMatchObject({
+      requiresLatestHeadSha: true,
+      requiresProfileRef: true
+    });
+    expect(runtimeTrustedBinding.latestHeadSha).not.toBe(
+      "head-xhs-closeout-boundary-fixture-current-001"
+    );
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(summary, runtimeTrustedBinding)
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "stale_head" })
+      ]),
+      freshness: expect.objectContaining({
+        latest_head_matches: false
+      })
+    });
+  });
+
+  it("fails closed when provider-aware XHS closeout runtime profile binding is required but missing", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+    const runtimeLatestHeadSha = resolveXhsCloseoutRuntimeLatestHeadShaForContract(process.cwd());
+    boundary.expected_latest_head_sha = runtimeLatestHeadSha;
+    boundary.route_evidence = {
+      ...(boundary.route_evidence as Record<string, unknown>),
+      head_sha: runtimeLatestHeadSha
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(
+        {
+          xhs_closeout_evidence_boundary: boundary
+        },
+        {
+          requiresLatestHeadSha: true,
+          latestHeadSha: runtimeLatestHeadSha,
+          runId: "run-xhs-closeout-boundary-fixture-001",
+          requiresProfileRef: true,
+          targetTabId: 42
+        }
+      )
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "missing_profile_binding" })
+      ]),
       bindings: expect.objectContaining({
-        profile_bound: true,
-        expected_profile_ref: "profile/xhs_runtime_profile_001",
-        observed_profile_ref: "profile/profile-ref:xhs:redacted",
-        expected_target_tab_id: 42
+        profile_bound: false,
+        observed_profile_ref: "profile/profile-ref:xhs:redacted"
       })
     });
   });

@@ -873,9 +873,17 @@ const hasExplicitCloseoutEvidencePayloadMarker = (
   hasUsableIndependentCloseoutEvidencePayload(record) ||
   hasOwn(record, "closeout_route_evidence");
 
+const hasXhsCloseoutEvidenceBoundaryPayload = (
+  record: JsonObject | null | undefined
+): boolean =>
+  asObject(record?.xhs_closeout_evidence_boundary) !== null ||
+  asObject(record?.closeout_evidence_boundary) !== null ||
+  asString(record?.contract_version) === XHS_CLOSEOUT_EVIDENCE_CONTRACT_VERSION;
+
 const hasIndependentCloseoutEvidencePayloadMarker = (
   record: JsonObject | null | undefined
 ): boolean =>
+  hasXhsCloseoutEvidenceBoundaryPayload(record) ||
   (hasOwn(record, "closeout_evidence_input") && record?.closeout_evidence_input !== null) ||
   (hasOwn(record, "closeout_evidence_expected") && record?.closeout_evidence_expected !== null) ||
   (hasOwn(record, "closeout_evidence_rounds") && record?.closeout_evidence_rounds !== null);
@@ -889,6 +897,7 @@ const hasUsableIndependentCloseoutEvidencePayload = (
       (asObject(closeoutEvidenceInput.expected) !== null ||
         asObject(closeoutEvidenceInput.evidence) !== null ||
         toCloseoutEvidenceRoundRecords(closeoutEvidenceInput.evidence_rounds) !== null)) ||
+    hasXhsCloseoutEvidenceBoundaryPayload(record) ||
     asObject(record?.closeout_evidence_expected) !== null ||
     toCloseoutEvidenceRoundRecords(record?.closeout_evidence_rounds) !== null
   );
@@ -907,6 +916,8 @@ const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
   "closeout_evidence_input",
   "closeout_evidence_expected",
   "closeout_evidence_rounds",
+  "xhs_closeout_evidence_boundary",
+  "closeout_evidence_boundary",
   "closeout_route_evidence",
   "route_evidence"
 ] as const;
@@ -1425,6 +1436,7 @@ interface CloseoutEvidenceTrustedExpectedBinding {
   requiresLatestHeadSha?: boolean | null;
   runId?: string | null;
   profileRef?: string | null;
+  requiresProfileRef?: boolean | null;
   targetTabId?: number | null;
 }
 
@@ -1493,6 +1505,7 @@ export const buildXhsCloseoutEvidenceTrustedBindingForContract = (input: {
       : {}),
     runId: input.runId,
     profileRef: normalizeCloseoutProfileRef(input.profileRef),
+    ...(requiresCloseoutEvidenceEvaluation ? { requiresProfileRef: true } : {}),
     targetTabId: input.targetTabId
   };
 };
@@ -1941,6 +1954,7 @@ const applyTrustedExpectedBindingCheck = (
   const requiresTrustedLatestHeadSha = trusted?.requiresLatestHeadSha === true;
   const trustedRunId = asString(trusted?.runId);
   const trustedProfileRef = normalizeCloseoutProfileRef(trusted?.profileRef);
+  const requiresTrustedProfileRef = trusted?.requiresProfileRef === true;
   const trustedTargetTabId = asInteger(trusted?.targetTabId);
   let freshness = evaluation.freshness;
   let bindings = evaluation.bindings;
@@ -1992,7 +2006,23 @@ const applyTrustedExpectedBindingCheck = (
     );
   }
 
-  if (trustedProfileRef !== null && evaluation.bindings.expected_profile_ref !== trustedProfileRef) {
+  if (requiresTrustedProfileRef && trustedProfileRef === null) {
+    bindings = {
+      ...bindings,
+      profile_bound: false
+    };
+    pushUniqueCloseoutEvaluationBlocker(
+      blockers,
+      closeoutEvaluationBlocker(
+        "missing_profile_binding",
+        "binding",
+        "closeout runtime profile must be resolved before evaluating production evidence"
+      )
+    );
+  } else if (
+    trustedProfileRef !== null &&
+    evaluation.bindings.expected_profile_ref !== trustedProfileRef
+  ) {
     bindings = {
       ...bindings,
       profile_bound: false
