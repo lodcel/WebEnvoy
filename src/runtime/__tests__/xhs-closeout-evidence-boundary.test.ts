@@ -8,6 +8,8 @@ import {
 } from "../xhs-closeout-evidence-boundary.js";
 
 const createdAt = "2026-06-11T00:00:00Z";
+const currentPrHeadSha = "head-xhs-closeout-boundary-current-001";
+const staleMergeBaseHeadSha = "898b8b4015ac5644d3971b72dc67d9a90436363a";
 
 const routeShapeByOperation = {
   "xhs.search": {
@@ -47,7 +49,7 @@ const baseRouteEvidence = (
   endpoint: routeShapeByOperation[operation].endpoint,
   request_url: routeShapeByOperation[operation].endpoint,
   status_code: 200,
-  head_sha: "898b8b4015ac5644d3971b72dc67d9a90436363a",
+  head_sha: currentPrHeadSha,
   run_id: "run-xhs-closeout-boundary-001",
   artifact_identity: "artifact:xhs-closeout:run-xhs-closeout-boundary-001:round-1",
   profile_ref: "profile-ref:xhs:redacted",
@@ -199,9 +201,18 @@ const baseProviderEvidenceRecord = (
   }
 });
 
+const evaluateBoundary = (
+  input: Omit<Parameters<typeof evaluateXhsCloseoutEvidenceBoundary>[0], "expected_latest_head_sha"> &
+    Partial<Pick<Parameters<typeof evaluateXhsCloseoutEvidenceBoundary>[0], "expected_latest_head_sha">>
+) =>
+  evaluateXhsCloseoutEvidenceBoundary({
+    expected_latest_head_sha: currentPrHeadSha,
+    ...input
+  });
+
 describe("XHS closeout evidence boundary for #1164", () => {
   it("admits a provider-aware passive API capture bundle without raw sensitive values", () => {
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -226,7 +237,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     "xhs.detail",
     "xhs.user_home"
   ] as const)("admits %s only when passive closeout route semantics match the operation", (operation) => {
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation,
       route_evidence: baseRouteEvidence(operation),
       provider_evidence_record: baseProviderEvidenceRecord(operation)
@@ -239,7 +250,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
   it("documents the complete valid=true admission invariant surface", () => {
     const routeEvidence = baseRouteEvidence();
     const providerEvidence = baseProviderEvidenceRecord();
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: providerEvidence
@@ -328,7 +339,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       freshness: refFreshness
     }));
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -345,7 +356,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       minimum_attestation_level: "live_evidence_attested"
     };
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -365,7 +376,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       freshness
     }));
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -394,7 +405,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       "run-xhs-closeout-boundary-other"
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -413,7 +424,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
   });
 
   it("rejects provider evidence from a different command than the requested operation", () => {
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.search",
       route_evidence: baseRouteEvidence("xhs.search"),
       provider_evidence_record: baseProviderEvidenceRecord("xhs.detail")
@@ -438,7 +449,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       "artifact:xhs-closeout:run-xhs-closeout-boundary-001:other-round"
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -472,7 +483,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
         : ref
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -503,7 +514,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
         : ref
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -617,7 +628,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const providerEvidence = baseProviderEvidenceRecord();
     mutate(providerEvidence);
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -653,7 +664,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       return nextRef;
     });
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -690,7 +701,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
         : ref
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -723,7 +734,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
         : ref
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -741,7 +752,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       closeout_plan: providerEvidence.closeout_plan
     };
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: truncatedProviderEvidence
@@ -794,7 +805,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const providerEvidence = baseProviderEvidenceRecord();
     delete providerEvidence[section];
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -850,7 +861,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       [field]: ["ev-dangling-section-ref"]
     };
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -897,7 +908,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     routeEvidence.route_evidence_class = "active_api_fetch_fallback";
 
     expect(
-      evaluateXhsCloseoutEvidenceBoundary({
+      evaluateBoundary({
         operation: "xhs.detail",
         route_evidence: routeEvidence,
         provider_evidence_record: baseProviderEvidenceRecord()
@@ -942,7 +953,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const routeEvidence = baseRouteEvidence("xhs.detail");
     mutate(routeEvidence);
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -969,7 +980,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const routeEvidence = baseRouteEvidence();
     delete routeEvidence.route_evidence_class;
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -1046,6 +1057,48 @@ describe("XHS closeout evidence boundary for #1164", () => {
       field: "route_evidence.consumed_template.route_evidence_class"
     },
     {
+      name: "missing consumed template run id",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        delete (routeEvidence.consumed_template as Record<string, unknown>).run_id;
+      },
+      field: "route_evidence.consumed_template.run_id"
+    },
+    {
+      name: "missing consumed template profile ref",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        delete (routeEvidence.consumed_template as Record<string, unknown>).profile_ref;
+      },
+      field: "route_evidence.consumed_template.profile_ref"
+    },
+    {
+      name: "missing consumed template session id",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        delete (routeEvidence.consumed_template as Record<string, unknown>).session_id;
+      },
+      field: "route_evidence.consumed_template.session_id"
+    },
+    {
+      name: "missing consumed template target tab",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        delete (routeEvidence.consumed_template as Record<string, unknown>).target_tab_id;
+      },
+      field: "route_evidence.consumed_template.target_tab_id"
+    },
+    {
+      name: "missing consumed template page url",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        delete (routeEvidence.consumed_template as Record<string, unknown>).page_url;
+      },
+      field: "route_evidence.consumed_template.page_url"
+    },
+    {
+      name: "missing consumed template action ref",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        delete (routeEvidence.consumed_template as Record<string, unknown>).action_ref;
+      },
+      field: "route_evidence.consumed_template.action_ref"
+    },
+    {
       name: "consumed template from another page",
       mutate: (routeEvidence: Record<string, unknown>) => {
         (routeEvidence.consumed_template as Record<string, unknown>).page_url =
@@ -1096,7 +1149,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const routeEvidence = baseRouteEvidence();
     mutate(routeEvidence);
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -1112,6 +1165,70 @@ describe("XHS closeout evidence boundary for #1164", () => {
           blocker_code: "route_provenance_invalid",
           blocker_layer: "route",
           field
+        })
+      ])
+    );
+  });
+
+  it("requires route evidence head_sha to match the expected latest head", () => {
+    const routeEvidence = baseRouteEvidence();
+
+    const evaluation = evaluateBoundary({
+      expected_latest_head_sha: "head-xhs-closeout-boundary-next-001",
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "route_head_sha_invalid",
+          blocker_layer: "route",
+          field: "route_evidence.head_sha"
+        })
+      ])
+    );
+  });
+
+  it("fails closed when expected latest head is missing", () => {
+    const evaluation = evaluateBoundary({
+      expected_latest_head_sha: null,
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "route_head_sha_invalid",
+          blocker_layer: "route",
+          field: "expected_latest_head_sha"
+        })
+      ])
+    );
+  });
+
+  it("rejects stale merge-base route evidence heads for latest-head closeout", () => {
+    const routeEvidence = baseRouteEvidence();
+    routeEvidence.head_sha = staleMergeBaseHeadSha;
+
+    const evaluation = evaluateBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "route_head_sha_invalid",
+          blocker_layer: "route",
+          field: "route_evidence.head_sha"
         })
       ])
     );
@@ -1162,7 +1279,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const routeEvidence = baseRouteEvidence("xhs.detail");
     mutate(routeEvidence);
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -1215,7 +1332,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const routeEvidence = baseRouteEvidence(operation);
     mutate(routeEvidence);
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation,
       route_evidence: routeEvidence,
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -1241,7 +1358,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     delete routeEvidence.artifact_identity;
     delete routeEvidence.profile_ref;
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.user_home",
       route_evidence: routeEvidence,
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -1272,7 +1389,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       (ref) => ref.kind !== "native_messaging_binding_ref"
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.search",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -1331,7 +1448,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const providerEvidence = baseProviderEvidenceRecord();
     mutate(providerEvidence);
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -1368,7 +1485,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       closeout_decision: "deny"
     };
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -1445,7 +1562,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       ...closeoutPlanPatch
     };
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: baseRouteEvidence(),
       provider_evidence_record: providerEvidence
@@ -1483,7 +1600,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       }
     };
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: baseProviderEvidenceRecord()
@@ -1529,7 +1646,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
         : ref
     );
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: providerEvidence
@@ -1631,7 +1748,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
     mutate?.(routeEvidence);
     mutateProvider?.(providerEvidence);
 
-    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+    const evaluation = evaluateBoundary({
       operation: "xhs.detail",
       route_evidence: routeEvidence,
       provider_evidence_record: providerEvidence

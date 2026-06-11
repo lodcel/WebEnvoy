@@ -96,6 +96,7 @@ export const xhsDriverContractFixtures = {
     contract_version: "xhs_closeout_evidence_boundary.v1",
     owner_ref: "#1164",
     operation: "xhs.detail",
+    expected_latest_head_sha: "head-xhs-closeout-boundary-fixture-current-001",
     redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
     route_evidence: {
       route: "xhs.detail.api",
@@ -109,7 +110,7 @@ export const xhsDriverContractFixtures = {
       endpoint: "/api/sns/web/v1/feed",
       request_url: "/api/sns/web/v1/feed",
       status_code: 200,
-      head_sha: "898b8b4015ac5644d3971b72dc67d9a90436363a",
+      head_sha: "head-xhs-closeout-boundary-fixture-current-001",
       run_id: "run-xhs-closeout-boundary-fixture-001",
       artifact_identity: "artifact:xhs-closeout:run-xhs-closeout-boundary-fixture-001:round-1",
       profile_ref: "profile-ref:xhs:redacted",

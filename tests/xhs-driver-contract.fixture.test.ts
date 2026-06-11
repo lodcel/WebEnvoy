@@ -86,6 +86,8 @@ describe("xhs driver contract fixtures for #1165", () => {
     expect(
       evaluateXhsCloseoutEvidenceBoundary({
         operation: xhsDriverContractFixtures.closeoutEvidenceBoundary.operation,
+        expected_latest_head_sha:
+          xhsDriverContractFixtures.closeoutEvidenceBoundary.expected_latest_head_sha,
         route_evidence: xhsDriverContractFixtures.closeoutEvidenceBoundary.route_evidence,
         provider_evidence_record:
           xhsDriverContractFixtures.closeoutEvidenceBoundary.provider_evidence_record

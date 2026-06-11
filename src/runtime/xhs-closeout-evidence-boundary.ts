@@ -49,6 +49,7 @@ export type XhsCloseoutEvidenceBoundaryBlockerCode =
   | "route_evidence_status_invalid"
   | "route_http_status_invalid"
   | "route_provenance_invalid"
+  | "route_head_sha_invalid"
   | "route_binding_invalid"
   | "missing_provider_evidence_record"
   | "provider_evidence_shape_invalid"
@@ -71,6 +72,7 @@ export type XhsCloseoutEvidenceBoundaryBlockerLayer =
 
 export interface XhsCloseoutEvidenceBoundaryInput {
   operation: XhsCloseoutOperation | string | null;
+  expected_latest_head_sha: string | null;
   route_evidence: Record<string, unknown> | null;
   provider_evidence_record: Record<string, unknown> | null;
 }
@@ -590,7 +592,13 @@ const validateRouteProvenance = (
   for (const field of ["run_id", "profile_ref", "session_id", "action_ref", "page_url"] as const) {
     const outerValue = normalizeString(routeEvidence[field]);
     const templateValue = normalizeString(consumedTemplate[field]);
-    if (outerValue !== null && templateValue !== null && templateValue !== outerValue) {
+    if (templateValue === null) {
+      pushRouteProvenanceBlocker(
+        blockers,
+        `route_evidence.consumed_template.${field}`,
+        `consumed template must include ${field} for current-page route provenance`
+      );
+    } else if (outerValue === null || templateValue !== outerValue) {
       pushRouteProvenanceBlocker(
         blockers,
         `route_evidence.consumed_template.${field}`,
@@ -601,15 +609,47 @@ const validateRouteProvenance = (
 
   const outerTargetTabId = routeEvidence.target_tab_id;
   const templateTargetTabId = consumedTemplate.target_tab_id;
-  if (
-    hasValue(outerTargetTabId) &&
-    hasValue(templateTargetTabId) &&
-    templateTargetTabId !== outerTargetTabId
-  ) {
+  if (!hasValue(templateTargetTabId)) {
+    pushRouteProvenanceBlocker(
+      blockers,
+      "route_evidence.consumed_template.target_tab_id",
+      "consumed template must include target_tab_id for current-page route provenance"
+    );
+  } else if (!hasValue(outerTargetTabId) || templateTargetTabId !== outerTargetTabId) {
     pushRouteProvenanceBlocker(
       blockers,
       "route_evidence.consumed_template.target_tab_id",
       "consumed template target_tab_id must match route_evidence.target_tab_id"
+    );
+  }
+};
+
+const validateRouteHeadFreshness = (
+  expectedLatestHeadSha: string | null,
+  routeEvidence: Record<string, unknown>,
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"]
+): void => {
+  const observedHeadSha = normalizeString(routeEvidence.head_sha);
+  if (expectedLatestHeadSha === null) {
+    blockers.push(
+      blocker(
+        "route_head_sha_invalid",
+        "route",
+        "expected_latest_head_sha",
+        "XHS closeout route evidence requires an expected latest head sha"
+      )
+    );
+    return;
+  }
+
+  if (observedHeadSha === null || observedHeadSha !== expectedLatestHeadSha) {
+    blockers.push(
+      blocker(
+        "route_head_sha_invalid",
+        "route",
+        "route_evidence.head_sha",
+        "XHS closeout route evidence head_sha must match the expected latest head"
+      )
     );
   }
 };
@@ -1074,6 +1114,7 @@ export const evaluateXhsCloseoutEvidenceBoundary = (
   const redactionGaps: string[] = [];
   const forbiddenDisclosures: string[] = [];
   const operation = normalizeString(input.operation);
+  const expectedLatestHeadSha = normalizeString(input.expected_latest_head_sha);
 
   if (operation === null || !allowedOperations.has(operation)) {
     blockers.push(
@@ -1146,6 +1187,7 @@ export const evaluateXhsCloseoutEvidenceBoundary = (
     }
 
     evaluateRouteSemantics(operation, routeEvidence, blockers);
+    validateRouteHeadFreshness(expectedLatestHeadSha, routeEvidence, blockers);
   }
 
   const providerEvidenceScope = evaluateProviderEvidence(
