@@ -266,6 +266,7 @@ type ActiveApiFetchFallbackGateResult =
       evidence_status: "success";
       template_binding: JsonRecord;
       consumed_template: ActiveApiFetchFallbackTemplateEvidence;
+      signed_continuity_binding: JsonRecord;
     }
   | {
       gate_decision: "blocked";
@@ -276,6 +277,7 @@ type ActiveApiFetchFallbackGateResult =
       evidence_status: "blocked";
       template_binding: JsonRecord;
       consumed_template: ActiveApiFetchFallbackTemplateEvidence;
+      signed_continuity_binding: JsonRecord;
     };
 
 type ReadRequestContextLookupResult =
@@ -1662,6 +1664,175 @@ const buildActiveFallbackTemplateBinding = (input: {
   page_url: input.pageUrl
 });
 
+const normalizeBindingRefSegment = (value: string | null): string =>
+  encodeURIComponent(value ?? "unknown").replace(/%/g, "_");
+
+const stripXhsUrlQuery = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  try {
+    const url = new URL(value, "https://www.xiaohongshu.com");
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+const summarizeSignedContinuityForBinding = (
+  continuity: XhsSignedContinuity
+): JsonRecord => ({
+  source_route: continuity.source_route,
+  xsec_source: continuity.xsec_source,
+  token_presence: continuity.token_presence,
+  credential_value_redaction_state:
+    continuity.token_presence === "present" ? "redacted" : "not_applicable",
+  source_url_without_query: stripXhsUrlQuery(continuity.source_url),
+  target_url_without_query: stripXhsUrlQuery(continuity.target_url),
+  detail_url_without_query: stripXhsUrlQuery(continuity.detail_url ?? null),
+  user_home_url_without_query: stripXhsUrlQuery(continuity.user_home_url ?? null),
+  observed_at: continuity.observed_at
+});
+
+const buildSignedContinuityBindingEvidence = (input: {
+  spec: XhsReadCommandSpec;
+  executionInput: XhsReadExecutionInput;
+  templateEvidence: ActiveApiFetchFallbackTemplateEvidence;
+  signedContinuity: XhsSignedContinuity;
+  binding: JsonRecord;
+  pageUrl: string;
+}): { evidence: JsonRecord; blockers: string[] } => {
+  const options = input.executionInput.options;
+  const blockers: string[] = [];
+  const targetBindingSnapshotRef = asString(options.target_binding_snapshot_ref);
+  const runtimeBindingRef = asString(options.runtime_binding_ref);
+  const targetBindingSnapshot = asRecord(options.target_binding_snapshot);
+  const runtimeBinding = asRecord(options.xhs_runtime_binding);
+  const pageRuntimeReadiness = asRecord(options.xhs_page_runtime_readiness);
+  const transitionEvidence = asRecordArray(options.target_binding_transition_evidence);
+
+  if (input.templateEvidence.route_evidence_class !== "passive_api_capture") {
+    blockers.push("passive_capture_template_missing");
+  }
+  if (input.templateEvidence.source_kind !== "page_request") {
+    blockers.push("passive_capture_source_kind_invalid");
+  }
+  if (input.templateEvidence.profile_ref !== asString(input.binding.profile_ref)) {
+    blockers.push("profile_ref_mismatch");
+  }
+  if (input.templateEvidence.session_id !== asString(input.binding.session_id)) {
+    blockers.push("session_id_mismatch");
+  }
+  if (asInteger(input.binding.target_tab_id) === null) {
+    blockers.push("target_tab_id_missing");
+  } else if (input.templateEvidence.target_tab_id !== asInteger(input.binding.target_tab_id)) {
+    blockers.push("target_tab_id_mismatch");
+  }
+  if (input.templateEvidence.run_id !== asString(input.binding.run_id)) {
+    blockers.push("run_id_mismatch");
+  }
+  if (input.templateEvidence.action_ref !== asString(input.binding.action_ref)) {
+    blockers.push("action_ref_mismatch");
+  }
+  if (
+    !isSameXhsReadPageBinding({
+      spec: input.spec,
+      templatePageUrl: input.templateEvidence.page_url,
+      currentPageUrl: input.pageUrl,
+      signedContinuity: input.signedContinuity
+    })
+  ) {
+    blockers.push("page_url_mismatch");
+  }
+  if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
+    blockers.push("signed_continuity_missing");
+  }
+  if (input.signedContinuity.source_route !== "xhs.search") {
+    blockers.push("signed_continuity_source_route_mismatch");
+  }
+  if (input.signedContinuity.xsec_source !== "pc_search") {
+    blockers.push("signed_continuity_xsec_source_mismatch");
+  }
+
+  blockers.push(
+    ...collectTargetBindingEvidenceBlockers(
+      input.spec,
+      targetBindingSnapshotRef,
+      targetBindingSnapshot,
+      pageRuntimeReadiness,
+      transitionEvidence,
+      input.executionInput.executionContext.runId
+    ).map((reason) => `target_binding:${reason}`),
+    ...collectRuntimeBindingBlockers(
+      input.spec,
+      runtimeBindingRef,
+      runtimeBinding,
+      input.executionInput.executionContext.runId
+    ).map((reason) => `runtime_binding:${reason}`)
+  );
+
+  const uniqueBlockers = Array.from(new Set(blockers));
+  const bindingStatus = uniqueBlockers.length === 0 ? "bound" : "blocked";
+  const bindingRef = [
+    "FR-1171.xhs_signed_continuity_binding.v1",
+    normalizeBindingRefSegment(input.executionInput.executionContext.runId),
+    input.spec.routeBucket,
+    normalizeBindingRefSegment(input.templateEvidence.template_identity)
+  ].join("/");
+
+  return {
+    blockers: uniqueBlockers,
+    evidence: {
+      binding_version: "xhs_read_signed_continuity_binding.v1",
+      owner_ref: "#1171",
+      command: input.spec.command,
+      binding_ref: bindingRef,
+      binding_status: bindingStatus,
+      blocking_reasons: uniqueBlockers,
+      binding_freshness: "current_run",
+      local_static_binding: true,
+      cryptographic_signature: "not_applicable",
+      subject: {
+        profile_ref: input.executionInput.executionContext.profile,
+        session_id: input.executionInput.executionContext.sessionId,
+        run_id: input.executionInput.executionContext.runId,
+        action_ref: input.executionInput.abilityAction,
+        target_tab_id: asInteger(input.binding.target_tab_id),
+        page_url: input.pageUrl,
+        route_bucket: input.spec.routeBucket,
+        target_page_class: input.spec.targetPageClass
+      },
+      linked_refs: {
+        runtime_binding_ref: runtimeBindingRef,
+        target_binding_snapshot_ref: targetBindingSnapshotRef,
+        page_runtime_readiness_ref: asString(options.page_runtime_readiness_ref),
+        passive_template_ref: input.templateEvidence.template_identity
+      },
+      provenance: {
+        route_evidence_class: input.templateEvidence.route_evidence_class,
+        source_kind: input.templateEvidence.source_kind,
+        artifact_identity: input.templateEvidence.template_identity,
+        observed_at: input.templateEvidence.observed_at,
+        captured_at: input.templateEvidence.captured_at,
+        page_context_namespace: input.templateEvidence.page_context_namespace,
+        shape_key: input.templateEvidence.shape_key,
+        target_binding_transition_refs: asStringArray(
+          asRecord(targetBindingSnapshot?.evidence_refs)?.transition_refs
+        )
+      },
+      signed_continuity_summary: summarizeSignedContinuityForBinding(input.signedContinuity),
+      non_proofs: [
+        "not_live_evidence_accepted",
+        "not_syvert_normalized_result",
+        "not_write_enabled",
+        "not_external_cryptographic_signature"
+      ]
+    }
+  };
+};
+
 const resolveActiveApiFetchFallbackGate = (input: {
   executionInput: XhsReadExecutionInput;
   templateEvidence: ActiveApiFetchFallbackTemplateEvidence;
@@ -1675,6 +1846,14 @@ const resolveActiveApiFetchFallbackGate = (input: {
     executionContext: input.executionInput.executionContext,
     options: input.executionInput.options,
     abilityAction: input.executionInput.abilityAction,
+    pageUrl: input.env.getLocationHref()
+  });
+  const signedContinuityBinding = buildSignedContinuityBindingEvidence({
+    spec: input.executionInput.command === "xhs.detail" ? XHS_DETAIL_SPEC : XHS_USER_HOME_SPEC,
+    executionInput: input.executionInput,
+    templateEvidence: input.templateEvidence,
+    signedContinuity: input.signedContinuity,
+    binding,
     pageUrl: input.env.getLocationHref()
   });
   const reasonCodes: string[] = [];
@@ -1751,6 +1930,9 @@ const resolveActiveApiFetchFallbackGate = (input: {
   if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
     reasonCodes.push("SIGNED_CONTINUITY_REQUIRED");
   }
+  if (signedContinuityBinding.blockers.length > 0) {
+    reasonCodes.push("SIGNED_CONTINUITY_BINDING_INVALID");
+  }
 
   if (reasonCodes.length === 0) {
     return {
@@ -1765,7 +1947,8 @@ const resolveActiveApiFetchFallbackGate = (input: {
         runtime_attestation: runtimeAttestation,
         fingerprint_attestation: fingerprintAttestation
       },
-      consumed_template: input.templateEvidence
+      consumed_template: input.templateEvidence,
+      signed_continuity_binding: signedContinuityBinding.evidence
     };
   }
   return {
@@ -1780,7 +1963,8 @@ const resolveActiveApiFetchFallbackGate = (input: {
       runtime_attestation: runtimeAttestation,
       fingerprint_attestation: fingerprintAttestation
     },
-    consumed_template: input.templateEvidence
+    consumed_template: input.templateEvidence,
+    signed_continuity_binding: signedContinuityBinding.evidence
   };
 };
 
@@ -2456,6 +2640,14 @@ const resolvePassiveApiCaptureCloseoutGate = (input: {
     abilityAction: input.executionInput.abilityAction,
     pageUrl: input.env.getLocationHref()
   });
+  const signedContinuityBinding = buildSignedContinuityBindingEvidence({
+    spec,
+    executionInput: input.executionInput,
+    templateEvidence: input.templateEvidence,
+    signedContinuity: input.signedContinuity,
+    binding,
+    pageUrl: input.env.getLocationHref()
+  });
   const reasonCodes: string[] = [];
 
   if (input.templateEvidence.route_evidence_class !== "passive_api_capture") {
@@ -2502,6 +2694,9 @@ const resolvePassiveApiCaptureCloseoutGate = (input: {
   if (input.signedContinuity.token_presence !== "present" || !input.signedContinuity.target_url) {
     reasonCodes.push("SIGNED_CONTINUITY_REQUIRED");
   }
+  if (signedContinuityBinding.blockers.length > 0) {
+    reasonCodes.push("SIGNED_CONTINUITY_BINDING_INVALID");
+  }
 
   return {
     gate_decision: reasonCodes.length === 0 ? "allowed" : "blocked",
@@ -2511,7 +2706,8 @@ const resolvePassiveApiCaptureCloseoutGate = (input: {
     path_kind: "api",
     evidence_status: reasonCodes.length === 0 ? "success" : "blocked",
     template_binding: binding,
-    consumed_template: input.templateEvidence
+    consumed_template: input.templateEvidence,
+    signed_continuity_binding: signedContinuityBinding.evidence
   };
 };
 
@@ -2624,8 +2820,10 @@ const createPassiveApiCaptureSuccess = (
     captured_at: template.captured_at,
     reproduced_multi_round: false,
     passive_api_capture_closeout_gate: passiveCaptureGate,
-    consumed_template: template
+    consumed_template: template,
+    signed_continuity_binding: asRecord(passiveCaptureGate.signed_continuity_binding)
   };
+  const signedContinuityBinding = asRecord(passiveCaptureGate.signed_continuity_binding);
   return {
     ok: true,
     payload: {
@@ -2659,6 +2857,9 @@ const createPassiveApiCaptureSuccess = (
         audit_record: auditRecord,
         ...buildProviderAwareReadPathSummaryFields(input.options),
         signed_continuity: requestContextResult.signedContinuity,
+        ...(signedContinuityBinding
+          ? { signed_continuity_binding: signedContinuityBinding }
+          : {}),
         ...withPassiveApiCaptureEvidenceDiagnostic({
           spec,
           templateEvidence: template,
@@ -4506,6 +4707,7 @@ const executeXhsRead = async (
         audit_record: auditRecord,
         ...buildProviderAwareReadPathSummaryFields(input.options),
         signed_continuity: requestContextResult.signedContinuity,
+        signed_continuity_binding: activeFallbackGate.signed_continuity_binding,
         ...withPassiveApiCaptureEvidenceDiagnostic({
           spec,
           templateEvidence: requestContextResult.templateEvidence,

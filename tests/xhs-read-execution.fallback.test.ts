@@ -480,6 +480,281 @@ const createFallbackExecutionContext = (runId: string) => ({
 });
 
 describe("xhs read execution fallback", () => {
+  it("preserves signed continuity binding evidence on detail active fallback success", async () => {
+    const noteId = "note-continuity-binding-active-001";
+    const runId = "run-detail-continuity-binding-active-001";
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          note: {
+            noteId
+          }
+        }
+      }
+    }));
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: noteId
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "explore_detail_tab"
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () => `https://www.xiaohongshu.com/explore/${noteId}`,
+        readCapturedRequestContext: createRequestContextReader(createDetailRequestContext(noteId)),
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected detail active fallback success");
+    }
+    expect(fetchJson).toHaveBeenCalledTimes(1);
+    expect(result.payload.summary.signed_continuity_binding).toMatchObject({
+      binding_version: "xhs_read_signed_continuity_binding.v1",
+      owner_ref: "#1171",
+      command: "xhs.detail",
+      binding_status: "bound",
+      blocking_reasons: [],
+      local_static_binding: true,
+      cryptographic_signature: "not_applicable",
+      subject: {
+        profile_ref: "xhs_001",
+        session_id: "nm-session-001",
+        run_id: runId,
+        action_ref: "read",
+        target_tab_id: 32,
+        page_url: `https://www.xiaohongshu.com/explore/${noteId}`,
+        route_bucket: "detail",
+        target_page_class: "explore_detail_tab"
+      },
+      linked_refs: {
+        runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/detail`,
+        target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/detail`,
+        passive_template_ref: expect.stringContaining(`captured:${runId}:`)
+      },
+      signed_continuity_summary: {
+        token_presence: "present",
+        source_route: "xhs.search",
+        xsec_source: "pc_search",
+        credential_value_redaction_state: "redacted",
+        target_url_without_query: `https://www.xiaohongshu.com/explore/${noteId}`
+      },
+      non_proofs: expect.arrayContaining([
+        "not_live_evidence_accepted",
+        "not_external_cryptographic_signature"
+      ])
+    });
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      route_evidence_class: "active_api_fetch_fallback",
+      signed_continuity_binding: {
+        binding_status: "bound",
+        subject: {
+          run_id: runId,
+          action_ref: "read"
+        }
+      }
+    });
+  });
+
+  it("preserves signed continuity binding evidence on passive closeout route success", async () => {
+    const noteId = "note-continuity-binding-passive-001";
+    const runId = "run-detail-continuity-binding-passive-001";
+    const fetchJson = vi.fn(async () => {
+      throw new Error("passive closeout success should not continue to active fetch");
+    });
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: noteId
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "explore_detail_tab",
+          overrides: {
+            closeout_evidence_evaluation: true,
+            __runtime_latest_head_sha: "head-continuity-binding-passive"
+          }
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () => `https://www.xiaohongshu.com/explore/${noteId}`,
+        readCapturedRequestContext: createRequestContextReader(createDetailRequestContext(noteId)),
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected passive closeout success");
+    }
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.summary.route_evidence).toMatchObject({
+      route_evidence_class: "passive_api_capture",
+      head_sha: "head-continuity-binding-passive",
+      signed_continuity_binding: {
+        binding_status: "bound",
+        linked_refs: {
+          runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/detail`,
+          target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/detail`
+        },
+        provenance: {
+          route_evidence_class: "passive_api_capture",
+          source_kind: "page_request",
+          target_binding_transition_refs: [`target-binding-transition:${runId}:detail:bound`]
+        }
+      }
+    });
+    expect(result.payload.summary.closeout_route_evidence).toMatchObject({
+      signed_continuity_binding: {
+        binding_status: "bound"
+      }
+    });
+  });
+
+  it("preserves signed continuity binding evidence on user_home active fallback success", async () => {
+    const userId = "user-continuity-binding-active-001";
+    const runId = "run-user-continuity-binding-active-001";
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          user: {
+            userId,
+            nickname: "target user"
+          }
+        }
+      }
+    }));
+
+    const result = await executeXhsUserHome(
+      {
+        abilityId: "xhs.user.home.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          user_id: userId
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "profile_tab"
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () => `https://www.xiaohongshu.com/user/profile/${userId}`,
+        readCapturedRequestContext: createRequestContextReader(createUserHomeRequestContext(userId)),
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected user_home active fallback success");
+    }
+    expect(fetchJson).toHaveBeenCalledTimes(1);
+    expect(result.payload.summary.signed_continuity_binding).toMatchObject({
+      binding_version: "xhs_read_signed_continuity_binding.v1",
+      command: "xhs.user_home",
+      binding_status: "bound",
+      subject: {
+        profile_ref: "xhs_001",
+        session_id: "nm-session-001",
+        run_id: runId,
+        action_ref: "read",
+        target_tab_id: 32,
+        page_url: `https://www.xiaohongshu.com/user/profile/${userId}`,
+        route_bucket: "user_home",
+        target_page_class: "profile_tab"
+      },
+      linked_refs: {
+        runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/user_home`,
+        target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/user_home`
+      },
+      signed_continuity_summary: {
+        token_presence: "present",
+        source_route: "xhs.search",
+        xsec_source: "pc_search",
+        target_url_without_query: `https://www.xiaohongshu.com/user/profile/${userId}`
+      }
+    });
+  });
+
+  it("fails closed when signed continuity binding action provenance mismatches", async () => {
+    const noteId = "note-continuity-binding-action-mismatch-001";
+    const runId = "run-detail-continuity-binding-action-mismatch-001";
+    const fetchJson = vi.fn(async () => {
+      throw new Error("continuity binding mismatch should not continue to active fetch");
+    });
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: noteId
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "explore_detail_tab"
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () => `https://www.xiaohongshu.com/explore/${noteId}`,
+        readCapturedRequestContext: createRequestContextReader(
+          createDetailRequestContext(noteId, {
+            action_ref: "stale-action"
+          })
+        ),
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected continuity binding failure");
+    }
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.details).toMatchObject({
+      reason: "ACTIVE_API_FETCH_FALLBACK_GATE_BLOCKED",
+      active_api_fetch_fallback_gate: {
+        gate_decision: "blocked",
+        reason_codes: expect.arrayContaining(["SIGNED_CONTINUITY_BINDING_INVALID"]),
+        signed_continuity_binding: {
+          binding_status: "blocked",
+          blocking_reasons: expect.arrayContaining(["action_ref_mismatch"]),
+          subject: {
+            run_id: runId,
+            action_ref: "read"
+          },
+          provenance: {
+            route_evidence_class: "passive_api_capture",
+            source_kind: "page_request"
+          }
+        }
+      }
+    });
+  });
+
   it("blocks xhs.detail when provider-aware readiness denies the read path", async () => {
     const fetchJson = vi.fn(async () => {
       throw new Error("provider-aware detail block should not continue to live fetch");
