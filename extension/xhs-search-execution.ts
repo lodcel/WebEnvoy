@@ -642,10 +642,27 @@ const parseTargetBindingSnapshotRef = (
   };
 };
 
+const parseRuntimeBindingRef = (
+  value: string | null
+): { runId: string; routeBucket: string } | null => {
+  if (!value) {
+    return null;
+  }
+  const match = /^FR-0061\.xhs_runtime_binding\.v1\/([^/]+)\/([^/]+)$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  return {
+    runId: match[1] ?? "",
+    routeBucket: match[2] ?? ""
+  };
+};
+
 const collectTargetBindingEvidenceBlockers = (
   targetBindingSnapshotRef: string | null,
   targetBindingSnapshot: JsonRecord | null,
-  pageRuntimeReadiness: JsonRecord | null
+  pageRuntimeReadiness: JsonRecord | null,
+  activeRunId: string
 ): string[] => {
   if (!targetBindingSnapshot) {
     return [];
@@ -675,11 +692,21 @@ const collectTargetBindingEvidenceBlockers = (
   const readinessRunId = asString(pageRuntimeReadiness?.run_id);
   if (!snapshotRunId) {
     reasons.push("target_binding_run_id_missing");
+  } else if (snapshotRunId !== activeRunId) {
+    reasons.push("target_binding_run_id_mismatch");
+  }
+  if (pageRuntimeReadiness && !readinessRunId) {
+    reasons.push("page_runtime_readiness_run_id_missing");
+  } else if (readinessRunId && readinessRunId !== activeRunId) {
+    reasons.push("page_runtime_readiness_run_id_mismatch");
   }
   if (parsedRef) {
     if (parsedRef.routeBucket !== EXPECTED_XHS_SEARCH_ROUTE_BUCKET) {
       reasons.push("target_binding_ref_mismatch");
       reasons.push(`target_binding_ref_route:${parsedRef.routeBucket}`);
+    }
+    if (parsedRef.runId !== activeRunId) {
+      reasons.push("target_binding_ref_mismatch");
     }
     if (snapshotRunId && parsedRef.runId !== snapshotRunId) {
       reasons.push("target_binding_ref_mismatch");
@@ -763,11 +790,21 @@ const collectProviderRequirementBlockers = (
 
 const collectRuntimeBindingBlockers = (
   runtimeBindingRef: string | null,
-  runtimeBinding: JsonRecord | null
+  runtimeBinding: JsonRecord | null,
+  activeRunId: string
 ): string[] => {
   const reasons: string[] = [];
   if (!runtimeBindingRef) {
     reasons.push("runtime_binding_ref_missing");
+  } else {
+    const parsedRuntimeBindingRef = parseRuntimeBindingRef(runtimeBindingRef);
+    if (
+      !parsedRuntimeBindingRef ||
+      parsedRuntimeBindingRef.routeBucket !== EXPECTED_XHS_SEARCH_ROUTE_BUCKET ||
+      parsedRuntimeBindingRef.runId !== activeRunId
+    ) {
+      reasons.push("runtime_binding_ref_mismatch");
+    }
   }
   if (!runtimeBinding) {
     reasons.push("runtime_binding_evidence_missing");
@@ -823,7 +860,8 @@ const collectReadinessDimensionBlockers = (
 };
 
 const resolveProviderAwareReadPathBlock = (
-  options: XhsSearchOptions
+  options: XhsSearchOptions,
+  activeRunId: string
 ): ProviderAwareReadPathBlock | null => {
   const summaryFields = buildProviderAwareReadPathSummaryFields(options);
   const targetBindingSnapshot = asRecord(options.target_binding_snapshot);
@@ -853,10 +891,11 @@ const resolveProviderAwareReadPathBlock = (
     ...collectTargetBindingEvidenceBlockers(
       targetBindingSnapshotRef,
       targetBindingSnapshot,
-      pageRuntimeReadiness
+      pageRuntimeReadiness,
+      activeRunId
     ),
     ...collectProviderRequirementBlockers(providerRequirements, providerRequirementRefs),
-    ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding),
+    ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding, activeRunId),
     ...asStringArray(targetBindingSnapshot?.blocking_reasons).map(
       (reason) => `target_binding:${reason}`
     ),
@@ -2170,7 +2209,7 @@ export const executeXhsSearch = async (
   }
 
   const providerAwareReadPathBlock = isProviderAwareLiveReadGate(gate)
-    ? resolveProviderAwareReadPathBlock(input.options)
+    ? resolveProviderAwareReadPathBlock(input.options, input.executionContext.runId)
     : null;
   if (providerAwareReadPathBlock) {
     const summary = "provider-aware read path readiness denied xhs.search execution";

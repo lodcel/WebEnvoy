@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, approvedLiveOptions, providerAwareSearchReadPathOptions, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
+import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, approvedLiveOptions, providerAwareSearchReadPathOptions, createProviderAwareSearchReadyReadPathOptions, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
 
 describe("extension background relay contract / target binding and editor input", () => {
   it("blocks issue_208 write action in paused state and returns reversible write tier", async () => {
@@ -1191,6 +1191,8 @@ describe("extension background relay contract / target binding and editor input"
     const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
 
     const responsePromise = waitForResponse(relay);
+    const timeoutProviderAwareOptions =
+      createProviderAwareSearchReadyReadPathOptions("run-xhs-timeout-001");
     relay.onNativeRequest({
       id: "forward-xhs-timeout-001",
       method: "bridge.forward",
@@ -1210,33 +1212,7 @@ describe("extension background relay contract / target binding and editor input"
           },
           options: {
             ...approvedLiveOptions,
-            ...providerAwareSearchReadPathOptions,
-            target_binding_snapshot: {
-              ...providerAwareSearchReadPathOptions.target_binding_snapshot,
-              state: "bound",
-              blocking_reasons: []
-            },
-            xhs_page_runtime_readiness: {
-              ...providerAwareSearchReadPathOptions.xhs_page_runtime_readiness,
-              page_readiness: {
-                status: "ready",
-                required: true
-              },
-              runtime_readiness: {
-                status: "ready",
-                required: true,
-                source: "official_chrome_runtime_readiness"
-              },
-              provider_admission_readiness: {
-                status: "ready",
-                required: true,
-                source: "provider_admission_result"
-              },
-              overall_readiness: "ready",
-              gate_decision: "allow"
-            },
-            page_runtime_readiness_decision: "allow",
-            page_runtime_readiness_blocking_reasons: [],
+            ...timeoutProviderAwareOptions,
             admission_context: createApprovedReadAdmissionContext({
               run_id: "run-xhs-timeout-001",
               request_id: "issue209-relay-timeout-001",
@@ -2177,6 +2153,41 @@ describe("extension background relay contract / target binding and editor input"
         }
       },
       expectedReasons: ["target_binding_scope_mismatch"]
+    },
+    {
+      name: "target binding evidence is internally consistent but belongs to a previous run",
+      overrides: {
+        target_binding_snapshot_ref:
+          "FR-0063.target_binding_snapshot.v1/run-xhs-live-previous-001/search",
+        target_binding_snapshot: {
+          ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+          state: "bound",
+          run_id: "run-xhs-live-previous-001",
+          target_scope: {
+            target_domain: "www.xiaohongshu.com",
+            target_page_class: "search_tab"
+          },
+          route_bucket: "search",
+          freshness_scope: "current_run",
+          blocking_reasons: []
+        },
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          run_id: "run-xhs-live-previous-001"
+        }
+      },
+      expectedReasons: [
+        "target_binding_ref_mismatch",
+        "target_binding_run_id_mismatch",
+        "page_runtime_readiness_run_id_mismatch"
+      ]
+    },
+    {
+      name: "runtime binding ref belongs to a previous run",
+      overrides: {
+        runtime_binding_ref: "FR-0061.xhs_runtime_binding.v1/run-xhs-live-previous-001/search"
+      },
+      expectedReasons: ["runtime_binding_ref_mismatch"]
     },
     {
       name: "provider requirement top-level ref is not covered by declaration refs",

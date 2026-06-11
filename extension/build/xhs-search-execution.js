@@ -426,7 +426,20 @@ const parseTargetBindingSnapshotRef = (value) => {
         routeBucket: match[2] ?? ""
     };
 };
-const collectTargetBindingEvidenceBlockers = (targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness) => {
+const parseRuntimeBindingRef = (value) => {
+    if (!value) {
+        return null;
+    }
+    const match = /^FR-0061\.xhs_runtime_binding\.v1\/([^/]+)\/([^/]+)$/.exec(value);
+    if (!match) {
+        return null;
+    }
+    return {
+        runId: match[1] ?? "",
+        routeBucket: match[2] ?? ""
+    };
+};
+const collectTargetBindingEvidenceBlockers = (targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, activeRunId) => {
     if (!targetBindingSnapshot) {
         return [];
     }
@@ -456,10 +469,22 @@ const collectTargetBindingEvidenceBlockers = (targetBindingSnapshotRef, targetBi
     if (!snapshotRunId) {
         reasons.push("target_binding_run_id_missing");
     }
+    else if (snapshotRunId !== activeRunId) {
+        reasons.push("target_binding_run_id_mismatch");
+    }
+    if (pageRuntimeReadiness && !readinessRunId) {
+        reasons.push("page_runtime_readiness_run_id_missing");
+    }
+    else if (readinessRunId && readinessRunId !== activeRunId) {
+        reasons.push("page_runtime_readiness_run_id_mismatch");
+    }
     if (parsedRef) {
         if (parsedRef.routeBucket !== EXPECTED_XHS_SEARCH_ROUTE_BUCKET) {
             reasons.push("target_binding_ref_mismatch");
             reasons.push(`target_binding_ref_route:${parsedRef.routeBucket}`);
+        }
+        if (parsedRef.runId !== activeRunId) {
+            reasons.push("target_binding_ref_mismatch");
         }
         if (snapshotRunId && parsedRef.runId !== snapshotRunId) {
             reasons.push("target_binding_ref_mismatch");
@@ -527,10 +552,18 @@ const collectProviderRequirementBlockers = (providerRequirements, providerRequir
     }
     return reasons;
 };
-const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding) => {
+const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding, activeRunId) => {
     const reasons = [];
     if (!runtimeBindingRef) {
         reasons.push("runtime_binding_ref_missing");
+    }
+    else {
+        const parsedRuntimeBindingRef = parseRuntimeBindingRef(runtimeBindingRef);
+        if (!parsedRuntimeBindingRef ||
+            parsedRuntimeBindingRef.routeBucket !== EXPECTED_XHS_SEARCH_ROUTE_BUCKET ||
+            parsedRuntimeBindingRef.runId !== activeRunId) {
+            reasons.push("runtime_binding_ref_mismatch");
+        }
     }
     if (!runtimeBinding) {
         reasons.push("runtime_binding_evidence_missing");
@@ -579,7 +612,7 @@ const collectReadinessDimensionBlockers = (dimension, prefix, missingReason) => 
     reasons.push(...blockingReasons.map((reason) => `${prefix}:${reason}`));
     return reasons;
 };
-const resolveProviderAwareReadPathBlock = (options) => {
+const resolveProviderAwareReadPathBlock = (options, activeRunId) => {
     const summaryFields = buildProviderAwareReadPathSummaryFields(options);
     const targetBindingSnapshot = asRecord(options.target_binding_snapshot);
     const pageRuntimeReadiness = asRecord(options.xhs_page_runtime_readiness);
@@ -601,9 +634,9 @@ const resolveProviderAwareReadPathBlock = (options) => {
             ? []
             : ["provider_requirement_refs_missing"]),
         ...(pageRuntimeReadiness ? [] : ["page_runtime_readiness_missing"]),
-        ...collectTargetBindingEvidenceBlockers(targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness),
+        ...collectTargetBindingEvidenceBlockers(targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, activeRunId),
         ...collectProviderRequirementBlockers(providerRequirements, providerRequirementRefs),
-        ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding),
+        ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding, activeRunId),
         ...asStringArray(targetBindingSnapshot?.blocking_reasons).map((reason) => `target_binding:${reason}`),
         ...collectReadinessDimensionBlockers(pageReadiness, "page", "page_readiness_missing"),
         ...collectReadinessDimensionBlockers(runtimeReadiness, "runtime", "runtime_readiness_missing"),
@@ -1677,7 +1710,7 @@ export const executeXhsSearch = async (input, env) => {
         }), gate, auditRecord), gate.execution_audit);
     }
     const providerAwareReadPathBlock = isProviderAwareLiveReadGate(gate)
-        ? resolveProviderAwareReadPathBlock(input.options)
+        ? resolveProviderAwareReadPathBlock(input.options, input.executionContext.runId)
         : null;
     if (providerAwareReadPathBlock) {
         const summary = "provider-aware read path readiness denied xhs.search execution";
