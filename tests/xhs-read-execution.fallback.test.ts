@@ -479,6 +479,90 @@ describe("xhs read execution fallback", () => {
     });
   });
 
+  it("blocks xhs.detail simulated success when provider-aware readiness denies the read path", async () => {
+    const fetchJson = vi.fn(async () => {
+      throw new Error("provider-aware detail block should not continue to simulated live success");
+    });
+    const runId = "run-detail-provider-aware-simulated-denied-001";
+    const providerAwareOptions = createProviderAwareDetailReadPathOptions(runId);
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-provider-simulated-denied-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "explore_detail_tab",
+          overrides: {
+            ...providerAwareOptions,
+            simulate_result: "success",
+            target_binding_snapshot: {
+              ...providerAwareOptions.target_binding_snapshot,
+              state: "candidate_found",
+              evidence_refs: undefined,
+              blocking_reasons: ["target_binding_not_bound"]
+            },
+            xhs_page_runtime_readiness: {
+              ...providerAwareOptions.xhs_page_runtime_readiness,
+              page_readiness: {
+                status: "blocked",
+                required: true,
+                blocking_reasons: ["target_binding_not_bound"]
+              },
+              provider_admission_readiness: {
+                status: "blocked",
+                required: true,
+                source: "provider_admission_result",
+                blocking_reasons: ["provider_requirement_refs_not_attested"]
+              },
+              overall_readiness: "blocked",
+              gate_decision: "deny"
+            },
+            page_runtime_readiness_decision: "deny",
+            page_runtime_readiness_blocking_reasons: [
+              "page:target_binding_not_bound",
+              "provider:provider_requirement_refs_not_attested"
+            ]
+          }
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/explore/note-provider-simulated-denied-001",
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.details).toMatchObject({
+      reason: "PROVIDER_AWARE_READINESS_DENIED",
+      blocking_reasons: expect.arrayContaining([
+        "target_binding:target_binding_not_bound",
+        "provider:provider_requirement_refs_not_attested",
+        "page_runtime_gate:deny",
+        "page_runtime_readiness_decision:deny"
+      ])
+    });
+    expect(result.payload).toMatchObject({
+      provider_aware_read_path_gate: {
+        gate_decision: "blocked",
+        live_execution_continued: false,
+        effective_execution_mode: null,
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      }
+    });
+    expect(result.payload.summary?.capability_result).toBeUndefined();
+  });
+
   it("blocks xhs.detail when provider-aware evidence is scoped to xhs.search", async () => {
     const fetchJson = vi.fn(async () => {
       throw new Error("search-scoped provider evidence should not continue to detail fetch");

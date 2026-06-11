@@ -3808,6 +3808,54 @@ const executeXhsRead = async (
     return createGateOnlySuccess(input, spec, gate, auditRecord, env, builtPayload);
   }
 
+  const providerAwareReadPathBlock = isProviderAwareLiveReadGate(gate)
+    ? resolveProviderAwareReadPathBlock(spec, input.options, input.executionContext.runId)
+    : null;
+  if (providerAwareReadPathBlock) {
+    const summary = `provider-aware read path readiness denied ${spec.command} execution`;
+    return withProviderAwareReadPathBlockPayload(
+      withExecutionAuditInFailurePayload(
+        createFailure(
+          "ERR_EXECUTION_FAILED",
+          summary,
+          {
+            ability_id: input.abilityId,
+            stage: "execution",
+            reason: providerAwareReadPathBlock.reason,
+            blocking_reasons: providerAwareReadPathBlock.reasons
+          },
+          createReadObservability({
+            spec,
+            href: env.getLocationHref(),
+            title: env.getDocumentTitle(),
+            readyState: env.getReadyState(),
+            requestId: `req-${env.randomId()}`,
+            outcome: "failed",
+            failureReason: providerAwareReadPathBlock.reason,
+            includeKeyRequest: false,
+            failureSite: {
+              stage: "execution",
+              component: "gate",
+              target: "provider_aware_read_path",
+              summary
+            }
+          }),
+          createReadDiagnosis(spec, {
+            reason: providerAwareReadPathBlock.reason,
+            summary,
+            category: "page_changed"
+          }),
+          gate,
+          auditRecord
+        ),
+        gate.execution_audit as JsonRecord | null
+      ),
+      gate,
+      auditRecord,
+      providerAwareReadPathBlock
+    );
+  }
+
   const simulated = resolveSimulatedResult(input, spec, builtPayload, env, gate, auditRecord);
   if (simulated) {
     if (simulated.ok) {
@@ -3945,54 +3993,6 @@ const executeXhsRead = async (
         auditRecord
       ),
       gate.execution_audit as JsonRecord | null
-    );
-  }
-
-  const providerAwareReadPathBlock = isProviderAwareLiveReadGate(gate)
-    ? resolveProviderAwareReadPathBlock(spec, input.options, input.executionContext.runId)
-    : null;
-  if (providerAwareReadPathBlock) {
-    const summary = `provider-aware read path readiness denied ${spec.command} execution`;
-    return withProviderAwareReadPathBlockPayload(
-      withExecutionAuditInFailurePayload(
-        createFailure(
-          "ERR_EXECUTION_FAILED",
-          summary,
-          {
-            ability_id: input.abilityId,
-            stage: "execution",
-            reason: providerAwareReadPathBlock.reason,
-            blocking_reasons: providerAwareReadPathBlock.reasons
-          },
-          createReadObservability({
-            spec,
-            href: env.getLocationHref(),
-            title: env.getDocumentTitle(),
-            readyState: env.getReadyState(),
-            requestId: `req-${env.randomId()}`,
-            outcome: "failed",
-            failureReason: providerAwareReadPathBlock.reason,
-            includeKeyRequest: false,
-            failureSite: {
-              stage: "execution",
-              component: "gate",
-              target: "provider_aware_read_path",
-              summary
-            }
-          }),
-          createReadDiagnosis(spec, {
-            reason: providerAwareReadPathBlock.reason,
-            summary,
-            category: "page_changed"
-          }),
-          gate,
-          auditRecord
-        ),
-        gate.execution_audit as JsonRecord | null
-      ),
-      gate,
-      auditRecord,
-      providerAwareReadPathBlock
     );
   }
 
