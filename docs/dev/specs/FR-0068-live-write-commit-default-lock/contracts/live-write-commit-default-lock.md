@@ -76,8 +76,7 @@ interface LiveWriteCommitDefaultLockEvidenceRefV1 {
     | "operator_unlock_ref"
     | "live_evidence_gate_ref"
     | "freshness_ref"
-    | "redaction_policy_ref"
-    | "risk_disposition_ref";
+    | "redaction_policy_ref";
   ref: string;
   source_owner: string;
   collected_at: string | "N/A";
@@ -108,7 +107,6 @@ interface LiveWriteCommitDefaultLockEvidenceRefsV1 {
   live_evidence_gate_ref: LiveWriteCommitDefaultLockEvidenceRefV1;
   freshness_ref: LiveWriteCommitDefaultLockEvidenceRefV1;
   redaction_policy_ref: LiveWriteCommitDefaultLockEvidenceRefV1;
-  risk_disposition_ref: LiveWriteCommitDefaultLockEvidenceRefV1;
 }
 ```
 
@@ -117,6 +115,7 @@ Rules:
 - Refs are locators only. They must not inline secrets, account identifiers, cookies, tokens, profile paths, browser paths, private URLs, page content, media content, raw manifests or live artifact payloads.
 - Refs must bind owner, collected time, head, run, freshness scope and redaction state so downstream gates can reject stale, wrong-head, wrong-run or under-redacted inputs.
 - Required refs with `redaction_required`, `policy_missing`, `invalid`, stale freshness, scope mismatch, partial availability or unknown owner cannot unlock default lock.
+- A downstream release gate such as #1211 may emit a later `risk_disposition_ref` only after re-consuming this result and its current exact-scope refs. That downstream risk disposition is not part of the FR-0068 required refs and cannot unlock the default lock by itself.
 
 ## Lock record
 
@@ -229,9 +228,6 @@ type LiveWriteCommitDefaultLockBlockingReasonV1 =
   | "freshness_scope_mismatch"
   | "redaction_policy_missing"
   | "redaction_policy_invalid"
-  | "risk_disposition_missing"
-  | "risk_disposition_stale"
-  | "risk_disposition_scope_mismatch"
   | "stub_or_fake_host_evidence"
   | "control_plane_only_signal"
   | "historical_or_stale_evidence"
@@ -311,8 +307,7 @@ These examples are synthetic and redacted. They are not live evidence, do not id
     "FR-0064.operator_unlock/redacted-current-scope",
     "live_evidence_gate/redacted-current-scope",
     "freshness/redacted-current-scope",
-    "FR-0041.redaction_policy/redacted-current-scope",
-    "risk_disposition/redacted-current-scope"
+    "FR-0041.redaction_policy/redacted-current-scope"
   ],
   "downstream_reconsumption_required": true,
   "evaluated_at": "N/A",

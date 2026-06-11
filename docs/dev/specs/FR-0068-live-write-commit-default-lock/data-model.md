@@ -102,15 +102,14 @@ Grouped refs:
 - `live_evidence_gate_ref`
 - `freshness_ref`
 - `redaction_policy_ref`
-- `risk_disposition_ref`
 
 Constraints:
 
 - Refs must consume the source owner contracts rather than inline private evidence.
-- `risk_disposition_ref` must be owned by #1211 / release gate owner or an equivalent downstream risk owner; it summarizes risk disposition for the exact scope but does not replace the individual required refs.
 - Refs must not expose account identifiers, cookies, tokens, profile paths, browser paths, private URLs, page content, media content, raw manifests or live artifact payloads.
 - Each ref must bind source owner, collected time, head, run, freshness and redaction state.
 - Missing, partial, unavailable, stale, wrong-scope or redaction-invalid required refs fail closed.
+- #1211 / release gate owner may produce a downstream `risk_disposition_ref` after consuming FR-0068 and its refs. That downstream ref is final-gate evidence, not a required FR-0068 precondition.
 
 ## 4. Non-proof record
 

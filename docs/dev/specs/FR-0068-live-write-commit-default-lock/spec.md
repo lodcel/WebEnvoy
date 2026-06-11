@@ -108,22 +108,20 @@ Default lock release 必须至少消费以下 current exact-scope preconditions�
 - `profile_manifest_allowlist_ref`: FR-0065 accepted result for requested profile/provider/workflow/target.
 - `extension_native_bridge_ref`: FR-0067 ready result for requested scope.
 - `account_safety_ref`: FR-0066 clear result for requested scope.
-- `runtime_target_binding_ref`: current target binding / runtime target readiness result from downstream owner.
-- `anti_detection_gate_ref`: applicable anti-detection / account-risk gate result from downstream owner.
+- `runtime_target_binding_ref`: current target binding / runtime target readiness result from an upstream runtime or admission owner that does not depend on #1211 release-gate consumption.
+- `anti_detection_gate_ref`: applicable anti-detection / account-risk gate result from an upstream risk owner that does not depend on #1211 release-gate consumption.
 - `operator_unlock_ref`: FR-0064 accepted operator unlock for exact scope.
-- `live_evidence_gate_ref`: latest-head fresh real-browser live evidence gate result from downstream owner.
+- `live_evidence_gate_ref`: latest-head fresh real-browser live evidence gate result from a live-evidence owner for the current head/run, not from the final #1211 release gate.
 - `freshness_ref`: evidence freshness record binding head/run/profile/target/workflow.
 - `redaction_policy_ref`: FR-0041 / #1181-compatible redaction disposition.
-- `risk_disposition_ref`: #1211 / release gate owner or equivalent downstream risk owner result that confirms all applicable high-risk live-write lanes for the exact scope have been evaluated and no unresolved risk blocker remains.
 
 约束：
 
 - Missing, stale, partial, wrong-head, wrong-run, wrong-profile, wrong-target, wrong-provider, under-redacted or unowned precondition keeps `state=locked|release_blocked|release_deferred`.
-- `risk_disposition_ref` is mandatory for release-ready status. It must be current, exact-scope, redacted, owner-bound, and must summarize the consumed provider, profile, bridge, account-safety, runtime-target-binding, anti-detection, operator-unlock and live-evidence dispositions without replacing those refs.
-- Missing, stale, scope-mismatched, under-redacted or unresolved risk disposition evidence keeps `state=release_blocked|release_deferred`.
 - #1179 `xhs.creator_publish.admit` supports `write_admit`; it cannot by itself satisfy commit workflow provider requirements unless a downstream provider requirement owner explicitly upgrades and reconsumes the exact commit scope.
 - Operator unlock can clear only the operator lane; default lock release still requires all other preconditions.
 - Account safety clear, extension/native bridge ready, profile allowlist accepted or provider requirement accepted can only clear their respective lanes.
+- #1211 / release gate owner is a downstream consumer of FR-0068. It may emit a later `risk_disposition_ref` after re-consuming the FR-0068 result and current exact-scope refs, but that downstream risk disposition is not a prerequisite for FR-0068 `release_ready_for_downstream_gate` and cannot unlock the default lock by itself.
 
 ### 5. Non-proofs
 
@@ -196,9 +194,6 @@ Allowed gate status:
 - `freshness_scope_mismatch`
 - `redaction_policy_missing`
 - `redaction_policy_invalid`
-- `risk_disposition_missing`
-- `risk_disposition_stale`
-- `risk_disposition_scope_mismatch`
 - `stub_or_fake_host_evidence`
 - `control_plane_only_signal`
 - `historical_or_stale_evidence`
