@@ -474,6 +474,62 @@ describe("XHS closeout evidence boundary for #1164", () => {
     );
   });
 
+  it.each([
+    {
+      name: "selected provider selection refs",
+      section: "selected_provider",
+      field: "selection_evidence_refs"
+    },
+    {
+      name: "version evidence refs",
+      section: "version_evidence",
+      field: "version_evidence_refs"
+    },
+    {
+      name: "launch argument evidence refs",
+      section: "launch_arguments",
+      field: "launch_argument_evidence_refs"
+    },
+    {
+      name: "profile evidence refs",
+      section: "profile_reference",
+      field: "profile_evidence_refs"
+    },
+    {
+      name: "extension evidence refs",
+      section: "extension_status",
+      field: "extension_evidence_refs"
+    },
+    {
+      name: "native messaging evidence refs",
+      section: "native_messaging_status",
+      field: "native_messaging_evidence_refs"
+    }
+  ])("rejects dangling FR-0040 section evidence refs: $name", ({ section, field }) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence[section] = {
+      ...(providerEvidence[section] as Record<string, unknown>),
+      [field]: ["ev-dangling-section-ref"]
+    };
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field: `provider_evidence_record.${section}.${field}`
+        })
+      ])
+    );
+  });
+
   it("keeps the required route field set stable for the later route evidence evaluator", () => {
     expect([...XHS_CLOSEOUT_REQUIRED_ROUTE_FIELDS]).toEqual([
       "route_role",
@@ -516,6 +572,53 @@ describe("XHS closeout evidence boundary for #1164", () => {
         })
       ])
     });
+  });
+
+  it.each([
+    {
+      name: "route evidence class masked by passive evidence_class",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.evidence_class = "passive_api_capture";
+        routeEvidence.route_evidence_class = "active_api_fetch_fallback";
+      },
+      field: "route_evidence.route_evidence_class"
+    },
+    {
+      name: "evidence class masked by passive route_evidence_class",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.evidence_class = "active_api_fetch_fallback";
+        routeEvidence.route_evidence_class = "passive_api_capture";
+      },
+      field: "route_evidence.evidence_class"
+    },
+    {
+      name: "non-passive route_evidence_class mismatch",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.evidence_class = "passive_api_capture";
+        routeEvidence.route_evidence_class = "page_state_fallback";
+      },
+      field: "route_evidence.route_evidence_class"
+    }
+  ])("fails closed for mismatched closeout route evidence class fields: $name", ({ mutate, field }) => {
+    const routeEvidence = baseRouteEvidence("xhs.detail");
+    mutate(routeEvidence);
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "unsupported_route_evidence_class",
+          blocker_layer: "route",
+          field
+        })
+      ])
+    );
   });
 
   it.each([

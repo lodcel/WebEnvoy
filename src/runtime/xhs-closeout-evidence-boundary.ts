@@ -228,6 +228,14 @@ const requiredProviderEvidenceRecordFields: Record<string, readonly string[]> = 
     "closeout_decision"
   ]
 };
+const providerSectionEvidenceRefFields: Record<string, readonly string[]> = {
+  selected_provider: ["selection_evidence_refs"],
+  version_evidence: ["version_evidence_refs"],
+  launch_arguments: ["launch_argument_evidence_refs"],
+  profile_reference: ["profile_evidence_refs"],
+  extension_status: ["extension_evidence_refs"],
+  native_messaging_status: ["native_messaging_evidence_refs"]
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -366,6 +374,12 @@ const validateProviderEvidenceShape = (
   providerEvidenceRecord: Record<string, unknown>,
   blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"]
 ): void => {
+  const topLevelEvidenceRefIds = new Set(
+    getEvidenceRefs(providerEvidenceRecord)
+      .map((ref) => normalizeString(ref.evidence_ref_id))
+      .filter((refId): refId is string => refId !== null)
+  );
+
   for (const sectionName of requiredProviderEvidenceRecordSections) {
     if (sectionName === "evidence_refs") {
       if (!Array.isArray(providerEvidenceRecord.evidence_refs)) {
@@ -404,6 +418,36 @@ const validateProviderEvidenceShape = (
             `FR-0040 provider evidence record is missing ${sectionName}.${field}`
           )
         );
+      }
+    }
+
+    for (const evidenceRefField of providerSectionEvidenceRefFields[sectionName] ?? []) {
+      const sectionRefIds = asArray(section[evidenceRefField])
+        .map((item) => normalizeString(item))
+        .filter((item): item is string => item !== null);
+      if (sectionRefIds.length === 0) {
+        blockers.push(
+          blocker(
+            "provider_evidence_shape_invalid",
+            "provider_evidence",
+            `provider_evidence_record.${sectionName}.${evidenceRefField}`,
+            `FR-0040 ${sectionName}.${evidenceRefField} must reference top-level evidence_refs`
+          )
+        );
+        continue;
+      }
+
+      for (const sectionRefId of sectionRefIds) {
+        if (!topLevelEvidenceRefIds.has(sectionRefId)) {
+          blockers.push(
+            blocker(
+              "provider_evidence_shape_invalid",
+              "provider_evidence",
+              `provider_evidence_record.${sectionName}.${evidenceRefField}`,
+              `FR-0040 ${sectionName}.${evidenceRefField} entry ${sectionRefId} must resolve in top-level evidence_refs`
+            )
+          );
+        }
       }
     }
   }
@@ -753,16 +797,25 @@ export const evaluateXhsCloseoutEvidenceBoundary = (
       )
     );
   } else {
-    const routeEvidenceClass =
-      normalizeString(routeEvidence.evidence_class) ??
-      normalizeString(routeEvidence.route_evidence_class);
-    if (routeEvidenceClass !== allowedRouteEvidenceClass) {
+    const evidenceClass = normalizeString(routeEvidence.evidence_class);
+    const routeEvidenceClass = normalizeString(routeEvidence.route_evidence_class);
+    if (evidenceClass !== allowedRouteEvidenceClass) {
       blockers.push(
         blocker(
           "unsupported_route_evidence_class",
           "route",
           "route_evidence.evidence_class",
           "only passive_api_capture is admitted as the XHS operation closeout evidence boundary"
+        )
+      );
+    }
+    if (routeEvidenceClass !== allowedRouteEvidenceClass) {
+      blockers.push(
+        blocker(
+          "unsupported_route_evidence_class",
+          "route",
+          "route_evidence.route_evidence_class",
+          "only passive_api_capture route evidence is admitted as the XHS operation closeout evidence boundary"
         )
       );
     }
