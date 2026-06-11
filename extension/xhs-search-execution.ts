@@ -601,6 +601,154 @@ const buildProviderAwareReadPathSummaryFields = (options: XhsSearchOptions): Jso
   };
 };
 
+type ProviderAwareReadPathBlock = {
+  reason: "PROVIDER_AWARE_READINESS_DENIED";
+  reasons: string[];
+  summaryFields: JsonRecord;
+};
+
+const BLOCKED_READINESS_STATUSES = new Set(["blocked", "deny", "denied", "not_ready"]);
+const DENY_READINESS_DECISIONS = new Set(["deny", "denied", "blocked", "defer", "deferred"]);
+
+const collectReadinessDimensionBlockers = (
+  dimension: JsonRecord | null,
+  prefix: string
+): string[] => {
+  if (!dimension || dimension.required === false) {
+    return [];
+  }
+  const status = asString(dimension.status);
+  const gateDecision = asString(dimension.gate_decision);
+  const blockingReasons = asStringArray(dimension.blocking_reasons);
+  const reasons: string[] = [];
+  if (status && BLOCKED_READINESS_STATUSES.has(status)) {
+    reasons.push(`${prefix}:${status}`);
+  }
+  if (gateDecision && DENY_READINESS_DECISIONS.has(gateDecision)) {
+    reasons.push(`${prefix}:${gateDecision}`);
+  }
+  reasons.push(...blockingReasons.map((reason) => `${prefix}:${reason}`));
+  return reasons;
+};
+
+const resolveProviderAwareReadPathBlock = (
+  options: XhsSearchOptions
+): ProviderAwareReadPathBlock | null => {
+  const summaryFields = buildProviderAwareReadPathSummaryFields(options);
+  const targetBindingSnapshot = asRecord(options.target_binding_snapshot);
+  const pageRuntimeReadiness = asRecord(options.xhs_page_runtime_readiness);
+  const pageReadiness = asRecord(pageRuntimeReadiness?.page_readiness);
+  const runtimeReadiness = asRecord(pageRuntimeReadiness?.runtime_readiness);
+  const providerAdmissionReadiness = asRecord(
+    pageRuntimeReadiness?.provider_admission_readiness
+  );
+  const reasons = [
+    ...asStringArray(targetBindingSnapshot?.blocking_reasons).map(
+      (reason) => `target_binding:${reason}`
+    ),
+    ...collectReadinessDimensionBlockers(pageReadiness, "page"),
+    ...collectReadinessDimensionBlockers(runtimeReadiness, "runtime"),
+    ...collectReadinessDimensionBlockers(providerAdmissionReadiness, "provider"),
+    ...asStringArray(options.page_runtime_readiness_blocking_reasons)
+  ];
+  const targetBindingState = asString(targetBindingSnapshot?.state);
+  const overallReadiness = asString(pageRuntimeReadiness?.overall_readiness);
+  const readinessGateDecision = asString(pageRuntimeReadiness?.gate_decision);
+  const optionReadinessDecision = asString(options.page_runtime_readiness_decision);
+
+  if (
+    targetBindingState &&
+    targetBindingState !== "bound" &&
+    targetBindingState !== "ready" &&
+    asStringArray(targetBindingSnapshot?.blocking_reasons).length > 0
+  ) {
+    reasons.push(`target_binding_state:${targetBindingState}`);
+  }
+  if (overallReadiness && BLOCKED_READINESS_STATUSES.has(overallReadiness)) {
+    reasons.push(`overall_readiness:${overallReadiness}`);
+  }
+  if (readinessGateDecision && DENY_READINESS_DECISIONS.has(readinessGateDecision)) {
+    reasons.push(`page_runtime_gate:${readinessGateDecision}`);
+  }
+  if (optionReadinessDecision && DENY_READINESS_DECISIONS.has(optionReadinessDecision)) {
+    reasons.push(`page_runtime_readiness_decision:${optionReadinessDecision}`);
+  }
+
+  const uniqueReasons = Array.from(new Set(reasons));
+  if (uniqueReasons.length === 0) {
+    return null;
+  }
+  return {
+    reason: "PROVIDER_AWARE_READINESS_DENIED",
+    reasons: uniqueReasons,
+    summaryFields
+  };
+};
+
+const withProviderAwareReadPathBlockPayload = (
+  result: SearchExecutionResult,
+  gate: ReturnType<typeof resolveGate>,
+  auditRecord: ReturnType<typeof createAuditRecord>,
+  block: ProviderAwareReadPathBlock
+): SearchExecutionResult => {
+  if (result.ok) {
+    return result;
+  }
+  const blockedConsumerGateResult = {
+    ...gate.consumer_gate_result,
+    gate_decision: "blocked" as const,
+    gate_reasons: [
+      ...gate.consumer_gate_result.gate_reasons,
+      "PROVIDER_AWARE_READINESS_DENIED",
+      ...block.reasons
+    ]
+  };
+  const blockedGateOutcome = {
+    ...gate.gate_outcome,
+    gate_decision: "blocked" as const,
+    gate_reasons: [
+      ...gate.gate_outcome.gate_reasons,
+      "PROVIDER_AWARE_READINESS_DENIED",
+      ...block.reasons
+    ]
+  };
+  const blockedRequestAdmissionResult = gate.request_admission_result
+    ? {
+        ...gate.request_admission_result,
+        admission_decision: "blocked" as const,
+        reason_codes: [
+          ...gate.request_admission_result.reason_codes,
+          "PROVIDER_AWARE_READINESS_DENIED",
+          ...block.reasons
+        ]
+      }
+    : gate.request_admission_result;
+  const blockedAuditRecord = {
+    ...auditRecord,
+    gate_decision: "blocked" as const,
+    gate_reasons: blockedConsumerGateResult.gate_reasons,
+    risk_signal: true,
+    recovery_signal: false,
+    session_rhythm_state: "cooldown" as const
+  };
+  return {
+    ...result,
+    payload: {
+      ...result.payload,
+      ...block.summaryFields,
+      provider_aware_read_path_gate: {
+        gate_decision: "blocked",
+        reason: block.reason,
+        blocking_reasons: block.reasons
+      },
+      gate_outcome: blockedGateOutcome,
+      consumer_gate_result: blockedConsumerGateResult,
+      request_admission_result: blockedRequestAdmissionResult,
+      audit_record: blockedAuditRecord
+    }
+  };
+};
+
 const XHS_SEARCH_REPLAY_ORIGIN_ALLOWLIST = new Set([
   "https://www.xiaohongshu.com",
   "https://edith.xiaohongshu.com"
@@ -1756,6 +1904,55 @@ export const executeXhsSearch = async (
         auditRecord
       ),
       gate.execution_audit as JsonRecord | null
+    );
+  }
+
+  const providerAwareReadPathBlock = resolveProviderAwareReadPathBlock(input.options);
+  if (providerAwareReadPathBlock) {
+    const summary = "provider-aware read path readiness denied xhs.search execution";
+    return withLayer2InteractionInPayload(
+      withProviderAwareReadPathBlockPayload(
+        withExecutionAuditInFailurePayload(
+          createFailure(
+            "ERR_EXECUTION_FAILED",
+            summary,
+            {
+              ability_id: input.abilityId,
+              stage: "execution",
+              reason: providerAwareReadPathBlock.reason,
+              blocking_reasons: providerAwareReadPathBlock.reasons
+            },
+            createObservability({
+              href: env.getLocationHref(),
+              title: env.getDocumentTitle(),
+              readyState: env.getReadyState(),
+              requestId: `req-${env.randomId()}`,
+              outcome: "failed",
+              failureReason: providerAwareReadPathBlock.reason,
+              includeKeyRequest: false,
+              failureSite: {
+                stage: "execution",
+                component: "gate",
+                target: "provider_aware_read_path",
+                summary
+              }
+            }),
+            createDiagnosis({
+              reason: providerAwareReadPathBlock.reason,
+              summary,
+              category: "page_changed",
+              evidence: providerAwareReadPathBlock.reasons
+            }),
+            gate,
+            auditRecord
+          ),
+          gate.execution_audit as JsonRecord | null
+        ),
+        gate,
+        auditRecord,
+        providerAwareReadPathBlock
+      ),
+      layer2Interaction
     );
   }
 

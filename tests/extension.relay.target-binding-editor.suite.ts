@@ -1529,7 +1529,7 @@ describe("extension background relay contract / target binding and editor input"
     expect(fetchCalled).toBe(false);
   });
 
-  it("allows live_read_high_risk with approval and returns consumer gate result", async () => {
+  it("blocks xhs.search when provider-aware readiness denies the read path", async () => {
     const contentScript = new ContentScriptHandler({
       xhsEnv: {
         now: () => 1_000,
@@ -1623,122 +1623,155 @@ describe("extension background relay contract / target binding and editor input"
     });
 
     const response = await responsePromise;
-    expect(response.status).toBe("success");
+    expect(response.status).toBe("error");
+    expect(response.error?.code).toBe("ERR_EXECUTION_FAILED");
     expect(response.payload).toMatchObject({
-      summary: {
-        scope_context: {
-          platform: "xhs",
-          read_domain: "www.xiaohongshu.com",
-          write_domain: "creator.xiaohongshu.com",
-          domain_mixing_forbidden: true
-        },
-        gate_input: {
-          run_id: "run-xhs-live-allowed-001",
-          session_id: "nm-session-001",
-          profile: "profile-a",
-          target_domain: "www.xiaohongshu.com",
-          target_tab_id: 32,
-          target_page: "search_result_tab",
-          action_type: "read",
-          requested_execution_mode: "live_read_high_risk",
-          risk_state: "allowed"
-        },
-        gate_outcome: {
-          effective_execution_mode: "live_read_high_risk",
-          gate_decision: "allowed",
-          gate_reasons: ["LIVE_MODE_APPROVED"],
-          requires_manual_confirmation: true
-        },
-        read_execution_policy: {
-          default_mode: "dry_run",
-          allowed_modes: ["dry_run", "recon", "live_read_limited", "live_read_high_risk"],
-          blocked_actions: ["expand_new_live_surface_without_gate"]
-        },
-        consumer_gate_result: {
-          requested_execution_mode: "live_read_high_risk",
-          effective_execution_mode: "live_read_high_risk",
-          gate_decision: "allowed",
-          gate_reasons: ["LIVE_MODE_APPROVED"]
-        },
+      details: {
+        reason: "PROVIDER_AWARE_READINESS_DENIED",
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          "page:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested",
+          "page_runtime_gate:deny",
+          "page_runtime_readiness_decision:deny"
+        ])
+      },
+      scope_context: {
+        platform: "xhs",
+        read_domain: "www.xiaohongshu.com",
+        write_domain: "creator.xiaohongshu.com",
+        domain_mixing_forbidden: true
+      },
+      gate_input: {
+        run_id: "run-xhs-live-allowed-001",
+        session_id: "nm-session-001",
+        profile: "profile-a",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "search_result_tab",
+        action_type: "read",
+        requested_execution_mode: "live_read_high_risk",
+        risk_state: "allowed"
+      },
+      gate_outcome: {
+        effective_execution_mode: "live_read_high_risk",
+        gate_decision: "blocked",
+        gate_reasons: expect.arrayContaining([
+          "LIVE_MODE_APPROVED",
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "target_binding:target_binding_not_bound"
+        ]),
+        requires_manual_confirmation: true
+      },
+      read_execution_policy: {
+        default_mode: "dry_run",
+        allowed_modes: ["dry_run", "recon", "live_read_limited", "live_read_high_risk"],
+        blocked_actions: ["expand_new_live_surface_without_gate"]
+      },
+      consumer_gate_result: {
+        requested_execution_mode: "live_read_high_risk",
+        effective_execution_mode: "live_read_high_risk",
+        gate_decision: "blocked",
+        gate_reasons: expect.arrayContaining([
+          "LIVE_MODE_APPROVED",
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "target_binding:target_binding_not_bound"
+        ])
+      },
+      request_admission_result: {
+        admission_decision: "blocked",
+        reason_codes: expect.arrayContaining([
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      },
+      provider_aware_read_path_gate: {
+        gate_decision: "blocked",
+        reason: "PROVIDER_AWARE_READINESS_DENIED",
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      },
+      provider_requirement_refs: [
+        "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+      ],
+      xhs_driver_provider_requirements: {
+        declaration_id: "xhs-driver-provider-requirements:xhs.search:read:v1",
         provider_requirement_refs: [
           "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
         ],
-        xhs_driver_provider_requirements: {
-          declaration_id: "xhs-driver-provider-requirements:xhs.search:read:v1",
-          provider_requirement_refs: [
-            "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
-          ],
-          non_proofs: expect.arrayContaining([
-            "driver_requirement_declaration_does_not_prove_runtime_ready"
-          ])
+        non_proofs: expect.arrayContaining([
+          "driver_requirement_declaration_does_not_prove_runtime_ready"
+        ])
+      },
+      runtime_binding_ref: "FR-0061.xhs_runtime_binding.v1/run-xhs-live-allowed-001/search",
+      target_binding_snapshot_ref:
+        "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/search",
+      xhs_runtime_binding: {
+        binding_status: "declared"
+      },
+      target_binding_snapshot: {
+        state: "candidate_found",
+        blocking_reasons: ["target_binding_not_bound"]
+      },
+      xhs_page_runtime_readiness: {
+        owner_ref: "#1162",
+        overall_readiness: "blocked",
+        gate_decision: "deny",
+        page_readiness: {
+          status: "blocked"
         },
-        runtime_binding_ref: "FR-0061.xhs_runtime_binding.v1/run-xhs-live-allowed-001/search",
-        target_binding_snapshot_ref:
-          "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/search",
-        xhs_runtime_binding: {
-          binding_status: "declared"
-        },
-        target_binding_snapshot: {
-          state: "candidate_found",
-          blocking_reasons: ["target_binding_not_bound"]
-        },
-        xhs_page_runtime_readiness: {
-          owner_ref: "#1162",
-          overall_readiness: "blocked",
-          gate_decision: "deny",
-          page_readiness: {
-            status: "blocked"
-          },
-          provider_admission_readiness: {
-            status: "blocked",
-            blocking_reasons: ["provider_requirement_refs_not_attested"]
-          }
-        },
-        page_runtime_readiness_decision: "deny",
-        page_runtime_readiness_blocking_reasons: [
-          "page:target_binding_not_bound",
-          "provider:provider_requirement_refs_not_attested"
-        ],
-        approval_record: {
-          approved: true,
-          approver: "reviewer-a",
-          approved_at: "2026-03-23T08:00:00Z"
-        },
-        audit_record: {
-          run_id: "run-xhs-live-allowed-001",
-          session_id: "nm-session-001",
-          profile: "profile-a",
-          risk_state: "allowed",
-          target_domain: "www.xiaohongshu.com",
-          target_tab_id: 32,
-          target_page: "search_result_tab",
-          action_type: "read",
-          requested_execution_mode: "live_read_high_risk",
-          effective_execution_mode: "live_read_high_risk",
-          gate_decision: "allowed",
-          gate_reasons: ["LIVE_MODE_APPROVED"],
-          approver: "reviewer-a",
-          approved_at: "2026-03-23T08:00:00Z",
-          audited_checks: {
-            target_domain_confirmed: true,
-            target_tab_confirmed: true,
-            target_page_confirmed: true,
-            risk_state_checked: true,
-            action_type_confirmed: true
-          },
-          risk_signal: false,
-          recovery_signal: false,
-          session_rhythm_state: "normal",
-          cooldown_until: null,
-          recovery_started_at: null
+        provider_admission_readiness: {
+          status: "blocked",
+          blocking_reasons: ["provider_requirement_refs_not_attested"]
         }
+      },
+      page_runtime_readiness_decision: "deny",
+      page_runtime_readiness_blocking_reasons: [
+        "page:target_binding_not_bound",
+        "provider:provider_requirement_refs_not_attested"
+      ],
+      approval_record: {
+        approved: true,
+        approver: "reviewer-a",
+        approved_at: "2026-03-23T08:00:00Z"
+      },
+      audit_record: {
+        run_id: "run-xhs-live-allowed-001",
+        session_id: "nm-session-001",
+        profile: "profile-a",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "search_result_tab",
+        action_type: "read",
+        requested_execution_mode: "live_read_high_risk",
+        effective_execution_mode: "live_read_high_risk",
+        gate_decision: "blocked",
+        gate_reasons: expect.arrayContaining([
+          "LIVE_MODE_APPROVED",
+          "PROVIDER_AWARE_READINESS_DENIED"
+        ]),
+        approver: "reviewer-a",
+        approved_at: "2026-03-23T08:00:00Z",
+        audited_checks: {
+          target_domain_confirmed: true,
+          target_tab_confirmed: true,
+          target_page_confirmed: true,
+          risk_state_checked: true,
+          action_type_confirmed: true
+        },
+        risk_signal: true,
+        recovery_signal: false,
+        session_rhythm_state: "cooldown"
       }
     });
     expect(
-      typeof (((response.payload as Record<string, unknown>).summary as Record<string, unknown>).audit_record as Record<string, unknown>).event_id
+      typeof ((response.payload as Record<string, unknown>).audit_record as Record<string, unknown>).event_id
     ).toBe("string");
     expect(
-      typeof (((response.payload as Record<string, unknown>).summary as Record<string, unknown>).audit_record as Record<string, unknown>).recorded_at
+      typeof ((response.payload as Record<string, unknown>).audit_record as Record<string, unknown>).recorded_at
     ).toBe("string");
   });
 });
