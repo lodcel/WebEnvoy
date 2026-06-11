@@ -3365,6 +3365,54 @@ const canUsePageStateFallback = (
     ? hasDetailPageStateFallback(params as XhsDetailParams, root)
     : hasUserHomePageStateFallback(params as XhsUserHomeParams, root);
 
+const buildDomPageStateFallbackEvidence = (input: {
+  spec: XhsReadCommandSpec;
+  fallbackReason: string;
+  pageUrl: string;
+  targetTabId: number | null;
+  runId: string;
+  profileRef: string;
+  sessionId: string;
+  actionRef: string;
+  dataRef: JsonRecord;
+}): JsonRecord => ({
+  evidence_class: "page_state_fallback",
+  evidence_role: "diagnostic",
+  route_role: "supporting",
+  path_kind: "page_state",
+  source_kind: "dom_or_page_state",
+  evidence_status: "success",
+  fallback_used: true,
+  fallback_reason: input.fallbackReason,
+  confidence: {
+    level: "medium",
+    basis:
+      input.spec.command === "xhs.detail"
+        ? "requested note_id found in page-state note detail map"
+        : "requested user_id found with profile board/note or user data page-state signals"
+  },
+  limits: {
+    passive_api_capture_evidence: false,
+    live_closeout_evidence: false,
+    provider_aware_closeout_boundary: false,
+    syvert_normalized_output: false,
+    request_payload_included: false,
+    response_payload_included: false,
+    browser_live_claim: false
+  },
+  provenance: {
+    command: input.spec.command,
+    page_kind: input.spec.pageKind,
+    page_url: input.pageUrl,
+    run_id: input.runId,
+    profile_ref: input.profileRef,
+    session_id: input.sessionId,
+    target_tab_id: input.targetTabId,
+    action_ref: input.actionRef,
+    data_ref: input.dataRef
+  }
+});
+
 const createPageStateFallbackFailure = (
   input: XhsReadExecutionInput,
   spec: XhsReadCommandSpec,
@@ -3391,6 +3439,23 @@ const createPageStateFallbackFailure = (
 ): SearchExecutionResult => {
   const requestId = `req-${env.randomId()}`;
   const requestAttempted = requestFailure.requestAttempted !== false;
+  const targetTabId =
+    typeof input.options.actual_target_tab_id === "number"
+      ? input.options.actual_target_tab_id
+      : typeof input.options.target_tab_id === "number"
+        ? input.options.target_tab_id
+        : null;
+  const domPageStateFallbackEvidence = buildDomPageStateFallbackEvidence({
+    spec,
+    fallbackReason: requestFailure.reason,
+    pageUrl: env.getLocationHref(),
+    targetTabId,
+    runId: input.executionContext.runId,
+    profileRef: input.executionContext.profile,
+    sessionId: input.executionContext.sessionId,
+    actionRef: input.executionContext.gateInvocationId ?? input.executionContext.runId,
+    dataRef: spec.buildDataRef(input.params, payload)
+  });
   return withExecutionAuditInFailurePayload(
     createFailure(
       "ERR_EXECUTION_FAILED",
@@ -3401,6 +3466,7 @@ const createPageStateFallbackFailure = (
         reason: requestFailure.reason,
         ...(typeof requestFailure.statusCode === "number" ? { status_code: requestFailure.statusCode } : {}),
         ...(typeof requestFailure.platformCode === "number" ? { platform_code: requestFailure.platformCode } : {}),
+        dom_page_state_fallback_evidence: domPageStateFallbackEvidence,
         ...(requestFailure.requestContextDetails ?? {})
       },
       {
@@ -3485,6 +3551,23 @@ const createPageStateFallbackSuccess = (
 ): SearchExecutionResult => {
   const requestId = `req-${env.randomId()}`;
   const requestAttempted = fallback.requestAttempted !== false;
+  const targetTabId =
+    typeof input.options.actual_target_tab_id === "number"
+      ? input.options.actual_target_tab_id
+      : typeof input.options.target_tab_id === "number"
+        ? input.options.target_tab_id
+        : null;
+  const domPageStateFallbackEvidence = buildDomPageStateFallbackEvidence({
+    spec,
+    fallbackReason: fallback.reason,
+    pageUrl: env.getLocationHref(),
+    targetTabId,
+    runId: input.executionContext.runId,
+    profileRef: input.executionContext.profile,
+    sessionId: input.executionContext.sessionId,
+    actionRef: input.executionContext.gateInvocationId ?? input.executionContext.runId,
+    dataRef: spec.buildDataRef(input.params, payload)
+  });
   return {
     ok: true,
     payload: {
@@ -3517,17 +3600,14 @@ const createPageStateFallbackSuccess = (
         risk_state_output: resolveRiskStateOutput(gate, auditRecord),
         audit_record: auditRecord,
         ...buildProviderAwareReadPathSummaryFields(input.options),
+        dom_page_state_fallback_evidence: domPageStateFallbackEvidence,
         route_evidence: {
+          ...domPageStateFallbackEvidence,
           evidence_class: "page_state_fallback",
           fallback_reason: fallback.reason,
           page_url: env.getLocationHref(),
           page_kind: classifyPageKind(env.getLocationHref(), spec.pageKind),
-          target_tab_id:
-            typeof input.options.actual_target_tab_id === "number"
-              ? input.options.actual_target_tab_id
-              : typeof input.options.target_tab_id === "number"
-                ? input.options.target_tab_id
-                : null
+          target_tab_id: targetTabId
         }
       },
       observability: {
