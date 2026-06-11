@@ -13464,6 +13464,10 @@ const XHS_DETAIL_SPEC = {
     method: "POST",
     pageKind: "detail",
     requestClass: "xhs.detail",
+    providerRequirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read",
+    abilityId: "xhs.note.detail.v1",
+    routeBucket: "detail",
+    targetPageClass: "explore_detail_tab",
     buildPayload: (params) => ({
         source_note_id: params.note_id,
         image_formats: ["jpg", "webp", "avif"],
@@ -13483,6 +13487,10 @@ const XHS_USER_HOME_SPEC = {
     method: "GET",
     pageKind: "user_home",
     requestClass: "xhs.user_home",
+    providerRequirementRef: "FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read",
+    abilityId: "xhs.user.home.v1",
+    routeBucket: "user_home",
+    targetPageClass: "profile_tab",
     buildPayload: () => ({}),
     buildUrl: (params) => `${XHS_READ_API_ORIGIN}${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent(params.user_id)}`,
     buildSignatureUri: (params) => `${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${encodeURIComponent(params.user_id)}`,
@@ -14634,13 +14642,9 @@ const TARGET_BINDING_ALLOWED_STATES = new Set(["bound"]);
 const RUNTIME_BINDING_ALLOWED_STATUSES = new Set(["declared", "ready"]);
 const RUNTIME_BINDING_CURRENT_FRESHNESS = new Set(["current_run"]);
 const ALLOWED_PROVIDER_AWARE_GATE_REASONS = new Set(["LIVE_MODE_APPROVED"]);
-const EXPECTED_XHS_DETAIL_PROVIDER_REQUIREMENT_REF = "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read";
-const EXPECTED_XHS_DETAIL_ABILITY_ID = "xhs.note.detail.v1";
 const EXPECTED_XHS_ABILITY_LAYER = "L3";
 const EXPECTED_XHS_READ_ACTION = "read";
-const EXPECTED_XHS_DETAIL_ROUTE_BUCKET = "detail";
 const EXPECTED_XHS_TARGET_DOMAIN = "www.xiaohongshu.com";
-const EXPECTED_XHS_DETAIL_TARGET_PAGE_CLASS = "explore_detail_tab";
 const parseTargetBindingSnapshotRef = (value) => {
     if (!value) {
         return null;
@@ -14772,7 +14776,7 @@ const collectTargetBindingRequiredEvidenceRefBlockers = (targetBindingSnapshot, 
     }
     return reasons;
 };
-const collectTargetBindingEvidenceBlockers = (targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, transitionEvidence, activeRunId) => {
+const collectTargetBindingEvidenceBlockers = (spec, targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, transitionEvidence, activeRunId) => {
     if (!targetBindingSnapshot) {
         return [];
     }
@@ -14811,7 +14815,7 @@ const collectTargetBindingEvidenceBlockers = (targetBindingSnapshotRef, targetBi
         reasons.push("page_runtime_readiness_run_id_mismatch");
     }
     if (parsedRef) {
-        if (parsedRef.routeBucket !== EXPECTED_XHS_DETAIL_ROUTE_BUCKET) {
+        if (parsedRef.routeBucket !== spec.routeBucket) {
             reasons.push("target_binding_ref_mismatch");
             reasons.push(`target_binding_ref_route:${parsedRef.routeBucket}`);
         }
@@ -14836,18 +14840,18 @@ const collectTargetBindingEvidenceBlockers = (targetBindingSnapshotRef, targetBi
         const targetDomain = asString(targetScope.target_domain);
         const targetPageClass = asString(targetScope.target_page_class);
         if (targetDomain !== EXPECTED_XHS_TARGET_DOMAIN ||
-            targetPageClass !== EXPECTED_XHS_DETAIL_TARGET_PAGE_CLASS) {
+            targetPageClass !== spec.targetPageClass) {
             reasons.push("target_binding_scope_mismatch");
         }
     }
     const routeBucket = asString(targetBindingSnapshot.route_bucket);
-    if (routeBucket !== EXPECTED_XHS_DETAIL_ROUTE_BUCKET) {
+    if (routeBucket !== spec.routeBucket) {
         reasons.push("target_binding_scope_mismatch");
     }
     reasons.push(...collectTargetBindingRequiredEvidenceRefBlockers(targetBindingSnapshot, transitionEvidence, activeRunId));
     return reasons;
 };
-const collectProviderRequirementBlockers = (providerRequirements, providerRequirementRefs) => {
+const collectProviderRequirementBlockers = (spec, providerRequirements, providerRequirementRefs) => {
     if (!providerRequirements) {
         return [];
     }
@@ -14858,12 +14862,11 @@ const collectProviderRequirementBlockers = (providerRequirements, providerRequir
     }
     const declarationRefSet = new Set(declarationRefs);
     if (!providerRequirementRefs.every((ref) => declarationRefSet.has(ref)) ||
-        !declarationRefSet.has(EXPECTED_XHS_DETAIL_PROVIDER_REQUIREMENT_REF)) {
+        !declarationRefSet.has(spec.providerRequirementRef)) {
         reasons.push("provider_requirement_ref_mismatch");
     }
     const primaryRequirementRef = asString(providerRequirements.provider_requirement_ref);
-    if (primaryRequirementRef &&
-        primaryRequirementRef !== EXPECTED_XHS_DETAIL_PROVIDER_REQUIREMENT_REF) {
+    if (primaryRequirementRef && primaryRequirementRef !== spec.providerRequirementRef) {
         reasons.push("provider_requirement_ref_mismatch");
     }
     const abilityScope = asRecord(providerRequirements.ability_scope);
@@ -14871,8 +14874,8 @@ const collectProviderRequirementBlockers = (providerRequirements, providerRequir
     const abilityId = asString(abilityScope?.ability_id);
     const abilityLayer = asString(abilityScope?.ability_layer);
     const action = asString(abilityScope?.ability_action);
-    if (command !== "xhs.detail" ||
-        abilityId !== EXPECTED_XHS_DETAIL_ABILITY_ID ||
+    if (command !== spec.command ||
+        abilityId !== spec.abilityId ||
         abilityLayer !== EXPECTED_XHS_ABILITY_LAYER ||
         action !== EXPECTED_XHS_READ_ACTION) {
         reasons.push("provider_requirement_scope_mismatch");
@@ -14883,7 +14886,7 @@ const collectProviderRequirementBlockers = (providerRequirements, providerRequir
     }
     return reasons;
 };
-const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding, activeRunId) => {
+const collectRuntimeBindingBlockers = (spec, runtimeBindingRef, runtimeBinding, activeRunId) => {
     const reasons = [];
     if (!runtimeBindingRef) {
         reasons.push("runtime_binding_ref_missing");
@@ -14891,7 +14894,7 @@ const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding, active
     else {
         const parsedRuntimeBindingRef = parseRuntimeBindingRef(runtimeBindingRef);
         if (!parsedRuntimeBindingRef ||
-            parsedRuntimeBindingRef.routeBucket !== EXPECTED_XHS_DETAIL_ROUTE_BUCKET ||
+            parsedRuntimeBindingRef.routeBucket !== spec.routeBucket ||
             parsedRuntimeBindingRef.runId !== activeRunId) {
             reasons.push("runtime_binding_ref_mismatch");
         }
@@ -14903,7 +14906,7 @@ const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding, active
     const targetDomain = asString(runtimeBinding.target_domain);
     const targetPage = asString(runtimeBinding.target_page);
     if (targetDomain !== EXPECTED_XHS_TARGET_DOMAIN ||
-        targetPage !== EXPECTED_XHS_DETAIL_TARGET_PAGE_CLASS) {
+        targetPage !== spec.targetPageClass) {
         reasons.push("runtime_binding_scope_mismatch");
     }
     const bindingStatus = asString(runtimeBinding.binding_status);
@@ -14950,9 +14953,6 @@ const collectReadinessDimensionBlockers = (dimension, prefix, missingReason) => 
     return reasons;
 };
 const resolveProviderAwareReadPathBlock = (spec, options, activeRunId) => {
-    if (spec.command !== "xhs.detail") {
-        return null;
-    }
     const summaryFields = buildProviderAwareReadPathSummaryFields(options);
     const targetBindingSnapshot = asRecord(options.target_binding_snapshot);
     const pageRuntimeReadiness = asRecord(options.xhs_page_runtime_readiness);
@@ -14978,9 +14978,9 @@ const resolveProviderAwareReadPathBlock = (spec, options, activeRunId) => {
         ...(readinessCommand && readinessCommand !== spec.command
             ? ["page_runtime_readiness_command_mismatch"]
             : []),
-        ...collectTargetBindingEvidenceBlockers(targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, asRecordArray(options.target_binding_transition_evidence), activeRunId),
-        ...collectProviderRequirementBlockers(providerRequirements, providerRequirementRefs),
-        ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding, activeRunId),
+        ...collectTargetBindingEvidenceBlockers(spec, targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, asRecordArray(options.target_binding_transition_evidence), activeRunId),
+        ...collectProviderRequirementBlockers(spec, providerRequirements, providerRequirementRefs),
+        ...collectRuntimeBindingBlockers(spec, runtimeBindingRef, runtimeBinding, activeRunId),
         ...asStringArray(targetBindingSnapshot?.blocking_reasons).map((reason) => `target_binding:${reason}`),
         ...collectReadinessDimensionBlockers(pageReadiness, "page", "page_readiness_missing"),
         ...collectReadinessDimensionBlockers(runtimeReadiness, "runtime", "runtime_readiness_missing"),

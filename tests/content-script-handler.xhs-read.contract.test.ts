@@ -263,6 +263,94 @@ const createProviderAwareDetailReadPathOptions = (runId: string) => ({
   page_runtime_readiness_blocking_reasons: []
 });
 
+const createProviderAwareUserHomeReadPathOptions = (runId: string) => ({
+  xhs_driver_provider_requirements: {
+    declaration_id: "xhs-driver-provider-requirements:xhs.user_home:read:v1",
+    declaration_version: "v1",
+    provider_requirement_ref: "FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read",
+    provider_requirement_refs: ["FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read"],
+    ability_scope: {
+      command: "xhs.user_home",
+      ability_id: "xhs.user.home.v1",
+      ability_layer: "L3",
+      ability_action: "read"
+    },
+    required_actions: ["read", "diagnose"],
+    non_proofs: [
+      "driver_requirement_declaration_does_not_prove_provider_capability_allowed",
+      "driver_requirement_declaration_does_not_prove_runtime_ready"
+    ],
+    downstream_slice_refs: ["#1166", "#1167", "#1168"]
+  },
+  provider_requirement_refs: ["FR-0061.xhs_driver_provider_requirements.v1/xhs.user_home.read"],
+  runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/user_home`,
+  target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/user_home`,
+  xhs_runtime_binding: {
+    target_domain: "www.xiaohongshu.com",
+    target_page: "profile_tab",
+    execution_mode: "read",
+    binding_freshness: "current_run",
+    binding_status: "declared"
+  },
+  target_binding_snapshot: {
+    snapshot_version: "v1",
+    state: "bound",
+    run_id: runId,
+    target_scope: {
+      target_domain: "www.xiaohongshu.com",
+      target_page_class: "profile_tab"
+    },
+    route_bucket: "user_home",
+    freshness_scope: "current_run",
+    evidence_refs: {
+      candidate_ref: `FR-0063.target_binding_candidate.v1/${runId}/user_home`,
+      url_match_ref: `FR-0063.target_binding_url_match.v1/${runId}/user_home`,
+      dom_observation_ref: `FR-0063.target_binding_dom_observation.v1/${runId}/user_home`,
+      runtime_state_ref: `FR-0063.target_binding_runtime_state.v1/${runId}/user_home`,
+      extension_bridge_ref: `FR-0063.target_binding_extension_bridge.v1/${runId}/user_home`,
+      transition_refs: [`target-binding-transition:${runId}:user_home:bound`],
+      evidence_status: "complete",
+      evidence_completeness: "complete",
+      redaction_state: "redacted",
+      source_owner: "#1161"
+    },
+    blocking_reasons: []
+  },
+  target_binding_transition_evidence: [
+    {
+      transition_id: `target-binding-transition:${runId}:user_home:bound`,
+      from_state: "candidate_found",
+      to_state: "bound"
+    }
+  ],
+  downstream_slice_refs: ["#1162", "#1166", "#1167", "#1168"],
+  non_proofs: ["syvert_normalized_result_complete", "write_enabled"],
+  page_runtime_readiness_ref: `issue-1162.xhs_page_runtime_readiness.v1/${runId}`,
+  xhs_page_runtime_readiness: {
+    owner_ref: "#1162",
+    command: "xhs.user_home",
+    run_id: runId,
+    page_readiness: {
+      status: "ready",
+      required: true
+    },
+    runtime_readiness: {
+      status: "ready",
+      required: true,
+      source: "official_chrome_runtime_readiness"
+    },
+    provider_admission_readiness: {
+      status: "ready",
+      required: true,
+      source: "provider_admission_result"
+    },
+    overall_readiness: "ready",
+    gate_decision: "allow"
+  },
+  page_runtime_readiness_decision: "allow",
+  page_runtime_readiness_blocking_reasons: []
+});
+
 const waitForSingleResult = (handler: ContentScriptHandler) =>
   new Promise<Record<string, unknown>>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -294,6 +382,9 @@ const createMessage = (input: {
     ...approvedLiveOptions,
     ...(input.command === "xhs.detail"
       ? createProviderAwareDetailReadPathOptions("run-contract-001")
+      : {}),
+    ...(input.command === "xhs.user_home"
+      ? createProviderAwareUserHomeReadPathOptions("run-contract-001")
       : {}),
     ...(input.options ?? {}),
     target_page: input.targetPage,
