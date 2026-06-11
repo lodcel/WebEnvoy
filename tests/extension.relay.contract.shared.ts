@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { BackgroundRelay } from "../extension/background.js";
 import { ContentScriptHandler } from "../extension/content-script-handler.js";
+import { createProviderAwareSearchReadyReadPathOptions } from "./extension.relay.shared.js";
 
 type BridgeResponse = {
   id: string;
@@ -180,6 +181,7 @@ const createAttestedEditorInputValidationResult = (text: string) => ({
 });
 
 const approvedLiveOptions = {
+  ...createProviderAwareSearchReadyReadPathOptions("run-relay-contract-001"),
   target_domain: "www.xiaohongshu.com",
   target_tab_id: 32,
   target_page: "search_result_tab",

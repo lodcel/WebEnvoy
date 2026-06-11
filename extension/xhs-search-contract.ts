@@ -54,6 +54,17 @@ export interface XhsSearchOptions {
   editor_focus_attestation?: EditorInputFocusAttestation | Record<string, unknown>;
   xhs_driver_provider_requirements?: Record<string, unknown>;
   provider_requirement_refs?: string[];
+  runtime_binding_ref?: string;
+  target_binding_snapshot_ref?: string;
+  xhs_runtime_binding?: Record<string, unknown>;
+  target_binding_snapshot?: Record<string, unknown>;
+  target_binding_transition_evidence?: Record<string, unknown>[];
+  downstream_slice_refs?: string[];
+  non_proofs?: string[];
+  page_runtime_readiness_ref?: string;
+  xhs_page_runtime_readiness?: Record<string, unknown>;
+  page_runtime_readiness_decision?: string;
+  page_runtime_readiness_blocking_reasons?: string[];
 }
 
 export interface SignatureResult {

@@ -45,6 +45,14 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 const asNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+const asRecordArray = (value: unknown): Record<string, unknown>[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => asRecord(item) !== null)
+    : [];
+
 const asInteger = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) ? value : null;
 
@@ -303,6 +311,65 @@ export const createGateOnlySuccess = (input: {
                   ?.default_live_write_commit_lock ?? null,
               out_of_scope_actions: ["editor_text_write", "image_upload", "submit", "publish_confirm"]
             }
+          }
+        : {}),
+      ...(asRecord(input.options?.xhs_driver_provider_requirements)
+        ? {
+            xhs_driver_provider_requirements: asRecord(
+              input.options?.xhs_driver_provider_requirements
+            ) ?? {}
+          }
+        : {}),
+      ...(asStringArray(input.options?.provider_requirement_refs).length > 0
+        ? { provider_requirement_refs: asStringArray(input.options?.provider_requirement_refs) }
+        : {}),
+      ...(asNonEmptyString(input.options?.runtime_binding_ref)
+        ? { runtime_binding_ref: asNonEmptyString(input.options?.runtime_binding_ref) }
+        : {}),
+      ...(asNonEmptyString(input.options?.target_binding_snapshot_ref)
+        ? {
+            target_binding_snapshot_ref: asNonEmptyString(
+              input.options?.target_binding_snapshot_ref
+            )
+          }
+        : {}),
+      ...(asRecord(input.options?.xhs_runtime_binding)
+        ? { xhs_runtime_binding: asRecord(input.options?.xhs_runtime_binding) ?? {} }
+        : {}),
+      ...(asRecord(input.options?.target_binding_snapshot)
+        ? { target_binding_snapshot: asRecord(input.options?.target_binding_snapshot) ?? {} }
+        : {}),
+      ...(asRecordArray(input.options?.target_binding_transition_evidence).length > 0
+        ? {
+            target_binding_transition_evidence: asRecordArray(
+              input.options?.target_binding_transition_evidence
+            )
+          }
+        : {}),
+      ...(asStringArray(input.options?.downstream_slice_refs).length > 0
+        ? { downstream_slice_refs: asStringArray(input.options?.downstream_slice_refs) }
+        : {}),
+      ...(asStringArray(input.options?.non_proofs).length > 0
+        ? { non_proofs: asStringArray(input.options?.non_proofs) }
+        : {}),
+      ...(asNonEmptyString(input.options?.page_runtime_readiness_ref)
+        ? { page_runtime_readiness_ref: asNonEmptyString(input.options?.page_runtime_readiness_ref) }
+        : {}),
+      ...(asRecord(input.options?.xhs_page_runtime_readiness)
+        ? { xhs_page_runtime_readiness: asRecord(input.options?.xhs_page_runtime_readiness) ?? {} }
+        : {}),
+      ...(asNonEmptyString(input.options?.page_runtime_readiness_decision)
+        ? {
+            page_runtime_readiness_decision: asNonEmptyString(
+              input.options?.page_runtime_readiness_decision
+            )
+          }
+        : {}),
+      ...(asStringArray(input.options?.page_runtime_readiness_blocking_reasons).length > 0
+        ? {
+            page_runtime_readiness_blocking_reasons: asStringArray(
+              input.options?.page_runtime_readiness_blocking_reasons
+            )
           }
         : {}),
       scope_context: gate.scope_context,

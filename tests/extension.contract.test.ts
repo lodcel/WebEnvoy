@@ -3,7 +3,7 @@ import path from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
-import { executeXhsSearch } from "../extension/xhs-search.js";
+import { executeXhsSearch as executeRawXhsSearch } from "../extension/xhs-search.js";
 import {
   SEARCH_ENDPOINT,
   createPageContextNamespace,
@@ -12,6 +12,7 @@ import {
   resolveActiveVisitedPageContextNamespace,
   serializeSearchRequestShape
 } from "../extension/xhs-search-types.js";
+import { createProviderAwareSearchReadyReadPathOptions } from "./extension.relay.shared.js";
 
 const repoRoot = path.resolve(path.join(import.meta.dirname, ".."));
 const extensionRoot = path.join(repoRoot, "extension");
@@ -95,6 +96,40 @@ const loadBundledContentScriptHandlerModule = (
   return modules?.__webenvoy_module_content_script_handler as BundledContentScriptHandlerModule;
 };
 
+const asPlainRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const withProviderAwareSearchReadOptions = <T>(input: T): T => {
+  const commandInput = asPlainRecord(input);
+  const options = asPlainRecord(commandInput?.options);
+  if (
+    !commandInput ||
+    !options ||
+    commandInput.abilityId !== "xhs.note.search.v1" ||
+    commandInput.abilityAction !== "read" ||
+    options.requested_execution_mode !== "live_read_high_risk"
+  ) {
+    return input;
+  }
+  const executionContext = asPlainRecord(commandInput.executionContext);
+  const runId =
+    typeof executionContext?.runId === "string"
+      ? executionContext.runId
+      : "run-contract-search-live-001";
+  return {
+    ...commandInput,
+    options: {
+      ...createProviderAwareSearchReadyReadPathOptions(runId),
+      ...options
+    }
+  } as T;
+};
+
+const executeXhsSearch: typeof executeRawXhsSearch = (input, env) =>
+  executeRawXhsSearch(withProviderAwareSearchReadOptions(input), env);
+
 const executeBundledXhsCommand = async (
   bundlePath: string,
   input: {
@@ -109,7 +144,7 @@ const executeBundledXhsCommand = async (
   expect(executeCommand).toEqual(expect.any(Function));
 
   return executeCommand?.(
-    input.commandInput,
+    withProviderAwareSearchReadOptions(input.commandInput),
     {
       now: () => 1_710_000_000_000,
       randomId: () => "bundle-req-001",
@@ -1279,6 +1314,9 @@ describe("extension build contract", () => {
             action_type: "read",
             risk_state: "allowed",
             requested_execution_mode: "live_read_high_risk",
+            ...createProviderAwareSearchReadyReadPathOptions(
+              "run-bundled-handler-search-live-001"
+            ),
             upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
               requestRef: "upstream_bundled_handler_search_live_001",
               actionName: "xhs.read_search_results",
@@ -1510,6 +1548,9 @@ describe("extension build contract", () => {
             action_type: "read",
             risk_state: "allowed",
             requested_execution_mode: "live_read_high_risk",
+            ...createProviderAwareSearchReadyReadPathOptions(
+              "run-bundled-handler-search-live-default"
+            ),
             upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
               requestRef: "upstream_bundled_handler_search_live_default",
               actionName: "xhs.read_search_results",
@@ -1679,6 +1720,9 @@ describe("extension build contract", () => {
             action_type: "read",
             risk_state: "allowed",
             requested_execution_mode: "live_read_high_risk",
+            ...createProviderAwareSearchReadyReadPathOptions(
+              "run-bundled-handler-search-live-002"
+            ),
             upstream_authorization_request: buildCanonicalReadAuthorizationRequest({
               requestRef: "upstream_bundled_handler_search_live_002",
               actionName: "xhs.read_search_results",

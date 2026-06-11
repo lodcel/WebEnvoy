@@ -2662,6 +2662,57 @@ export class ContentScriptHandler {
                 )
               }
             : {}),
+          ...(typeof options.runtime_binding_ref === "string"
+            ? { runtime_binding_ref: options.runtime_binding_ref }
+            : {}),
+          ...(typeof options.target_binding_snapshot_ref === "string"
+            ? { target_binding_snapshot_ref: options.target_binding_snapshot_ref }
+            : {}),
+          ...(asRecord(options.xhs_runtime_binding)
+            ? { xhs_runtime_binding: asRecord(options.xhs_runtime_binding) ?? {} }
+            : {}),
+          ...(asRecord(options.target_binding_snapshot)
+            ? { target_binding_snapshot: asRecord(options.target_binding_snapshot) ?? {} }
+            : {}),
+          ...(Array.isArray(options.target_binding_transition_evidence)
+            ? {
+                target_binding_transition_evidence:
+                  options.target_binding_transition_evidence.filter(
+                    (item): item is Record<string, unknown> => asRecord(item) !== null
+                  )
+              }
+            : {}),
+          ...(Array.isArray(options.downstream_slice_refs)
+            ? {
+                downstream_slice_refs: options.downstream_slice_refs.filter(
+                  (ref): ref is string => typeof ref === "string"
+                )
+              }
+            : {}),
+          ...(Array.isArray(options.non_proofs)
+            ? {
+                non_proofs: options.non_proofs.filter(
+                  (proof): proof is string => typeof proof === "string"
+                )
+              }
+            : {}),
+          ...(typeof options.page_runtime_readiness_ref === "string"
+            ? { page_runtime_readiness_ref: options.page_runtime_readiness_ref }
+            : {}),
+          ...(asRecord(options.xhs_page_runtime_readiness)
+            ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) ?? {} }
+            : {}),
+          ...(typeof options.page_runtime_readiness_decision === "string"
+            ? { page_runtime_readiness_decision: options.page_runtime_readiness_decision }
+            : {}),
+          ...(Array.isArray(options.page_runtime_readiness_blocking_reasons)
+            ? {
+                page_runtime_readiness_blocking_reasons:
+                  options.page_runtime_readiness_blocking_reasons.filter(
+                    (reason): reason is string => typeof reason === "string"
+                  )
+              }
+            : {}),
           ...(Array.isArray(options.admission_gate_reasons)
             ? {
                 admission_gate_reasons: options.admission_gate_reasons.filter(

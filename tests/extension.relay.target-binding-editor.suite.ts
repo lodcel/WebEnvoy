@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, approvedLiveOptions, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
+import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, approvedLiveOptions, providerAwareSearchReadPathOptions, createProviderAwareSearchReadyReadPathOptions, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
 
 describe("extension background relay contract / target binding and editor input", () => {
   it("blocks issue_208 write action in paused state and returns reversible write tier", async () => {
@@ -1191,6 +1191,8 @@ describe("extension background relay contract / target binding and editor input"
     const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
 
     const responsePromise = waitForResponse(relay);
+    const timeoutProviderAwareOptions =
+      createProviderAwareSearchReadyReadPathOptions("run-xhs-timeout-001");
     relay.onNativeRequest({
       id: "forward-xhs-timeout-001",
       method: "bridge.forward",
@@ -1210,6 +1212,7 @@ describe("extension background relay contract / target binding and editor input"
           },
           options: {
             ...approvedLiveOptions,
+            ...timeoutProviderAwareOptions,
             admission_context: createApprovedReadAdmissionContext({
               run_id: "run-xhs-timeout-001",
               request_id: "issue209-relay-timeout-001",
@@ -1529,7 +1532,8 @@ describe("extension background relay contract / target binding and editor input"
     expect(fetchCalled).toBe(false);
   });
 
-  it("allows live_read_high_risk with approval and returns consumer gate result", async () => {
+  it("blocks xhs.search when provider-aware readiness denies the read path", async () => {
+    let fetchCalled = false;
     const contentScript = new ContentScriptHandler({
       xhsEnv: {
         now: () => 1_000,
@@ -1543,15 +1547,10 @@ describe("extension background relay contract / target binding and editor input"
           "X-s": "signed",
           "X-t": "1"
         }),
-        fetchJson: async () => ({
-          status: 200,
-          body: {
-            code: 0,
-            data: {
-              items: []
-            }
-          }
-        })
+        fetchJson: async () => {
+          fetchCalled = true;
+          throw new Error("provider-aware blocked read path should not continue to live fetch");
+        }
       }
     });
     const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
@@ -1575,6 +1574,7 @@ describe("extension background relay contract / target binding and editor input"
             query: "露营装备"
           },
           options: {
+            ...providerAwareSearchReadPathOptions,
             target_domain: "www.xiaohongshu.com",
             target_tab_id: 32,
             target_page: "search_result_tab",
@@ -1622,83 +1622,780 @@ describe("extension background relay contract / target binding and editor input"
     });
 
     const response = await responsePromise;
-    expect(response.status).toBe("success");
+    expect(response.status).toBe("error");
+    expect(response.error?.code).toBe("ERR_EXECUTION_FAILED");
     expect(response.payload).toMatchObject({
-      summary: {
-        scope_context: {
-          platform: "xhs",
-          read_domain: "www.xiaohongshu.com",
-          write_domain: "creator.xiaohongshu.com",
-          domain_mixing_forbidden: true
-        },
-        gate_input: {
-          run_id: "run-xhs-live-allowed-001",
-          session_id: "nm-session-001",
-          profile: "profile-a",
+      details: {
+        reason: "PROVIDER_AWARE_READINESS_DENIED",
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          "page:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested",
+          "page_runtime_gate:deny",
+          "page_runtime_readiness_decision:deny"
+        ])
+      },
+      scope_context: {
+        platform: "xhs",
+        read_domain: "www.xiaohongshu.com",
+        write_domain: "creator.xiaohongshu.com",
+        domain_mixing_forbidden: true
+      },
+      gate_input: {
+        run_id: "run-xhs-live-allowed-001",
+        session_id: "nm-session-001",
+        profile: "profile-a",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "search_result_tab",
+        action_type: "read",
+        requested_execution_mode: "live_read_high_risk",
+        risk_state: "allowed"
+      },
+      gate_outcome: {
+        effective_execution_mode: null,
+        gate_decision: "blocked",
+        gate_reasons: expect.arrayContaining([
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
+          "target_binding:target_binding_not_bound"
+        ]),
+        requires_manual_confirmation: false
+      },
+      read_execution_policy: {
+        default_mode: "dry_run",
+        allowed_modes: ["dry_run", "recon", "live_read_limited", "live_read_high_risk"],
+        blocked_actions: ["expand_new_live_surface_without_gate"]
+      },
+      consumer_gate_result: {
+        requested_execution_mode: "live_read_high_risk",
+        effective_execution_mode: null,
+        gate_decision: "blocked",
+        gate_reasons: expect.arrayContaining([
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
+          "target_binding:target_binding_not_bound"
+        ])
+      },
+      request_admission_result: {
+        admission_decision: "blocked",
+        effective_runtime_mode: null,
+        reason_codes: expect.arrayContaining([
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      },
+      provider_aware_read_path_gate: {
+        gate_decision: "blocked",
+        reason: "PROVIDER_AWARE_READINESS_DENIED",
+        live_execution_continued: false,
+        effective_execution_mode: null,
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      },
+      provider_requirement_refs: [
+        "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+      ],
+      xhs_driver_provider_requirements: {
+        declaration_id: "xhs-driver-provider-requirements:xhs.search:read:v1",
+        provider_requirement_refs: [
+          "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+        ],
+        non_proofs: expect.arrayContaining([
+          "driver_requirement_declaration_does_not_prove_runtime_ready"
+        ])
+      },
+      runtime_binding_ref: "FR-0061.xhs_runtime_binding.v1/run-xhs-live-allowed-001/search",
+      target_binding_snapshot_ref:
+        "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/search",
+      xhs_runtime_binding: {
+        binding_freshness: "current_run",
+        binding_status: "declared"
+      },
+      target_binding_snapshot: {
+        state: "candidate_found",
+        run_id: "run-xhs-live-allowed-001",
+        target_scope: {
           target_domain: "www.xiaohongshu.com",
-          target_tab_id: 32,
-          target_page: "search_result_tab",
-          action_type: "read",
-          requested_execution_mode: "live_read_high_risk",
-          risk_state: "allowed"
+          target_page_class: "search_tab"
         },
-        gate_outcome: {
-          effective_execution_mode: "live_read_high_risk",
-          gate_decision: "allowed",
-          gate_reasons: ["LIVE_MODE_APPROVED"],
-          requires_manual_confirmation: true
+        route_bucket: "search",
+        freshness_scope: "current_run",
+        blocking_reasons: ["target_binding_not_bound"]
+      },
+      xhs_page_runtime_readiness: {
+        owner_ref: "#1162",
+        overall_readiness: "blocked",
+        gate_decision: "deny",
+        page_readiness: {
+          status: "blocked"
         },
-        read_execution_policy: {
-          default_mode: "dry_run",
-          allowed_modes: ["dry_run", "recon", "live_read_limited", "live_read_high_risk"],
-          blocked_actions: ["expand_new_live_surface_without_gate"]
+        provider_admission_readiness: {
+          status: "blocked",
+          blocking_reasons: ["provider_requirement_refs_not_attested"]
+        }
+      },
+      page_runtime_readiness_decision: "deny",
+      page_runtime_readiness_blocking_reasons: [
+        "page:target_binding_not_bound",
+        "provider:provider_requirement_refs_not_attested"
+      ],
+      approval_record: {
+        approved: true,
+        approver: "reviewer-a",
+        approved_at: "2026-03-23T08:00:00Z"
+      },
+      audit_record: {
+        run_id: "run-xhs-live-allowed-001",
+        session_id: "nm-session-001",
+        profile: "profile-a",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 32,
+        target_page: "search_result_tab",
+        action_type: "read",
+        requested_execution_mode: "live_read_high_risk",
+        effective_execution_mode: null,
+        gate_decision: "blocked",
+        gate_reasons: expect.arrayContaining([
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED"
+        ]),
+        approver: "reviewer-a",
+        approved_at: "2026-03-23T08:00:00Z",
+        audited_checks: {
+          target_domain_confirmed: true,
+          target_tab_confirmed: true,
+          target_page_confirmed: true,
+          risk_state_checked: true,
+          action_type_confirmed: true
         },
-        consumer_gate_result: {
-          requested_execution_mode: "live_read_high_risk",
-          effective_execution_mode: "live_read_high_risk",
-          gate_decision: "allowed",
-          gate_reasons: ["LIVE_MODE_APPROVED"]
-        },
-        approval_record: {
-          approved: true,
-          approver: "reviewer-a",
-          approved_at: "2026-03-23T08:00:00Z"
-        },
-        audit_record: {
-          run_id: "run-xhs-live-allowed-001",
+        risk_signal: true,
+        recovery_signal: false,
+        session_rhythm_state: "cooldown",
+        cooldown_until: expect.any(String),
+        recovery_started_at: null,
+        next_state: "limited",
+        transition_trigger: "provider_aware_readiness_denied"
+      }
+    });
+    const payload = response.payload as Record<string, unknown>;
+    const gateOutcome = asRecord(payload.gate_outcome);
+    const consumerGateResult = asRecord(payload.consumer_gate_result);
+    expect(gateOutcome?.gate_reasons as string[]).not.toContain("LIVE_MODE_APPROVED");
+    expect(consumerGateResult?.gate_reasons as string[]).not.toContain("LIVE_MODE_APPROVED");
+    expect(fetchCalled).toBe(false);
+    expect(
+      typeof ((response.payload as Record<string, unknown>).audit_record as Record<string, unknown>).event_id
+    ).toBe("string");
+    expect(
+      typeof ((response.payload as Record<string, unknown>).audit_record as Record<string, unknown>).recorded_at
+    ).toBe("string");
+  });
+
+  it.each([
+    {
+      state: "candidate_found",
+      expectedReason: "target_binding_state:candidate_found"
+    },
+    {
+      state: "ready",
+      expectedReason: "target_binding_state:ready"
+    }
+  ])(
+    "blocks xhs.search when target binding state $state has no producer blockers",
+    async ({ state, expectedReason }) => {
+      let fetchCalled = false;
+      const contentScript = new ContentScriptHandler({
+        xhsEnv: {
+          now: () => 1_000,
+          randomId: () => `relay-target-binding-${state}-id`,
+          getLocationHref: () => "https://www.xiaohongshu.com/search_result",
+          getDocumentTitle: () => "Search Result",
+          getReadyState: () => "complete",
+          getCookie: () => "a1=valid;",
+          readCapturedRequestContext: createCapturedSearchRequestContextReader(),
+          callSignature: async () => ({
+            "X-s": "signed",
+            "X-t": "1"
+          }),
+          fetchJson: async () => {
+            fetchCalled = true;
+            throw new Error("non-bound target binding should block before live fetch");
+          }
+        }
+      });
+      const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
+
+      const responsePromise = waitForResponse(relay);
+      relay.onNativeRequest({
+        id: `forward-xhs-target-binding-${state}-001`,
+        method: "bridge.forward",
+        params: {
           session_id: "nm-session-001",
-          profile: "profile-a",
-          risk_state: "allowed",
-          target_domain: "www.xiaohongshu.com",
-          target_tab_id: 32,
-          target_page: "search_result_tab",
-          action_type: "read",
-          requested_execution_mode: "live_read_high_risk",
-          effective_execution_mode: "live_read_high_risk",
-          gate_decision: "allowed",
-          gate_reasons: ["LIVE_MODE_APPROVED"],
-          approver: "reviewer-a",
-          approved_at: "2026-03-23T08:00:00Z",
-          audited_checks: {
-            target_domain_confirmed: true,
-            target_tab_confirmed: true,
-            target_page_confirmed: true,
-            risk_state_checked: true,
-            action_type_confirmed: true
+          run_id: "run-xhs-live-allowed-001",
+          command: "xhs.search",
+          command_params: {
+            request_id: `target-binding-${state}-001`,
+            ability: {
+              id: "xhs.note.search.v1",
+              layer: "L3",
+              action: "read"
+            },
+            input: {
+              query: "露营装备"
+            },
+            options: {
+              ...providerAwareSearchReadPathOptions,
+              target_domain: "www.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "search_result_tab",
+              action_type: "read",
+              requested_execution_mode: "live_read_high_risk",
+              risk_state: "allowed",
+              target_binding_snapshot: {
+                ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+                state,
+                blocking_reasons: []
+              },
+              xhs_page_runtime_readiness: {
+                ...providerAwareSearchReadPathOptions.xhs_page_runtime_readiness,
+                page_readiness: {
+                  status: "ready",
+                  required: true
+                },
+                provider_admission_readiness: {
+                  status: "ready",
+                  required: true,
+                  source: "provider_admission_result"
+                },
+                overall_readiness: "ready",
+                gate_decision: "allow"
+              },
+              page_runtime_readiness_decision: "allow",
+              page_runtime_readiness_blocking_reasons: [],
+              approval_record: {
+                approved: true,
+                approver: "qa-reviewer",
+                approved_at: "2026-03-23T10:00:00Z",
+                checks: {
+                  target_domain_confirmed: true,
+                  target_tab_confirmed: true,
+                  target_page_confirmed: true,
+                  risk_state_checked: true,
+                  action_type_confirmed: true
+                }
+              },
+              admission_context: createApprovedReadAdmissionContext({
+                run_id: "run-xhs-live-allowed-001",
+                request_id: `target-binding-${state}-001`,
+                session_id: "nm-session-001",
+                requested_execution_mode: "live_read_high_risk",
+                risk_state: "allowed"
+              })
+            }
           },
-          risk_signal: false,
-          recovery_signal: false,
-          session_rhythm_state: "normal",
-          cooldown_until: null,
-          recovery_started_at: null
+          cwd: "/workspace/WebEnvoy"
+        },
+        profile: "profile-a",
+        timeout_ms: 200
+      });
+
+      const response = await responsePromise;
+      expect(response.status).toBe("error");
+      expect(response.error?.code).toBe("ERR_EXECUTION_FAILED");
+      const payload = response.payload as Record<string, unknown>;
+      const providerAwareGate = asRecord(payload.provider_aware_read_path_gate);
+      const consumerGateResult = asRecord(payload.consumer_gate_result);
+      const gateOutcome = asRecord(payload.gate_outcome);
+      expect(providerAwareGate).toMatchObject({
+        gate_decision: "blocked",
+        live_execution_continued: false,
+        effective_execution_mode: null,
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          expectedReason
+        ])
+      });
+      expect(consumerGateResult).toMatchObject({
+        gate_decision: "blocked",
+        effective_execution_mode: null,
+        gate_reasons: expect.arrayContaining([
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
+          "target_binding:target_binding_not_bound",
+          expectedReason
+        ])
+      });
+      expect(gateOutcome?.gate_reasons as string[]).not.toContain("LIVE_MODE_APPROVED");
+      expect(fetchCalled).toBe(false);
+    }
+  );
+
+  const readyProviderAwareReadiness = {
+    ...providerAwareSearchReadPathOptions.xhs_page_runtime_readiness,
+    page_readiness: {
+      status: "ready",
+      required: true
+    },
+    runtime_readiness: {
+      status: "ready",
+      required: true,
+      source: "official_chrome_runtime_readiness"
+    },
+    provider_admission_readiness: {
+      status: "ready",
+      required: true,
+      source: "provider_admission_result"
+    },
+    overall_readiness: "ready",
+    gate_decision: "allow"
+  } as const;
+
+  const buildProviderAwareLiveReadOptions = (overrides: Record<string, unknown> = {}) => ({
+    ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001"),
+    target_domain: "www.xiaohongshu.com",
+    target_tab_id: 32,
+    target_page: "search_result_tab",
+    action_type: "read",
+    requested_execution_mode: "live_read_high_risk",
+    risk_state: "allowed",
+    xhs_page_runtime_readiness: readyProviderAwareReadiness,
+    page_runtime_readiness_decision: "allow",
+    page_runtime_readiness_blocking_reasons: [],
+    approval_record: {
+      approved: true,
+      approver: "qa-reviewer",
+      approved_at: "2026-03-23T10:00:00Z",
+      checks: {
+        target_domain_confirmed: true,
+        target_tab_confirmed: true,
+        target_page_confirmed: true,
+        risk_state_checked: true,
+        action_type_confirmed: true
+      }
+    },
+    admission_context: createApprovedReadAdmissionContext({
+      run_id: "run-xhs-live-allowed-001",
+      session_id: "nm-session-001",
+      requested_execution_mode: "live_read_high_risk",
+      risk_state: "allowed"
+    }),
+    ...overrides
+  });
+
+  const runProviderAwareLiveRead = async (options: Record<string, unknown>) => {
+    let fetchCalled = false;
+    const contentScript = new ContentScriptHandler({
+      xhsEnv: {
+        now: () => 1_000,
+        randomId: () => "relay-provider-aware-missing-evidence-id",
+        getLocationHref: () => "https://www.xiaohongshu.com/search_result",
+        getDocumentTitle: () => "Search Result",
+        getReadyState: () => "complete",
+        getCookie: () => "a1=valid;",
+        readCapturedRequestContext: createCapturedSearchRequestContextReader(),
+        callSignature: async () => ({
+          "X-s": "signed",
+          "X-t": "1"
+        }),
+        fetchJson: async () => {
+          fetchCalled = true;
+          throw new Error("missing provider-aware evidence should block before live fetch");
         }
       }
     });
-    expect(
-      typeof (((response.payload as Record<string, unknown>).summary as Record<string, unknown>).audit_record as Record<string, unknown>).event_id
-    ).toBe("string");
-    expect(
-      typeof (((response.payload as Record<string, unknown>).summary as Record<string, unknown>).audit_record as Record<string, unknown>).recorded_at
-    ).toBe("string");
+    const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
+
+    const responsePromise = waitForResponse(relay);
+    relay.onNativeRequest({
+      id: "forward-xhs-provider-aware-missing-evidence-001",
+      method: "bridge.forward",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-xhs-live-allowed-001",
+        command: "xhs.search",
+        command_params: {
+          request_id: "provider-aware-missing-evidence-001",
+          ability: {
+            id: "xhs.note.search.v1",
+            layer: "L3",
+            action: "read"
+          },
+          input: {
+            query: "露营装备"
+          },
+          options
+        },
+        cwd: "/workspace/WebEnvoy"
+      },
+      profile: "profile-a",
+      timeout_ms: 200
+    });
+
+    const response = await responsePromise;
+    return { response, fetchCalled };
+  };
+
+  it.each([
+    {
+      name: "target binding snapshot and ref are missing",
+      overrides: {
+        target_binding_snapshot: undefined,
+        target_binding_snapshot_ref: undefined
+      },
+      expectedReasons: [
+        "target_binding_snapshot_missing",
+        "target_binding_snapshot_ref_missing",
+        "target_binding:target_binding_not_bound",
+        "target_binding_state:missing"
+      ]
+    },
+    {
+      name: "target binding is bound but page/runtime readiness is missing",
+      overrides: {
+        xhs_page_runtime_readiness: undefined,
+        page_runtime_readiness_decision: undefined
+      },
+      expectedReasons: [
+        "page_runtime_readiness_missing",
+        "page_readiness_missing",
+        "runtime_readiness_missing",
+        "provider_admission_result_missing"
+      ]
+    },
+    {
+      name: "target binding is bound and readiness allows but runtime binding evidence is missing",
+      overrides: {
+        runtime_binding_ref: undefined,
+        xhs_runtime_binding: undefined
+      },
+      expectedReasons: ["runtime_binding_ref_missing", "runtime_binding_evidence_missing"]
+    },
+    {
+      name: "target binding is bound but provider admission readiness is missing",
+      overrides: {
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          provider_admission_readiness: undefined
+        }
+      },
+      expectedReasons: ["provider_admission_result_missing"]
+    },
+    {
+      name: "target binding is bound but evidence refs are missing",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: undefined
+        }
+      },
+      expectedReasons: [
+        "target_binding_evidence_refs_missing",
+        "target_binding_candidate_ref_missing",
+        "target_binding_url_match_ref_missing",
+        "target_binding_dom_observation_ref_missing",
+        "target_binding_runtime_state_ref_missing",
+        "target_binding_extension_bridge_ref_missing",
+        "target_binding_transition_refs_missing"
+      ]
+    },
+    {
+      name: "target binding is bound but extension bridge evidence ref is missing",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            extension_bridge_ref: null
+          }
+        }
+      },
+      expectedReasons: ["target_binding_extension_bridge_ref_missing"]
+    },
+    {
+      name: "target binding is bound but transition evidence refs are missing",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            transition_refs: []
+          }
+        },
+        target_binding_transition_evidence: []
+      },
+      expectedReasons: ["target_binding_transition_refs_missing"]
+    },
+    {
+      name: "target binding is bound but evidence ref belongs to previous run",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            extension_bridge_ref:
+              "FR-0063.target_binding_extension_bridge.v1/run-xhs-live-previous-001/search"
+          }
+        }
+      },
+      expectedReasons: ["target_binding_evidence_ref_mismatch"]
+    },
+    {
+      name: "target binding is bound but evidence redaction is invalid",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            redaction_state: "invalid"
+          }
+        }
+      },
+      expectedReasons: ["target_binding_redaction_invalid"]
+    },
+    {
+      name: "target binding is bound but evidence status is partial",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            evidence_status: "partial"
+          }
+        }
+      },
+      expectedReasons: ["target_binding_evidence_partial"]
+    },
+    {
+      name: "provider requirement evidence is missing",
+      overrides: {
+        xhs_driver_provider_requirements: undefined,
+        provider_requirement_refs: []
+      },
+      expectedReasons: [
+        "xhs_driver_provider_requirements_missing",
+        "provider_requirement_refs_missing"
+      ]
+    },
+    {
+      name: "target binding is bound but freshness is historical background",
+      overrides: {
+        target_binding_snapshot: {
+          ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+          state: "bound",
+          run_id: "run-xhs-live-allowed-001",
+          target_scope: {
+            target_domain: "www.xiaohongshu.com",
+            target_page_class: "search_tab"
+          },
+          route_bucket: "search",
+          freshness_scope: "historical_background",
+          blocking_reasons: []
+        }
+      },
+      expectedReasons: [
+        "target_binding_freshness_stale",
+        "target_binding_freshness:historical_background"
+      ]
+    },
+    {
+      name: "target binding is bound but ref route mismatches search",
+      overrides: {
+        target_binding_snapshot_ref:
+          "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/detail"
+      },
+      expectedReasons: ["target_binding_ref_mismatch", "target_binding_ref_route:detail"]
+    },
+    {
+      name: "target binding is bound but target scope mismatches search",
+      overrides: {
+        target_binding_snapshot: {
+          ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+          state: "bound",
+          run_id: "run-xhs-live-allowed-001",
+          target_scope: {
+            target_domain: "www.xiaohongshu.com",
+            target_page_class: "profile_tab"
+          },
+          route_bucket: "search",
+          freshness_scope: "current_run",
+          blocking_reasons: []
+        }
+      },
+      expectedReasons: ["target_binding_scope_mismatch"]
+    },
+    {
+      name: "target binding evidence is internally consistent but belongs to a previous run",
+      overrides: {
+        target_binding_snapshot_ref:
+          "FR-0063.target_binding_snapshot.v1/run-xhs-live-previous-001/search",
+        target_binding_snapshot: {
+          ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+          state: "bound",
+          run_id: "run-xhs-live-previous-001",
+          target_scope: {
+            target_domain: "www.xiaohongshu.com",
+            target_page_class: "search_tab"
+          },
+          route_bucket: "search",
+          freshness_scope: "current_run",
+          blocking_reasons: []
+        },
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          run_id: "run-xhs-live-previous-001"
+        }
+      },
+      expectedReasons: [
+        "target_binding_ref_mismatch",
+        "target_binding_run_id_mismatch",
+        "page_runtime_readiness_run_id_mismatch"
+      ]
+    },
+    {
+      name: "runtime binding ref belongs to a previous run",
+      overrides: {
+        runtime_binding_ref: "FR-0061.xhs_runtime_binding.v1/run-xhs-live-previous-001/search"
+      },
+      expectedReasons: ["runtime_binding_ref_mismatch"]
+    },
+    {
+      name: "provider requirement top-level ref is not covered by declaration refs",
+      overrides: {
+        provider_requirement_refs: [
+          "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.unknown"
+        ]
+      },
+      expectedReasons: ["provider_requirement_ref_mismatch"]
+    },
+    {
+      name: "provider requirement declaration scope mismatches xhs.search read",
+      overrides: {
+        xhs_driver_provider_requirements: {
+          ...providerAwareSearchReadPathOptions.xhs_driver_provider_requirements,
+          ability_scope: {
+            command: "xhs.detail",
+            ability_id: "xhs.note.detail.v1",
+            ability_layer: "L3",
+            ability_action: "read"
+          }
+        }
+      },
+      expectedReasons: ["provider_requirement_scope_mismatch"]
+    },
+    {
+      name: "page readiness status is pending with empty blocking reasons",
+      overrides: {
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          page_readiness: {
+            status: "pending",
+            required: true,
+            blocking_reasons: []
+          },
+          overall_readiness: "ready",
+          gate_decision: "allow"
+        },
+        page_runtime_readiness_blocking_reasons: []
+      },
+      expectedReasons: ["page:pending"]
+    },
+    {
+      name: "runtime readiness status is recoverable with allow-shaped top-level fields",
+      overrides: {
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          runtime_readiness: {
+            status: "recoverable",
+            required: true,
+            source: "official_chrome_runtime_readiness",
+            blocking_reasons: []
+          },
+          overall_readiness: "ready",
+          gate_decision: "allow"
+        },
+        page_runtime_readiness_blocking_reasons: []
+      },
+      expectedReasons: ["runtime:recoverable"]
+    },
+    {
+      name: "provider admission readiness status is unknown with allow-shaped top-level fields",
+      overrides: {
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          provider_admission_readiness: {
+            status: "unknown",
+            required: true,
+            source: "provider_admission_result",
+            blocking_reasons: []
+          },
+          overall_readiness: "ready",
+          gate_decision: "allow"
+        },
+        page_runtime_readiness_blocking_reasons: []
+      },
+      expectedReasons: ["provider:unknown"]
+    }
+  ])("blocks xhs.search when required provider-aware evidence is missing: $name", async ({
+    overrides,
+    expectedReasons
+  }) => {
+    const { response, fetchCalled } = await runProviderAwareLiveRead(
+      buildProviderAwareLiveReadOptions(overrides)
+    );
+
+    expect(response.status).toBe("error");
+    expect(response.error?.code).toBe("ERR_EXECUTION_FAILED");
+    const payload = response.payload as Record<string, unknown>;
+    const providerAwareGate = asRecord(payload.provider_aware_read_path_gate);
+    const consumerGateResult = asRecord(payload.consumer_gate_result);
+    const requestAdmissionResult = asRecord(payload.request_admission_result);
+    const auditRecord = asRecord(payload.audit_record);
+
+    expect(providerAwareGate).toMatchObject({
+      gate_decision: "blocked",
+      live_execution_continued: false,
+      effective_execution_mode: null,
+      blocking_reasons: expect.arrayContaining(expectedReasons)
+    });
+    expect(consumerGateResult).toMatchObject({
+      gate_decision: "blocked",
+      effective_execution_mode: null,
+      gate_reasons: expect.arrayContaining([
+        "PROVIDER_AWARE_READINESS_DENIED",
+        "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
+        ...expectedReasons
+      ])
+    });
+    expect(requestAdmissionResult).toMatchObject({
+      admission_decision: "blocked",
+      effective_runtime_mode: null,
+      reason_codes: expect.arrayContaining(expectedReasons)
+    });
+    expect(auditRecord).toMatchObject({
+      gate_decision: "blocked",
+      effective_execution_mode: null,
+      gate_reasons: expect.arrayContaining(expectedReasons),
+      session_rhythm_state: "cooldown",
+      transition_trigger: "provider_aware_readiness_denied"
+    });
+    expect((consumerGateResult?.gate_reasons as string[] | undefined) ?? []).not.toContain(
+      "LIVE_MODE_APPROVED"
+    );
+    expect(fetchCalled).toBe(false);
   });
 });

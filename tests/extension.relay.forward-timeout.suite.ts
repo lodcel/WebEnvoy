@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
+import { waitForResponse, asRecord, resolveWriteInteractionTier, completeIssue208ApprovalRecord, createAttestedEditorInputValidationResult, createApprovedReadAdmissionContext, createCapturedSearchRequestContextReader, createIssue209GateInvocationId, createProviderAwareSearchReadyReadPathOptions, BackgroundRelay, ContentScriptHandler, type BridgeResponse } from "./extension.relay.shared.js";
 
 describe("extension background relay contract / forward and timeout", () => {
   const createApprovedLiveOptions = (input: {
@@ -14,6 +14,7 @@ describe("extension background relay contract / forward and timeout", () => {
     const decisionId = `gate_decision_${input.runId}_${requestId}`;
     const approvalId = `gate_appr_${decisionId}`;
     return {
+      ...createProviderAwareSearchReadyReadPathOptions(input.runId),
       target_domain: "www.xiaohongshu.com",
       target_tab_id: 32,
       target_page: "search_result_tab",
