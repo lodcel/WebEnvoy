@@ -13,6 +13,7 @@ export type CloseoutEvidenceBlockerCode =
   | "dom_state_not_full_closeout"
   | "active_fetch_not_admitted"
   | "unsupported_evidence_class"
+  | "xhs_closeout_boundary_invalid"
   | "missing_latest_head"
   | "stale_head"
   | "stale_run"
@@ -23,7 +24,12 @@ export type CloseoutEvidenceBlockerCode =
   | "missing_action_binding"
   | "missing_multi_round_evidence";
 
-export type CloseoutEvidenceBlockerLayer = "route" | "freshness" | "binding";
+export type CloseoutEvidenceBlockerLayer =
+  | "route"
+  | "freshness"
+  | "binding"
+  | "provider_evidence"
+  | "redaction";
 
 export interface EvaluateCloseoutEvidenceInput {
   expected: {
@@ -100,6 +106,7 @@ export interface CloseoutEvidenceEvaluation {
     unique_artifact_count: number;
     expected_artifact_observed: boolean;
   };
+  xhs_closeout_evidence_boundary?: unknown;
 }
 
 const normalizeString = (value: string | null | undefined): string | null => {
