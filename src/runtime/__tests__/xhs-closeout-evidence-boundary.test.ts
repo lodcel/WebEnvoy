@@ -1378,4 +1378,149 @@ describe("XHS closeout evidence boundary for #1164", () => {
       ])
     );
   });
+
+  it("allows intentionally redacted placeholders without raw disclosure material", () => {
+    const routeEvidence = baseRouteEvidence();
+    routeEvidence.consumed_template = {
+      ...(routeEvidence.consumed_template as Record<string, unknown>),
+      request: {
+        headers: {
+          Cookie: "[redacted]",
+          Authorization: "<redacted:authorization>"
+        },
+        body: {
+          api_key: "<redacted:api-key>"
+        }
+      }
+    };
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
+      ref.kind === "runtime_observation_ref"
+        ? {
+            ...ref,
+            ref: "<redacted:runtime-observation>"
+          }
+        : ref
+    );
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(true);
+    expect(evaluation.forbidden_disclosures).toEqual([]);
+    expect(evaluation.blockers).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: "route URL token with suffix marker",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.page_url =
+          "https://www.xiaohongshu.com/explore/note-closeout-001?xsec_token=raw-token:redacted";
+      },
+      disclosure: "route_evidence.page_url"
+    },
+    {
+      name: "route nested cookie with bracket marker",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.consumed_template = {
+          ...(routeEvidence.consumed_template as Record<string, unknown>),
+          request: {
+            headers: {
+              Cookie: "a1=raw-cookie[redacted]"
+            }
+          }
+        };
+      },
+      disclosure: "route_evidence.consumed_template.request.headers.Cookie"
+    },
+    {
+      name: "route nested header with angle marker",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.consumed_template = {
+          ...(routeEvidence.consumed_template as Record<string, unknown>),
+          request: {
+            headers: {
+              "X-S-Common": "raw-common<redacted:x-s-common>"
+            }
+          }
+        };
+      },
+      disclosure: "route_evidence.consumed_template.request.headers.X-S-Common"
+    },
+    {
+      name: "route nested request payload with suffix marker",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.consumed_template = {
+          ...(routeEvidence.consumed_template as Record<string, unknown>),
+          request: {
+            body: {
+              api_key: "raw-key:redacted"
+            }
+          }
+        };
+      },
+      disclosure: "route_evidence.consumed_template.request.body.api_key"
+    },
+    {
+      name: "provider evidence private path with suffix marker",
+      mutateProvider: (providerEvidence: Record<string, unknown>) => {
+        providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
+          ref.kind === "profile_binding_ref"
+            ? {
+                ...ref,
+                ref: "/Users/alice/Library/Application Support/Chrome/Profile 1:redacted"
+              }
+            : ref
+        );
+      },
+      disclosure: "provider_evidence_record.evidence_refs[2].ref"
+    },
+    {
+      name: "provider nested array cookie with suffix marker",
+      mutateProvider: (providerEvidence: Record<string, unknown>) => {
+        providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
+          ref.kind === "runtime_observation_ref"
+            ? {
+                ...ref,
+                diagnostics: {
+                  samples: ["Cookie: a1=raw-cookie:redacted"]
+                }
+              }
+            : ref
+        );
+      },
+      disclosure: "provider_evidence_record.evidence_refs[5].diagnostics.samples[0]"
+    }
+  ])("rejects raw disclosure material even when redaction markers are present: $name", ({
+    mutate,
+    mutateProvider,
+    disclosure
+  }) => {
+    const routeEvidence = baseRouteEvidence();
+    const providerEvidence = baseProviderEvidenceRecord();
+    mutate?.(routeEvidence);
+    mutateProvider?.(providerEvidence);
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.forbidden_disclosures).toContain(disclosure);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "raw_sensitive_value_detected",
+          blocker_layer: "redaction",
+          field: disclosure
+        })
+      ])
+    );
+  });
 });

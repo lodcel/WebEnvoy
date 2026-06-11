@@ -315,6 +315,8 @@ const normalizePageUrl = (value: unknown): URL | null => {
 };
 
 const isRedactedValue = (value: string): boolean => redactedValuePattern.test(value.trim());
+const isStandaloneRedactionMarker = (value: string): boolean =>
+  /^(?:\[redacted\]|<redacted(?::[^>]+)?>)$/iu.test(value.trim());
 
 const blocker = (
   blocker_code: XhsCloseoutEvidenceBoundaryBlockerCode,
@@ -335,16 +337,28 @@ const collectStringDisclosures = (
 ): void => {
   if (typeof value === "string") {
     const normalized = value.trim();
-    if (normalized.length === 0 || isRedactedValue(normalized)) {
+    if (normalized.length === 0) {
+      return;
+    }
+    if (isStandaloneRedactionMarker(normalized)) {
       return;
     }
     if (
-      secretKeyPattern.test(path) ||
-      forbiddenRawPayloadPathPattern.test(path) ||
       rawPrivatePathPatterns.some((pattern) => pattern.test(normalized)) ||
       rawSecretValuePatterns.some((pattern) => pattern.test(normalized))
     ) {
       disclosures.push(path);
+      return;
+    }
+    if (
+      secretKeyPattern.test(path) ||
+      forbiddenRawPayloadPathPattern.test(path)
+    ) {
+      disclosures.push(path);
+      return;
+    }
+    if (isRedactedValue(normalized)) {
+      return;
     }
     return;
   }
