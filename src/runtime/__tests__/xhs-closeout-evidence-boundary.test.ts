@@ -830,6 +830,61 @@ describe("XHS closeout evidence boundary for #1164", () => {
     );
   });
 
+  it.each([
+    {
+      name: "redaction gaps",
+      closeoutPlanPatch: {
+        redaction_gaps: ["ev-runtime_observation_ref"]
+      },
+      expectedRedactionGap: "ev-runtime_observation_ref"
+    },
+    {
+      name: "missing evidence",
+      closeoutPlanPatch: {
+        missing_evidence: ["route_evidence_evaluator_attestation"]
+      },
+      expectedRedactionGap: null
+    },
+    {
+      name: "partial coverage status",
+      closeoutPlanPatch: {
+        coverage_status: "partial"
+      },
+      expectedRedactionGap: null
+    }
+  ])("fails closed for provider closeout_plan-level gaps: $name", ({
+    closeoutPlanPatch,
+    expectedRedactionGap
+  }) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.closeout_plan = {
+      ...(providerEvidence.closeout_plan as Record<string, unknown>),
+      ...closeoutPlanPatch,
+      blocking_reasons: [],
+      closeout_decision: "allow"
+    };
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    if (expectedRedactionGap !== null) {
+      expect(evaluation.redaction_gaps).toContain(expectedRedactionGap);
+    }
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_closeout_denied",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.closeout_plan"
+        })
+      ])
+    );
+  });
+
   it("rejects raw XHS tokens, cookies, headers, and request payloads on the disclosure surface", () => {
     const routeEvidence = baseRouteEvidence();
     routeEvidence.page_url =

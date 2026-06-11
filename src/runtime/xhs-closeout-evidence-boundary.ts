@@ -624,12 +624,20 @@ const evaluateProviderEvidence = (
   const closeoutPlan = asRecord(providerEvidenceRecord.closeout_plan);
   const closeoutDecision = normalizeString(closeoutPlan?.closeout_decision);
   const requiredFreshness = normalizeString(closeoutPlan?.required_freshness);
+  const coverageStatus = normalizeString(closeoutPlan?.coverage_status);
   const closeoutBlockingReasons = asArray(closeoutPlan?.blocking_reasons);
+  const closeoutMissingEvidence = asArray(closeoutPlan?.missing_evidence);
   const closeoutRedactionGaps = asArray(closeoutPlan?.redaction_gaps)
     .map((item) => normalizeString(item))
     .filter((item): item is string => item !== null);
   redactionGaps.push(...closeoutRedactionGaps);
-  if (closeoutDecision !== "allow" || closeoutBlockingReasons.length > 0) {
+  if (
+    closeoutDecision !== "allow" ||
+    closeoutBlockingReasons.length > 0 ||
+    closeoutRedactionGaps.length > 0 ||
+    closeoutMissingEvidence.length > 0 ||
+    (coverageStatus !== null && coverageStatus !== "complete")
+  ) {
     blockers.push(
       blocker(
         "provider_evidence_closeout_denied",
