@@ -252,6 +252,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       evidence_status: "success",
       evidence_class: "passive_api_capture",
       route_evidence_class: "passive_api_capture",
+      source_kind: "page_request",
       method: "POST",
       endpoint: "/api/sns/web/v1/feed",
       status_code: 200,
@@ -874,6 +875,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
       "evidence_status",
       "evidence_class",
       "route_evidence_class",
+      "source_kind",
       "method",
       "endpoint",
       "status_code",
@@ -986,6 +988,130 @@ describe("XHS closeout evidence boundary for #1164", () => {
           blocker_code: "unsupported_route_evidence_class",
           blocker_layer: "route",
           field: "route_evidence.route_evidence_class"
+        })
+      ])
+    );
+  });
+
+  it.each([
+    {
+      name: "missing outer source kind",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        delete routeEvidence.source_kind;
+      },
+      field: "route_evidence.source_kind",
+      missingField: "source_kind"
+    },
+    {
+      name: "synthetic outer source kind",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.source_kind = "synthetic_request";
+      },
+      field: "route_evidence.source_kind"
+    },
+    {
+      name: "active replay outer source kind",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.source_kind = "active_api_fetch_replay";
+      },
+      field: "route_evidence.source_kind"
+    },
+    {
+      name: "fallback outer source kind",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.source_kind = "page_state_fallback";
+      },
+      field: "route_evidence.source_kind"
+    },
+    {
+      name: "missing consumed template source kind",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        const consumedTemplate = routeEvidence.consumed_template as Record<string, unknown>;
+        delete consumedTemplate.source_kind;
+      },
+      field: "route_evidence.consumed_template.source_kind"
+    },
+    {
+      name: "synthetic consumed template source kind",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).source_kind = "synthetic_request";
+      },
+      field: "route_evidence.consumed_template.source_kind"
+    },
+    {
+      name: "consumed template active fallback class",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).route_evidence_class = "active_api_fetch_fallback";
+      },
+      field: "route_evidence.consumed_template.route_evidence_class"
+    },
+    {
+      name: "consumed template from another page",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).page_url =
+          "https://www.xiaohongshu.com/explore/another-note";
+      },
+      field: "route_evidence.consumed_template.page_url"
+    },
+    {
+      name: "consumed template from another target tab",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).target_tab_id = 99;
+      },
+      field: "route_evidence.consumed_template.target_tab_id"
+    },
+    {
+      name: "consumed template from another run",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).run_id = "run-xhs-closeout-boundary-other";
+      },
+      field: "route_evidence.consumed_template.run_id"
+    },
+    {
+      name: "consumed template from another profile",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).profile_ref = "profile-ref:xhs:other";
+      },
+      field: "route_evidence.consumed_template.profile_ref"
+    },
+    {
+      name: "consumed template from another session",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).session_id = "session-ref:xhs:other";
+      },
+      field: "route_evidence.consumed_template.session_id"
+    },
+    {
+      name: "consumed template from another action",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        (routeEvidence.consumed_template as Record<string, unknown>).action_ref = "write";
+      },
+      field: "route_evidence.consumed_template.action_ref"
+    }
+  ])("fails closed for passive route provenance gaps: $name", ({
+    mutate,
+    field,
+    missingField
+  }) => {
+    const routeEvidence = baseRouteEvidence();
+    mutate(routeEvidence);
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    if (missingField !== undefined) {
+      expect(evaluation.missing_route_fields).toContain(missingField);
+    }
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "route_provenance_invalid",
+          blocker_layer: "route",
+          field
         })
       ])
     );

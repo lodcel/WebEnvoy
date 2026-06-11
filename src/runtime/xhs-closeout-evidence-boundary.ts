@@ -11,6 +11,7 @@ export const XHS_CLOSEOUT_REQUIRED_ROUTE_FIELDS = [
   "evidence_status",
   "evidence_class",
   "route_evidence_class",
+  "source_kind",
   "method",
   "endpoint",
   "status_code",
@@ -47,6 +48,7 @@ export type XhsCloseoutEvidenceBoundaryBlockerCode =
   | "route_path_kind_invalid"
   | "route_evidence_status_invalid"
   | "route_http_status_invalid"
+  | "route_provenance_invalid"
   | "route_binding_invalid"
   | "missing_provider_evidence_record"
   | "provider_evidence_shape_invalid"
@@ -93,6 +95,7 @@ export interface XhsCloseoutEvidenceBoundaryEvaluation {
 
 const allowedOperations = new Set<string>(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const allowedRouteEvidenceClass = "passive_api_capture";
+const allowedPassiveSourceKind = "page_request";
 const routeBindings: Record<
   XhsCloseoutOperation,
   {
@@ -531,6 +534,86 @@ const pushReadinessBlocker = (
   );
 };
 
+const pushRouteProvenanceBlocker = (
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"],
+  field: string,
+  message: string
+): void => {
+  blockers.push(
+    blocker(
+      "route_provenance_invalid",
+      "route",
+      field,
+      message
+    )
+  );
+};
+
+const validateRouteProvenance = (
+  routeEvidence: Record<string, unknown>,
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"]
+): void => {
+  const sourceKind = normalizeString(routeEvidence.source_kind);
+  if (sourceKind !== allowedPassiveSourceKind) {
+    pushRouteProvenanceBlocker(
+      blockers,
+      "route_evidence.source_kind",
+      "passive_api_capture closeout route evidence must come from a current-page natural request"
+    );
+  }
+
+  const consumedTemplate = asRecord(routeEvidence.consumed_template);
+  if (consumedTemplate === null) {
+    pushRouteProvenanceBlocker(
+      blockers,
+      "route_evidence.consumed_template",
+      "passive_api_capture closeout route evidence must include consumed template provenance"
+    );
+    return;
+  }
+
+  if (normalizeString(consumedTemplate.source_kind) !== allowedPassiveSourceKind) {
+    pushRouteProvenanceBlocker(
+      blockers,
+      "route_evidence.consumed_template.source_kind",
+      "consumed passive template must come from a current-page natural request"
+    );
+  }
+  if (normalizeString(consumedTemplate.route_evidence_class) !== allowedRouteEvidenceClass) {
+    pushRouteProvenanceBlocker(
+      blockers,
+      "route_evidence.consumed_template.route_evidence_class",
+      "consumed template must remain passive_api_capture"
+    );
+  }
+
+  for (const field of ["run_id", "profile_ref", "session_id", "action_ref", "page_url"] as const) {
+    const outerValue = normalizeString(routeEvidence[field]);
+    const templateValue = normalizeString(consumedTemplate[field]);
+    if (outerValue !== null && templateValue !== null && templateValue !== outerValue) {
+      pushRouteProvenanceBlocker(
+        blockers,
+        `route_evidence.consumed_template.${field}`,
+        `consumed template ${field} must match route_evidence.${field}`
+      );
+    }
+  }
+
+  const outerTargetTabId = routeEvidence.target_tab_id;
+  const templateTargetTabId = consumedTemplate.target_tab_id;
+  if (
+    hasValue(outerTargetTabId) &&
+    hasValue(templateTargetTabId) &&
+    templateTargetTabId !== outerTargetTabId
+  ) {
+    pushRouteProvenanceBlocker(
+      blockers,
+      "route_evidence.consumed_template.target_tab_id",
+      "consumed template target_tab_id must match route_evidence.target_tab_id"
+    );
+  }
+};
+
 const validateProviderReadinessSemantics = (
   providerEvidenceRecord: Record<string, unknown>,
   closeoutPlan: Record<string, unknown> | null,
@@ -692,6 +775,8 @@ const evaluateRouteSemantics = (
       )
     );
   }
+
+  validateRouteProvenance(routeEvidence, blockers);
 
   if (operation === null || !allowedOperations.has(operation)) {
     return;
