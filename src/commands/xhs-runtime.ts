@@ -878,6 +878,7 @@ const hasXhsCloseoutEvidenceBoundaryPayload = (
 ): boolean =>
   asObject(record?.xhs_closeout_evidence_boundary) !== null ||
   asObject(record?.closeout_evidence_boundary) !== null ||
+  asObject(record?.provider_evidence_record) !== null ||
   asString(record?.contract_version) === XHS_CLOSEOUT_EVIDENCE_CONTRACT_VERSION;
 
 const hasIndependentCloseoutEvidencePayloadMarker = (
@@ -913,11 +914,18 @@ const hasExplicitCloseoutProductionAuditMarker = (record: JsonObject | null | un
       asObject(record?.execution_audit) !== null));
 
 const CLOSEOUT_EVIDENCE_SUMMARY_FIELDS = [
+  "contract_version",
+  "owner_ref",
+  "operation",
+  "xhs_closeout_operation",
+  "expected_latest_head_sha",
+  "redaction_policy_ref",
   "closeout_evidence_input",
   "closeout_evidence_expected",
   "closeout_evidence_rounds",
   "xhs_closeout_evidence_boundary",
   "closeout_evidence_boundary",
+  "provider_evidence_record",
   "closeout_route_evidence",
   "route_evidence"
 ] as const;
