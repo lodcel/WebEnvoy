@@ -58,6 +58,7 @@ export type XhsCloseoutEvidenceBoundaryBlockerCode =
   | "provider_evidence_ref_unavailable"
   | "provider_evidence_freshness_stale"
   | "provider_evidence_binding_mismatch"
+  | "provider_evidence_readiness_invalid"
   | "provider_evidence_redaction_invalid"
   | "raw_sensitive_value_detected";
 
@@ -125,6 +126,13 @@ const freshnessRank: Record<string, number> = {
   current_record: 1,
   current_launch: 2,
   current_pr_head: 3
+};
+const attestationRank: Record<string, number> = {
+  declared_only: 1,
+  static_checked: 2,
+  doctor_checked: 3,
+  runtime_attested: 4,
+  live_evidence_attested: 5
 };
 const redactedStates = new Set<string>(["redacted", "not_required"]);
 const sensitiveStates = new Set<string>(["sensitive", "secret"]);
@@ -489,6 +497,138 @@ const validateRequiredProviderEvidenceRefShape = (
   }
 };
 
+const attestationSatisfiesRuntime = (attestationLevel: string | null): boolean =>
+  attestationLevel !== null &&
+  Object.prototype.hasOwnProperty.call(attestationRank, attestationLevel) &&
+  attestationRank[attestationLevel] >= attestationRank.runtime_attested;
+
+const pushReadinessBlocker = (
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"],
+  field: string,
+  message: string
+): void => {
+  blockers.push(
+    blocker(
+      "provider_evidence_readiness_invalid",
+      "provider_evidence",
+      field,
+      message
+    )
+  );
+};
+
+const validateProviderReadinessSemantics = (
+  providerEvidenceRecord: Record<string, unknown>,
+  closeoutPlan: Record<string, unknown> | null,
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"]
+): void => {
+  const launchArguments = asRecord(providerEvidenceRecord.launch_arguments);
+  const browserMode = asRecord(launchArguments?.browser_mode);
+  const runtimeBindings = asRecord(launchArguments?.runtime_bindings);
+  const profileReference = asRecord(providerEvidenceRecord.profile_reference);
+  const extensionStatus = asRecord(providerEvidenceRecord.extension_status);
+  const nativeMessagingStatus = asRecord(providerEvidenceRecord.native_messaging_status);
+
+  if (browserMode?.real_browser_required !== true) {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.launch_arguments.browser_mode.real_browser_required",
+      "XHS closeout provider evidence must require a real browser"
+    );
+  }
+  if (browserMode?.headless !== false) {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.launch_arguments.browser_mode.headless",
+      "XHS closeout provider evidence must run headed, not headless"
+    );
+  }
+  if (normalizeString(runtimeBindings?.extension_binding_mode) !== "persistent_profile_extension") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.launch_arguments.runtime_bindings.extension_binding_mode",
+      "XHS closeout provider evidence must bind a persistent profile extension"
+    );
+  }
+  if (normalizeString(runtimeBindings?.native_messaging_mode) !== "required") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.launch_arguments.runtime_bindings.native_messaging_mode",
+      "XHS closeout provider evidence must require native messaging"
+    );
+  }
+  if (runtimeBindings?.runtime_bootstrap_required !== true) {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.launch_arguments.runtime_bindings.runtime_bootstrap_required",
+      "XHS closeout provider evidence must require runtime bootstrap"
+    );
+  }
+  if (normalizeString(profileReference?.profile_lock_status) !== "locked_by_current_run") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.profile_reference.profile_lock_status",
+      "XHS closeout provider evidence must bind a profile locked by the current run"
+    );
+  }
+  if (normalizeString(profileReference?.login_state_evidence) !== "ready") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.profile_reference.login_state_evidence",
+      "XHS closeout provider evidence must have ready login state evidence"
+    );
+  }
+  if (normalizeString(profileReference?.profile_persistence_status) !== "persistent") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.profile_reference.profile_persistence_status",
+      "XHS closeout provider evidence must use a persistent profile"
+    );
+  }
+  if (extensionStatus?.extension_required !== true) {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.extension_status.extension_required",
+      "XHS closeout provider evidence must require the extension"
+    );
+  }
+  if (normalizeString(extensionStatus?.extension_binding_mode) !== "persistent_profile_extension") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.extension_status.extension_binding_mode",
+      "XHS closeout provider evidence must report persistent extension binding"
+    );
+  }
+  if (normalizeString(extensionStatus?.extension_runtime_status) !== "ready") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.extension_status.extension_runtime_status",
+      "XHS closeout provider evidence must report ready extension runtime"
+    );
+  }
+  if (nativeMessagingStatus?.native_messaging_required !== true) {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.native_messaging_status.native_messaging_required",
+      "XHS closeout provider evidence must require native messaging"
+    );
+  }
+  if (normalizeString(nativeMessagingStatus?.native_messaging_runtime_status) !== "ready") {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.native_messaging_status.native_messaging_runtime_status",
+      "XHS closeout provider evidence must report ready native messaging runtime"
+    );
+  }
+  if (!attestationSatisfiesRuntime(normalizeString(closeoutPlan?.minimum_attestation_level))) {
+    pushReadinessBlocker(
+      blockers,
+      "provider_evidence_record.closeout_plan.minimum_attestation_level",
+      "XHS closeout provider evidence must be at least runtime_attested"
+    );
+  }
+};
+
 const evaluateRouteSemantics = (
   operation: string | null,
   routeEvidence: Record<string, unknown>,
@@ -683,6 +823,7 @@ const evaluateProviderEvidence = (
       )
     );
   }
+  validateProviderReadinessSemantics(providerEvidenceRecord, closeoutPlan, blockers);
 
   const evidenceRefs = getEvidenceRefs(providerEvidenceRecord);
   const routeRunId = normalizeString(routeEvidence?.run_id);

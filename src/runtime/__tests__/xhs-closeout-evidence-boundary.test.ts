@@ -396,6 +396,127 @@ describe("XHS closeout evidence boundary for #1164", () => {
   });
 
   it.each([
+    {
+      name: "real browser is not required",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        ((providerEvidence.launch_arguments as Record<string, unknown>).browser_mode as Record<string, unknown>).real_browser_required = false;
+      },
+      field: "provider_evidence_record.launch_arguments.browser_mode.real_browser_required"
+    },
+    {
+      name: "headless browser is allowed",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        ((providerEvidence.launch_arguments as Record<string, unknown>).browser_mode as Record<string, unknown>).headless = true;
+      },
+      field: "provider_evidence_record.launch_arguments.browser_mode.headless"
+    },
+    {
+      name: "extension binding mode is not persistent",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        ((providerEvidence.launch_arguments as Record<string, unknown>).runtime_bindings as Record<string, unknown>).extension_binding_mode = "dev_unpacked_extension";
+      },
+      field: "provider_evidence_record.launch_arguments.runtime_bindings.extension_binding_mode"
+    },
+    {
+      name: "native messaging mode is not required",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        ((providerEvidence.launch_arguments as Record<string, unknown>).runtime_bindings as Record<string, unknown>).native_messaging_mode = "not_required";
+      },
+      field: "provider_evidence_record.launch_arguments.runtime_bindings.native_messaging_mode"
+    },
+    {
+      name: "runtime bootstrap is not required",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        ((providerEvidence.launch_arguments as Record<string, unknown>).runtime_bindings as Record<string, unknown>).runtime_bootstrap_required = false;
+      },
+      field: "provider_evidence_record.launch_arguments.runtime_bindings.runtime_bootstrap_required"
+    },
+    {
+      name: "profile is not locked by current run",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.profile_reference as Record<string, unknown>).profile_lock_status = "shared_read_only";
+      },
+      field: "provider_evidence_record.profile_reference.profile_lock_status"
+    },
+    {
+      name: "login state is not ready",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.profile_reference as Record<string, unknown>).login_state_evidence = "login_allowed";
+      },
+      field: "provider_evidence_record.profile_reference.login_state_evidence"
+    },
+    {
+      name: "profile is ephemeral",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.profile_reference as Record<string, unknown>).profile_persistence_status = "ephemeral";
+      },
+      field: "provider_evidence_record.profile_reference.profile_persistence_status"
+    },
+    {
+      name: "extension is not required",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.extension_status as Record<string, unknown>).extension_required = false;
+      },
+      field: "provider_evidence_record.extension_status.extension_required"
+    },
+    {
+      name: "extension status binding mode is not persistent",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.extension_status as Record<string, unknown>).extension_binding_mode = "dev_unpacked_extension";
+      },
+      field: "provider_evidence_record.extension_status.extension_binding_mode"
+    },
+    {
+      name: "extension runtime is not ready",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.extension_status as Record<string, unknown>).extension_runtime_status = "recoverable";
+      },
+      field: "provider_evidence_record.extension_status.extension_runtime_status"
+    },
+    {
+      name: "native messaging is not required",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.native_messaging_status as Record<string, unknown>).native_messaging_required = false;
+      },
+      field: "provider_evidence_record.native_messaging_status.native_messaging_required"
+    },
+    {
+      name: "native messaging runtime is not ready",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.native_messaging_status as Record<string, unknown>).native_messaging_runtime_status = "recoverable";
+      },
+      field: "provider_evidence_record.native_messaging_status.native_messaging_runtime_status"
+    },
+    {
+      name: "minimum attestation is below runtime",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        (providerEvidence.closeout_plan as Record<string, unknown>).minimum_attestation_level = "doctor_checked";
+      },
+      field: "provider_evidence_record.closeout_plan.minimum_attestation_level"
+    }
+  ])("rejects provider evidence without XHS closeout readiness: $name", ({ mutate, field }) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    mutate(providerEvidence);
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_readiness_invalid",
+          blocker_layer: "provider_evidence",
+          field
+        })
+      ])
+    );
+  });
+
+  it.each([
     "evidence_ref_id",
     "ref",
     "source",
