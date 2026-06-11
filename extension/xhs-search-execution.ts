@@ -4,7 +4,9 @@ import {
   type JsonRecord,
   type SearchExecutionResult,
   type XhsExecutionContext,
+  type XhsExecutionAuditRecord,
   type XhsSearchEnvironment,
+  type XhsSearchGate,
   type XhsSearchOptions,
   type XhsSearchParams,
   SEARCH_ENDPOINT,
@@ -609,6 +611,8 @@ type ProviderAwareReadPathBlock = {
 
 const BLOCKED_READINESS_STATUSES = new Set(["blocked", "deny", "denied", "not_ready"]);
 const DENY_READINESS_DECISIONS = new Set(["deny", "denied", "blocked", "defer", "deferred"]);
+const TARGET_BINDING_ALLOWED_STATES = new Set(["bound"]);
+const ALLOWED_PROVIDER_AWARE_GATE_REASONS = new Set(["LIVE_MODE_APPROVED"]);
 
 const collectReadinessDimensionBlockers = (
   dimension: JsonRecord | null,
@@ -642,6 +646,9 @@ const resolveProviderAwareReadPathBlock = (
   const providerAdmissionReadiness = asRecord(
     pageRuntimeReadiness?.provider_admission_readiness
   );
+  const targetBindingState = asString(targetBindingSnapshot?.state);
+  const hasRequiredTargetBinding =
+    targetBindingSnapshot !== null || asString(options.target_binding_snapshot_ref) !== null;
   const reasons = [
     ...asStringArray(targetBindingSnapshot?.blocking_reasons).map(
       (reason) => `target_binding:${reason}`
@@ -651,18 +658,13 @@ const resolveProviderAwareReadPathBlock = (
     ...collectReadinessDimensionBlockers(providerAdmissionReadiness, "provider"),
     ...asStringArray(options.page_runtime_readiness_blocking_reasons)
   ];
-  const targetBindingState = asString(targetBindingSnapshot?.state);
   const overallReadiness = asString(pageRuntimeReadiness?.overall_readiness);
   const readinessGateDecision = asString(pageRuntimeReadiness?.gate_decision);
   const optionReadinessDecision = asString(options.page_runtime_readiness_decision);
 
-  if (
-    targetBindingState &&
-    targetBindingState !== "bound" &&
-    targetBindingState !== "ready" &&
-    asStringArray(targetBindingSnapshot?.blocking_reasons).length > 0
-  ) {
-    reasons.push(`target_binding_state:${targetBindingState}`);
+  if (hasRequiredTargetBinding && !TARGET_BINDING_ALLOWED_STATES.has(targetBindingState ?? "")) {
+    reasons.push("target_binding:target_binding_not_bound");
+    reasons.push(`target_binding_state:${targetBindingState ?? "missing"}`);
   }
   if (overallReadiness && BLOCKED_READINESS_STATUSES.has(overallReadiness)) {
     reasons.push(`overall_readiness:${overallReadiness}`);
@@ -685,51 +687,88 @@ const resolveProviderAwareReadPathBlock = (
   };
 };
 
+const withoutAllowedProviderAwareGateReasons = (reasons: string[]): string[] =>
+  reasons.filter((reason) => !ALLOWED_PROVIDER_AWARE_GATE_REASONS.has(reason));
+
+const uniqueProviderAwareBlockReasons = (
+  baseReasons: string[],
+  block: ProviderAwareReadPathBlock
+): string[] =>
+  Array.from(
+    new Set([
+      ...withoutAllowedProviderAwareGateReasons(baseReasons),
+      "PROVIDER_AWARE_READINESS_DENIED",
+      "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
+      ...block.reasons
+    ])
+  );
+
+const resolveBlockedNextRiskState = (
+  current: XhsExecutionAuditRecord["risk_state"]
+): XhsExecutionAuditRecord["risk_state"] => {
+  if (current === "allowed") {
+    return "limited";
+  }
+  if (current === "limited") {
+    return "paused";
+  }
+  return current;
+};
+
 const withProviderAwareReadPathBlockPayload = (
   result: SearchExecutionResult,
-  gate: ReturnType<typeof resolveGate>,
-  auditRecord: ReturnType<typeof createAuditRecord>,
+  gate: XhsSearchGate,
+  auditRecord: XhsExecutionAuditRecord,
   block: ProviderAwareReadPathBlock
 ): SearchExecutionResult => {
   if (result.ok) {
     return result;
   }
+  const blockedGateReasons = uniqueProviderAwareBlockReasons(
+    gate.consumer_gate_result.gate_reasons,
+    block
+  );
   const blockedConsumerGateResult = {
     ...gate.consumer_gate_result,
+    effective_execution_mode: null,
     gate_decision: "blocked" as const,
-    gate_reasons: [
-      ...gate.consumer_gate_result.gate_reasons,
-      "PROVIDER_AWARE_READINESS_DENIED",
-      ...block.reasons
-    ]
+    gate_reasons: blockedGateReasons
   };
   const blockedGateOutcome = {
     ...gate.gate_outcome,
+    effective_execution_mode: null,
     gate_decision: "blocked" as const,
-    gate_reasons: [
-      ...gate.gate_outcome.gate_reasons,
-      "PROVIDER_AWARE_READINESS_DENIED",
-      ...block.reasons
-    ]
+    gate_reasons: uniqueProviderAwareBlockReasons(gate.gate_outcome.gate_reasons, block),
+    requires_manual_confirmation: false
   };
   const blockedRequestAdmissionResult = gate.request_admission_result
     ? {
         ...gate.request_admission_result,
         admission_decision: "blocked" as const,
-        reason_codes: [
-          ...gate.request_admission_result.reason_codes,
-          "PROVIDER_AWARE_READINESS_DENIED",
-          ...block.reasons
-        ]
+        effective_runtime_mode: null,
+        reason_codes: uniqueProviderAwareBlockReasons([], block)
       }
     : gate.request_admission_result;
+  const recordedAtMs = Date.parse(auditRecord.recorded_at);
+  const cooldownBase = Number.isFinite(recordedAtMs) ? recordedAtMs : Date.now();
   const blockedAuditRecord = {
     ...auditRecord,
+    effective_execution_mode: null,
     gate_decision: "blocked" as const,
-    gate_reasons: blockedConsumerGateResult.gate_reasons,
+    gate_reasons: blockedGateReasons,
     risk_signal: true,
     recovery_signal: false,
-    session_rhythm_state: "cooldown" as const
+    session_rhythm_state: "cooldown" as const,
+    cooldown_until: new Date(cooldownBase + 30 * 60_000).toISOString(),
+    recovery_started_at: null,
+    next_state: resolveBlockedNextRiskState(auditRecord.risk_state),
+    transition_trigger: "provider_aware_readiness_denied"
+  };
+  const blockedGate = {
+    ...gate,
+    gate_outcome: blockedGateOutcome,
+    consumer_gate_result: blockedConsumerGateResult,
+    request_admission_result: blockedRequestAdmissionResult
   };
   return {
     ...result,
@@ -739,11 +778,14 @@ const withProviderAwareReadPathBlockPayload = (
       provider_aware_read_path_gate: {
         gate_decision: "blocked",
         reason: block.reason,
-        blocking_reasons: block.reasons
+        blocking_reasons: block.reasons,
+        live_execution_continued: false,
+        effective_execution_mode: null
       },
       gate_outcome: blockedGateOutcome,
       consumer_gate_result: blockedConsumerGateResult,
       request_admission_result: blockedRequestAdmissionResult,
+      risk_state_output: resolveRiskStateOutput(blockedGate, blockedAuditRecord),
       audit_record: blockedAuditRecord
     }
   };

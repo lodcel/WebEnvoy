@@ -1530,6 +1530,7 @@ describe("extension background relay contract / target binding and editor input"
   });
 
   it("blocks xhs.search when provider-aware readiness denies the read path", async () => {
+    let fetchCalled = false;
     const contentScript = new ContentScriptHandler({
       xhsEnv: {
         now: () => 1_000,
@@ -1543,15 +1544,10 @@ describe("extension background relay contract / target binding and editor input"
           "X-s": "signed",
           "X-t": "1"
         }),
-        fetchJson: async () => ({
-          status: 200,
-          body: {
-            code: 0,
-            data: {
-              items: []
-            }
-          }
-        })
+        fetchJson: async () => {
+          fetchCalled = true;
+          throw new Error("provider-aware blocked read path should not continue to live fetch");
+        }
       }
     });
     const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
@@ -1654,14 +1650,14 @@ describe("extension background relay contract / target binding and editor input"
         risk_state: "allowed"
       },
       gate_outcome: {
-        effective_execution_mode: "live_read_high_risk",
+        effective_execution_mode: null,
         gate_decision: "blocked",
         gate_reasons: expect.arrayContaining([
-          "LIVE_MODE_APPROVED",
           "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
           "target_binding:target_binding_not_bound"
         ]),
-        requires_manual_confirmation: true
+        requires_manual_confirmation: false
       },
       read_execution_policy: {
         default_mode: "dry_run",
@@ -1670,16 +1666,17 @@ describe("extension background relay contract / target binding and editor input"
       },
       consumer_gate_result: {
         requested_execution_mode: "live_read_high_risk",
-        effective_execution_mode: "live_read_high_risk",
+        effective_execution_mode: null,
         gate_decision: "blocked",
         gate_reasons: expect.arrayContaining([
-          "LIVE_MODE_APPROVED",
           "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
           "target_binding:target_binding_not_bound"
         ])
       },
       request_admission_result: {
         admission_decision: "blocked",
+        effective_runtime_mode: null,
         reason_codes: expect.arrayContaining([
           "PROVIDER_AWARE_READINESS_DENIED",
           "provider:provider_requirement_refs_not_attested"
@@ -1688,6 +1685,8 @@ describe("extension background relay contract / target binding and editor input"
       provider_aware_read_path_gate: {
         gate_decision: "blocked",
         reason: "PROVIDER_AWARE_READINESS_DENIED",
+        live_execution_continued: false,
+        effective_execution_mode: null,
         blocking_reasons: expect.arrayContaining([
           "target_binding:target_binding_not_bound",
           "provider:provider_requirement_refs_not_attested"
@@ -1747,11 +1746,11 @@ describe("extension background relay contract / target binding and editor input"
         target_page: "search_result_tab",
         action_type: "read",
         requested_execution_mode: "live_read_high_risk",
-        effective_execution_mode: "live_read_high_risk",
+        effective_execution_mode: null,
         gate_decision: "blocked",
         gate_reasons: expect.arrayContaining([
-          "LIVE_MODE_APPROVED",
-          "PROVIDER_AWARE_READINESS_DENIED"
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED"
         ]),
         approver: "reviewer-a",
         approved_at: "2026-03-23T08:00:00Z",
@@ -1764,9 +1763,19 @@ describe("extension background relay contract / target binding and editor input"
         },
         risk_signal: true,
         recovery_signal: false,
-        session_rhythm_state: "cooldown"
+        session_rhythm_state: "cooldown",
+        cooldown_until: expect.any(String),
+        recovery_started_at: null,
+        next_state: "limited",
+        transition_trigger: "provider_aware_readiness_denied"
       }
     });
+    const payload = response.payload as Record<string, unknown>;
+    const gateOutcome = asRecord(payload.gate_outcome);
+    const consumerGateResult = asRecord(payload.consumer_gate_result);
+    expect(gateOutcome?.gate_reasons as string[]).not.toContain("LIVE_MODE_APPROVED");
+    expect(consumerGateResult?.gate_reasons as string[]).not.toContain("LIVE_MODE_APPROVED");
+    expect(fetchCalled).toBe(false);
     expect(
       typeof ((response.payload as Record<string, unknown>).audit_record as Record<string, unknown>).event_id
     ).toBe("string");
@@ -1774,4 +1783,143 @@ describe("extension background relay contract / target binding and editor input"
       typeof ((response.payload as Record<string, unknown>).audit_record as Record<string, unknown>).recorded_at
     ).toBe("string");
   });
+
+  it.each([
+    {
+      state: "candidate_found",
+      expectedReason: "target_binding_state:candidate_found"
+    },
+    {
+      state: "ready",
+      expectedReason: "target_binding_state:ready"
+    }
+  ])(
+    "blocks xhs.search when target binding state $state has no producer blockers",
+    async ({ state, expectedReason }) => {
+      let fetchCalled = false;
+      const contentScript = new ContentScriptHandler({
+        xhsEnv: {
+          now: () => 1_000,
+          randomId: () => `relay-target-binding-${state}-id`,
+          getLocationHref: () => "https://www.xiaohongshu.com/search_result",
+          getDocumentTitle: () => "Search Result",
+          getReadyState: () => "complete",
+          getCookie: () => "a1=valid;",
+          readCapturedRequestContext: createCapturedSearchRequestContextReader(),
+          callSignature: async () => ({
+            "X-s": "signed",
+            "X-t": "1"
+          }),
+          fetchJson: async () => {
+            fetchCalled = true;
+            throw new Error("non-bound target binding should block before live fetch");
+          }
+        }
+      });
+      const relay = new BackgroundRelay(contentScript, { forwardTimeoutMs: 200 });
+
+      const responsePromise = waitForResponse(relay);
+      relay.onNativeRequest({
+        id: `forward-xhs-target-binding-${state}-001`,
+        method: "bridge.forward",
+        params: {
+          session_id: "nm-session-001",
+          run_id: "run-xhs-live-allowed-001",
+          command: "xhs.search",
+          command_params: {
+            request_id: `target-binding-${state}-001`,
+            ability: {
+              id: "xhs.note.search.v1",
+              layer: "L3",
+              action: "read"
+            },
+            input: {
+              query: "露营装备"
+            },
+            options: {
+              ...providerAwareSearchReadPathOptions,
+              target_domain: "www.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "search_result_tab",
+              action_type: "read",
+              requested_execution_mode: "live_read_high_risk",
+              risk_state: "allowed",
+              target_binding_snapshot: {
+                ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+                state,
+                blocking_reasons: []
+              },
+              xhs_page_runtime_readiness: {
+                ...providerAwareSearchReadPathOptions.xhs_page_runtime_readiness,
+                page_readiness: {
+                  status: "ready",
+                  required: true
+                },
+                provider_admission_readiness: {
+                  status: "ready",
+                  required: true,
+                  source: "provider_admission_result"
+                },
+                overall_readiness: "ready",
+                gate_decision: "allow"
+              },
+              page_runtime_readiness_decision: "allow",
+              page_runtime_readiness_blocking_reasons: [],
+              approval_record: {
+                approved: true,
+                approver: "qa-reviewer",
+                approved_at: "2026-03-23T10:00:00Z",
+                checks: {
+                  target_domain_confirmed: true,
+                  target_tab_confirmed: true,
+                  target_page_confirmed: true,
+                  risk_state_checked: true,
+                  action_type_confirmed: true
+                }
+              },
+              admission_context: createApprovedReadAdmissionContext({
+                run_id: "run-xhs-live-allowed-001",
+                request_id: `target-binding-${state}-001`,
+                session_id: "nm-session-001",
+                requested_execution_mode: "live_read_high_risk",
+                risk_state: "allowed"
+              })
+            }
+          },
+          cwd: "/workspace/WebEnvoy"
+        },
+        profile: "profile-a",
+        timeout_ms: 200
+      });
+
+      const response = await responsePromise;
+      expect(response.status).toBe("error");
+      expect(response.error?.code).toBe("ERR_EXECUTION_FAILED");
+      const payload = response.payload as Record<string, unknown>;
+      const providerAwareGate = asRecord(payload.provider_aware_read_path_gate);
+      const consumerGateResult = asRecord(payload.consumer_gate_result);
+      const gateOutcome = asRecord(payload.gate_outcome);
+      expect(providerAwareGate).toMatchObject({
+        gate_decision: "blocked",
+        live_execution_continued: false,
+        effective_execution_mode: null,
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          expectedReason
+        ])
+      });
+      expect(consumerGateResult).toMatchObject({
+        gate_decision: "blocked",
+        effective_execution_mode: null,
+        gate_reasons: expect.arrayContaining([
+          "PROVIDER_AWARE_READINESS_DENIED",
+          "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
+          "target_binding:target_binding_not_bound",
+          expectedReason
+        ])
+      });
+      expect(gateOutcome?.gate_reasons as string[]).not.toContain("LIVE_MODE_APPROVED");
+      expect(fetchCalled).toBe(false);
+    }
+  );
 });
