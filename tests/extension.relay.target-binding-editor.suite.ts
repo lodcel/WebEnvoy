@@ -1955,25 +1955,13 @@ describe("extension background relay contract / target binding and editor input"
   } as const;
 
   const buildProviderAwareLiveReadOptions = (overrides: Record<string, unknown> = {}) => ({
-    ...providerAwareSearchReadPathOptions,
+    ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001"),
     target_domain: "www.xiaohongshu.com",
     target_tab_id: 32,
     target_page: "search_result_tab",
     action_type: "read",
     requested_execution_mode: "live_read_high_risk",
     risk_state: "allowed",
-    target_binding_snapshot: {
-      ...providerAwareSearchReadPathOptions.target_binding_snapshot,
-      state: "bound",
-      run_id: "run-xhs-live-allowed-001",
-      target_scope: {
-        target_domain: "www.xiaohongshu.com",
-        target_page_class: "search_tab"
-      },
-      route_bucket: "search",
-      freshness_scope: "current_run",
-      blocking_reasons: []
-    },
     xhs_page_runtime_readiness: readyProviderAwareReadiness,
     page_runtime_readiness_decision: "allow",
     page_runtime_readiness_blocking_reasons: [],
@@ -2095,6 +2083,102 @@ describe("extension background relay contract / target binding and editor input"
         }
       },
       expectedReasons: ["provider_admission_result_missing"]
+    },
+    {
+      name: "target binding is bound but evidence refs are missing",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: undefined
+        }
+      },
+      expectedReasons: [
+        "target_binding_evidence_refs_missing",
+        "target_binding_candidate_ref_missing",
+        "target_binding_url_match_ref_missing",
+        "target_binding_dom_observation_ref_missing",
+        "target_binding_runtime_state_ref_missing",
+        "target_binding_extension_bridge_ref_missing",
+        "target_binding_transition_refs_missing"
+      ]
+    },
+    {
+      name: "target binding is bound but extension bridge evidence ref is missing",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            extension_bridge_ref: null
+          }
+        }
+      },
+      expectedReasons: ["target_binding_extension_bridge_ref_missing"]
+    },
+    {
+      name: "target binding is bound but transition evidence refs are missing",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            transition_refs: []
+          }
+        },
+        target_binding_transition_evidence: []
+      },
+      expectedReasons: ["target_binding_transition_refs_missing"]
+    },
+    {
+      name: "target binding is bound but evidence ref belongs to previous run",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            extension_bridge_ref:
+              "FR-0063.target_binding_extension_bridge.v1/run-xhs-live-previous-001/search"
+          }
+        }
+      },
+      expectedReasons: ["target_binding_evidence_ref_mismatch"]
+    },
+    {
+      name: "target binding is bound but evidence redaction is invalid",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            redaction_state: "invalid"
+          }
+        }
+      },
+      expectedReasons: ["target_binding_redaction_invalid"]
+    },
+    {
+      name: "target binding is bound but evidence status is partial",
+      overrides: {
+        target_binding_snapshot: {
+          ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+            .target_binding_snapshot,
+          evidence_refs: {
+            ...createProviderAwareSearchReadyReadPathOptions("run-xhs-live-allowed-001")
+              .target_binding_snapshot.evidence_refs,
+            evidence_status: "partial"
+          }
+        }
+      },
+      expectedReasons: ["target_binding_evidence_partial"]
     },
     {
       name: "provider requirement evidence is missing",

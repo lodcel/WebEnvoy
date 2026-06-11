@@ -262,6 +262,18 @@ export const createProviderAwareSearchReadyReadPathOptions = (runId: string) => 
     },
     route_bucket: "search",
     freshness_scope: "current_run",
+    evidence_refs: {
+      candidate_ref: `FR-0063.target_binding_candidate.v1/${runId}/search`,
+      url_match_ref: `FR-0063.target_binding_url_match.v1/${runId}/search`,
+      dom_observation_ref: `FR-0063.target_binding_dom_observation.v1/${runId}/search`,
+      runtime_state_ref: `FR-0063.target_binding_runtime_state.v1/${runId}/search`,
+      extension_bridge_ref: `FR-0063.target_binding_extension_bridge.v1/${runId}/search`,
+      transition_refs: [`target-binding-transition:${runId}:search:bound`],
+      evidence_status: "complete",
+      evidence_completeness: "complete",
+      redaction_state: "redacted",
+      source_owner: "#1161"
+    },
     blocking_reasons: []
   },
   target_binding_transition_evidence: [

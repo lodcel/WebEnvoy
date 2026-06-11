@@ -658,10 +658,149 @@ const parseRuntimeBindingRef = (
   };
 };
 
+const parseTargetBindingEvidenceRefRunId = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  const fr0063Match = /^FR-0063\.[^/]+\.v1\/([^/]+)\//.exec(value);
+  if (fr0063Match) {
+    return fr0063Match[1] ?? null;
+  }
+  const transitionMatch = /^target-binding-transition:([^:]+):/.exec(value);
+  return transitionMatch?.[1] ?? null;
+};
+
+const isTargetBindingEvidenceRefCurrentRun = (
+  value: string | null,
+  activeRunId: string
+): boolean => {
+  const refRunId = parseTargetBindingEvidenceRefRunId(value);
+  return !refRunId || refRunId === activeRunId;
+};
+
+const hasCurrentRunTransitionEvidence = (
+  transitionRefs: string[],
+  transitionEvidence: JsonRecord[],
+  activeRunId: string,
+  reasons: string[]
+): boolean => {
+  let hasTransitionEvidence = false;
+  for (const transitionRef of transitionRefs) {
+    if (transitionRef.length === 0) {
+      continue;
+    }
+    hasTransitionEvidence = true;
+    if (!isTargetBindingEvidenceRefCurrentRun(transitionRef, activeRunId)) {
+      reasons.push("target_binding_evidence_ref_mismatch");
+    }
+  }
+  for (const transition of transitionEvidence) {
+    const transitionId = asString(transition.transition_id);
+    if (!transitionId) {
+      continue;
+    }
+    hasTransitionEvidence = true;
+    if (!isTargetBindingEvidenceRefCurrentRun(transitionId, activeRunId)) {
+      reasons.push("target_binding_evidence_ref_mismatch");
+    }
+  }
+  return hasTransitionEvidence;
+};
+
+const collectTargetBindingRequiredEvidenceRefBlockers = (
+  targetBindingSnapshot: JsonRecord,
+  transitionEvidence: JsonRecord[],
+  activeRunId: string
+): string[] => {
+  if (asString(targetBindingSnapshot.state) !== "bound") {
+    return [];
+  }
+
+  const reasons: string[] = [];
+  const evidenceRefs = asRecord(targetBindingSnapshot.evidence_refs);
+  if (!evidenceRefs) {
+    return [
+      "target_binding_evidence_refs_missing",
+      "target_binding_candidate_ref_missing",
+      "target_binding_url_match_ref_missing",
+      "target_binding_dom_observation_ref_missing",
+      "target_binding_runtime_state_ref_missing",
+      "target_binding_extension_bridge_ref_missing",
+      "target_binding_transition_refs_missing"
+    ];
+  }
+
+  const requiredRefs = [
+    ["candidate_ref", "target_binding_candidate_ref_missing"],
+    ["url_match_ref", "target_binding_url_match_ref_missing"],
+    ["dom_observation_ref", "target_binding_dom_observation_ref_missing"],
+    ["runtime_state_ref", "target_binding_runtime_state_ref_missing"],
+    ["extension_bridge_ref", "target_binding_extension_bridge_ref_missing"]
+  ] as const;
+  for (const [field, missingReason] of requiredRefs) {
+    const ref = asString(evidenceRefs[field]);
+    if (!ref) {
+      reasons.push(missingReason);
+      continue;
+    }
+    if (!isTargetBindingEvidenceRefCurrentRun(ref, activeRunId)) {
+      reasons.push("target_binding_evidence_ref_mismatch");
+    }
+  }
+
+  const transitionRefs = asStringArray(evidenceRefs.transition_refs);
+  if (!hasCurrentRunTransitionEvidence(transitionRefs, transitionEvidence, activeRunId, reasons)) {
+    reasons.push("target_binding_transition_refs_missing");
+  }
+
+  const redactionState = asString(evidenceRefs.redaction_state ?? targetBindingSnapshot.redaction_state);
+  if (
+    redactionState === "redaction_required" ||
+    redactionState === "policy_missing" ||
+    redactionState === "invalid"
+  ) {
+    reasons.push("target_binding_redaction_invalid");
+  }
+
+  const evidenceStatus = asString(
+    evidenceRefs.evidence_status ?? targetBindingSnapshot.evidence_status
+  );
+  const evidenceCompleteness = asString(
+    evidenceRefs.evidence_completeness ?? targetBindingSnapshot.evidence_completeness
+  );
+  const partial = evidenceRefs.partial ?? targetBindingSnapshot.partial;
+  if (
+    evidenceStatus === "partial" ||
+    evidenceStatus === "unavailable" ||
+    evidenceStatus === "unknown" ||
+    evidenceStatus === "invalid" ||
+    evidenceCompleteness === "partial" ||
+    evidenceCompleteness === "unavailable" ||
+    evidenceCompleteness === "unknown" ||
+    evidenceCompleteness === "invalid" ||
+    partial === true
+  ) {
+    reasons.push("target_binding_evidence_partial");
+  }
+
+  const sourceOwner = asString(evidenceRefs.source_owner ?? targetBindingSnapshot.source_owner);
+  if (
+    sourceOwner &&
+    sourceOwner !== "#1161" &&
+    sourceOwner !== "target_binding_state_machine" &&
+    sourceOwner !== "xhs_target_binding_state_machine"
+  ) {
+    reasons.push("target_binding_source_owner_mismatch");
+  }
+
+  return reasons;
+};
+
 const collectTargetBindingEvidenceBlockers = (
   targetBindingSnapshotRef: string | null,
   targetBindingSnapshot: JsonRecord | null,
   pageRuntimeReadiness: JsonRecord | null,
+  transitionEvidence: JsonRecord[],
   activeRunId: string
 ): string[] => {
   if (!targetBindingSnapshot) {
@@ -736,6 +875,13 @@ const collectTargetBindingEvidenceBlockers = (
   if (routeBucket !== EXPECTED_XHS_SEARCH_ROUTE_BUCKET) {
     reasons.push("target_binding_scope_mismatch");
   }
+  reasons.push(
+    ...collectTargetBindingRequiredEvidenceRefBlockers(
+      targetBindingSnapshot,
+      transitionEvidence,
+      activeRunId
+    )
+  );
 
   return reasons;
 };
@@ -892,6 +1038,7 @@ const resolveProviderAwareReadPathBlock = (
       targetBindingSnapshotRef,
       targetBindingSnapshot,
       pageRuntimeReadiness,
+      asRecordArray(options.target_binding_transition_evidence),
       activeRunId
     ),
     ...collectProviderRequirementBlockers(providerRequirements, providerRequirementRefs),
