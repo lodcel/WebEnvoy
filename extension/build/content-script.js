@@ -11343,9 +11343,41 @@ const buildProviderAwareReadPathSummaryFields = (options) => {
     };
 };
 const BLOCKED_READINESS_STATUSES = new Set(["blocked", "deny", "denied", "not_ready"]);
+const ALLOWED_REQUIRED_READINESS_STATUSES = new Set(["ready", "not_required"]);
 const DENY_READINESS_DECISIONS = new Set(["deny", "denied", "blocked", "defer", "deferred"]);
 const TARGET_BINDING_ALLOWED_STATES = new Set(["bound"]);
+const RUNTIME_BINDING_ALLOWED_STATUSES = new Set(["declared", "ready"]);
+const RUNTIME_BINDING_CURRENT_FRESHNESS = new Set(["current_run"]);
 const ALLOWED_PROVIDER_AWARE_GATE_REASONS = new Set(["LIVE_MODE_APPROVED"]);
+const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding) => {
+    const reasons = [];
+    if (!runtimeBindingRef) {
+        reasons.push("runtime_binding_ref_missing");
+    }
+    if (!runtimeBinding) {
+        reasons.push("runtime_binding_evidence_missing");
+        return reasons;
+    }
+    const bindingStatus = asString(runtimeBinding.binding_status);
+    if (!bindingStatus) {
+        reasons.push("runtime_binding_status_missing");
+    }
+    else if (!RUNTIME_BINDING_ALLOWED_STATUSES.has(bindingStatus)) {
+        reasons.push("runtime_binding_not_bound");
+        reasons.push(`runtime_binding_status:${bindingStatus}`);
+    }
+    const bindingFreshness = asString(runtimeBinding.binding_freshness);
+    if (!bindingFreshness) {
+        reasons.push("runtime_binding_freshness_missing");
+    }
+    else if (!RUNTIME_BINDING_CURRENT_FRESHNESS.has(bindingFreshness)) {
+        if (bindingFreshness === "historical_background") {
+            reasons.push("runtime_binding_stale");
+        }
+        reasons.push(`runtime_binding_freshness:${bindingFreshness}`);
+    }
+    return reasons;
+};
 const collectReadinessDimensionBlockers = (dimension, prefix, missingReason) => {
     if (!dimension) {
         return [missingReason];
@@ -11357,10 +11389,10 @@ const collectReadinessDimensionBlockers = (dimension, prefix, missingReason) => 
     const gateDecision = asString(dimension.gate_decision);
     const blockingReasons = asStringArray(dimension.blocking_reasons);
     const reasons = [];
-    if (!status && !gateDecision && blockingReasons.length === 0) {
-        reasons.push(missingReason);
+    if (!status) {
+        reasons.push(`${prefix}:status_missing`);
     }
-    if (status && BLOCKED_READINESS_STATUSES.has(status)) {
+    else if (!ALLOWED_REQUIRED_READINESS_STATUSES.has(status)) {
         reasons.push(`${prefix}:${status}`);
     }
     if (gateDecision && DENY_READINESS_DECISIONS.has(gateDecision)) {
@@ -11376,6 +11408,8 @@ const resolveProviderAwareReadPathBlock = (options) => {
     const pageReadiness = asRecord(pageRuntimeReadiness?.page_readiness);
     const runtimeReadiness = asRecord(pageRuntimeReadiness?.runtime_readiness);
     const providerAdmissionReadiness = asRecord(pageRuntimeReadiness?.provider_admission_readiness);
+    const runtimeBindingRef = asString(options.runtime_binding_ref);
+    const runtimeBinding = asRecord(options.xhs_runtime_binding);
     const targetBindingState = asString(targetBindingSnapshot?.state);
     const targetBindingSnapshotRef = asString(options.target_binding_snapshot_ref);
     const providerRequirements = asRecord(options.xhs_driver_provider_requirements);
@@ -11389,6 +11423,7 @@ const resolveProviderAwareReadPathBlock = (options) => {
             ? []
             : ["provider_requirement_refs_missing"]),
         ...(pageRuntimeReadiness ? [] : ["page_runtime_readiness_missing"]),
+        ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding),
         ...asStringArray(targetBindingSnapshot?.blocking_reasons).map((reason) => `target_binding:${reason}`),
         ...collectReadinessDimensionBlockers(pageReadiness, "page", "page_readiness_missing"),
         ...collectReadinessDimensionBlockers(runtimeReadiness, "runtime", "runtime_readiness_missing"),

@@ -181,6 +181,7 @@ export const providerAwareSearchReadPathOptions = {
     target_domain: "www.xiaohongshu.com",
     target_page: "search_tab",
     execution_mode: "read",
+    binding_freshness: "current_run",
     binding_status: "declared"
   },
   target_binding_snapshot: {
@@ -243,6 +244,7 @@ export const createProviderAwareSearchReadyReadPathOptions = (runId: string) => 
     target_domain: "www.xiaohongshu.com",
     target_page: "search_tab",
     execution_mode: "read",
+    binding_freshness: "current_run",
     binding_status: "declared"
   },
   target_binding_snapshot: {

@@ -1735,6 +1735,7 @@ describe("extension background relay contract / target binding and editor input"
       target_binding_snapshot_ref:
         "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/search",
       xhs_runtime_binding: {
+        binding_freshness: "current_run",
         binding_status: "declared"
       },
       target_binding_snapshot: {
@@ -2088,6 +2089,14 @@ describe("extension background relay contract / target binding and editor input"
       ]
     },
     {
+      name: "target binding is bound and readiness allows but runtime binding evidence is missing",
+      overrides: {
+        runtime_binding_ref: undefined,
+        xhs_runtime_binding: undefined
+      },
+      expectedReasons: ["runtime_binding_ref_missing", "runtime_binding_evidence_missing"]
+    },
+    {
       name: "target binding is bound but provider admission readiness is missing",
       overrides: {
         xhs_page_runtime_readiness: {
@@ -2107,6 +2116,59 @@ describe("extension background relay contract / target binding and editor input"
         "xhs_driver_provider_requirements_missing",
         "provider_requirement_refs_missing"
       ]
+    },
+    {
+      name: "page readiness status is pending with empty blocking reasons",
+      overrides: {
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          page_readiness: {
+            status: "pending",
+            required: true,
+            blocking_reasons: []
+          },
+          overall_readiness: "ready",
+          gate_decision: "allow"
+        },
+        page_runtime_readiness_blocking_reasons: []
+      },
+      expectedReasons: ["page:pending"]
+    },
+    {
+      name: "runtime readiness status is recoverable with allow-shaped top-level fields",
+      overrides: {
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          runtime_readiness: {
+            status: "recoverable",
+            required: true,
+            source: "official_chrome_runtime_readiness",
+            blocking_reasons: []
+          },
+          overall_readiness: "ready",
+          gate_decision: "allow"
+        },
+        page_runtime_readiness_blocking_reasons: []
+      },
+      expectedReasons: ["runtime:recoverable"]
+    },
+    {
+      name: "provider admission readiness status is unknown with allow-shaped top-level fields",
+      overrides: {
+        xhs_page_runtime_readiness: {
+          ...readyProviderAwareReadiness,
+          provider_admission_readiness: {
+            status: "unknown",
+            required: true,
+            source: "provider_admission_result",
+            blocking_reasons: []
+          },
+          overall_readiness: "ready",
+          gate_decision: "allow"
+        },
+        page_runtime_readiness_blocking_reasons: []
+      },
+      expectedReasons: ["provider:unknown"]
     }
   ])("blocks xhs.search when required provider-aware evidence is missing: $name", async ({
     overrides,
