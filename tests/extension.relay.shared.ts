@@ -235,6 +235,54 @@ export const providerAwareSearchReadPathOptions = {
   ]
 } as const;
 
+export const createProviderAwareSearchReadyReadPathOptions = (runId: string) => ({
+  ...providerAwareSearchReadPathOptions,
+  runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/search`,
+  target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/search`,
+  xhs_runtime_binding: {
+    target_domain: "www.xiaohongshu.com",
+    target_page: "search_tab",
+    execution_mode: "read",
+    binding_status: "declared"
+  },
+  target_binding_snapshot: {
+    ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+    state: "bound",
+    blocking_reasons: []
+  },
+  target_binding_transition_evidence: [
+    {
+      transition_id: `target-binding-transition:${runId}:search:bound`,
+      from_state: "candidate_found",
+      to_state: "bound"
+    }
+  ],
+  non_proofs: ["syvert_normalized_result_complete", "write_enabled"],
+  page_runtime_readiness_ref: `issue-1162.xhs_page_runtime_readiness.v1/${runId}`,
+  xhs_page_runtime_readiness: {
+    ...providerAwareSearchReadPathOptions.xhs_page_runtime_readiness,
+    run_id: runId,
+    page_readiness: {
+      status: "ready",
+      required: true
+    },
+    runtime_readiness: {
+      status: "ready",
+      required: true,
+      source: "official_chrome_runtime_readiness"
+    },
+    provider_admission_readiness: {
+      status: "ready",
+      required: true,
+      source: "provider_admission_result"
+    },
+    overall_readiness: "ready",
+    gate_decision: "allow"
+  },
+  page_runtime_readiness_decision: "allow",
+  page_runtime_readiness_blocking_reasons: []
+} as const);
+
 export const approvedLimitedLiveOptions = {
   ...approvedLiveOptions,
   requested_execution_mode: "live_read_limited",

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  ContentScriptHandler,
+  ContentScriptHandler as RawContentScriptHandler,
   encodeMainWorldPayload,
   installMainWorldEventChannelSecret,
   MAIN_WORLD_EVENT_BOOTSTRAP,
@@ -11,6 +11,7 @@ import {
   resolveFingerprintContextForContract,
   resolveMainWorldEventNamesForSecret
 } from "../extension/content-script-handler.js";
+import { createProviderAwareSearchReadyReadPathOptions } from "./extension.relay.shared.js";
 
 interface MockEvent {
   type: string;
@@ -24,6 +25,50 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+
+const withProviderAwareSearchForwardMessage = <T>(message: T): T => {
+  const forwardMessage = asRecord(message);
+  const commandParams = asRecord(forwardMessage?.commandParams);
+  const options = asRecord(commandParams?.options);
+  const ability = asRecord(commandParams?.ability);
+  const requestedExecutionMode =
+    typeof commandParams?.requested_execution_mode === "string"
+      ? commandParams.requested_execution_mode
+      : options?.requested_execution_mode;
+  if (
+    !forwardMessage ||
+    !commandParams ||
+    !options ||
+    forwardMessage.kind !== "forward" ||
+    forwardMessage.command !== "xhs.search" ||
+    ability?.action !== "read" ||
+    (ability?.id !== "xhs.note.search.v1" && ability?.id !== "xhs.search") ||
+    (requestedExecutionMode !== "live_read_limited" &&
+      requestedExecutionMode !== "live_read_high_risk")
+  ) {
+    return message;
+  }
+  const runId =
+    typeof forwardMessage.runId === "string"
+      ? forwardMessage.runId
+      : "run-content-script-handler-search-live-001";
+  return {
+    ...forwardMessage,
+    commandParams: {
+      ...commandParams,
+      options: {
+        ...createProviderAwareSearchReadyReadPathOptions(runId),
+        ...options
+      }
+    }
+  } as T;
+};
+
+class ContentScriptHandler extends RawContentScriptHandler {
+  onBackgroundMessage(message: Record<string, unknown>): boolean {
+    return super.onBackgroundMessage(withProviderAwareSearchForwardMessage(message));
+  }
+}
 
 const createFingerprintContext = () => ({
   profile: "profile-a",
