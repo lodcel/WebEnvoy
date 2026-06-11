@@ -21,6 +21,7 @@ import {
   resolveXhsCloseoutRuntimeLatestHeadShaForContract,
   shouldRequireCloseoutAuditForXhsLiveRouteEvidenceForContract
 } from "../xhs.js";
+import { xhsDriverContractFixtures } from "../../../tests/fixtures/xhs-driver-contract-fixtures.js";
 import { executeCommand } from "../../core/router.js";
 import { createCommandRegistry } from "../index.js";
 import { NativeMessagingBridge } from "../../runtime/native-messaging/bridge.js";
@@ -2127,6 +2128,113 @@ describe("normalizeGateOptionsForContract", () => {
       decision: "PASS",
       passed: true,
       blockers: []
+    });
+  });
+
+  it("accepts provider-aware XHS closeout evidence boundary bundles through the route evaluator", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        xhs_closeout_evidence_boundary: boundary
+      })
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      evidence_class: "passive_api_capture",
+      freshness: {
+        latest_head_matches: true,
+        run_matches: true,
+        artifact_matches: true
+      },
+      xhs_closeout_evidence_boundary: {
+        contract_version: "xhs_closeout_evidence_boundary.v1",
+        valid: true,
+        operation: "xhs.detail",
+        missing_route_fields: [],
+        missing_provider_evidence_kinds: [],
+        redaction_gaps: [],
+        forbidden_disclosures: [],
+        blockers: []
+      }
+    });
+  });
+
+  it("fails closed when provider-aware XHS closeout boundary provider evidence is denied", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+    const providerEvidence = boundary.provider_evidence_record as Record<string, unknown>;
+    providerEvidence.closeout_plan = {
+      ...(providerEvidence.closeout_plan as Record<string, unknown>),
+      closeout_decision: "deny",
+      blocking_reasons: ["runtime_attestation_missing"]
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        xhs_closeout_evidence_boundary: boundary
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "xhs_closeout_boundary_invalid",
+          blocker_layer: "provider_evidence"
+        })
+      ]),
+      xhs_closeout_evidence_boundary: {
+        valid: false,
+        blockers: expect.arrayContaining([
+          expect.objectContaining({
+            blocker_code: "provider_evidence_closeout_denied",
+            blocker_layer: "provider_evidence"
+          })
+        ])
+      }
+    });
+  });
+
+  it("fails closed when provider-aware XHS closeout boundary is only fallback page-state evidence", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+    boundary.route_evidence = {
+      ...(boundary.route_evidence as Record<string, unknown>),
+      evidence_class: "dom_state_extraction",
+      route_evidence_class: "dom_state_extraction",
+      source_kind: "page_state"
+    };
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract({
+        xhs_closeout_evidence_boundary: boundary
+      })
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "xhs_closeout_boundary_invalid",
+          blocker_layer: "route"
+        })
+      ]),
+      xhs_closeout_evidence_boundary: {
+        valid: false,
+        blockers: expect.arrayContaining([
+          expect.objectContaining({
+            blocker_code: "unsupported_route_evidence_class",
+            blocker_layer: "route"
+          }),
+          expect.objectContaining({
+            blocker_code: "route_provenance_invalid",
+            blocker_layer: "route"
+          })
+        ])
+      }
     });
   });
 

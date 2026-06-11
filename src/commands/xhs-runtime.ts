@@ -31,6 +31,11 @@ import {
   evaluateCloseoutEvidence,
   type EvaluateCloseoutEvidenceInput
 } from "../runtime/closeout-evidence-evaluator.js";
+import {
+  evaluateXhsCloseoutEvidenceBoundary,
+  XHS_CLOSEOUT_EVIDENCE_CONTRACT_VERSION,
+  type XhsCloseoutEvidenceBoundaryEvaluation
+} from "../runtime/xhs-closeout-evidence-boundary.js";
 import { verifyCloseoutCanonicalExecutionAudit } from "../runtime/closeout-canonical-execution-audit-verifier.js";
 import { ProfileStore } from "../runtime/profile-store.js";
 import {
@@ -1499,6 +1504,197 @@ const toCloseoutEvidenceRoundRecords = (records: unknown): unknown[] | null => {
   return records;
 };
 
+const XHS_CLOSEOUT_OPERATION_BY_ROUTE: Array<{
+  operation: "xhs.search" | "xhs.detail" | "xhs.user_home";
+  routes: readonly string[];
+}> = [
+  {
+    operation: "xhs.search",
+    routes: ["xhs.search", "xhs.search.api"]
+  },
+  {
+    operation: "xhs.detail",
+    routes: ["xhs.detail", "xhs.detail.api"]
+  },
+  {
+    operation: "xhs.user_home",
+    routes: ["xhs.user_home", "xhs.user_home.api"]
+  }
+];
+
+const normalizeXhsCloseoutOperation = (
+  value: unknown
+): "xhs.search" | "xhs.detail" | "xhs.user_home" | null => {
+  const operation = asString(value);
+  return operation === "xhs.search" ||
+    operation === "xhs.detail" ||
+    operation === "xhs.user_home"
+    ? operation
+    : null;
+};
+
+const inferXhsCloseoutOperationFromRoute = (
+  routeEvidence: JsonObject | null
+): "xhs.search" | "xhs.detail" | "xhs.user_home" | null => {
+  const route = asString(routeEvidence?.route ?? routeEvidence?.route_id);
+  if (route === null) {
+    return null;
+  }
+  return (
+    XHS_CLOSEOUT_OPERATION_BY_ROUTE.find((entry) => entry.routes.includes(route))?.operation ??
+    null
+  );
+};
+
+const pickXhsCloseoutBoundaryRecord = (summary: JsonObject): JsonObject | null =>
+  asObject(summary.xhs_closeout_evidence_boundary) ??
+  asObject(summary.closeout_evidence_boundary) ??
+  (asString(summary.contract_version) === XHS_CLOSEOUT_EVIDENCE_CONTRACT_VERSION
+    ? summary
+    : null);
+
+const shouldEvaluateXhsCloseoutBoundaryForRuntime = (
+  summary: JsonObject,
+  boundaryRecord: JsonObject | null,
+  providerEvidenceRecord: JsonObject | null
+): boolean =>
+  boundaryRecord !== null ||
+  providerEvidenceRecord !== null ||
+  asString(summary.contract_version) === XHS_CLOSEOUT_EVIDENCE_CONTRACT_VERSION;
+
+const evaluateXhsCloseoutBoundaryForRuntime = (
+  summary: JsonObject
+): XhsCloseoutEvidenceBoundaryEvaluation | null => {
+  const boundaryRecord = pickXhsCloseoutBoundaryRecord(summary);
+  const routeEvidence =
+    asObject(boundaryRecord?.route_evidence) ??
+    asObject(summary.closeout_route_evidence) ??
+    asObject(summary.route_evidence);
+  const providerEvidenceRecord =
+    asObject(boundaryRecord?.provider_evidence_record) ??
+    asObject(summary.provider_evidence_record);
+  if (
+    !shouldEvaluateXhsCloseoutBoundaryForRuntime(
+      summary,
+      boundaryRecord,
+      providerEvidenceRecord
+    )
+  ) {
+    return null;
+  }
+
+  const operation =
+    normalizeXhsCloseoutOperation(boundaryRecord?.operation) ??
+    normalizeXhsCloseoutOperation(summary.xhs_closeout_operation) ??
+    normalizeXhsCloseoutOperation(summary.operation) ??
+    normalizeXhsCloseoutOperation(asObject(providerEvidenceRecord?.identity)?.command_ref) ??
+    inferXhsCloseoutOperationFromRoute(routeEvidence);
+  const expectedLatestHeadSha =
+    asString(boundaryRecord?.expected_latest_head_sha) ??
+    asString(summary.expected_latest_head_sha) ??
+    asString(asObject(summary.closeout_evidence_expected)?.latest_head_sha);
+
+  return evaluateXhsCloseoutEvidenceBoundary({
+    operation,
+    expected_latest_head_sha: expectedLatestHeadSha,
+    route_evidence: routeEvidence,
+    provider_evidence_record: providerEvidenceRecord
+  });
+};
+
+const toXhsCloseoutBoundaryEvaluationResult = (
+  summary: JsonObject,
+  boundaryEvaluation: XhsCloseoutEvidenceBoundaryEvaluation
+): ReturnType<typeof evaluateCloseoutEvidence> => {
+  const boundaryRecord = pickXhsCloseoutBoundaryRecord(summary);
+  const routeEvidence =
+    asObject(boundaryRecord?.route_evidence) ??
+    asObject(summary.closeout_route_evidence) ??
+    asObject(summary.route_evidence) ??
+    {};
+  const expectedLatestHeadSha =
+    asString(boundaryRecord?.expected_latest_head_sha) ??
+    asString(summary.expected_latest_head_sha) ??
+    asString(asObject(summary.closeout_evidence_expected)?.latest_head_sha);
+  const observedHeadSha = asString(routeEvidence.head_sha);
+  const runId = asString(routeEvidence.run_id);
+  const artifactIdentity = asString(routeEvidence.artifact_identity);
+  const profileRef = normalizeCloseoutProfileRef(asString(routeEvidence.profile_ref));
+  const targetTabId = asInteger(routeEvidence.target_tab_id);
+  const pageUrl = asString(routeEvidence.page_url);
+  const actionRef = asString(routeEvidence.action_ref);
+  const routeRole = asString(routeEvidence.route_role);
+  const pathKind = asString(routeEvidence.path_kind);
+  const evidenceStatus = asString(routeEvidence.evidence_status);
+  const evidenceClass = asString(routeEvidence.evidence_class);
+  const latestHeadAvailable = expectedLatestHeadSha !== null && observedHeadSha !== null;
+  const latestHeadMatches = latestHeadAvailable && expectedLatestHeadSha === observedHeadSha;
+  const artifactMatches = artifactIdentity !== null;
+  const blockers = boundaryEvaluation.valid
+    ? []
+    : boundaryEvaluation.blockers.map((boundaryBlocker) =>
+        closeoutEvaluationBlocker(
+          "xhs_closeout_boundary_invalid",
+          boundaryBlocker.blocker_layer,
+          boundaryBlocker.field === null
+            ? boundaryBlocker.message
+            : `${boundaryBlocker.field}: ${boundaryBlocker.message}`
+        )
+      );
+
+  return {
+    decision: boundaryEvaluation.valid ? "PASS" : "FAIL",
+    passed: boundaryEvaluation.valid,
+    blockers,
+    evaluated_route: [
+      routeRole ?? "unknown_route",
+      pathKind ?? "unknown_path",
+      evidenceClass ?? "unknown_class",
+      evidenceStatus ?? "unknown_status"
+    ].join(":"),
+    route_role: routeRole,
+    path_kind: pathKind,
+    evidence_status: evidenceStatus,
+    evidence_class: evidenceClass,
+    reproduced_multi_round: false,
+    freshness: {
+      latest_head_available: latestHeadAvailable,
+      latest_head_matches: latestHeadMatches,
+      run_matches: runId !== null,
+      artifact_matches: artifactMatches,
+      expected_latest_head_sha: expectedLatestHeadSha,
+      observed_head_sha: observedHeadSha,
+      expected_run_id: runId,
+      observed_run_id: runId,
+      expected_artifact_identity: artifactIdentity,
+      expected_artifact_identities: artifactIdentity === null ? [] : [artifactIdentity],
+      accepted_artifact_identities:
+        boundaryEvaluation.valid && artifactIdentity !== null ? [artifactIdentity] : [],
+      observed_artifact_identity: artifactIdentity
+    },
+    bindings: {
+      profile_bound: profileRef !== null,
+      tab_bound: targetTabId !== null,
+      page_bound: pageUrl !== null,
+      action_bound: actionRef !== null,
+      expected_profile_ref: profileRef,
+      observed_profile_ref: profileRef,
+      expected_target_tab_id: targetTabId,
+      observed_target_tab_id: targetTabId,
+      expected_page_url: pageUrl,
+      observed_page_url: pageUrl,
+      expected_action_ref: actionRef,
+      observed_action_ref: actionRef
+    },
+    multi_round: {
+      accepted_round_count: boundaryEvaluation.valid && artifactIdentity !== null ? 1 : 0,
+      unique_artifact_count: artifactIdentity === null ? 0 : 1,
+      expected_artifact_observed: boundaryEvaluation.valid && artifactIdentity !== null
+    },
+    xhs_closeout_evidence_boundary: boundaryEvaluation
+  };
+};
+
 const hasCloseoutEvidenceRoundRecords = (records: unknown[] | null): boolean =>
   Array.isArray(records) && records.length > 0;
 
@@ -1708,6 +1904,13 @@ export const evaluateXhsCloseoutEvidenceForContract = (
   summary: JsonObject,
   options?: CloseoutEvidenceTrustedExpectedBinding
 ): ReturnType<typeof evaluateCloseoutEvidence> | null => {
+  const xhsBoundaryEvaluation = evaluateXhsCloseoutBoundaryForRuntime(summary);
+  if (xhsBoundaryEvaluation) {
+    return applyTrustedExpectedBindingCheck(
+      toXhsCloseoutBoundaryEvaluationResult(summary, xhsBoundaryEvaluation),
+      options
+    );
+  }
   const input = buildCloseoutEvidenceInputForRuntime(summary, options);
   if (input) {
     return applyTrustedExpectedBindingCheck(evaluateCloseoutEvidence(input), options);
