@@ -990,8 +990,44 @@ describe("XHS read driver regression matrix", () => {
       }
       const summary = result.payload.summary as Record<string, unknown>;
       expect(summary.passive_api_capture_evidence).toBeUndefined();
+      expect(summary.dom_page_state_fallback_evidence).toMatchObject({
+        evidence_role: "diagnostic",
+        route_role: "supporting",
+        evidence_status: "success",
+        fallback_used: true,
+        limits: {
+          passive_api_capture_evidence: false,
+          live_closeout_evidence: false,
+          provider_aware_closeout_boundary: false,
+          syvert_normalized_output: false,
+          request_payload_included: false,
+          response_payload_included: false,
+          browser_live_claim: false
+        },
+        confidence: {
+          level: "medium"
+        },
+        provenance: {
+          command: matrixCase.command,
+          run_id: runId,
+          profile_ref: "xhs_001",
+          session_id: "nm-session-matrix",
+          target_tab_id: 32,
+          action_ref: `issue209-gate-${runId}`
+        }
+      });
       expect(summary.route_evidence).not.toMatchObject({
         evidence_class: "passive_api_capture"
+      });
+      expect(summary.route_evidence).toMatchObject({
+        evidence_role: "diagnostic",
+        route_role: "supporting",
+        fallback_used: true,
+        limits: {
+          passive_api_capture_evidence: false,
+          live_closeout_evidence: false,
+          syvert_normalized_output: false
+        }
       });
     }
   );

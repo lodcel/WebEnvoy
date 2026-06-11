@@ -290,6 +290,44 @@ const buildSearchTargetContinuity = (cards) => cards.map((card) => ({
             : "missing",
     source_route: "xhs.search"
 }));
+const buildSearchDomPageStateFallbackEvidence = (input) => ({
+    evidence_class: "dom_state_extraction",
+    evidence_role: "diagnostic",
+    route_role: "supporting",
+    path_kind: input.extraction.extraction_layer === "hydration_state" ? "page_state" : "dom",
+    source_kind: input.extraction.extraction_layer,
+    evidence_status: "success",
+    fallback_used: true,
+    fallback_reason: input.fallbackReason,
+    confidence: {
+        level: "medium",
+        basis: "current search page matched requested query and exposed reusable card continuity signals"
+    },
+    limits: {
+        passive_api_capture_evidence: false,
+        live_closeout_evidence: false,
+        provider_aware_closeout_boundary: false,
+        syvert_normalized_output: false,
+        request_payload_included: false,
+        response_payload_included: false,
+        browser_live_claim: false
+    },
+    provenance: {
+        command: "xhs.search",
+        page_kind: "search",
+        page_url: input.pageUrl,
+        run_id: input.runId,
+        profile_ref: input.profileRef,
+        session_id: input.sessionId,
+        target_tab_id: input.targetTabId,
+        action_ref: input.actionRef,
+        extraction_locator: input.extraction.extraction_locator,
+        extracted_at: input.extractedAt,
+        data_ref: {
+            query: input.query
+        }
+    }
+});
 const performSearchPassiveAction = async (input, env) => {
     if (typeof env.performSearchPassiveAction !== "function") {
         return null;
@@ -2177,6 +2215,21 @@ export const executeXhsSearch = async (input, env) => {
                 : null;
             if (domExtraction) {
                 const count = domExtraction.cards.length;
+                const extractedAt = toIsoString(env.now());
+                const targetTabId = gate.consumer_gate_result.target_tab_id;
+                const actionRef = input.executionContext.gateInvocationId ?? input.executionContext.runId;
+                const domPageStateFallbackEvidence = buildSearchDomPageStateFallbackEvidence({
+                    extraction: domExtraction,
+                    fallbackReason: requestContextState.failureReason,
+                    pageUrl: env.getLocationHref(),
+                    runId: input.executionContext.runId,
+                    profileRef: input.executionContext.profile,
+                    sessionId: input.executionContext.sessionId,
+                    targetTabId,
+                    actionRef,
+                    query: input.params.query,
+                    extractedAt
+                });
                 return {
                     ok: true,
                     payload: {
@@ -2212,16 +2265,18 @@ export const executeXhsSearch = async (input, env) => {
                             audit_record: auditRecord,
                             ...buildProviderAwareReadPathSummaryFields(input.options),
                             ...layer2InteractionSummary(layer2Interaction),
+                            dom_page_state_fallback_evidence: domPageStateFallbackEvidence,
                             route_evidence: {
+                                ...domPageStateFallbackEvidence,
                                 evidence_class: "dom_state_extraction",
                                 profile_ref: input.executionContext.profile,
-                                target_tab_id: gate.consumer_gate_result.target_tab_id,
+                                target_tab_id: targetTabId,
                                 page_url: env.getLocationHref(),
                                 run_id: input.executionContext.runId,
-                                action_ref: input.executionContext.gateInvocationId ?? input.executionContext.runId,
+                                action_ref: actionRef,
                                 extraction_layer: domExtraction.extraction_layer,
                                 extraction_locator: domExtraction.extraction_locator,
-                                extracted_at: toIsoString(env.now()),
+                                extracted_at: extractedAt,
                                 target_continuity: buildSearchTargetContinuity(domExtraction.cards),
                                 risk_surface_classification: "none",
                                 ...(passiveActionEvidence ? { humanized_action: passiveActionEvidence } : {}),
