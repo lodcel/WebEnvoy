@@ -1604,7 +1604,8 @@ const evaluateXhsCloseoutBoundaryForRuntime = (
 
 const toXhsCloseoutBoundaryEvaluationResult = (
   summary: JsonObject,
-  boundaryEvaluation: XhsCloseoutEvidenceBoundaryEvaluation
+  boundaryEvaluation: XhsCloseoutEvidenceBoundaryEvaluation,
+  trustedExpectedBinding?: CloseoutEvidenceTrustedExpectedBinding | null
 ): ReturnType<typeof evaluateCloseoutEvidence> => {
   const boundaryRecord = pickXhsCloseoutBoundaryRecord(summary);
   const routeEvidence =
@@ -1612,14 +1613,22 @@ const toXhsCloseoutBoundaryEvaluationResult = (
     asObject(summary.closeout_route_evidence) ??
     asObject(summary.route_evidence) ??
     {};
+  const explicitInput = asObject(summary.closeout_evidence_input);
+  const explicitInputExpected = asObject(explicitInput?.expected);
+  const summaryExpected = asObject(summary.closeout_evidence_expected);
   const expectedLatestHeadSha =
     asString(boundaryRecord?.expected_latest_head_sha) ??
     asString(summary.expected_latest_head_sha) ??
-    asString(asObject(summary.closeout_evidence_expected)?.latest_head_sha);
+    asString(summaryExpected?.latest_head_sha);
   const observedHeadSha = asString(routeEvidence.head_sha);
   const runId = asString(routeEvidence.run_id);
   const artifactIdentity = asString(routeEvidence.artifact_identity);
-  const profileRef = normalizeCloseoutProfileRef(asString(routeEvidence.profile_ref));
+  const observedProfileRef = normalizeCloseoutProfileRef(asString(routeEvidence.profile_ref));
+  const explicitExpectedProfileRef = normalizeCloseoutProfileRef(
+    asString(explicitInputExpected?.profile_ref) ?? asString(summaryExpected?.profile_ref)
+  );
+  const trustedProfileRef = normalizeCloseoutProfileRef(trustedExpectedBinding?.profileRef);
+  const expectedProfileRef = explicitExpectedProfileRef ?? trustedProfileRef ?? observedProfileRef;
   const targetTabId = asInteger(routeEvidence.target_tab_id);
   const pageUrl = asString(routeEvidence.page_url);
   const actionRef = asString(routeEvidence.action_ref);
@@ -1673,12 +1682,15 @@ const toXhsCloseoutBoundaryEvaluationResult = (
       observed_artifact_identity: artifactIdentity
     },
     bindings: {
-      profile_bound: profileRef !== null,
+      profile_bound:
+        explicitExpectedProfileRef !== null
+          ? observedProfileRef === explicitExpectedProfileRef
+          : expectedProfileRef !== null && observedProfileRef !== null,
       tab_bound: targetTabId !== null,
       page_bound: pageUrl !== null,
       action_bound: actionRef !== null,
-      expected_profile_ref: profileRef,
-      observed_profile_ref: profileRef,
+      expected_profile_ref: expectedProfileRef,
+      observed_profile_ref: observedProfileRef,
       expected_target_tab_id: targetTabId,
       observed_target_tab_id: targetTabId,
       expected_page_url: pageUrl,
@@ -1907,7 +1919,7 @@ export const evaluateXhsCloseoutEvidenceForContract = (
   const xhsBoundaryEvaluation = evaluateXhsCloseoutBoundaryForRuntime(summary);
   if (xhsBoundaryEvaluation) {
     return applyTrustedExpectedBindingCheck(
-      toXhsCloseoutBoundaryEvaluationResult(summary, xhsBoundaryEvaluation),
+      toXhsCloseoutBoundaryEvaluationResult(summary, xhsBoundaryEvaluation, options),
       options
     );
   }

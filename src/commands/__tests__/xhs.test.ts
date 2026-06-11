@@ -2162,6 +2162,70 @@ describe("normalizeGateOptionsForContract", () => {
     });
   });
 
+  it("accepts provider-aware XHS closeout evidence boundary through runtime trusted binding", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(
+        {
+          xhs_closeout_evidence_boundary: boundary
+        },
+        {
+          latestHeadSha: "head-xhs-closeout-boundary-fixture-current-001",
+          runId: "run-xhs-closeout-boundary-fixture-001",
+          profileRef: "xhs_runtime_profile_001",
+          targetTabId: 42
+        }
+      )
+    ).toMatchObject({
+      decision: "PASS",
+      passed: true,
+      blockers: [],
+      bindings: expect.objectContaining({
+        profile_bound: true,
+        expected_profile_ref: "profile/xhs_runtime_profile_001",
+        observed_profile_ref: "profile/profile-ref:xhs:redacted",
+        expected_target_tab_id: 42
+      })
+    });
+  });
+
+  it("fails closed when provider-aware XHS closeout expected profile mismatches runtime binding", () => {
+    const boundary = structuredClone(
+      xhsDriverContractFixtures.closeoutEvidenceBoundary
+    ) as Record<string, unknown>;
+
+    expect(
+      evaluateXhsCloseoutEvidenceForContract(
+        {
+          xhs_closeout_evidence_boundary: boundary,
+          closeout_evidence_expected: {
+            profile_ref: "profile/xhs_expected_runtime_profile"
+          }
+        },
+        {
+          latestHeadSha: "head-xhs-closeout-boundary-fixture-current-001",
+          runId: "run-xhs-closeout-boundary-fixture-001",
+          profileRef: "xhs_other_runtime_profile",
+          targetTabId: 42
+        }
+      )
+    ).toMatchObject({
+      decision: "FAIL",
+      passed: false,
+      blockers: expect.arrayContaining([
+        expect.objectContaining({ blocker_code: "missing_profile_binding" })
+      ]),
+      bindings: expect.objectContaining({
+        profile_bound: false,
+        expected_profile_ref: "profile/xhs_expected_runtime_profile",
+        observed_profile_ref: "profile/profile-ref:xhs:redacted"
+      })
+    });
+  });
+
   it("fails closed when provider-aware XHS closeout boundary provider evidence is denied", () => {
     const boundary = structuredClone(
       xhsDriverContractFixtures.closeoutEvidenceBoundary
