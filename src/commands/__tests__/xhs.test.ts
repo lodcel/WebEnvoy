@@ -5712,6 +5712,15 @@ describe("normalizeGateOptionsForContract", () => {
             state: "account_risk_blocked",
             reason: "ACCOUNT_ABNORMAL",
             live_commands_blocked: true
+          }),
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ])
           })
         }
       });
@@ -5805,6 +5814,15 @@ describe("normalizeGateOptionsForContract", () => {
           account_safety: expect.objectContaining({
             state: "account_risk_blocked",
             live_commands_blocked: true
+          }),
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ])
           })
         }
       });
@@ -5896,6 +5914,15 @@ describe("normalizeGateOptionsForContract", () => {
             target_tab_id: 32,
             status_code: 461,
             live_commands_blocked: true
+          }),
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ])
           }),
           runtime_stop: expect.objectContaining({
             attempted: true
@@ -10559,6 +10586,90 @@ describe("normalizeGateOptionsForContract", () => {
         delete process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
       } else {
         process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = previousFixtureSuccess;
+      }
+    }
+  });
+
+  it("feeds account safety gate result into creator publish admission output", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-account-safety-admit-"));
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.initializeMeta(
+        "xhs_account_safety_admit_profile",
+        "2026-06-12T00:00:00.000Z",
+        { allowUnsupportedExtensionBrowser: true }
+      );
+      await profileStore.writeMeta("xhs_account_safety_admit_profile", {
+        ...meta,
+        profileState: "ready",
+        accountSafety: {
+          state: "clear",
+          platform: null,
+          reason: null,
+          observedAt: null,
+          cooldownUntil: null,
+          sourceRunId: null,
+          sourceCommand: null,
+          targetDomain: null,
+          targetTabId: null,
+          pageUrl: null,
+          statusCode: null,
+          platformCode: null
+        }
+      });
+
+      const result = await executeCommand(
+        {
+          cwd,
+          command: "xhs.creator_publish.admit",
+          profile: "xhs_account_safety_admit_profile",
+          run_id: "run-account-safety-admit-001",
+          params: {
+            target_domain: "creator.xiaohongshu.com",
+            target_tab_id: 32,
+            target_page: "creator_publish_tab",
+            requested_execution_mode: "dry_run",
+            risk_state: "allowed"
+          }
+        } as RuntimeContext,
+        createCommandRegistry()
+      );
+
+      expect(result.summary.target_admission).toMatchObject({
+        account_safety_gate_result: {
+          schema_version: "account-safety-gate.v1",
+          gate_status: "clear",
+          decision: "allow",
+          blocking_reasons: [],
+          downstream_owner: "#1179"
+        }
+      });
+      expect(result.summary.target_admission).not.toHaveProperty(
+        "live_write_capability_gate_result"
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
       }
     }
   });

@@ -1062,6 +1062,7 @@ export class InMemoryContentScriptRuntime {
                     target_page: options.target_page ?? null,
                     profile_readiness: asRecord(options.profile_readiness),
                     account_readiness: asRecord(options.account_readiness),
+                    account_safety_gate_result: asRecord(options.account_safety_gate_result),
                     provider_requirement_refs: Array.isArray(options.provider_requirement_refs)
                       ? options.provider_requirement_refs
                       : [],

@@ -39,6 +39,7 @@ import {
 import { verifyCloseoutCanonicalExecutionAudit } from "../runtime/closeout-canonical-execution-audit-verifier.js";
 import { ProfileStore } from "../runtime/profile-store.js";
 import {
+  buildAccountSafetyGateResult,
   isAccountSafetyReason,
   toAccountSafetyStatus,
   type AccountSafetyRecord,
@@ -2422,6 +2423,7 @@ const pickGateErrorDetails = (
     "audit_record",
     "risk_state_output",
     "account_safety",
+    "account_safety_gate_result",
     "xhs_closeout_rhythm",
     "anti_detection_validation_view",
     "runtime_stop",
@@ -2915,7 +2917,8 @@ const mergeAccountSafetyIntoFailurePayload = (
   payload: Record<string, unknown>,
   accountSafety: JsonObject,
   xhsCloseoutRhythm?: JsonObject | null,
-  runtimeStop?: JsonObject | null
+  runtimeStop?: JsonObject | null,
+  accountSafetyGateResult?: JsonObject | null
 ): void => {
   const details = asObject(payload.details) ?? {};
   const accountSafetyReason = asString(accountSafety.reason);
@@ -2923,10 +2926,14 @@ const mergeAccountSafetyIntoFailurePayload = (
     ...details,
     ...(!asString(details.reason) && accountSafetyReason ? { reason: accountSafetyReason } : {}),
     account_safety: accountSafety,
+    ...(accountSafetyGateResult ? { account_safety_gate_result: accountSafetyGateResult } : {}),
     ...(xhsCloseoutRhythm ? { xhs_closeout_rhythm: xhsCloseoutRhythm } : {}),
     ...(runtimeStop ? { runtime_stop: runtimeStop } : {})
   };
   payload.account_safety = accountSafety;
+  if (accountSafetyGateResult) {
+    payload.account_safety_gate_result = accountSafetyGateResult;
+  }
   if (xhsCloseoutRhythm) {
     payload.xhs_closeout_rhythm = xhsCloseoutRhythm;
   }
@@ -3166,6 +3173,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   command: string;
   ability: AbilityRef;
   accountSafety: JsonObject;
+  accountSafetyGateResult: JsonObject;
   xhsCloseoutRhythm: JsonObject;
   antiDetectionValidationView?: XhsCloseoutValidationGateView | null;
   options: JsonObject;
@@ -3263,6 +3271,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
         risk_state: asString(input.options.risk_state) ?? "paused"
       },
       account_safety: input.accountSafety,
+      account_safety_gate_result: input.accountSafetyGateResult,
       xhs_closeout_rhythm: input.xhsCloseoutRhythm,
       ...(preflightHardStopRisk.hard_stop
         ? { closeout_hard_stop_risk: preflightHardStopRisk }
@@ -3669,6 +3678,60 @@ const xhsReadCommand = async (
   const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
   let profileMeta = context.profile ? await profileStore.readMeta(context.profile) : null;
   const accountSafetyStatus = toAccountSafetyStatus(profileMeta?.accountSafety);
+  const accountSafetyGateCapabilityLevel =
+    context.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+      ? "live_write_commit"
+      : context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
+        ? "write_admit"
+        : "write_admit";
+  const accountSafetyTargetBindingRef =
+    runtimeBindingBoundary?.target_binding_snapshot_ref ??
+    `FR-0063.target_binding_snapshot.v1/${context.run_id}/${context.command}`;
+  const buildCurrentAccountSafetyGateResult = (accountSafetyRecord: unknown) =>
+    buildAccountSafetyGateResult({
+      requestedCapabilityLevel: accountSafetyGateCapabilityLevel,
+      requestedScope: {
+        schema_version: "account-safety-gate.v1",
+        capability_level: accountSafetyGateCapabilityLevel,
+        workflow_ref:
+          context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
+            ? "xhs.creator_publish.admit"
+            : context.command,
+        target_domain: gate.targetDomain ?? "unknown",
+        target_page: gate.targetPage ?? "unknown",
+        profile_ref: context.profile ?? "profile:unknown",
+        browser_channel:
+          asString(profileMeta?.persistentExtensionBinding?.browserChannel) ?? "unknown",
+        execution_surface: "real_browser",
+        provider_requirement_ref: providerRequirements?.provider_requirement_ref ?? null,
+        runtime_target_binding_ref: accountSafetyTargetBindingRef,
+        operator_unlock_ref: null,
+        head_sha: resolveXhsCloseoutRuntimeLatestHeadShaForContract(context.cwd) ?? "head:unknown",
+        run_id: context.run_id,
+        evaluation_context_ref: `runtime-account-safety/${context.run_id}/${context.command}`
+      },
+      accountSafetyRecord,
+      evaluatedAt: new Date().toISOString(),
+      evidenceRefs: {
+        safety_check_ref: `runtime-account-safety/${context.run_id}/profile-meta`,
+        profile_ref: context.profile ?? "profile:unknown",
+        runtime_status_ref: `runtime-status/${context.run_id}`,
+        target_binding_ref: accountSafetyTargetBindingRef,
+        signal_scan_ref: `runtime-account-safety/${context.run_id}/signal-scan`,
+        redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
+        freshness_ref: `runtime-account-safety/${context.run_id}/freshness`,
+        risk_disposition_ref: `runtime-account-safety/${context.run_id}/risk-disposition`,
+        ...(context.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+          ? {
+              operator_unlock_ref: "FR-0064.operator_unlock.v1/current-scope-required",
+              default_commit_lock_ref: "#1180.default_commit_lock/current-scope-required",
+              live_evidence_gate_ref: "FR-0032.live_write_evidence.v1/current-scope-required"
+            }
+          : {})
+      },
+      downstreamOwner: context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ? "#1179" : "none"
+    });
+  const accountSafetyGateResult = buildCurrentAccountSafetyGateResult(profileMeta?.accountSafety);
   const profileReadiness = {
     profile: context.profile ?? null,
     profile_state: profileMeta?.profileState ?? "missing",
@@ -3783,6 +3846,7 @@ const xhsReadCommand = async (
         command: context.command,
         ability: envelope.ability,
         accountSafety: accountSafetyStatus,
+        accountSafetyGateResult: accountSafetyGateResult as unknown as JsonObject,
         xhsCloseoutRhythm: xhsCloseoutRhythmStatus,
         antiDetectionValidationView: antiDetectionValidationGate,
         options: gate.options,
@@ -3973,6 +4037,7 @@ const xhsReadCommand = async (
         ? {
             profile_readiness: profileReadiness,
             account_readiness: accountReadiness,
+            account_safety_gate_result: accountSafetyGateResult,
             admission_gate_reasons: creatorPublishAdmissionGateReasons
           }
         : {}),
@@ -4076,6 +4141,10 @@ const xhsReadCommand = async (
           signal: accountSafetySignal
         });
         const accountSafety = asObject(accountSafetyResult.account_safety);
+        const persistedAccountSafetyRecord = asObject(accountSafetyResult.account_safety_record);
+        const persistedAccountSafetyGateResult = buildCurrentAccountSafetyGateResult(
+          persistedAccountSafetyRecord ?? accountSafetyResult.account_safety_record
+        );
         const xhsCloseoutRhythm = recoveryProbeRequested
           ? await recordXhsRecoveryProbeFailure({
               cwd: context.cwd,
@@ -4094,7 +4163,8 @@ const xhsReadCommand = async (
             bridgeResult.payload,
             accountSafety,
             xhsCloseoutRhythm,
-            runtimeStop
+            runtimeStop,
+            persistedAccountSafetyGateResult as unknown as JsonObject
           );
         }
       }
@@ -4138,6 +4208,10 @@ const xhsReadCommand = async (
         signal: recoveryProbeRiskSignal
       });
       const accountSafety = asObject(accountSafetyResult.account_safety);
+      const persistedAccountSafetyRecord = asObject(accountSafetyResult.account_safety_record);
+      const persistedAccountSafetyGateResult = buildCurrentAccountSafetyGateResult(
+        persistedAccountSafetyRecord ?? accountSafetyResult.account_safety_record
+      );
       const xhsCloseoutRhythm = await recordXhsRecoveryProbeFailure({
         cwd: context.cwd,
         profile: context.profile,
@@ -4154,7 +4228,8 @@ const xhsReadCommand = async (
           bridgeResult.payload,
           accountSafety,
           xhsCloseoutRhythm,
-          runtimeStop
+          runtimeStop,
+          persistedAccountSafetyGateResult as unknown as JsonObject
         );
       }
       markCloseoutAuditRequiredWhenCanonicalAuditExists(bridgeResult.payload);
