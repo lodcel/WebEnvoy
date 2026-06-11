@@ -79,7 +79,11 @@ const baseRouteEvidence = (
   ]
 });
 
-const evidenceRef = (kind: string, overrides: Record<string, unknown> = {}) => ({
+const evidenceRef = (
+  kind: string,
+  overrides: Record<string, unknown> = {},
+  artifactIdentity = "artifact:xhs-closeout:run-xhs-closeout-boundary-001:round-1"
+) => ({
   evidence_ref_id: `ev-${kind}`,
   kind,
   ref: `${kind}:xhs:redacted`,
@@ -89,16 +93,20 @@ const evidenceRef = (kind: string, overrides: Record<string, unknown> = {}) => (
   freshness: "current_pr_head",
   sensitivity: kind === "provider_contract_ref" || kind === "launch_envelope_ref" ? "public" : "sensitive",
   redaction_state: kind === "provider_contract_ref" || kind === "launch_envelope_ref" ? "not_required" : "redacted",
-  artifact_identity: kind === "closeout_artifact_ref" ? "artifact:xhs-closeout:run-xhs-closeout-boundary-001:round-1" : null,
+  artifact_identity: kind === "closeout_artifact_ref" ? artifactIdentity : null,
   ...overrides
 });
 
-const baseProviderEvidenceRecord = (): Record<string, unknown> => ({
+const baseProviderEvidenceRecord = (
+  operation: keyof typeof routeShapeByOperation = "xhs.detail",
+  runId = "run-xhs-closeout-boundary-001",
+  artifactIdentity = "artifact:xhs-closeout:run-xhs-closeout-boundary-001:round-1"
+): Record<string, unknown> => ({
   identity: {
     provider_evidence_record_id: "per-xhs-closeout-boundary-001",
     provider_evidence_contract_version: "v1",
-    run_id: "run-xhs-closeout-boundary-001",
-    command_ref: "xhs.detail",
+    run_id: runId,
+    command_ref: operation,
     created_at: createdAt,
     evidence_scope: "capability_closeout",
     base_refs: ["FR-0033.browser_provider_contract.v1", "FR-0037.launch_envelope.v1"]
@@ -113,7 +121,9 @@ const baseProviderEvidenceRecord = (): Record<string, unknown> => ({
     selection_source: "launch_envelope",
     selection_evidence_refs: ["ev-provider_contract_ref"]
   },
-  evidence_refs: XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS.map((kind) => evidenceRef(kind)),
+  evidence_refs: XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS.map((kind) =>
+    evidenceRef(kind, {}, artifactIdentity)
+  ),
   closeout_plan: {
     required_evidence_kinds: [...XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS],
     required_freshness: "current_pr_head",
@@ -157,11 +167,112 @@ describe("XHS closeout evidence boundary for #1164", () => {
     const evaluation = evaluateXhsCloseoutEvidenceBoundary({
       operation,
       route_evidence: baseRouteEvidence(operation),
-      provider_evidence_record: baseProviderEvidenceRecord()
+      provider_evidence_record: baseProviderEvidenceRecord(operation)
     });
 
     expect(evaluation.valid).toBe(true);
     expect(evaluation.blockers).toEqual([]);
+  });
+
+  it.each([
+    "current_launch",
+    "current_record"
+  ])("rejects provider refs with weaker freshness than current_pr_head closeout requires: %s", (freshness) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) => ({
+      ...ref,
+      freshness
+    }));
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_freshness_stale",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.evidence_refs.ev-provider_contract_ref"
+        }),
+        expect.objectContaining({
+          blocker_code: "provider_evidence_freshness_stale",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.evidence_refs.ev-closeout_artifact_ref"
+        })
+      ])
+    );
+  });
+
+  it("rejects provider evidence from a different run than the route evidence", () => {
+    const providerEvidence = baseProviderEvidenceRecord(
+      "xhs.detail",
+      "run-xhs-closeout-boundary-other"
+    );
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_binding_mismatch",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.identity.run_id"
+        })
+      ])
+    );
+  });
+
+  it("rejects provider evidence from a different command than the requested operation", () => {
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.search",
+      route_evidence: baseRouteEvidence("xhs.search"),
+      provider_evidence_record: baseProviderEvidenceRecord("xhs.detail")
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_binding_mismatch",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.identity.command_ref"
+        })
+      ])
+    );
+  });
+
+  it("rejects provider closeout artifact refs that do not match the route artifact", () => {
+    const providerEvidence = baseProviderEvidenceRecord(
+      "xhs.detail",
+      "run-xhs-closeout-boundary-001",
+      "artifact:xhs-closeout:run-xhs-closeout-boundary-001:other-round"
+    );
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_binding_mismatch",
+          blocker_layer: "provider_evidence",
+          field: "provider_evidence_record.evidence_refs.closeout_artifact_ref"
+        })
+      ])
+    );
   });
 
   it("keeps the required route field set stable for the later route evidence evaluator", () => {

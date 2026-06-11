@@ -56,6 +56,7 @@ export type XhsCloseoutEvidenceBoundaryBlockerCode =
   | "provider_evidence_kind_missing"
   | "provider_evidence_ref_unavailable"
   | "provider_evidence_freshness_stale"
+  | "provider_evidence_binding_mismatch"
   | "provider_evidence_redaction_invalid"
   | "raw_sensitive_value_detected";
 
@@ -119,6 +120,11 @@ const routeBindings: Record<
   }
 };
 const acceptableFreshness = new Set<string>(["current_pr_head", "current_launch", "current_record"]);
+const freshnessRank: Record<string, number> = {
+  current_record: 1,
+  current_launch: 2,
+  current_pr_head: 3
+};
 const redactedStates = new Set<string>(["redacted", "not_required"]);
 const sensitiveStates = new Set<string>(["sensitive", "secret"]);
 const invalidRedactionStates = new Set<string>(["redaction_required", "policy_missing", "invalid"]);
@@ -259,6 +265,18 @@ const getEvidenceRefs = (providerEvidenceRecord: Record<string, unknown> | null)
     (item): item is Record<string, unknown> => asRecord(item) !== null
   );
 
+const freshnessSatisfies = (freshness: string | null, requiredFreshness: string | null): boolean => {
+  if (
+    freshness === null ||
+    requiredFreshness === null ||
+    !acceptableFreshness.has(freshness) ||
+    !acceptableFreshness.has(requiredFreshness)
+  ) {
+    return false;
+  }
+  return freshnessRank[freshness] >= freshnessRank[requiredFreshness];
+};
+
 const evaluateRouteSemantics = (
   operation: string | null,
   routeEvidence: Record<string, unknown>,
@@ -368,6 +386,8 @@ const evaluateRouteSemantics = (
 
 const evaluateProviderEvidence = (
   providerEvidenceRecord: Record<string, unknown> | null,
+  operation: string | null,
+  routeEvidence: Record<string, unknown> | null,
   blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"],
   missingProviderEvidenceKinds: string[],
   redactionGaps: string[]
@@ -425,6 +445,7 @@ const evaluateProviderEvidence = (
 
   const closeoutPlan = asRecord(providerEvidenceRecord.closeout_plan);
   const closeoutDecision = normalizeString(closeoutPlan?.closeout_decision);
+  const requiredFreshness = normalizeString(closeoutPlan?.required_freshness);
   const closeoutBlockingReasons = asArray(closeoutPlan?.blocking_reasons);
   const closeoutRedactionGaps = asArray(closeoutPlan?.redaction_gaps)
     .map((item) => normalizeString(item))
@@ -442,6 +463,31 @@ const evaluateProviderEvidence = (
   }
 
   const evidenceRefs = getEvidenceRefs(providerEvidenceRecord);
+  const routeRunId = normalizeString(routeEvidence?.run_id);
+  const routeArtifactIdentity = normalizeString(routeEvidence?.artifact_identity);
+  const providerRunId = normalizeString(identity?.run_id);
+  const providerCommandRef = normalizeString(identity?.command_ref);
+  if (routeRunId !== null && providerRunId !== routeRunId) {
+    blockers.push(
+      blocker(
+        "provider_evidence_binding_mismatch",
+        "provider_evidence",
+        "provider_evidence_record.identity.run_id",
+        "provider evidence record must bind to the same run_id as route_evidence"
+      )
+    );
+  }
+  if (operation !== null && allowedOperations.has(operation) && providerCommandRef !== operation) {
+    blockers.push(
+      blocker(
+        "provider_evidence_binding_mismatch",
+        "provider_evidence",
+        "provider_evidence_record.identity.command_ref",
+        "provider evidence record command_ref must bind to the requested XHS operation"
+      )
+    );
+  }
+
   const availableKinds = new Set(
     evidenceRefs
       .filter((ref) => normalizeString(ref.status) === "available")
@@ -478,13 +524,13 @@ const evaluateProviderEvidence = (
         )
       );
     }
-    if (freshness === null || !acceptableFreshness.has(freshness)) {
+    if (!freshnessSatisfies(freshness, requiredFreshness)) {
       blockers.push(
         blocker(
           "provider_evidence_freshness_stale",
           "provider_evidence",
           field,
-          "required provider evidence refs must be current for this closeout boundary"
+          "required provider evidence refs must satisfy closeout_plan.required_freshness"
         )
       );
     }
@@ -505,6 +551,30 @@ const evaluateProviderEvidence = (
         )
       );
     }
+  }
+
+  const availableCloseoutArtifactRefs = evidenceRefs.filter(
+    (ref) =>
+      normalizeString(ref.kind) === "closeout_artifact_ref" &&
+      normalizeString(ref.status) === "available"
+  );
+  if (
+    routeArtifactIdentity !== null &&
+    availableCloseoutArtifactRefs.length > 0 &&
+    !availableCloseoutArtifactRefs.some(
+      (ref) =>
+        normalizeString(ref.artifact_identity) === routeArtifactIdentity ||
+        normalizeString(ref.ref) === routeArtifactIdentity
+    )
+  ) {
+    blockers.push(
+      blocker(
+        "provider_evidence_binding_mismatch",
+        "provider_evidence",
+        "provider_evidence_record.evidence_refs.closeout_artifact_ref",
+        "provider closeout_artifact_ref must bind to route_evidence.artifact_identity"
+      )
+    );
   }
 
   return providerEvidenceScope;
@@ -586,6 +656,8 @@ export const evaluateXhsCloseoutEvidenceBoundary = (
 
   const providerEvidenceScope = evaluateProviderEvidence(
     input.provider_evidence_record,
+    operation,
+    routeEvidence,
     blockers,
     missingProviderEvidenceKinds,
     redactionGaps
