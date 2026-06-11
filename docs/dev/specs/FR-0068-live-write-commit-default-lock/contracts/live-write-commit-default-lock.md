@@ -298,8 +298,13 @@ These examples are synthetic and redacted. They are not live evidence, do not id
     "FR-0065.profile_manifest/redacted-current-scope",
     "FR-0067.extension_native_bridge/redacted-current-scope",
     "FR-0066.account_safety/redacted-current-scope",
+    "runtime_target_binding/redacted-current-scope",
+    "anti_detection_gate/redacted-current-scope",
     "FR-0064.operator_unlock/redacted-current-scope",
-    "live_evidence_gate/redacted-current-scope"
+    "live_evidence_gate/redacted-current-scope",
+    "freshness/redacted-current-scope",
+    "FR-0041.redaction_policy/redacted-current-scope",
+    "risk_disposition/redacted-current-scope"
   ],
   "downstream_reconsumption_required": true,
   "evaluated_at": "N/A",
