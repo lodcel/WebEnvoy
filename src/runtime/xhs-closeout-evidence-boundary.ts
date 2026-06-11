@@ -43,6 +43,11 @@ export type XhsCloseoutEvidenceBoundaryBlockerCode =
   | "unsupported_route_evidence_class"
   | "missing_route_field"
   | "missing_route_timestamp"
+  | "route_role_invalid"
+  | "route_path_kind_invalid"
+  | "route_evidence_status_invalid"
+  | "route_http_status_invalid"
+  | "route_binding_invalid"
   | "missing_provider_evidence_record"
   | "provider_evidence_contract_version_mismatch"
   | "provider_evidence_scope_invalid"
@@ -85,6 +90,34 @@ export interface XhsCloseoutEvidenceBoundaryEvaluation {
 
 const allowedOperations = new Set<string>(["xhs.search", "xhs.detail", "xhs.user_home"]);
 const allowedRouteEvidenceClass = "passive_api_capture";
+const routeBindings: Record<
+  XhsCloseoutOperation,
+  {
+    routes: readonly string[];
+    endpoint: string;
+    method: string;
+    pagePathPattern: RegExp;
+  }
+> = {
+  "xhs.search": {
+    routes: ["xhs.search", "xhs.search.api"],
+    endpoint: "/api/sns/web/v1/search/notes",
+    method: "POST",
+    pagePathPattern: /^\/search_result(?:\/)?$/u
+  },
+  "xhs.detail": {
+    routes: ["xhs.detail", "xhs.detail.api"],
+    endpoint: "/api/sns/web/v1/feed",
+    method: "POST",
+    pagePathPattern: /^\/explore\/[^/?#]+$/u
+  },
+  "xhs.user_home": {
+    routes: ["xhs.user_home", "xhs.user_home.api"],
+    endpoint: "/api/sns/web/v1/user_posted",
+    method: "GET",
+    pagePathPattern: /^\/user\/profile\/[^/?#]+$/u
+  }
+};
 const acceptableFreshness = new Set<string>(["current_pr_head", "current_launch", "current_record"]);
 const redactedStates = new Set<string>(["redacted", "not_required"]);
 const sensitiveStates = new Set<string>(["sensitive", "secret"]);
@@ -128,6 +161,48 @@ const hasValue = (value: unknown): boolean => {
     return value.trim().length > 0;
   }
   return value !== null && value !== undefined;
+};
+
+const normalizeHttpMethod = (value: unknown): string | null => {
+  const method = normalizeString(value);
+  return method === null ? null : method.toUpperCase();
+};
+
+const normalizeStatusCode = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
+  }
+  const text = normalizeString(value);
+  if (text === null || !/^\d+$/u.test(text)) {
+    return null;
+  }
+  const parsed = Number.parseInt(text, 10);
+  return Number.isInteger(parsed) ? parsed : null;
+};
+
+const normalizePathname = (value: unknown): string | null => {
+  const raw = normalizeString(value);
+  if (raw === null) {
+    return null;
+  }
+  try {
+    return new URL(raw, "https://www.xiaohongshu.com").pathname;
+  } catch {
+    const [withoutQuery] = raw.split(/[?#]/u, 1);
+    return withoutQuery.startsWith("/") ? withoutQuery : null;
+  }
+};
+
+const normalizePageUrl = (value: unknown): URL | null => {
+  const raw = normalizeString(value);
+  if (raw === null) {
+    return null;
+  }
+  try {
+    return new URL(raw);
+  } catch {
+    return null;
+  }
 };
 
 const isRedactedValue = (value: string): boolean => redactedValuePattern.test(value.trim());
@@ -183,6 +258,113 @@ const getEvidenceRefs = (providerEvidenceRecord: Record<string, unknown> | null)
   asArray(providerEvidenceRecord?.evidence_refs).filter(
     (item): item is Record<string, unknown> => asRecord(item) !== null
   );
+
+const evaluateRouteSemantics = (
+  operation: string | null,
+  routeEvidence: Record<string, unknown>,
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"]
+): void => {
+  if (normalizeString(routeEvidence.route_role) !== "primary") {
+    blockers.push(
+      blocker(
+        "route_role_invalid",
+        "route",
+        "route_evidence.route_role",
+        "XHS closeout route evidence must describe the primary route"
+      )
+    );
+  }
+
+  if (normalizeString(routeEvidence.path_kind) !== "api") {
+    blockers.push(
+      blocker(
+        "route_path_kind_invalid",
+        "route",
+        "route_evidence.path_kind",
+        "XHS closeout route evidence must describe an API path"
+      )
+    );
+  }
+
+  if (normalizeString(routeEvidence.evidence_status) !== "success") {
+    blockers.push(
+      blocker(
+        "route_evidence_status_invalid",
+        "route",
+        "route_evidence.evidence_status",
+        "XHS closeout route evidence must report success"
+      )
+    );
+  }
+
+  const statusCode = normalizeStatusCode(routeEvidence.status_code);
+  if (statusCode === null || statusCode < 200 || statusCode > 299) {
+    blockers.push(
+      blocker(
+        "route_http_status_invalid",
+        "route",
+        "route_evidence.status_code",
+        "XHS closeout route evidence must carry 2xx HTTP response semantics"
+      )
+    );
+  }
+
+  if (operation === null || !allowedOperations.has(operation)) {
+    return;
+  }
+
+  const routeBinding = routeBindings[operation as XhsCloseoutOperation];
+  const routeId = normalizeString(routeEvidence.route ?? routeEvidence.route_id);
+  if (routeId === null || !routeBinding.routes.includes(routeId)) {
+    blockers.push(
+      blocker(
+        "route_binding_invalid",
+        "route",
+        "route_evidence.route",
+        `XHS closeout route evidence must bind ${operation} to its route id`
+      )
+    );
+  }
+
+  const endpointPath = normalizePathname(routeEvidence.endpoint ?? routeEvidence.request_url);
+  if (endpointPath !== routeBinding.endpoint) {
+    blockers.push(
+      blocker(
+        "route_binding_invalid",
+        "route",
+        "route_evidence.endpoint",
+        `XHS closeout route evidence must bind ${operation} to ${routeBinding.endpoint}`
+      )
+    );
+  }
+
+  if (normalizeHttpMethod(routeEvidence.method) !== routeBinding.method) {
+    blockers.push(
+      blocker(
+        "route_binding_invalid",
+        "route",
+        "route_evidence.method",
+        `XHS closeout route evidence must bind ${operation} to ${routeBinding.method}`
+      )
+    );
+  }
+
+  const pageUrl = normalizePageUrl(routeEvidence.page_url);
+  if (
+    pageUrl === null ||
+    pageUrl.hostname !== "www.xiaohongshu.com" ||
+    !routeBinding.pagePathPattern.test(pageUrl.pathname)
+  ) {
+    blockers.push(
+      blocker(
+        "route_binding_invalid",
+        "route",
+        "route_evidence.page_url",
+        `XHS closeout route evidence page_url must match the ${operation} page shape`
+      )
+    );
+  }
+};
 
 const evaluateProviderEvidence = (
   providerEvidenceRecord: Record<string, unknown> | null,
@@ -398,6 +580,8 @@ export const evaluateXhsCloseoutEvidenceBoundary = (
         )
       );
     }
+
+    evaluateRouteSemantics(operation, routeEvidence, blockers);
   }
 
   const providerEvidenceScope = evaluateProviderEvidence(

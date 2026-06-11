@@ -9,17 +9,43 @@ import {
 
 const createdAt = "2026-06-11T00:00:00Z";
 
-const baseRouteEvidence = (): Record<string, unknown> => ({
-  route: "xhs.detail.api",
+const routeShapeByOperation = {
+  "xhs.search": {
+    route: "xhs.search.api",
+    method: "POST",
+    endpoint: "/api/sns/web/v1/search/notes",
+    page_url: "https://www.xiaohongshu.com/search_result?keyword=closeout",
+    shape_key: "xhs.search:POST:/api/sns/web/v1/search/notes:closeout"
+  },
+  "xhs.detail": {
+    route: "xhs.detail.api",
+    method: "POST",
+    endpoint: "/api/sns/web/v1/feed",
+    page_url: "https://www.xiaohongshu.com/explore/note-closeout-001",
+    shape_key: "xhs.detail:POST:/api/sns/web/v1/feed:note-closeout-001"
+  },
+  "xhs.user_home": {
+    route: "xhs.user_home.api",
+    method: "GET",
+    endpoint: "/api/sns/web/v1/user_posted",
+    page_url: "https://www.xiaohongshu.com/user/profile/user-closeout-001",
+    shape_key: "xhs.user_home:GET:/api/sns/web/v1/user_posted:user-closeout-001"
+  }
+} as const;
+
+const baseRouteEvidence = (
+  operation: keyof typeof routeShapeByOperation = "xhs.detail"
+): Record<string, unknown> => ({
+  route: routeShapeByOperation[operation].route,
   route_role: "primary",
   path_kind: "api",
   evidence_status: "success",
   evidence_class: "passive_api_capture",
   route_evidence_class: "passive_api_capture",
   source_kind: "page_request",
-  method: "POST",
-  endpoint: "/api/sns/web/v1/feed",
-  request_url: "/api/sns/web/v1/feed",
+  method: routeShapeByOperation[operation].method,
+  endpoint: routeShapeByOperation[operation].endpoint,
+  request_url: routeShapeByOperation[operation].endpoint,
   status_code: 200,
   head_sha: "898b8b4015ac5644d3971b72dc67d9a90436363a",
   run_id: "run-xhs-closeout-boundary-001",
@@ -27,7 +53,7 @@ const baseRouteEvidence = (): Record<string, unknown> => ({
   profile_ref: "profile-ref:xhs:redacted",
   session_id: "session-ref:xhs:redacted",
   target_tab_id: 42,
-  page_url: "https://www.xiaohongshu.com/explore/note-closeout-001",
+  page_url: routeShapeByOperation[operation].page_url,
   action_ref: "read",
   observed_at: 1_780_000_000_000,
   captured_at: 1_780_000_000_000,
@@ -40,16 +66,16 @@ const baseRouteEvidence = (): Record<string, unknown> => ({
     target_tab_id: 42,
     run_id: "run-xhs-closeout-boundary-001",
     action_ref: "read",
-    page_url: "https://www.xiaohongshu.com/explore/note-closeout-001",
+    page_url: routeShapeByOperation[operation].page_url,
     observed_at: 1_780_000_000_000,
     captured_at: 1_780_000_000_000,
     freshness_window_ms: 300_000,
     template_age_ms: 0,
-    page_context_namespace: "xhs.detail:profile-ref:xhs:redacted:42",
-    shape_key: "xhs.detail:POST:/api/sns/web/v1/feed:note-closeout-001"
+    page_context_namespace: `${operation}:profile-ref:xhs:redacted:42`,
+    shape_key: routeShapeByOperation[operation].shape_key
   },
   provider_requirement_refs: [
-    "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read"
+    `FR-0061.xhs_driver_provider_requirements.v1/${operation}.read`
   ]
 });
 
@@ -123,6 +149,21 @@ describe("XHS closeout evidence boundary for #1164", () => {
     });
   });
 
+  it.each([
+    "xhs.search",
+    "xhs.detail",
+    "xhs.user_home"
+  ] as const)("admits %s only when passive closeout route semantics match the operation", (operation) => {
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation,
+      route_evidence: baseRouteEvidence(operation),
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(true);
+    expect(evaluation.blockers).toEqual([]);
+  });
+
   it("keeps the required route field set stable for the later route evidence evaluator", () => {
     expect([...XHS_CLOSEOUT_REQUIRED_ROUTE_FIELDS]).toEqual([
       "route_role",
@@ -165,6 +206,124 @@ describe("XHS closeout evidence boundary for #1164", () => {
         })
       ])
     });
+  });
+
+  it.each([
+    {
+      name: "fallback route role",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.route_role = "fallback";
+      },
+      blocker_code: "route_role_invalid",
+      field: "route_evidence.route_role"
+    },
+    {
+      name: "page path kind",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.path_kind = "page";
+      },
+      blocker_code: "route_path_kind_invalid",
+      field: "route_evidence.path_kind"
+    },
+    {
+      name: "candidate evidence status",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.evidence_status = "candidate";
+      },
+      blocker_code: "route_evidence_status_invalid",
+      field: "route_evidence.evidence_status"
+    },
+    {
+      name: "non-2xx status code",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.status_code = 302;
+      },
+      blocker_code: "route_http_status_invalid",
+      field: "route_evidence.status_code"
+    },
+    {
+      name: "missing numeric status code semantics",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.status_code = "ok";
+      },
+      blocker_code: "route_http_status_invalid",
+      field: "route_evidence.status_code"
+    }
+  ])("fails closed for semantic-invalid closeout route evidence: $name", ({ mutate, blocker_code, field }) => {
+    const routeEvidence = baseRouteEvidence("xhs.detail");
+    mutate(routeEvidence);
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code,
+          blocker_layer: "route",
+          field
+        })
+      ])
+    );
+  });
+
+  it.each([
+    {
+      name: "detail operation with search endpoint",
+      operation: "xhs.detail",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.route = "xhs.search.api";
+        routeEvidence.endpoint = "/api/sns/web/v1/search/notes";
+        routeEvidence.request_url = "/api/sns/web/v1/search/notes";
+      },
+      fields: ["route_evidence.route", "route_evidence.endpoint"]
+    },
+    {
+      name: "search operation with detail page",
+      operation: "xhs.search",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.page_url = "https://www.xiaohongshu.com/explore/note-closeout-001";
+      },
+      fields: ["route_evidence.page_url"]
+    },
+    {
+      name: "user_home operation with POST method",
+      operation: "xhs.user_home",
+      mutate: (routeEvidence: Record<string, unknown>) => {
+        routeEvidence.method = "POST";
+      },
+      fields: ["route_evidence.method"]
+    }
+  ] as const)("fails closed when route evidence binding mismatches the operation: $name", ({
+    operation,
+    mutate,
+    fields
+  }) => {
+    const routeEvidence = baseRouteEvidence(operation);
+    mutate(routeEvidence);
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation,
+      route_evidence: routeEvidence,
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    for (const field of fields) {
+      expect(evaluation.blockers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            blocker_code: "route_binding_invalid",
+            blocker_layer: "route",
+            field
+          })
+        ])
+      );
+    }
   });
 
   it("reports missing required route fields instead of treating partial driver summaries as closeout evidence", () => {
