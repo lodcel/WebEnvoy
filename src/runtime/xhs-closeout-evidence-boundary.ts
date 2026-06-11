@@ -236,6 +236,8 @@ const providerSectionEvidenceRefFields: Record<string, readonly string[]> = {
   extension_status: ["extension_evidence_refs"],
   native_messaging_status: ["native_messaging_evidence_refs"]
 };
+const requiredProviderEvidenceRefValueFields = ["evidence_ref_id", "ref", "source", "sensitivity"] as const;
+const requiredProviderEvidenceRefPresenceFields = ["collected_at", "artifact_identity"] as const;
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -449,6 +451,40 @@ const validateProviderEvidenceShape = (
           );
         }
       }
+    }
+  }
+};
+
+const validateRequiredProviderEvidenceRefShape = (
+  ref: Record<string, unknown>,
+  blockers: XhsCloseoutEvidenceBoundaryEvaluation["blockers"]
+): void => {
+  const refId = normalizeString(ref.evidence_ref_id) ?? "unknown";
+  const fieldPrefix = `provider_evidence_record.evidence_refs.${refId}`;
+
+  for (const field of requiredProviderEvidenceRefValueFields) {
+    if (!hasOwnField(ref, field) || !hasValue(ref[field])) {
+      blockers.push(
+        blocker(
+          "provider_evidence_shape_invalid",
+          "provider_evidence",
+          `${fieldPrefix}.${field}`,
+          `FR-0040 required provider evidence ref must include ${field}`
+        )
+      );
+    }
+  }
+
+  for (const field of requiredProviderEvidenceRefPresenceFields) {
+    if (!hasOwnField(ref, field)) {
+      blockers.push(
+        blocker(
+          "provider_evidence_shape_invalid",
+          "provider_evidence",
+          `${fieldPrefix}.${field}`,
+          `FR-0040 required provider evidence ref must include ${field}`
+        )
+      );
     }
   }
 };
@@ -706,6 +742,7 @@ const evaluateProviderEvidence = (
     if (!requiredForCloseout) {
       continue;
     }
+    validateRequiredProviderEvidenceRefShape(ref, blockers);
     if (status !== "available") {
       blockers.push(
         blocker(

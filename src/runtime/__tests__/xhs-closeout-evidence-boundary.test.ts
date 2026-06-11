@@ -395,6 +395,45 @@ describe("XHS closeout evidence boundary for #1164", () => {
     expect(evaluation.blockers).toEqual([]);
   });
 
+  it.each([
+    "evidence_ref_id",
+    "ref",
+    "source",
+    "collected_at",
+    "sensitivity",
+    "artifact_identity"
+  ])("rejects required provider refs missing FR-0040 locator/provenance field: %s", (fieldName) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) => {
+      if (ref.kind !== "runtime_observation_ref") {
+        return ref;
+      }
+      const nextRef = { ...ref };
+      delete nextRef[fieldName];
+      return nextRef;
+    });
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field:
+            fieldName === "evidence_ref_id"
+              ? "provider_evidence_record.evidence_refs.unknown.evidence_ref_id"
+              : `provider_evidence_record.evidence_refs.ev-runtime_observation_ref.${fieldName}`
+        })
+      ])
+    );
+  });
+
   it("rejects truncated provider evidence records as non-FR-0040 closeout evidence", () => {
     const providerEvidence = baseProviderEvidenceRecord();
     const truncatedProviderEvidence = {
