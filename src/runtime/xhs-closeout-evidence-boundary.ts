@@ -801,6 +801,9 @@ const evaluateProviderEvidence = (
   const closeoutDecision = normalizeString(closeoutPlan?.closeout_decision);
   const requiredFreshness = normalizeString(closeoutPlan?.required_freshness);
   const coverageStatus = normalizeString(closeoutPlan?.coverage_status);
+  const closeoutRequiredEvidenceKinds = asArray(closeoutPlan?.required_evidence_kinds)
+    .map((item) => normalizeString(item))
+    .filter((item): item is string => item !== null);
   const closeoutBlockingReasons = asArray(closeoutPlan?.blocking_reasons);
   const closeoutMissingEvidence = asArray(closeoutPlan?.missing_evidence);
   const closeoutRedactionGaps = asArray(closeoutPlan?.redaction_gaps)
@@ -822,6 +825,18 @@ const evaluateProviderEvidence = (
         "provider evidence closeout_plan must allow the XHS operation closeout"
       )
     );
+  }
+  for (const requiredKind of XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS) {
+    if (!closeoutRequiredEvidenceKinds.includes(requiredKind)) {
+      blockers.push(
+        blocker(
+          "provider_evidence_closeout_denied",
+          "provider_evidence",
+          "provider_evidence_record.closeout_plan.required_evidence_kinds",
+          `provider evidence closeout_plan must require ${requiredKind}`
+        )
+      );
+    }
   }
   validateProviderReadinessSemantics(providerEvidenceRecord, closeoutPlan, blockers);
 
@@ -1057,10 +1072,7 @@ export const evaluateXhsCloseoutEvidenceBoundary = (
   }
 
   const routeEvidenceClass =
-    routeEvidence === null
-      ? null
-      : normalizeString(routeEvidence.evidence_class) ??
-        normalizeString(routeEvidence.route_evidence_class);
+    routeEvidence === null ? null : normalizeString(routeEvidence.route_evidence_class);
 
   return {
     contract_version: XHS_CLOSEOUT_EVIDENCE_CONTRACT_VERSION,

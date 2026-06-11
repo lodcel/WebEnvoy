@@ -236,6 +236,124 @@ describe("XHS closeout evidence boundary for #1164", () => {
     expect(evaluation.blockers).toEqual([]);
   });
 
+  it("documents the complete valid=true admission invariant surface", () => {
+    const routeEvidence = baseRouteEvidence();
+    const providerEvidence = baseProviderEvidenceRecord();
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(true);
+    expect(routeEvidence).toMatchObject({
+      route_role: "primary",
+      path_kind: "api",
+      evidence_status: "success",
+      evidence_class: "passive_api_capture",
+      route_evidence_class: "passive_api_capture",
+      method: "POST",
+      endpoint: "/api/sns/web/v1/feed",
+      status_code: 200,
+      run_id: "run-xhs-closeout-boundary-001",
+      artifact_identity: "artifact:xhs-closeout:run-xhs-closeout-boundary-001:round-1"
+    });
+    expect(providerEvidence).toMatchObject({
+      identity: {
+        provider_evidence_contract_version: "v1",
+        run_id: "run-xhs-closeout-boundary-001",
+        command_ref: "xhs.detail",
+        evidence_scope: "capability_closeout",
+        base_refs: ["FR-0033.browser_provider_contract.v1", "FR-0037.launch_envelope.v1"]
+      },
+      launch_arguments: {
+        browser_mode: {
+          real_browser_required: true,
+          headless: false
+        },
+        runtime_bindings: {
+          extension_binding_mode: "persistent_profile_extension",
+          native_messaging_mode: "required",
+          runtime_bootstrap_required: true
+        }
+      },
+      profile_reference: {
+        profile_lock_status: "locked_by_current_run",
+        login_state_evidence: "ready",
+        profile_persistence_status: "persistent"
+      },
+      extension_status: {
+        extension_required: true,
+        extension_binding_mode: "persistent_profile_extension",
+        extension_runtime_status: "ready"
+      },
+      native_messaging_status: {
+        native_messaging_required: true,
+        native_messaging_runtime_status: "ready"
+      },
+      closeout_plan: {
+        required_evidence_kinds: [...XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS],
+        required_freshness: "current_pr_head",
+        minimum_attestation_level: "runtime_attested",
+        coverage_status: "complete",
+        blocking_reasons: [],
+        missing_evidence: [],
+        redaction_gaps: [],
+        closeout_decision: "allow"
+      }
+    });
+  });
+
+  it.each([
+    {
+      requiredFreshness: "current_launch",
+      refFreshness: "current_pr_head"
+    },
+    {
+      requiredFreshness: "current_record",
+      refFreshness: "current_launch"
+    }
+  ])("allows provider refs whose freshness is stronger than the closeout plan requires: $refFreshness >= $requiredFreshness", ({
+    requiredFreshness,
+    refFreshness
+  }) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.closeout_plan = {
+      ...(providerEvidence.closeout_plan as Record<string, unknown>),
+      required_freshness: requiredFreshness
+    };
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) => ({
+      ...ref,
+      freshness: refFreshness
+    }));
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(true);
+    expect(evaluation.blockers).toEqual([]);
+  });
+
+  it("allows provider attestation stronger than runtime_attested", () => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.closeout_plan = {
+      ...(providerEvidence.closeout_plan as Record<string, unknown>),
+      minimum_attestation_level: "live_evidence_attested"
+    };
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(true);
+    expect(evaluation.blockers).toEqual([]);
+  });
+
   it.each([
     "current_launch",
     "current_record"
@@ -555,6 +673,65 @@ describe("XHS closeout evidence boundary for #1164", () => {
     );
   });
 
+  it.each([
+    "evidence_ref_id",
+    "ref",
+    "source",
+    "sensitivity"
+  ])("rejects required provider refs with null FR-0040 locator/provenance value field: %s", (fieldName) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
+      ref.kind === "runtime_observation_ref"
+        ? {
+            ...ref,
+            [fieldName]: null
+          }
+        : ref
+    );
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "provider_evidence_shape_invalid",
+          blocker_layer: "provider_evidence",
+          field:
+            fieldName === "evidence_ref_id"
+              ? "provider_evidence_record.evidence_refs.unknown.evidence_ref_id"
+              : `provider_evidence_record.evidence_refs.ev-runtime_observation_ref.${fieldName}`
+        })
+      ])
+    );
+  });
+
+  it("allows nullable FR-0040 required ref provenance fields when they are present", () => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
+      ref.kind === "runtime_observation_ref"
+        ? {
+            ...ref,
+            collected_at: null,
+            artifact_identity: null
+          }
+        : ref
+    );
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(true);
+    expect(evaluation.blockers).toEqual([]);
+  });
+
   it("rejects truncated provider evidence records as non-FR-0040 closeout evidence", () => {
     const providerEvidence = baseProviderEvidenceRecord();
     const truncatedProviderEvidence = {
@@ -770,12 +947,45 @@ describe("XHS closeout evidence boundary for #1164", () => {
     });
 
     expect(evaluation.valid).toBe(false);
+    expect(evaluation.route_evidence_class).toBe(
+      typeof routeEvidence.route_evidence_class === "string"
+        ? routeEvidence.route_evidence_class
+        : null
+    );
     expect(evaluation.blockers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           blocker_code: "unsupported_route_evidence_class",
           blocker_layer: "route",
           field
+        })
+      ])
+    );
+  });
+
+  it("does not report passive route_evidence_class from evidence_class fallback when the route field is missing", () => {
+    const routeEvidence = baseRouteEvidence();
+    delete routeEvidence.route_evidence_class;
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: routeEvidence,
+      provider_evidence_record: baseProviderEvidenceRecord()
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.route_evidence_class).toBeNull();
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code: "missing_route_field",
+          blocker_layer: "route",
+          field: "route_evidence.route_evidence_class"
+        }),
+        expect.objectContaining({
+          blocker_code: "unsupported_route_evidence_class",
+          blocker_layer: "route",
+          field: "route_evidence.route_evidence_class"
         })
       ])
     );
@@ -953,6 +1163,66 @@ describe("XHS closeout evidence boundary for #1164", () => {
     );
   });
 
+  it.each([
+    {
+      name: "provider evidence contract version mismatch",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        providerEvidence.identity = {
+          ...(providerEvidence.identity as Record<string, unknown>),
+          provider_evidence_contract_version: "v0"
+        };
+      },
+      blocker_code: "provider_evidence_contract_version_mismatch",
+      field: "provider_evidence_record.identity.provider_evidence_contract_version"
+    },
+    {
+      name: "missing FR-0033 base ref",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        providerEvidence.identity = {
+          ...(providerEvidence.identity as Record<string, unknown>),
+          base_refs: ["FR-0037.launch_envelope.v1"]
+        };
+      },
+      blocker_code: "provider_evidence_base_ref_missing",
+      field: "provider_evidence_record.identity.base_refs"
+    },
+    {
+      name: "missing FR-0037 base ref",
+      mutate: (providerEvidence: Record<string, unknown>) => {
+        providerEvidence.identity = {
+          ...(providerEvidence.identity as Record<string, unknown>),
+          base_refs: ["FR-0033.browser_provider_contract.v1"]
+        };
+      },
+      blocker_code: "provider_evidence_base_ref_missing",
+      field: "provider_evidence_record.identity.base_refs"
+    }
+  ])("fails closed for provider evidence identity invariant: $name", ({
+    mutate,
+    blocker_code,
+    field
+  }) => {
+    const providerEvidence = baseProviderEvidenceRecord();
+    mutate(providerEvidence);
+
+    const evaluation = evaluateXhsCloseoutEvidenceBoundary({
+      operation: "xhs.detail",
+      route_evidence: baseRouteEvidence(),
+      provider_evidence_record: providerEvidence
+    });
+
+    expect(evaluation.valid).toBe(false);
+    expect(evaluation.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blocker_code,
+          blocker_layer: "provider_evidence",
+          field
+        })
+      ])
+    );
+  });
+
   it("blocks provider evidence redaction gaps from satisfying the boundary", () => {
     const providerEvidence = baseProviderEvidenceRecord();
     providerEvidence.evidence_refs = (providerEvidence.evidence_refs as Record<string, unknown>[]).map((ref) =>
@@ -992,6 +1262,20 @@ describe("XHS closeout evidence boundary for #1164", () => {
 
   it.each([
     {
+      name: "closeout decision deny",
+      closeoutPlanPatch: {
+        closeout_decision: "deny"
+      },
+      expectedRedactionGap: null
+    },
+    {
+      name: "blocking reasons",
+      closeoutPlanPatch: {
+        blocking_reasons: ["runtime_attestation_missing"]
+      },
+      expectedRedactionGap: null
+    },
+    {
       name: "redaction gaps",
       closeoutPlanPatch: {
         redaction_gaps: ["ev-runtime_observation_ref"]
@@ -1011,17 +1295,28 @@ describe("XHS closeout evidence boundary for #1164", () => {
         coverage_status: "partial"
       },
       expectedRedactionGap: null
+    },
+    {
+      name: "required evidence kinds missing runtime observation",
+      closeoutPlanPatch: {
+        required_evidence_kinds: XHS_CLOSEOUT_REQUIRED_PROVIDER_EVIDENCE_KINDS.filter(
+          (kind) => kind !== "runtime_observation_ref"
+        )
+      },
+      expectedRedactionGap: null,
+      expectedField: "provider_evidence_record.closeout_plan.required_evidence_kinds"
     }
   ])("fails closed for provider closeout_plan-level gaps: $name", ({
     closeoutPlanPatch,
-    expectedRedactionGap
+    expectedRedactionGap,
+    expectedField
   }) => {
     const providerEvidence = baseProviderEvidenceRecord();
     providerEvidence.closeout_plan = {
       ...(providerEvidence.closeout_plan as Record<string, unknown>),
-      ...closeoutPlanPatch,
       blocking_reasons: [],
-      closeout_decision: "allow"
+      closeout_decision: "allow",
+      ...closeoutPlanPatch
     };
 
     const evaluation = evaluateXhsCloseoutEvidenceBoundary({
@@ -1039,7 +1334,7 @@ describe("XHS closeout evidence boundary for #1164", () => {
         expect.objectContaining({
           blocker_code: "provider_evidence_closeout_denied",
           blocker_layer: "provider_evidence",
-          field: "provider_evidence_record.closeout_plan"
+          field: expectedField ?? "provider_evidence_record.closeout_plan"
         })
       ])
     );
