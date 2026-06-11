@@ -21,7 +21,7 @@
 ### 阶段 3：risk / research / handoff
 
 - 产出：`research.md`、`risks.md`、`TODO.md`
-- 重点：记录 FR-0062、FR-0064、FR-0065、FR-0066、FR-0067 与 #1179 输入，明确 #1179 `xhs.creator_publish.admit` 只到 `write_admit`，以及 #1211 / future runtime owner 的消费方式。
+- 重点：记录 FR-0062、FR-0064、FR-0065、FR-0066、FR-0067 与 #1179 背景事实，明确 #1179 `xhs.creator_publish.admit` 只到 admission-only `write_admit`，以及 #1211 / future runtime owner 的消费方式。
 
 ### 阶段 4：PR 与验证准备
 
@@ -62,7 +62,7 @@
 - 对照 FR-0065，确认 profile manifest allowlist 不替代 provider requirement、default lock、account safety、runtime 或 live evidence。
 - 对照 FR-0066，确认 account safety clear 是必要但不充分条件。
 - 对照 FR-0067，确认 extension/native bridge ready 是必要但不充分条件。
-- 对照 #1179，确认 `xhs.creator_publish.admit` is `write_admit` provider requirement input and keeps `default_live_write_commit_lock=locked`。
+- 对照 #1179，确认 `xhs.creator_publish.admit` is admission-only `write_admit` context and keeps `default_live_write_commit_lock=locked`。
 
 ## TDD 范围
 
@@ -100,7 +100,7 @@
 - FR-0068 consumes merged FR-0065 profile manifest provider allowlist.
 - FR-0068 consumes merged FR-0066 account safety gate.
 - FR-0068 consumes merged FR-0067 extension/native bridge gate.
-- FR-0068 consumes #1179 provider requirement implementation fact for `xhs.creator_publish.admit` as `write_admit` only.
+- FR-0068 consumes #1179 only as admission/background fact for `xhs.creator_publish.admit` as `write_admit`; it does not consume #1179 as a release-ready provider ref.
 - #1211 Live Write Gate Matrix must consume FR-0068 lock states and blocking reasons before release-gate closeout.
 - Any future live write implementation must still satisfy FR-0031 / FR-0032 / applicable live evidence gates after spec review 通过.
 
@@ -109,7 +109,7 @@
 - FR-0068 spec review 通过。
 - Reviewer 确认 `live_write_commit` default state is locked and no merged spec/issue/PR/check can unlock it by itself.
 - Reviewer 确认 all release preconditions are necessary, exact-scope, fresh, redacted and downstream-owned.
-- Reviewer 确认 #1179 `xhs.creator_publish.admit` stays `write_admit` / provider requirement input, not commit unlock.
+- Reviewer 确认 #1179 `xhs.creator_publish.admit` stays admission-only `write_admit` context, not release-ready provider evidence or commit unlock.
 - Reviewer 确认 operator unlock does not release default lock and default lock does not replace operator unlock.
 - Reviewer 确认 account safety, profile manifest, extension/native bridge, runtime target binding, anti-detection and live evidence remain separate required lanes.
 - Reviewer 确认 downstream re-consumption is required before any final commit gate.

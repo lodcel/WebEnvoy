@@ -4,7 +4,7 @@
 
 - [ ] 确认 `FR-0068` 只定义 `live_write_commit` default lock formal contract。
 - [ ] 确认 `live_write_commit` 默认 `locked`，且 unknown / missing / stale / scope mismatch / redaction invalid fail closed。
-- [ ] 确认 #1179 `xhs.creator_publish.admit` remains `write_admit` provider requirement input and does not unlock commit。
+- [ ] 确认 #1179 `xhs.creator_publish.admit` remains admission-only `write_admit` context, does not populate release-ready refs and does not unlock commit。
 - [ ] 确认 accepted operator unlock does not release default lock by itself。
 - [ ] 确认 profile manifest allowlist、account safety clear、extension/native bridge ready、runtime target binding、anti-detection gate and live evidence are all separate required lanes。
 - [ ] 确认 #835 CLOSED、historical artifact、old run、same-head historical artifact、runtime ping、bootstrap ack、service worker wake signal、doctor pass、hosted checks 或 stub/fake host 不能替代 current default lock release evidence。

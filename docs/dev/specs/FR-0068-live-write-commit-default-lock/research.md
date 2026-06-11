@@ -19,7 +19,7 @@ FR-0064 explicitly says operator unlock does not release default commit lock. FR
 
 ### 2. Provider admission is not commit readiness
 
-#1179 and related tests show `xhs.creator_publish.admit` is admission-oriented and sets `requested_capability_level=write_admit`, `maximum_capability_level=write_admit`, `operator_unlock_ref=null`, `default_commit_lock_ref=null` and `default_live_write_commit_lock=locked`. FR-0068 must preserve this as an input, not reinterpret it as `live_write_commit`.
+#1179 and related tests show `xhs.creator_publish.admit` is admission-oriented and sets `requested_capability_level=write_admit`, `maximum_capability_level=write_admit`, `operator_unlock_ref=null`, `default_commit_lock_ref=null` and `default_live_write_commit_lock=locked`. FR-0068 must preserve this as admission-only background and rejected release evidence, not reinterpret it as `live_write_commit` or a release-ready `provider_requirement_ref`.
 
 ### 3. Current exact-scope evidence is the core invariant
 

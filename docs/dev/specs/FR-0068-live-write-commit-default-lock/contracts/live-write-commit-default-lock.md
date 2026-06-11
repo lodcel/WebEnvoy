@@ -38,6 +38,7 @@ Rules:
 
 - `capability_level` must be `live_write_commit`; lower levels cannot be upgraded by alias.
 - Every field participates in exact-scope matching. Drift in workflow, provider, profile, target, runtime, operator, evidence, head or run fails closed.
+- `provider_requirement_ref` must point to a commit-scope provider requirement owner. #1179 `xhs.creator_publish.admit` is admission-only and must not appear in release-ready consumed refs.
 - `execution_surface=real_browser` is necessary for real commit evaluation, but it is not evidence by itself.
 - Formal examples may use redacted refs and `N/A`; real gate outputs must use concrete head/run/time refs.
 
@@ -266,7 +267,7 @@ type LiveWriteCommitDefaultLockNonProofV1 =
 Rules:
 
 - Non-proofs may appear in diagnostics as rejected evidence, but cannot be promoted into evidence refs that unlock commit.
-- `xhs_creator_publish_admit_pass` proves at most the admission/provider requirement lane defined by #1179; it never releases default lock.
+- `xhs_creator_publish_admit_pass` proves at most the admission-only lane defined by #1179; it never releases default lock and never populates release-ready consumed refs.
 
 ## Minimum consumable examples
 
@@ -298,7 +299,7 @@ These examples are synthetic and redacted. They are not live evidence, do not id
   "blocking_reasons": [],
   "default_lock_ref": "FR-0068.default_lock_release/redacted-current-scope",
   "evidence_refs_consumed": [
-    "issue-1179.provider_requirement/redacted-current-scope",
+    "commit_provider_requirement/redacted-current-scope",
     "FR-0065.profile_manifest/redacted-current-scope",
     "FR-0067.extension_native_bridge/redacted-current-scope",
     "FR-0066.account_safety/redacted-current-scope",

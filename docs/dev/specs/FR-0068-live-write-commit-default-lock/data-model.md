@@ -137,7 +137,7 @@ Constraints:
 
 - Non-proofs can appear in diagnostics as rejected inputs.
 - Non-proofs cannot be promoted into release evidence.
-- `xhs.creator_publish.admit` remains `write_admit`; it cannot authorize `live_write_commit`.
+- `xhs.creator_publish.admit` remains `write_admit`; it cannot authorize `live_write_commit` and cannot populate commit-scope `provider_requirement_ref`.
 
 ## 5. Default lock result
 
