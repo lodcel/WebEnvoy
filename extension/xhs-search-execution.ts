@@ -616,6 +616,150 @@ const TARGET_BINDING_ALLOWED_STATES = new Set(["bound"]);
 const RUNTIME_BINDING_ALLOWED_STATUSES = new Set(["declared", "ready"]);
 const RUNTIME_BINDING_CURRENT_FRESHNESS = new Set(["current_run"]);
 const ALLOWED_PROVIDER_AWARE_GATE_REASONS = new Set(["LIVE_MODE_APPROVED"]);
+const EXPECTED_XHS_SEARCH_PROVIDER_REQUIREMENT_REF =
+  "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read";
+const EXPECTED_XHS_SEARCH_COMMAND = "xhs.search";
+const EXPECTED_XHS_SEARCH_ABILITY_ID = "xhs.note.search.v1";
+const EXPECTED_XHS_SEARCH_ABILITY_LAYER = "L3";
+const EXPECTED_XHS_SEARCH_ACTION = "read";
+const EXPECTED_XHS_SEARCH_ROUTE_BUCKET = "search";
+const EXPECTED_XHS_TARGET_DOMAIN = "www.xiaohongshu.com";
+const EXPECTED_XHS_SEARCH_TARGET_PAGE_CLASS = "search_tab";
+
+const parseTargetBindingSnapshotRef = (
+  value: string | null
+): { runId: string; routeBucket: string } | null => {
+  if (!value) {
+    return null;
+  }
+  const match = /^FR-0063\.target_binding_snapshot\.v1\/([^/]+)\/([^/]+)$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  return {
+    runId: match[1] ?? "",
+    routeBucket: match[2] ?? ""
+  };
+};
+
+const collectTargetBindingEvidenceBlockers = (
+  targetBindingSnapshotRef: string | null,
+  targetBindingSnapshot: JsonRecord | null,
+  pageRuntimeReadiness: JsonRecord | null
+): string[] => {
+  if (!targetBindingSnapshot) {
+    return [];
+  }
+
+  const reasons: string[] = [];
+  const parsedRef = parseTargetBindingSnapshotRef(targetBindingSnapshotRef);
+  if (targetBindingSnapshotRef && !parsedRef) {
+    reasons.push("target_binding_ref_mismatch");
+  }
+
+  const freshnessScope = asString(targetBindingSnapshot.freshness_scope);
+  if (!freshnessScope) {
+    reasons.push("target_binding_freshness_missing");
+  } else if (freshnessScope !== "current_run") {
+    if (freshnessScope === "historical_background") {
+      reasons.push("target_binding_freshness_stale");
+    } else if (freshnessScope === "unknown") {
+      reasons.push("target_binding_freshness_unknown");
+    } else if (freshnessScope === "stale" || freshnessScope === "lost") {
+      reasons.push("target_binding_freshness_stale");
+    }
+    reasons.push(`target_binding_freshness:${freshnessScope}`);
+  }
+
+  const snapshotRunId = asString(targetBindingSnapshot.run_id);
+  const readinessRunId = asString(pageRuntimeReadiness?.run_id);
+  if (!snapshotRunId) {
+    reasons.push("target_binding_run_id_missing");
+  }
+  if (parsedRef) {
+    if (parsedRef.routeBucket !== EXPECTED_XHS_SEARCH_ROUTE_BUCKET) {
+      reasons.push("target_binding_ref_mismatch");
+      reasons.push(`target_binding_ref_route:${parsedRef.routeBucket}`);
+    }
+    if (snapshotRunId && parsedRef.runId !== snapshotRunId) {
+      reasons.push("target_binding_ref_mismatch");
+    }
+    if (readinessRunId && parsedRef.runId !== readinessRunId) {
+      reasons.push("target_binding_ref_mismatch");
+    }
+  }
+  if (snapshotRunId && readinessRunId && snapshotRunId !== readinessRunId) {
+    reasons.push("target_binding_run_id_mismatch");
+  }
+
+  const targetScope = asRecord(targetBindingSnapshot.target_scope);
+  if (!targetScope) {
+    reasons.push("target_binding_scope_missing");
+  } else {
+    const targetDomain = asString(targetScope.target_domain);
+    const targetPageClass = asString(targetScope.target_page_class);
+    if (targetDomain !== EXPECTED_XHS_TARGET_DOMAIN) {
+      reasons.push("target_binding_scope_mismatch");
+    }
+    if (targetPageClass !== EXPECTED_XHS_SEARCH_TARGET_PAGE_CLASS) {
+      reasons.push("target_binding_scope_mismatch");
+    }
+  }
+  const routeBucket = asString(targetBindingSnapshot.route_bucket);
+  if (routeBucket !== EXPECTED_XHS_SEARCH_ROUTE_BUCKET) {
+    reasons.push("target_binding_scope_mismatch");
+  }
+
+  return reasons;
+};
+
+const collectProviderRequirementBlockers = (
+  providerRequirements: JsonRecord | null,
+  providerRequirementRefs: string[]
+): string[] => {
+  if (!providerRequirements) {
+    return [];
+  }
+  const reasons: string[] = [];
+  const declarationRefs = asStringArray(providerRequirements.provider_requirement_refs);
+  if (providerRequirementRefs.length === 0 || declarationRefs.length === 0) {
+    return reasons;
+  }
+  const declarationRefSet = new Set(declarationRefs);
+  if (
+    !providerRequirementRefs.every((ref) => declarationRefSet.has(ref)) ||
+    !declarationRefSet.has(EXPECTED_XHS_SEARCH_PROVIDER_REQUIREMENT_REF)
+  ) {
+    reasons.push("provider_requirement_ref_mismatch");
+  }
+  const primaryRequirementRef = asString(providerRequirements.provider_requirement_ref);
+  if (
+    primaryRequirementRef &&
+    primaryRequirementRef !== EXPECTED_XHS_SEARCH_PROVIDER_REQUIREMENT_REF
+  ) {
+    reasons.push("provider_requirement_ref_mismatch");
+  }
+
+  const abilityScope = asRecord(providerRequirements.ability_scope);
+  const command = asString(abilityScope?.command);
+  const abilityId = asString(abilityScope?.ability_id);
+  const abilityLayer = asString(abilityScope?.ability_layer);
+  const action = asString(abilityScope?.ability_action);
+  if (
+    command !== EXPECTED_XHS_SEARCH_COMMAND ||
+    abilityId !== EXPECTED_XHS_SEARCH_ABILITY_ID ||
+    abilityLayer !== EXPECTED_XHS_SEARCH_ABILITY_LAYER ||
+    action !== EXPECTED_XHS_SEARCH_ACTION
+  ) {
+    reasons.push("provider_requirement_scope_mismatch");
+  }
+  const requiredActions = asStringArray(providerRequirements.required_actions);
+  if (!requiredActions.includes(EXPECTED_XHS_SEARCH_ACTION)) {
+    reasons.push("provider_requirement_scope_mismatch");
+  }
+
+  return reasons;
+};
 
 const collectRuntimeBindingBlockers = (
   runtimeBindingRef: string | null,
@@ -706,6 +850,12 @@ const resolveProviderAwareReadPathBlock = (
       ? []
       : ["provider_requirement_refs_missing"]),
     ...(pageRuntimeReadiness ? [] : ["page_runtime_readiness_missing"]),
+    ...collectTargetBindingEvidenceBlockers(
+      targetBindingSnapshotRef,
+      targetBindingSnapshot,
+      pageRuntimeReadiness
+    ),
+    ...collectProviderRequirementBlockers(providerRequirements, providerRequirementRefs),
     ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding),
     ...asStringArray(targetBindingSnapshot?.blocking_reasons).map(
       (reason) => `target_binding:${reason}`

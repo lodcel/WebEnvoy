@@ -187,6 +187,11 @@ export const providerAwareSearchReadPathOptions = {
   target_binding_snapshot: {
     snapshot_version: "v1",
     state: "candidate_found",
+    run_id: "run-xhs-live-allowed-001",
+    target_scope: {
+      target_domain: "www.xiaohongshu.com",
+      target_page_class: "search_tab"
+    },
     route_bucket: "search",
     freshness_scope: "current_run",
     blocking_reasons: ["target_binding_not_bound"]
@@ -250,6 +255,13 @@ export const createProviderAwareSearchReadyReadPathOptions = (runId: string) => 
   target_binding_snapshot: {
     ...providerAwareSearchReadPathOptions.target_binding_snapshot,
     state: "bound",
+    run_id: runId,
+    target_scope: {
+      target_domain: "www.xiaohongshu.com",
+      target_page_class: "search_tab"
+    },
+    route_bucket: "search",
+    freshness_scope: "current_run",
     blocking_reasons: []
   },
   target_binding_transition_evidence: [

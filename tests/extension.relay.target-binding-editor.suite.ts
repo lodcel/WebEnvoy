@@ -1740,6 +1740,13 @@ describe("extension background relay contract / target binding and editor input"
       },
       target_binding_snapshot: {
         state: "candidate_found",
+        run_id: "run-xhs-live-allowed-001",
+        target_scope: {
+          target_domain: "www.xiaohongshu.com",
+          target_page_class: "search_tab"
+        },
+        route_bucket: "search",
+        freshness_scope: "current_run",
         blocking_reasons: ["target_binding_not_bound"]
       },
       xhs_page_runtime_readiness: {
@@ -1982,6 +1989,13 @@ describe("extension background relay contract / target binding and editor input"
     target_binding_snapshot: {
       ...providerAwareSearchReadPathOptions.target_binding_snapshot,
       state: "bound",
+      run_id: "run-xhs-live-allowed-001",
+      target_scope: {
+        target_domain: "www.xiaohongshu.com",
+        target_page_class: "search_tab"
+      },
+      route_bucket: "search",
+      freshness_scope: "current_run",
       blocking_reasons: []
     },
     xhs_page_runtime_readiness: readyProviderAwareReadiness,
@@ -2116,6 +2130,77 @@ describe("extension background relay contract / target binding and editor input"
         "xhs_driver_provider_requirements_missing",
         "provider_requirement_refs_missing"
       ]
+    },
+    {
+      name: "target binding is bound but freshness is historical background",
+      overrides: {
+        target_binding_snapshot: {
+          ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+          state: "bound",
+          run_id: "run-xhs-live-allowed-001",
+          target_scope: {
+            target_domain: "www.xiaohongshu.com",
+            target_page_class: "search_tab"
+          },
+          route_bucket: "search",
+          freshness_scope: "historical_background",
+          blocking_reasons: []
+        }
+      },
+      expectedReasons: [
+        "target_binding_freshness_stale",
+        "target_binding_freshness:historical_background"
+      ]
+    },
+    {
+      name: "target binding is bound but ref route mismatches search",
+      overrides: {
+        target_binding_snapshot_ref:
+          "FR-0063.target_binding_snapshot.v1/run-xhs-live-allowed-001/detail"
+      },
+      expectedReasons: ["target_binding_ref_mismatch", "target_binding_ref_route:detail"]
+    },
+    {
+      name: "target binding is bound but target scope mismatches search",
+      overrides: {
+        target_binding_snapshot: {
+          ...providerAwareSearchReadPathOptions.target_binding_snapshot,
+          state: "bound",
+          run_id: "run-xhs-live-allowed-001",
+          target_scope: {
+            target_domain: "www.xiaohongshu.com",
+            target_page_class: "profile_tab"
+          },
+          route_bucket: "search",
+          freshness_scope: "current_run",
+          blocking_reasons: []
+        }
+      },
+      expectedReasons: ["target_binding_scope_mismatch"]
+    },
+    {
+      name: "provider requirement top-level ref is not covered by declaration refs",
+      overrides: {
+        provider_requirement_refs: [
+          "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.unknown"
+        ]
+      },
+      expectedReasons: ["provider_requirement_ref_mismatch"]
+    },
+    {
+      name: "provider requirement declaration scope mismatches xhs.search read",
+      overrides: {
+        xhs_driver_provider_requirements: {
+          ...providerAwareSearchReadPathOptions.xhs_driver_provider_requirements,
+          ability_scope: {
+            command: "xhs.detail",
+            ability_id: "xhs.note.detail.v1",
+            ability_layer: "L3",
+            ability_action: "read"
+          }
+        }
+      },
+      expectedReasons: ["provider_requirement_scope_mismatch"]
     },
     {
       name: "page readiness status is pending with empty blocking reasons",
