@@ -3,9 +3,22 @@ import { describe, expect, it, vi } from "vitest";
 import { executeXhsDetail } from "../extension/xhs-detail.js";
 import { executeXhsSearch } from "../extension/xhs-search.js";
 import type {
+  CapturedRequestContextLookup,
+  CapturedRequestContextLookupResult,
   SearchExecutionResult,
   XhsSearchEnvironment,
   XhsSearchOptions
+} from "../extension/xhs-search-types.js";
+import {
+  DETAIL_ENDPOINT,
+  SEARCH_ENDPOINT,
+  USER_HOME_ENDPOINT,
+  createDetailRequestShape,
+  createSearchRequestShape,
+  createUserHomeRequestShape,
+  serializeDetailRequestShape,
+  serializeSearchRequestShape,
+  serializeUserHomeRequestShape
 } from "../extension/xhs-search-types.js";
 import { executeXhsUserHome } from "../extension/xhs-user-home.js";
 
@@ -326,6 +339,219 @@ const expectProviderAwareBlock = (
   expect(result.payload.summary).toBeUndefined();
 };
 
+const createAllowedActiveFallbackOptions = (runId: string): XhsSearchOptions["active_api_fetch_fallback"] => ({
+  enabled: true,
+  account_safety_state: "clear",
+  rhythm_state: "allowed",
+  fingerprint_validation_state: "ready",
+  execution_surface: "real_browser",
+  headless: false,
+  runtime_attestation: {
+    source: "official_chrome_runtime_readiness",
+    runtime_readiness: "ready",
+    profile_ref: "xhs_001",
+    session_id: "nm-session-matrix",
+    run_id: runId,
+    execution_surface: "real_browser",
+    headless: false,
+    observed_at: "2026-06-11T08:00:00Z"
+  },
+  fingerprint_attestation: {
+    source: "content_script_fingerprint_runtime",
+    validation_state: "ready",
+    profile_ref: "xhs_001",
+    missing_required_patches: []
+  }
+});
+
+const createPassiveApiCaptureLookup = (
+  matrixCase: MatrixCase,
+  runId: string,
+  observedAt: number,
+  pageUrl: string
+): CapturedRequestContextLookupResult => {
+  const common = {
+    route_evidence_class: "passive_api_capture" as const,
+    source_kind: "page_request" as const,
+    transport: "fetch" as const,
+    status: 200,
+    captured_at: observedAt,
+    observed_at: observedAt,
+    profile_ref: "xhs_001",
+    session_id: "nm-session-matrix",
+    target_tab_id: 32,
+    run_id: runId,
+    action_ref: "read",
+    page_url: pageUrl,
+    referrer: pageUrl,
+    freshness_window_ms: 300_000,
+    template_ready: true,
+    request_status: {
+      completion: "completed" as const,
+      http_status: 200
+    },
+    request: {
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "Content-Type": "application/json;charset=utf-8",
+        "X-S-Common": "[redacted]"
+      },
+      body: {}
+    },
+    response: {
+      headers: {
+        "content-type": "application/json"
+      },
+      body: {}
+    }
+  };
+
+  if (matrixCase.command === "xhs.search") {
+    const shape = createSearchRequestShape({
+      keyword: matrixCase.params.query,
+      page: 1,
+      page_size: 20,
+      sort: "general",
+      note_type: 0
+    });
+    if (!shape) {
+      throw new Error("missing search shape");
+    }
+    const shapeKey = serializeSearchRequestShape(shape);
+    return {
+      page_context_namespace: pageUrl,
+      shape_key: shapeKey,
+      admitted_template: {
+        ...common,
+        method: "POST",
+        path: SEARCH_ENDPOINT,
+        url: `https://edith.xiaohongshu.com${SEARCH_ENDPOINT}`,
+        page_context_namespace: pageUrl,
+        shape_key: shapeKey,
+        shape,
+        request: {
+          ...common.request,
+          body: {
+            keyword: matrixCase.params.query,
+            page: 1,
+            page_size: 20,
+            search_id: "captured-search-id-1169",
+            sort: "general",
+            note_type: 0
+          }
+        },
+        response: {
+          ...common.response,
+          body: {
+            code: 0,
+            data: {
+              items: [
+                {
+                  note_id: "note-matrix-001",
+                  user_id: "user-matrix-001",
+                  display_title: "captured search card",
+                  detail_url:
+                    "https://www.xiaohongshu.com/explore/note-matrix-001?xsec_token=token&xsec_source=pc_search",
+                  user_home_url:
+                    "https://www.xiaohongshu.com/user/profile/user-matrix-001?xsec_token=token&xsec_source=pc_search"
+                }
+              ]
+            }
+          }
+        }
+      },
+      rejected_observation: null,
+      incompatible_observation: null,
+      available_shape_keys: [shapeKey]
+    };
+  }
+
+  if (matrixCase.command === "xhs.detail") {
+    const shape = createDetailRequestShape({
+      note_id: matrixCase.params.note_id
+    });
+    if (!shape) {
+      throw new Error("missing detail shape");
+    }
+    const shapeKey = serializeDetailRequestShape(shape);
+    return {
+      page_context_namespace: pageUrl,
+      shape_key: shapeKey,
+      admitted_template: {
+        ...common,
+        method: "POST",
+        path: DETAIL_ENDPOINT,
+        url: `https://edith.xiaohongshu.com${DETAIL_ENDPOINT}`,
+        page_context_namespace: pageUrl,
+        shape_key: shapeKey,
+        shape,
+        request: {
+          ...common.request,
+          body: {
+            source_note_id: matrixCase.params.note_id,
+            image_formats: ["jpg", "webp", "avif"]
+          }
+        },
+        response: {
+          ...common.response,
+          body: {
+            code: 0,
+            data: {
+              note: {
+                note_id: matrixCase.params.note_id,
+                title: "captured detail note"
+              }
+            }
+          }
+        }
+      },
+      rejected_observation: null,
+      incompatible_observation: null,
+      available_shape_keys: [shapeKey]
+    };
+  }
+
+  const shape = createUserHomeRequestShape({
+    user_id: matrixCase.params.user_id
+  });
+  if (!shape) {
+    throw new Error("missing user home shape");
+  }
+  const shapeKey = serializeUserHomeRequestShape(shape);
+  return {
+    page_context_namespace: pageUrl,
+    shape_key: shapeKey,
+    admitted_template: {
+      ...common,
+      method: "GET",
+      path: USER_HOME_ENDPOINT,
+      url: `https://edith.xiaohongshu.com${USER_HOME_ENDPOINT}?num=30&cursor=&user_id=${matrixCase.params.user_id}`,
+      page_context_namespace: pageUrl,
+      shape_key: shapeKey,
+      shape,
+      request: {
+        ...common.request,
+        body: {}
+      },
+      response: {
+        ...common.response,
+        body: {
+          code: 0,
+          data: {
+            user: {
+              user_id: matrixCase.params.user_id,
+              nickname: "captured user"
+            }
+          }
+        }
+      }
+    },
+    rejected_observation: null,
+    incompatible_observation: null,
+    available_shape_keys: [shapeKey]
+  };
+};
+
 describe("XHS read driver regression matrix", () => {
   it.each(READ_COMMAND_CASES)(
     "fail-closes $command when provider-aware artifacts are missing",
@@ -570,6 +796,203 @@ describe("XHS read driver regression matrix", () => {
       expect(readSearchDomState).not.toHaveBeenCalled();
       expect(callSignature).not.toHaveBeenCalled();
       expect(fetchJson).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(READ_COMMAND_CASES)(
+    "records passive API capture evidence as diagnostic-only provenance for $command",
+    async (matrixCase) => {
+      const runId = `run-1169-passive-${matrixCase.routeBucket}`;
+      const pageUrl =
+        matrixCase.command === "xhs.detail"
+          ? "https://www.xiaohongshu.com/explore/note-matrix-001?xsec_token=token&xsec_source=pc_search"
+          : matrixCase.command === "xhs.user_home"
+            ? "https://www.xiaohongshu.com/user/profile/user-matrix-001?xsec_token=token&xsec_source=pc_search"
+            : matrixCase.href;
+      const readCapturedRequestContext = vi.fn(
+        async (_input: CapturedRequestContextLookup) =>
+          createPassiveApiCaptureLookup(matrixCase, runId, 1_710_000_000_000, pageUrl)
+      );
+      const { result, fetchJson } = await executeMatrixCase(matrixCase, {
+        runId,
+        options: {
+          closeout_evidence_evaluation: matrixCase.command !== "xhs.search",
+          active_api_fetch_fallback:
+            matrixCase.command === "xhs.search" ? undefined : createAllowedActiveFallbackOptions(runId)
+        },
+        env: {
+          getLocationHref: () => pageUrl,
+          readCapturedRequestContext,
+          performSearchPassiveAction: async () => ({
+            evidence_class: "humanized_action",
+            action_kind: "passive_action_diagnostic",
+            run_id: runId,
+            page_url: pageUrl
+          })
+        }
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error("expected passive capture success");
+      }
+      const summary = result.payload.summary as Record<string, unknown>;
+      expect(summary.passive_api_capture_evidence).toMatchObject({
+        evidence_class: "passive_api_capture",
+        evidence_role: "diagnostic",
+        route_role: "supporting",
+        path_kind: "api",
+        source_kind: "page_request",
+        current_page_natural_request: true,
+        synthetic_replay: false,
+        live_closeout_evidence: false,
+        syvert_normalized_output: false,
+        request_payload_included: false,
+        response_payload_included: false,
+        run_id: runId,
+        profile_ref: "xhs_001",
+        session_id: "nm-session-matrix",
+        target_tab_id: 32,
+        page_url: pageUrl,
+        action_ref: "read"
+      });
+      expect(summary).not.toHaveProperty("normalized_result");
+      expect(summary).not.toHaveProperty("syvert_normalized_result");
+      expect(readCapturedRequestContext).toHaveBeenCalled();
+      if (matrixCase.command !== "xhs.search") {
+        expect(fetchJson).not.toHaveBeenCalled();
+      }
+    }
+  );
+
+  it.each(READ_COMMAND_CASES.filter((matrixCase) => matrixCase.command !== "xhs.search"))(
+    "keeps passive capture diagnostic separate from active API fallback route evidence for $command",
+    async (matrixCase) => {
+      const runId = `run-1169-active-fallback-${matrixCase.routeBucket}`;
+      const pageUrl =
+        matrixCase.command === "xhs.detail"
+          ? "https://www.xiaohongshu.com/explore/note-matrix-001?xsec_token=token&xsec_source=pc_search"
+          : "https://www.xiaohongshu.com/user/profile/user-matrix-001?xsec_token=token&xsec_source=pc_search";
+      const { result } = await executeMatrixCase(matrixCase, {
+        runId,
+        options: {
+          closeout_evidence_evaluation: false,
+          active_api_fetch_fallback: createAllowedActiveFallbackOptions(runId)
+        },
+        env: {
+          getLocationHref: () => pageUrl,
+          readCapturedRequestContext: async (_input: CapturedRequestContextLookup) =>
+            createPassiveApiCaptureLookup(matrixCase, runId, 1_710_000_000_000, pageUrl),
+          fetchJson: async () => ({
+            status: 200,
+            body:
+              matrixCase.command === "xhs.detail"
+                ? {
+                    code: 0,
+                    data: {
+                      note: {
+                        note_id: matrixCase.params.note_id,
+                        title: "active fallback detail note"
+                      }
+                    }
+                  }
+                : {
+                    code: 0,
+                    data: {
+                      user: {
+                        user_id: matrixCase.params.user_id,
+                        nickname: "active fallback user"
+                      }
+                    }
+                  }
+          })
+        }
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error("expected active fallback success");
+      }
+      const summary = result.payload.summary as Record<string, unknown>;
+      expect(summary.route_evidence).toMatchObject({
+        route_evidence_class: "active_api_fetch_fallback",
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success"
+      });
+      expect(summary.passive_api_capture_evidence).toMatchObject({
+        evidence_class: "passive_api_capture",
+        evidence_role: "diagnostic",
+        route_role: "supporting",
+        live_closeout_evidence: false,
+        syvert_normalized_output: false
+      });
+    }
+  );
+
+  it.each(READ_COMMAND_CASES)(
+    "does not record passive API capture evidence for page-state fallback on $command",
+    async (matrixCase) => {
+      const runId = `run-1169-page-state-${matrixCase.routeBucket}`;
+      const providerAwareOptions = createProviderAwareReadPathOptions(matrixCase, runId);
+      const { result } = await executeMatrixCase(matrixCase, {
+        runId,
+        options: {
+          ...providerAwareOptions,
+          active_api_fetch_fallback:
+            matrixCase.command === "xhs.search" ? undefined : createAllowedActiveFallbackOptions(runId)
+        },
+        env: {
+          sleep: async () => undefined,
+          readCapturedRequestContext: async () => null,
+          readPageStateRoot: async () =>
+            matrixCase.command === "xhs.detail"
+              ? {
+                  note: {
+                    noteDetailMap: {
+                      "note-matrix-001": {
+                        noteId: "note-matrix-001",
+                        title: "fallback note"
+                      }
+                    }
+                  }
+                }
+              : {
+                  user: {
+                    userId: "user-matrix-001",
+                    basic_info: {
+                      user_id: "user-matrix-001",
+                      nickname: "fallback user"
+                    }
+                  },
+                  board: {},
+                  note: {}
+                },
+          readSearchDomState: async () => ({
+            cards: [
+              {
+                title: "fallback search card",
+                note_id: "note-matrix-001",
+                user_id: "user-matrix-001",
+                detail_url:
+                  "https://www.xiaohongshu.com/explore/note-matrix-001?xsec_token=token&xsec_source=pc_search",
+                user_home_url:
+                  "https://www.xiaohongshu.com/user/profile/user-matrix-001?xsec_token=token&xsec_source=pc_search"
+              }
+            ]
+          })
+        }
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error("expected fallback success");
+      }
+      const summary = result.payload.summary as Record<string, unknown>;
+      expect(summary.passive_api_capture_evidence).toBeUndefined();
+      expect(summary.route_evidence).not.toMatchObject({
+        evidence_class: "passive_api_capture"
+      });
     }
   );
 });
