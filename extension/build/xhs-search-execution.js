@@ -675,6 +675,12 @@ const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding, active
         reasons.push("runtime_binding_evidence_missing");
         return reasons;
     }
+    const targetDomain = asString(runtimeBinding.target_domain);
+    const targetPage = asString(runtimeBinding.target_page);
+    if (targetDomain !== EXPECTED_XHS_TARGET_DOMAIN ||
+        targetPage !== EXPECTED_XHS_SEARCH_TARGET_PAGE_CLASS) {
+        reasons.push("runtime_binding_scope_mismatch");
+    }
     const bindingStatus = asString(runtimeBinding.binding_status);
     if (!bindingStatus) {
         reasons.push("runtime_binding_status_missing");
@@ -732,6 +738,7 @@ const resolveProviderAwareReadPathBlock = (options, activeRunId) => {
     const providerRequirements = asRecord(options.xhs_driver_provider_requirements);
     const providerRequirementRefs = asStringArray(options.provider_requirement_refs);
     const providerRequirementDeclarationRefs = asStringArray(providerRequirements?.provider_requirement_refs);
+    const readinessCommand = asString(pageRuntimeReadiness?.command);
     const reasons = [
         ...(targetBindingSnapshot ? [] : ["target_binding_snapshot_missing"]),
         ...(targetBindingSnapshotRef ? [] : ["target_binding_snapshot_ref_missing"]),
@@ -740,6 +747,9 @@ const resolveProviderAwareReadPathBlock = (options, activeRunId) => {
             ? []
             : ["provider_requirement_refs_missing"]),
         ...(pageRuntimeReadiness ? [] : ["page_runtime_readiness_missing"]),
+        ...(readinessCommand && readinessCommand !== EXPECTED_XHS_SEARCH_COMMAND
+            ? ["page_runtime_readiness_command_mismatch"]
+            : []),
         ...collectTargetBindingEvidenceBlockers(targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, asRecordArray(options.target_binding_transition_evidence), activeRunId),
         ...collectProviderRequirementBlockers(providerRequirements, providerRequirementRefs),
         ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding, activeRunId),
@@ -1714,40 +1724,7 @@ export const executeXhsSearch = async (input, env) => {
         };
     }
     const simulated = resolveSimulatedResult(input.options.simulate_result, input.params, input.options, env);
-    if (simulated) {
-        if (simulated.ok) {
-            const summary = asRecord(simulated.payload.summary) ?? {};
-            const capability = asRecord(summary.capability_result) ?? {};
-            capability.ability_id = input.abilityId;
-            capability.layer = input.abilityLayer;
-            capability.action = gate.consumer_gate_result.action_type ?? input.abilityAction;
-            return {
-                ok: true,
-                payload: {
-                    ...simulated.payload,
-                    summary: {
-                        capability_result: capability,
-                        scope_context: gate.scope_context,
-                        gate_input: {
-                            run_id: auditRecord.run_id,
-                            session_id: auditRecord.session_id,
-                            profile: auditRecord.profile,
-                            ...gate.gate_input
-                        },
-                        gate_outcome: gate.gate_outcome,
-                        read_execution_policy: gate.read_execution_policy,
-                        issue_action_matrix: gate.issue_action_matrix,
-                        consumer_gate_result: gate.consumer_gate_result,
-                        request_admission_result: gate.request_admission_result,
-                        execution_audit: gate.execution_audit,
-                        approval_record: gate.approval_record,
-                        risk_state_output: resolveRiskStateOutput(gate, auditRecord),
-                        audit_record: auditRecord,
-                        ...layer2InteractionSummary(layer2Interaction)
-                    }
-                }
-            };
-        }
+    if (simulated && !simulated.ok) {
         return {
             ...simulated,
             payload: {
@@ -1845,6 +1822,39 @@ export const executeXhsSearch = async (input, env) => {
             category: "page_changed",
             evidence: providerAwareReadPathBlock.reasons
         }), gate, auditRecord), gate.execution_audit), gate, auditRecord, providerAwareReadPathBlock), layer2Interaction);
+    }
+    if (simulated) {
+        const summary = asRecord(simulated.payload.summary) ?? {};
+        const capability = asRecord(summary.capability_result) ?? {};
+        capability.ability_id = input.abilityId;
+        capability.layer = input.abilityLayer;
+        capability.action = gate.consumer_gate_result.action_type ?? input.abilityAction;
+        return {
+            ok: true,
+            payload: {
+                ...simulated.payload,
+                summary: {
+                    capability_result: capability,
+                    scope_context: gate.scope_context,
+                    gate_input: {
+                        run_id: auditRecord.run_id,
+                        session_id: auditRecord.session_id,
+                        profile: auditRecord.profile,
+                        ...gate.gate_input
+                    },
+                    gate_outcome: gate.gate_outcome,
+                    read_execution_policy: gate.read_execution_policy,
+                    issue_action_matrix: gate.issue_action_matrix,
+                    consumer_gate_result: gate.consumer_gate_result,
+                    request_admission_result: gate.request_admission_result,
+                    execution_audit: gate.execution_audit,
+                    approval_record: gate.approval_record,
+                    risk_state_output: resolveRiskStateOutput(gate, auditRecord),
+                    audit_record: auditRecord,
+                    ...layer2InteractionSummary(layer2Interaction)
+                }
+            }
+        };
     }
     const buildExpectedRequestContextProvenance = () => ({
         profile_ref: input.executionContext.profile,
