@@ -77,7 +77,7 @@ Canonical Issue: #1182
 
 - WebEnvoy core 不实现、复制、反编译、持久化或公开这些 domain 的私有实现细节。
 - Provider 可以声明上述 domain 的支持状态、限制、验证级别与 evidence refs。
-- WebEnvoy 可以 fail-closed 地拒绝缺失、未知、redaction invalid、stale 或 scope mismatch 的 provider stealth evidence。
+- WebEnvoy 可以 fail-closed 地拒绝缺失、未分类、redaction invalid、stale 或 scope mismatch 的 provider stealth evidence。
 - Provider-owned domain presence 不证明目标平台风控已通过，也不证明 account safety、live evidence、runtime target binding 或 downstream gate 已通过。
 
 ### 3. WebEnvoy non-ownership boundary
@@ -162,7 +162,7 @@ Provider-owned stealth boundary 的 disclosure policy 必须固定为 provider-p
 约束：
 
 - 这些内容可以作为 provider-owned stealth lane 的声明或输入，但不能单独解除 WebEnvoy risk/evidence blocker。
-- 后续 #1183 必须定义 WebEnvoy-owned risk evidence 的 accepted / blocked / unknown 语义。
+- 后续 #1183 必须定义 WebEnvoy-owned risk evidence 的 accepted / blocked / unclassified 语义。
 - 后续 #1188 必须定义 read/write gate 如何消费 #1183 的 risk hints；不得绕过 #1183 直接从 provider-owned stealth presence 推导 allow。
 
 ### 7. Handoff to #1183 and #1188
@@ -185,7 +185,7 @@ Provider-owned stealth boundary 的 disclosure policy 必须固定为 provider-p
 本 FR 至少冻结以下 blocking reasons：
 
 - `provider_stealth_boundary_missing`
-- `provider_stealth_boundary_unknown`
+- `provider_stealth_boundary_unresolved`
 - `provider_stealth_scope_mismatch`
 - `provider_stealth_evidence_missing`
 - `provider_stealth_evidence_stale`
@@ -203,7 +203,7 @@ Provider-owned stealth boundary 的 disclosure policy 必须固定为 provider-p
 
 约束：
 
-- Unknown blocking reason 或 unknown provider-owned stealth state 在影响目标 capability 时必须 fail-closed。
+- 未识别 blocking reason 或未分类 provider-owned stealth state 在影响目标 capability 时必须 fail-closed。
 - `webenvoy_risk_evidence_required` 表示必须交给 #1183，不表示 #1182 已定义该 evidence。
 - `risk_hint_consumer_required` 表示必须交给 #1188，不表示 #1182 已定义 consumer gate。
 

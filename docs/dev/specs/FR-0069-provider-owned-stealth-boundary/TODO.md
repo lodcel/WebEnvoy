@@ -15,7 +15,7 @@
 ## 实现前待办
 
 - [ ] #1183 consumes `provider_owned_stealth_boundary_ref` and defines WebEnvoy-owned risk evidence separately.
-- [ ] #1183 defines accepted/blocked/unknown risk evidence semantics without exposing provider private patch internals.
+- [ ] #1183 defines accepted/blocked/unclassified risk evidence semantics without exposing provider private patch internals.
 - [ ] #1188 consumes #1183 risk hint semantics in read/write gates.
 - [ ] Future provider selection rejects `declared_only`/`doctor_checked` stealth as a replacement for WebEnvoy-owned risk evidence.
 - [ ] Future evidence parser rejects private patch disclosure, raw seed disclosure, stale refs and scope mismatch.

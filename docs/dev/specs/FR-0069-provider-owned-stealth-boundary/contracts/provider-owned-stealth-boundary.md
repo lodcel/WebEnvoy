@@ -25,7 +25,7 @@ interface ProviderOwnedStealthBoundaryV1 {
 - `boundary_version` 当前只允许 `v1`。
 - `provider_contract_ref` 必须指向 `FR-0033.browser_provider_contract` 或后续正式 provider contract ref。
 - 该对象是 boundary declaration，不是 provider registry row、doctor result、runtime status、live evidence record、risk hint record 或 read/write gate decision。
-- Consumer 遇到 unknown required field、unknown enum 或影响目标 capability 的 unknown state 时，必须 fail-closed。
+- Consumer 遇到缺失的 required field、未识别 enum 或影响目标 capability 的未分类状态时，必须 fail-closed。
 
 ## 2. Provider mode ref
 
@@ -65,7 +65,7 @@ type ProviderOwnedStealthDomain =
 - 这些 domain 的实现细节属于 provider/provider adapter。
 - WebEnvoy core 可以消费 domain presence、verification level、limitations 与 redacted evidence refs。
 - Domain presence 不证明风险门禁通过，不证明真实平台风控通过，不证明 live evidence accepted。
-- Unknown domain 在影响目标 capability 时必须 fail-closed 或通过后续 formal spec 扩展。
+- 未识别 domain 在影响目标 capability 时必须 fail-closed 或通过后续 formal spec 扩展。
 
 ## 4. WebEnvoy non-owned stealth domains
 
@@ -144,14 +144,15 @@ interface ProviderStealthConsumptionRef {
     | "blocking_reason"
   ref: string
   sensitivity: "public" | "internal" | "sensitive" | "secret"
-  redaction_state: "not_required" | "redacted" | "opaque_ref" | "invalid" | "unknown"
+  redaction_state: "redacted" | "redaction_required" | "not_required" | "policy_missing" | "invalid"
 }
 ```
 
 约束：
 
-- `sensitivity=secret` 不得出现在 public surfaces as raw value；只能通过 opaque/ref 形式出现。
-- `redaction_state=invalid|unknown` 命中 required evidence 时必须 fail-closed。
+- `sensitivity=secret` 不得出现在 public surfaces as raw value；只能通过 redacted ref、secret handle 或等价不透明 locator 形式出现。
+- `redaction_state` 必须与 `FR-0040` / `FR-0041` 对齐，只允许 `redacted | redaction_required | not_required | policy_missing | invalid`。
+- `redaction_state=redaction_required|policy_missing|invalid` 命中 required evidence 时必须 fail-closed。
 - `verification_level` 复用 `FR-0033`，且 `declared_only|doctor_checked` 不能替代 WebEnvoy-owned risk evidence。
 
 ## 7. Non-proofs
@@ -188,7 +189,7 @@ type ProviderStealthNonProof =
 ```ts
 type ProviderStealthBlockingReason =
   | "provider_stealth_boundary_missing"
-  | "provider_stealth_boundary_unknown"
+  | "provider_stealth_boundary_unresolved"
   | "provider_stealth_scope_mismatch"
   | "provider_stealth_evidence_missing"
   | "provider_stealth_evidence_stale"
@@ -225,3 +226,115 @@ interface ProviderStealthHandoffRefs {
 
 - #1183 may consume this boundary but must not redefine provider private patch schema.
 - #1188 must consume #1183 risk hints and must not infer gate allow from provider stealth presence.
+
+## 10. Minimum valid example payloads
+
+### 10.1 Current boundary handoff payload
+
+This is the minimum valid `ProviderOwnedStealthBoundaryV1` payload that downstream #1183 / #1188 parser or gate fixtures may consume as a provider-owned boundary input. It does not prove risk pass, live evidence accepted or read/write allow; it only proves that #1182 boundary metadata is structurally valid and that downstream owners must continue through #1183 / #1188.
+
+```json
+{
+  "boundary_id": "provider_owned_stealth_boundary",
+  "boundary_version": "v1",
+  "owner_ref": "FR-0069",
+  "provider_contract_ref": "FR-0033.browser_provider_contract.v1",
+  "provider_id": "example.managed-browser",
+  "provider_mode": "external_managed",
+  "owned_domains": [
+    "browser_binary_patch",
+    "js_fingerprint_surface_patch",
+    "fingerprint_seed_application",
+    "provider_private_patch_validation"
+  ],
+  "not_owned_by_webenvoy": [
+    "browser_patch_implementation",
+    "fingerprint_patch_implementation",
+    "stealth_parameter_raw_values",
+    "fingerprint_seed_derivation",
+    "private_patch_correctness",
+    "target_platform_bypass_success"
+  ],
+  "disclosure_boundary": {
+    "default_policy": "provider_private",
+    "allowed_public_fields": [
+      "provider_id",
+      "provider_contract_ref",
+      "provider_mode",
+      "owned_domain_enum",
+      "verification_level",
+      "limitation_ref",
+      "redacted_evidence_ref",
+      "blocking_reason",
+      "handoff_owner"
+    ],
+    "forbidden_fields": [
+      "raw_fingerprint_seed",
+      "private_patch_payload",
+      "private_patch_manifest_body",
+      "stealth_parameter_raw_values",
+      "browser_binary_diff",
+      "driver_internal_state",
+      "fingerprint_internals_snapshot",
+      "worker_or_kernel_patch_details",
+      "account_or_profile_secret",
+      "cookie_token_proxy_or_page_content"
+    ],
+    "redaction_policy_refs": [
+      "FR-0040.provider_evidence_record.redaction_state",
+      "FR-0041.evidence_redaction_policy.v1",
+      "FR-0059.cloakbrowser_fingerprint_seed_evidence_policy.v1"
+    ]
+  },
+  "allowed_webenvoy_consumption": [
+    {
+      "ref_kind": "provider_contract_ref",
+      "ref": "FR-0033.browser_provider_contract.v1",
+      "sensitivity": "public",
+      "redaction_state": "not_required"
+    },
+    {
+      "ref_kind": "redacted_evidence_ref",
+      "ref": "artifact://provider-stealth/example-run/redacted-boundary.json#fingerprint_seed_ref",
+      "sensitivity": "secret",
+      "redaction_state": "redacted"
+    },
+    {
+      "ref_kind": "blocking_reason",
+      "ref": "webenvoy_risk_evidence_required",
+      "sensitivity": "public",
+      "redaction_state": "not_required"
+    }
+  ],
+  "non_proofs": [
+    "provider_stealth_declared",
+    "provider_doctor_pass",
+    "fingerprint_seed_ref_present",
+    "private_patch_ref_present",
+    "runtime_bootstrap_ack"
+  ],
+  "blocking_reasons": [
+    "webenvoy_risk_evidence_required",
+    "risk_hint_consumer_required"
+  ],
+  "handoff_refs": {
+    "provider_stealth_owner": "FR-0069",
+    "webenvoy_risk_evidence_owner": "#1183",
+    "risk_hint_consumer_owner": "#1188",
+    "parent_phase_ref": "#1118"
+  }
+}
+```
+
+### 10.2 Valid redaction blocker payload
+
+This payload is structurally valid but intentionally not acceptable as required evidence because `redaction_state=redaction_required` is a fail-closed state under `FR-0040` / `FR-0041`. Downstream #1183 / #1188 fixtures may use it to assert that provider-owned stealth evidence does not bypass WebEnvoy-owned risk evidence.
+
+```json
+{
+  "ref_kind": "redacted_evidence_ref",
+  "ref": "artifact://provider-stealth/example-run/pending-redaction.json#private_patch_ref",
+  "sensitivity": "secret",
+  "redaction_state": "redaction_required"
+}
+```

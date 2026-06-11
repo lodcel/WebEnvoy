@@ -42,7 +42,7 @@ WebEnvoy 需要知道某个 provider 是否声称拥有 browser patch/fingerprin
 
 ## 未解决问题
 
-- #1183 需要定义 WebEnvoy-owned risk evidence object、accepted/blocked/unknown semantics、closeout/audit owner 和 fail-closed matrix。
+- #1183 需要定义 WebEnvoy-owned risk evidence object、accepted/blocked/unclassified semantics、closeout/audit owner 和 fail-closed matrix。
 - #1188 需要定义 risk hint consumer gate 对 read/write gate、closeout evidence 和 command result 的消费规则。
 - Future provider-specific suites 可以补充某个 provider 的 descriptor/capability/doctor/evidence details，但不得要求 WebEnvoy core 公开 provider internals。
 

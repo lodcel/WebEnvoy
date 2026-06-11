@@ -44,8 +44,9 @@
 约束：
 
 - `ref_kind` 只能指向 provider contract、identity、mode、owned domain、limitation、verification、redacted evidence、freshness、scope 或 blocking reason。
-- `sensitivity=secret` 只能以 opaque/ref 形式消费，不得在 public surface 展开。
-- `redaction_state=invalid|unknown` 命中 required evidence 时必须 fail-closed。
+- `sensitivity=secret` 只能以 redacted ref、secret handle 或等价不透明 locator 形式消费，不得在 public surface 展开。
+- `redaction_state` 必须与 `FR-0040` / `FR-0041` 对齐，只允许 `redacted | redaction_required | not_required | policy_missing | invalid`。
+- `redaction_state=redaction_required|policy_missing|invalid` 命中 required evidence 时必须 fail-closed。
 
 ### `ProviderStealthDisclosureBoundary`
 
@@ -109,4 +110,4 @@ Risk Hint Consumer Gate (#1188)
 - `requires_webenvoy_risk_evidence`: 必须交给 #1183。
 - `requires_risk_hint_consumer`: 必须交给 #1188。
 
-Unknown state 或影响目标 capability 的 missing state 必须 fail-closed。
+未分类状态或影响目标 capability 的 missing state 必须 fail-closed。
