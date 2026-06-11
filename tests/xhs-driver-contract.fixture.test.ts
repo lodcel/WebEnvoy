@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { evaluateXhsCloseoutEvidenceBoundary } from "../src/runtime/xhs-closeout-evidence-boundary.js";
 import { xhsDriverContractFixtures } from "./fixtures/xhs-driver-contract-fixtures.js";
 
 const sensitiveLeakPatterns = [/\/Users\//, /C:\\Users\\/i, /cookie/i, /token/i, /secret/i, /api[_-]?key/i];
@@ -58,6 +59,40 @@ describe("xhs driver contract fixtures for #1165", () => {
     expect(xhsDriverContractFixtures.providerCapabilityFailure.provider_admission_readiness).toMatchObject({
       status: "blocked",
       source: "provider_admission_result"
+    });
+    expect(xhsDriverContractFixtures.closeoutEvidenceBoundary).toMatchObject({
+      contract_version: "xhs_closeout_evidence_boundary.v1",
+      owner_ref: "#1164",
+      operation: "xhs.detail",
+      redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
+      route_evidence: {
+        route_role: "primary",
+        path_kind: "api",
+        evidence_status: "success",
+        evidence_class: "passive_api_capture",
+        route_evidence_class: "passive_api_capture"
+      },
+      provider_evidence_record: {
+        identity: {
+          provider_evidence_contract_version: "v1",
+          evidence_scope: "capability_closeout"
+        },
+        closeout_plan: {
+          closeout_decision: "allow",
+          redaction_gaps: []
+        }
+      }
+    });
+    expect(
+      evaluateXhsCloseoutEvidenceBoundary({
+        operation: xhsDriverContractFixtures.closeoutEvidenceBoundary.operation,
+        route_evidence: xhsDriverContractFixtures.closeoutEvidenceBoundary.route_evidence,
+        provider_evidence_record:
+          xhsDriverContractFixtures.closeoutEvidenceBoundary.provider_evidence_record
+      })
+    ).toMatchObject({
+      valid: true,
+      blockers: []
     });
 
     for (const pattern of sensitiveLeakPatterns) {
