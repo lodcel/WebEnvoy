@@ -71,6 +71,10 @@ const asRecord = (value) => typeof value === "object" && value !== null && !Arra
     : null;
 const asArray = (value) => (Array.isArray(value) ? value : null);
 const asString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const asStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+const asRecordArray = (value) => Array.isArray(value)
+    ? value.filter((item) => asRecord(item) !== null)
+    : [];
 const asInteger = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
         return Math.trunc(value);
@@ -1149,6 +1153,524 @@ const resolveActiveApiFetchFallbackGate = (input) => {
         consumed_template: input.templateEvidence
     };
 };
+const buildProviderAwareReadPathSummaryFields = (options) => {
+    const providerRequirementRefs = asStringArray(options.provider_requirement_refs);
+    const targetBindingTransitionEvidence = asRecordArray(options.target_binding_transition_evidence);
+    const downstreamSliceRefs = asStringArray(options.downstream_slice_refs);
+    const nonProofs = asStringArray(options.non_proofs);
+    const pageRuntimeReadinessBlockingReasons = asStringArray(options.page_runtime_readiness_blocking_reasons);
+    return {
+        ...(asRecord(options.xhs_driver_provider_requirements)
+            ? {
+                xhs_driver_provider_requirements: asRecord(options.xhs_driver_provider_requirements)
+            }
+            : {}),
+        ...(providerRequirementRefs.length > 0
+            ? { provider_requirement_refs: providerRequirementRefs }
+            : {}),
+        ...(asString(options.runtime_binding_ref)
+            ? { runtime_binding_ref: asString(options.runtime_binding_ref) }
+            : {}),
+        ...(asString(options.target_binding_snapshot_ref)
+            ? { target_binding_snapshot_ref: asString(options.target_binding_snapshot_ref) }
+            : {}),
+        ...(asRecord(options.xhs_runtime_binding)
+            ? { xhs_runtime_binding: asRecord(options.xhs_runtime_binding) }
+            : {}),
+        ...(asRecord(options.target_binding_snapshot)
+            ? { target_binding_snapshot: asRecord(options.target_binding_snapshot) }
+            : {}),
+        ...(targetBindingTransitionEvidence.length > 0
+            ? { target_binding_transition_evidence: targetBindingTransitionEvidence }
+            : {}),
+        ...(downstreamSliceRefs.length > 0 ? { downstream_slice_refs: downstreamSliceRefs } : {}),
+        ...(nonProofs.length > 0 ? { non_proofs: nonProofs } : {}),
+        ...(asString(options.page_runtime_readiness_ref)
+            ? { page_runtime_readiness_ref: asString(options.page_runtime_readiness_ref) }
+            : {}),
+        ...(asRecord(options.xhs_page_runtime_readiness)
+            ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) }
+            : {}),
+        ...(asString(options.page_runtime_readiness_decision)
+            ? { page_runtime_readiness_decision: asString(options.page_runtime_readiness_decision) }
+            : {}),
+        ...(pageRuntimeReadinessBlockingReasons.length > 0
+            ? { page_runtime_readiness_blocking_reasons: pageRuntimeReadinessBlockingReasons }
+            : {})
+    };
+};
+const BLOCKED_READINESS_STATUSES = new Set(["blocked", "deny", "denied", "not_ready"]);
+const ALLOWED_REQUIRED_READINESS_STATUSES = new Set(["ready", "not_required"]);
+const DENY_READINESS_DECISIONS = new Set(["deny", "denied", "blocked", "defer", "deferred"]);
+const TARGET_BINDING_ALLOWED_STATES = new Set(["bound"]);
+const RUNTIME_BINDING_ALLOWED_STATUSES = new Set(["declared", "ready"]);
+const RUNTIME_BINDING_CURRENT_FRESHNESS = new Set(["current_run"]);
+const ALLOWED_PROVIDER_AWARE_GATE_REASONS = new Set(["LIVE_MODE_APPROVED"]);
+const EXPECTED_XHS_DETAIL_PROVIDER_REQUIREMENT_REF = "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read";
+const EXPECTED_XHS_DETAIL_ABILITY_ID = "xhs.note.detail.v1";
+const EXPECTED_XHS_ABILITY_LAYER = "L3";
+const EXPECTED_XHS_READ_ACTION = "read";
+const EXPECTED_XHS_DETAIL_ROUTE_BUCKET = "detail";
+const EXPECTED_XHS_TARGET_DOMAIN = "www.xiaohongshu.com";
+const EXPECTED_XHS_DETAIL_TARGET_PAGE_CLASS = "explore_detail_tab";
+const parseTargetBindingSnapshotRef = (value) => {
+    if (!value) {
+        return null;
+    }
+    const match = /^FR-0063\.target_binding_snapshot\.v1\/([^/]+)\/([^/]+)$/.exec(value);
+    if (!match) {
+        return null;
+    }
+    return {
+        runId: match[1] ?? "",
+        routeBucket: match[2] ?? ""
+    };
+};
+const parseRuntimeBindingRef = (value) => {
+    if (!value) {
+        return null;
+    }
+    const match = /^FR-0061\.xhs_runtime_binding\.v1\/([^/]+)\/([^/]+)$/.exec(value);
+    if (!match) {
+        return null;
+    }
+    return {
+        runId: match[1] ?? "",
+        routeBucket: match[2] ?? ""
+    };
+};
+const parseTargetBindingEvidenceRefRunId = (value) => {
+    if (!value) {
+        return null;
+    }
+    const fr0063Match = /^FR-0063\.[^/]+\.v1\/([^/]+)\//.exec(value);
+    if (fr0063Match) {
+        return fr0063Match[1] ?? null;
+    }
+    const transitionMatch = /^target-binding-transition:([^:]+):/.exec(value);
+    return transitionMatch?.[1] ?? null;
+};
+const isTargetBindingEvidenceRefCurrentRun = (value, activeRunId) => {
+    const refRunId = parseTargetBindingEvidenceRefRunId(value);
+    return !refRunId || refRunId === activeRunId;
+};
+const hasCurrentRunTransitionEvidence = (transitionRefs, transitionEvidence, activeRunId, reasons) => {
+    let hasTransitionEvidence = false;
+    for (const transitionRef of transitionRefs) {
+        if (transitionRef.length === 0) {
+            continue;
+        }
+        hasTransitionEvidence = true;
+        if (!isTargetBindingEvidenceRefCurrentRun(transitionRef, activeRunId)) {
+            reasons.push("target_binding_evidence_ref_mismatch");
+        }
+    }
+    for (const transition of transitionEvidence) {
+        const transitionId = asString(transition.transition_id);
+        if (!transitionId) {
+            continue;
+        }
+        hasTransitionEvidence = true;
+        if (!isTargetBindingEvidenceRefCurrentRun(transitionId, activeRunId)) {
+            reasons.push("target_binding_evidence_ref_mismatch");
+        }
+    }
+    return hasTransitionEvidence;
+};
+const collectTargetBindingRequiredEvidenceRefBlockers = (targetBindingSnapshot, transitionEvidence, activeRunId) => {
+    if (asString(targetBindingSnapshot.state) !== "bound") {
+        return [];
+    }
+    const reasons = [];
+    const evidenceRefs = asRecord(targetBindingSnapshot.evidence_refs);
+    if (!evidenceRefs) {
+        return [
+            "target_binding_evidence_refs_missing",
+            "target_binding_candidate_ref_missing",
+            "target_binding_url_match_ref_missing",
+            "target_binding_dom_observation_ref_missing",
+            "target_binding_runtime_state_ref_missing",
+            "target_binding_extension_bridge_ref_missing",
+            "target_binding_transition_refs_missing"
+        ];
+    }
+    const requiredRefs = [
+        ["candidate_ref", "target_binding_candidate_ref_missing"],
+        ["url_match_ref", "target_binding_url_match_ref_missing"],
+        ["dom_observation_ref", "target_binding_dom_observation_ref_missing"],
+        ["runtime_state_ref", "target_binding_runtime_state_ref_missing"],
+        ["extension_bridge_ref", "target_binding_extension_bridge_ref_missing"]
+    ];
+    for (const [field, missingReason] of requiredRefs) {
+        const ref = asString(evidenceRefs[field]);
+        if (!ref) {
+            reasons.push(missingReason);
+            continue;
+        }
+        if (!isTargetBindingEvidenceRefCurrentRun(ref, activeRunId)) {
+            reasons.push("target_binding_evidence_ref_mismatch");
+        }
+    }
+    const transitionRefs = asStringArray(evidenceRefs.transition_refs);
+    if (!hasCurrentRunTransitionEvidence(transitionRefs, transitionEvidence, activeRunId, reasons)) {
+        reasons.push("target_binding_transition_refs_missing");
+    }
+    const redactionState = asString(evidenceRefs.redaction_state ?? targetBindingSnapshot.redaction_state);
+    if (redactionState === "redaction_required" ||
+        redactionState === "policy_missing" ||
+        redactionState === "invalid") {
+        reasons.push("target_binding_redaction_invalid");
+    }
+    const evidenceStatus = asString(evidenceRefs.evidence_status ?? targetBindingSnapshot.evidence_status);
+    const evidenceCompleteness = asString(evidenceRefs.evidence_completeness ?? targetBindingSnapshot.evidence_completeness);
+    const partial = evidenceRefs.partial ?? targetBindingSnapshot.partial;
+    if (evidenceStatus === "partial" ||
+        evidenceStatus === "unavailable" ||
+        evidenceStatus === "unknown" ||
+        evidenceStatus === "invalid" ||
+        evidenceCompleteness === "partial" ||
+        evidenceCompleteness === "unavailable" ||
+        evidenceCompleteness === "unknown" ||
+        evidenceCompleteness === "invalid" ||
+        partial === true) {
+        reasons.push("target_binding_evidence_partial");
+    }
+    const sourceOwner = asString(evidenceRefs.source_owner ?? targetBindingSnapshot.source_owner);
+    if (sourceOwner &&
+        sourceOwner !== "#1161" &&
+        sourceOwner !== "target_binding_state_machine" &&
+        sourceOwner !== "xhs_target_binding_state_machine") {
+        reasons.push("target_binding_source_owner_mismatch");
+    }
+    return reasons;
+};
+const collectTargetBindingEvidenceBlockers = (targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, transitionEvidence, activeRunId) => {
+    if (!targetBindingSnapshot) {
+        return [];
+    }
+    const reasons = [];
+    const parsedRef = parseTargetBindingSnapshotRef(targetBindingSnapshotRef);
+    if (targetBindingSnapshotRef && !parsedRef) {
+        reasons.push("target_binding_ref_mismatch");
+    }
+    const freshnessScope = asString(targetBindingSnapshot.freshness_scope);
+    if (!freshnessScope) {
+        reasons.push("target_binding_freshness_missing");
+    }
+    else if (freshnessScope !== "current_run") {
+        if (freshnessScope === "historical_background" ||
+            freshnessScope === "stale" ||
+            freshnessScope === "lost") {
+            reasons.push("target_binding_freshness_stale");
+        }
+        else if (freshnessScope === "unknown") {
+            reasons.push("target_binding_freshness_unknown");
+        }
+        reasons.push(`target_binding_freshness:${freshnessScope}`);
+    }
+    const snapshotRunId = asString(targetBindingSnapshot.run_id);
+    const readinessRunId = asString(pageRuntimeReadiness?.run_id);
+    if (!snapshotRunId) {
+        reasons.push("target_binding_run_id_missing");
+    }
+    else if (snapshotRunId !== activeRunId) {
+        reasons.push("target_binding_run_id_mismatch");
+    }
+    if (pageRuntimeReadiness && !readinessRunId) {
+        reasons.push("page_runtime_readiness_run_id_missing");
+    }
+    else if (readinessRunId && readinessRunId !== activeRunId) {
+        reasons.push("page_runtime_readiness_run_id_mismatch");
+    }
+    if (parsedRef) {
+        if (parsedRef.routeBucket !== EXPECTED_XHS_DETAIL_ROUTE_BUCKET) {
+            reasons.push("target_binding_ref_mismatch");
+            reasons.push(`target_binding_ref_route:${parsedRef.routeBucket}`);
+        }
+        if (parsedRef.runId !== activeRunId) {
+            reasons.push("target_binding_ref_mismatch");
+        }
+        if (snapshotRunId && parsedRef.runId !== snapshotRunId) {
+            reasons.push("target_binding_ref_mismatch");
+        }
+        if (readinessRunId && parsedRef.runId !== readinessRunId) {
+            reasons.push("target_binding_ref_mismatch");
+        }
+    }
+    if (snapshotRunId && readinessRunId && snapshotRunId !== readinessRunId) {
+        reasons.push("target_binding_run_id_mismatch");
+    }
+    const targetScope = asRecord(targetBindingSnapshot.target_scope);
+    if (!targetScope) {
+        reasons.push("target_binding_scope_missing");
+    }
+    else {
+        const targetDomain = asString(targetScope.target_domain);
+        const targetPageClass = asString(targetScope.target_page_class);
+        if (targetDomain !== EXPECTED_XHS_TARGET_DOMAIN ||
+            targetPageClass !== EXPECTED_XHS_DETAIL_TARGET_PAGE_CLASS) {
+            reasons.push("target_binding_scope_mismatch");
+        }
+    }
+    const routeBucket = asString(targetBindingSnapshot.route_bucket);
+    if (routeBucket !== EXPECTED_XHS_DETAIL_ROUTE_BUCKET) {
+        reasons.push("target_binding_scope_mismatch");
+    }
+    reasons.push(...collectTargetBindingRequiredEvidenceRefBlockers(targetBindingSnapshot, transitionEvidence, activeRunId));
+    return reasons;
+};
+const collectProviderRequirementBlockers = (providerRequirements, providerRequirementRefs) => {
+    if (!providerRequirements) {
+        return [];
+    }
+    const reasons = [];
+    const declarationRefs = asStringArray(providerRequirements.provider_requirement_refs);
+    if (providerRequirementRefs.length === 0 || declarationRefs.length === 0) {
+        return reasons;
+    }
+    const declarationRefSet = new Set(declarationRefs);
+    if (!providerRequirementRefs.every((ref) => declarationRefSet.has(ref)) ||
+        !declarationRefSet.has(EXPECTED_XHS_DETAIL_PROVIDER_REQUIREMENT_REF)) {
+        reasons.push("provider_requirement_ref_mismatch");
+    }
+    const primaryRequirementRef = asString(providerRequirements.provider_requirement_ref);
+    if (primaryRequirementRef &&
+        primaryRequirementRef !== EXPECTED_XHS_DETAIL_PROVIDER_REQUIREMENT_REF) {
+        reasons.push("provider_requirement_ref_mismatch");
+    }
+    const abilityScope = asRecord(providerRequirements.ability_scope);
+    const command = asString(abilityScope?.command);
+    const abilityId = asString(abilityScope?.ability_id);
+    const abilityLayer = asString(abilityScope?.ability_layer);
+    const action = asString(abilityScope?.ability_action);
+    if (command !== "xhs.detail" ||
+        abilityId !== EXPECTED_XHS_DETAIL_ABILITY_ID ||
+        abilityLayer !== EXPECTED_XHS_ABILITY_LAYER ||
+        action !== EXPECTED_XHS_READ_ACTION) {
+        reasons.push("provider_requirement_scope_mismatch");
+    }
+    const requiredActions = asStringArray(providerRequirements.required_actions);
+    if (!requiredActions.includes(EXPECTED_XHS_READ_ACTION)) {
+        reasons.push("provider_requirement_scope_mismatch");
+    }
+    return reasons;
+};
+const collectRuntimeBindingBlockers = (runtimeBindingRef, runtimeBinding, activeRunId) => {
+    const reasons = [];
+    if (!runtimeBindingRef) {
+        reasons.push("runtime_binding_ref_missing");
+    }
+    else {
+        const parsedRuntimeBindingRef = parseRuntimeBindingRef(runtimeBindingRef);
+        if (!parsedRuntimeBindingRef ||
+            parsedRuntimeBindingRef.routeBucket !== EXPECTED_XHS_DETAIL_ROUTE_BUCKET ||
+            parsedRuntimeBindingRef.runId !== activeRunId) {
+            reasons.push("runtime_binding_ref_mismatch");
+        }
+    }
+    if (!runtimeBinding) {
+        reasons.push("runtime_binding_evidence_missing");
+        return reasons;
+    }
+    const targetDomain = asString(runtimeBinding.target_domain);
+    const targetPage = asString(runtimeBinding.target_page);
+    if (targetDomain !== EXPECTED_XHS_TARGET_DOMAIN ||
+        targetPage !== EXPECTED_XHS_DETAIL_TARGET_PAGE_CLASS) {
+        reasons.push("runtime_binding_scope_mismatch");
+    }
+    const bindingStatus = asString(runtimeBinding.binding_status);
+    if (!bindingStatus) {
+        reasons.push("runtime_binding_status_missing");
+    }
+    else if (!RUNTIME_BINDING_ALLOWED_STATUSES.has(bindingStatus)) {
+        reasons.push("runtime_binding_not_bound");
+        reasons.push(`runtime_binding_status:${bindingStatus}`);
+    }
+    const bindingFreshness = asString(runtimeBinding.binding_freshness);
+    if (!bindingFreshness) {
+        reasons.push("runtime_binding_freshness_missing");
+    }
+    else if (!RUNTIME_BINDING_CURRENT_FRESHNESS.has(bindingFreshness)) {
+        if (bindingFreshness === "historical_background") {
+            reasons.push("runtime_binding_stale");
+        }
+        reasons.push(`runtime_binding_freshness:${bindingFreshness}`);
+    }
+    return reasons;
+};
+const collectReadinessDimensionBlockers = (dimension, prefix, missingReason) => {
+    if (!dimension) {
+        return [missingReason];
+    }
+    if (dimension.required === false) {
+        return [];
+    }
+    const status = asString(dimension.status);
+    const gateDecision = asString(dimension.gate_decision);
+    const blockingReasons = asStringArray(dimension.blocking_reasons);
+    const reasons = [];
+    if (!status) {
+        reasons.push(`${prefix}:status_missing`);
+    }
+    else if (!ALLOWED_REQUIRED_READINESS_STATUSES.has(status)) {
+        reasons.push(`${prefix}:${status}`);
+    }
+    if (gateDecision && DENY_READINESS_DECISIONS.has(gateDecision)) {
+        reasons.push(`${prefix}:${gateDecision}`);
+    }
+    reasons.push(...blockingReasons.map((reason) => `${prefix}:${reason}`));
+    return reasons;
+};
+const resolveProviderAwareReadPathBlock = (spec, options, activeRunId) => {
+    if (spec.command !== "xhs.detail") {
+        return null;
+    }
+    const summaryFields = buildProviderAwareReadPathSummaryFields(options);
+    const targetBindingSnapshot = asRecord(options.target_binding_snapshot);
+    const pageRuntimeReadiness = asRecord(options.xhs_page_runtime_readiness);
+    const pageReadiness = asRecord(pageRuntimeReadiness?.page_readiness);
+    const runtimeReadiness = asRecord(pageRuntimeReadiness?.runtime_readiness);
+    const providerAdmissionReadiness = asRecord(pageRuntimeReadiness?.provider_admission_readiness);
+    const runtimeBindingRef = asString(options.runtime_binding_ref);
+    const runtimeBinding = asRecord(options.xhs_runtime_binding);
+    const targetBindingState = asString(targetBindingSnapshot?.state);
+    const targetBindingSnapshotRef = asString(options.target_binding_snapshot_ref);
+    const providerRequirements = asRecord(options.xhs_driver_provider_requirements);
+    const providerRequirementRefs = asStringArray(options.provider_requirement_refs);
+    const providerRequirementDeclarationRefs = asStringArray(providerRequirements?.provider_requirement_refs);
+    const readinessCommand = asString(pageRuntimeReadiness?.command);
+    const reasons = [
+        ...(targetBindingSnapshot ? [] : ["target_binding_snapshot_missing"]),
+        ...(targetBindingSnapshotRef ? [] : ["target_binding_snapshot_ref_missing"]),
+        ...(providerRequirements ? [] : ["xhs_driver_provider_requirements_missing"]),
+        ...(providerRequirementRefs.length > 0 && providerRequirementDeclarationRefs.length > 0
+            ? []
+            : ["provider_requirement_refs_missing"]),
+        ...(pageRuntimeReadiness ? [] : ["page_runtime_readiness_missing"]),
+        ...(readinessCommand && readinessCommand !== spec.command
+            ? ["page_runtime_readiness_command_mismatch"]
+            : []),
+        ...collectTargetBindingEvidenceBlockers(targetBindingSnapshotRef, targetBindingSnapshot, pageRuntimeReadiness, asRecordArray(options.target_binding_transition_evidence), activeRunId),
+        ...collectProviderRequirementBlockers(providerRequirements, providerRequirementRefs),
+        ...collectRuntimeBindingBlockers(runtimeBindingRef, runtimeBinding, activeRunId),
+        ...asStringArray(targetBindingSnapshot?.blocking_reasons).map((reason) => `target_binding:${reason}`),
+        ...collectReadinessDimensionBlockers(pageReadiness, "page", "page_readiness_missing"),
+        ...collectReadinessDimensionBlockers(runtimeReadiness, "runtime", "runtime_readiness_missing"),
+        ...collectReadinessDimensionBlockers(providerAdmissionReadiness, "provider", "provider_admission_result_missing"),
+        ...asStringArray(options.page_runtime_readiness_blocking_reasons)
+    ];
+    const overallReadiness = asString(pageRuntimeReadiness?.overall_readiness);
+    const readinessGateDecision = asString(pageRuntimeReadiness?.gate_decision);
+    const optionReadinessDecision = asString(options.page_runtime_readiness_decision);
+    if (!TARGET_BINDING_ALLOWED_STATES.has(targetBindingState ?? "")) {
+        reasons.push("target_binding:target_binding_not_bound");
+        reasons.push(`target_binding_state:${targetBindingState ?? "missing"}`);
+    }
+    if (overallReadiness && BLOCKED_READINESS_STATUSES.has(overallReadiness)) {
+        reasons.push(`overall_readiness:${overallReadiness}`);
+    }
+    if (readinessGateDecision && DENY_READINESS_DECISIONS.has(readinessGateDecision)) {
+        reasons.push(`page_runtime_gate:${readinessGateDecision}`);
+    }
+    if (optionReadinessDecision && DENY_READINESS_DECISIONS.has(optionReadinessDecision)) {
+        reasons.push(`page_runtime_readiness_decision:${optionReadinessDecision}`);
+    }
+    const uniqueReasons = Array.from(new Set(reasons));
+    if (uniqueReasons.length === 0) {
+        return null;
+    }
+    return {
+        reason: "PROVIDER_AWARE_READINESS_DENIED",
+        reasons: uniqueReasons,
+        summaryFields
+    };
+};
+const withoutAllowedProviderAwareGateReasons = (reasons) => reasons.filter((reason) => !ALLOWED_PROVIDER_AWARE_GATE_REASONS.has(reason));
+const uniqueProviderAwareBlockReasons = (baseReasons, block) => Array.from(new Set([
+    ...withoutAllowedProviderAwareGateReasons(baseReasons),
+    "PROVIDER_AWARE_READINESS_DENIED",
+    "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED",
+    ...block.reasons
+]));
+const resolveBlockedNextRiskState = (current) => {
+    if (current === "allowed") {
+        return "limited";
+    }
+    if (current === "limited") {
+        return "paused";
+    }
+    return current;
+};
+const isProviderAwareLiveReadGate = (gate) => gate.consumer_gate_result.action_type === "read" &&
+    (gate.consumer_gate_result.effective_execution_mode === "live_read_limited" ||
+        gate.consumer_gate_result.effective_execution_mode === "live_read_high_risk");
+const withProviderAwareReadPathBlockPayload = (result, gate, auditRecord, block) => {
+    if (result.ok) {
+        return result;
+    }
+    const blockedGateReasons = uniqueProviderAwareBlockReasons(gate.consumer_gate_result.gate_reasons, block);
+    const blockedConsumerGateResult = {
+        ...gate.consumer_gate_result,
+        effective_execution_mode: null,
+        gate_decision: "blocked",
+        gate_reasons: blockedGateReasons
+    };
+    const blockedGateOutcome = {
+        ...gate.gate_outcome,
+        effective_execution_mode: null,
+        gate_decision: "blocked",
+        gate_reasons: uniqueProviderAwareBlockReasons(gate.gate_outcome.gate_reasons, block),
+        requires_manual_confirmation: false
+    };
+    const blockedRequestAdmissionResult = gate.request_admission_result
+        ? {
+            ...gate.request_admission_result,
+            admission_decision: "blocked",
+            effective_runtime_mode: null,
+            reason_codes: uniqueProviderAwareBlockReasons([], block)
+        }
+        : gate.request_admission_result;
+    const recordedAtMs = Date.parse(auditRecord.recorded_at);
+    const cooldownBase = Number.isFinite(recordedAtMs) ? recordedAtMs : Date.now();
+    const blockedAuditRecord = {
+        ...auditRecord,
+        effective_execution_mode: null,
+        gate_decision: "blocked",
+        gate_reasons: blockedGateReasons,
+        risk_signal: true,
+        recovery_signal: false,
+        session_rhythm_state: "cooldown",
+        cooldown_until: new Date(cooldownBase + 30 * 60_000).toISOString(),
+        recovery_started_at: null,
+        next_state: resolveBlockedNextRiskState(auditRecord.risk_state),
+        transition_trigger: "provider_aware_readiness_denied"
+    };
+    const blockedGate = {
+        ...gate,
+        gate_outcome: blockedGateOutcome,
+        consumer_gate_result: blockedConsumerGateResult,
+        request_admission_result: blockedRequestAdmissionResult
+    };
+    return {
+        ...result,
+        payload: {
+            ...result.payload,
+            ...block.summaryFields,
+            provider_aware_read_path_gate: {
+                gate_decision: "blocked",
+                reason: block.reason,
+                blocking_reasons: block.reasons,
+                live_execution_continued: false,
+                effective_execution_mode: null
+            },
+            gate_outcome: blockedGateOutcome,
+            consumer_gate_result: blockedConsumerGateResult,
+            request_admission_result: blockedRequestAdmissionResult,
+            risk_state_output: resolveRiskStateOutput(blockedGate, blockedAuditRecord),
+            audit_record: blockedAuditRecord
+        }
+    };
+};
 const resolvePassiveApiCaptureCloseoutGate = (input) => {
     const spec = READ_COMMAND_SPECS[input.executionInput.command];
     const binding = buildActiveFallbackTemplateBinding({
@@ -1322,6 +1844,7 @@ const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, req
                 approval_record: gate.approval_record,
                 risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                 audit_record: auditRecord,
+                ...buildProviderAwareReadPathSummaryFields(input.options),
                 signed_continuity: requestContextResult.signedContinuity,
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence
@@ -1952,6 +2475,7 @@ const createPageStateFallbackSuccess = (input, spec, gate, auditRecord, env, pay
                 approval_record: gate.approval_record,
                 risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                 audit_record: auditRecord,
+                ...buildProviderAwareReadPathSummaryFields(input.options),
                 route_evidence: {
                     evidence_class: "page_state_fallback",
                     fallback_reason: fallback.reason,
@@ -2039,7 +2563,8 @@ const createGateOnlySuccess = (input, spec, gate, auditRecord, env, payload) => 
             execution_audit: gate.execution_audit,
             approval_record: gate.approval_record,
             risk_state_output: resolveRiskStateOutput(gate, auditRecord),
-            audit_record: auditRecord
+            audit_record: auditRecord,
+            ...buildProviderAwareReadPathSummaryFields(input.options)
         },
         observability: {
             page_state: {
@@ -2359,6 +2884,37 @@ const executeXhsRead = async (input, spec, env) => {
             summary: `登录态缺失，无法执行 ${spec.command}`
         }), gate, auditRecord), gate.execution_audit);
     }
+    const providerAwareReadPathBlock = isProviderAwareLiveReadGate(gate)
+        ? resolveProviderAwareReadPathBlock(spec, input.options, input.executionContext.runId)
+        : null;
+    if (providerAwareReadPathBlock) {
+        const summary = `provider-aware read path readiness denied ${spec.command} execution`;
+        return withProviderAwareReadPathBlockPayload(withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", summary, {
+            ability_id: input.abilityId,
+            stage: "execution",
+            reason: providerAwareReadPathBlock.reason,
+            blocking_reasons: providerAwareReadPathBlock.reasons
+        }, createReadObservability({
+            spec,
+            href: env.getLocationHref(),
+            title: env.getDocumentTitle(),
+            readyState: env.getReadyState(),
+            requestId: `req-${env.randomId()}`,
+            outcome: "failed",
+            failureReason: providerAwareReadPathBlock.reason,
+            includeKeyRequest: false,
+            failureSite: {
+                stage: "execution",
+                component: "gate",
+                target: "provider_aware_read_path",
+                summary
+            }
+        }), createReadDiagnosis(spec, {
+            reason: providerAwareReadPathBlock.reason,
+            summary,
+            category: "page_changed"
+        }), gate, auditRecord), gate.execution_audit), gate, auditRecord, providerAwareReadPathBlock);
+    }
     const expectedShape = deriveReadShapeFromCommand(spec, input.params);
     const activeFallbackBinding = buildActiveFallbackTemplateBinding({
         executionContext: input.executionContext,
@@ -2617,6 +3173,7 @@ const executeXhsRead = async (input, spec, env) => {
                 approval_record: gate.approval_record,
                 risk_state_output: resolveRiskStateOutput(gate, auditRecord),
                 audit_record: auditRecord,
+                ...buildProviderAwareReadPathSummaryFields(input.options),
                 signed_continuity: requestContextResult.signedContinuity,
                 route_evidence: activeFallbackGate
             },
