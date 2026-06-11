@@ -10975,6 +10975,39 @@ const buildSearchPassiveApiCaptureArtifactIdentity = (input) => [
     input.shapeKey,
     String(input.capturedAt)
 ].join(":");
+const buildPassiveApiCaptureEvidenceDiagnostic = (routeEvidence) => ({
+    evidence_class: "passive_api_capture",
+    evidence_role: "diagnostic",
+    route_role: "supporting",
+    path_kind: "api",
+    source_kind: "page_request",
+    current_page_natural_request: true,
+    synthetic_replay: false,
+    live_closeout_evidence: false,
+    syvert_normalized_output: false,
+    request_payload_included: false,
+    response_payload_included: false,
+    redaction_state: "payload_omitted",
+    route: routeEvidence.route,
+    method: routeEvidence.method,
+    endpoint: routeEvidence.endpoint,
+    request_url: routeEvidence.request_url,
+    status_code: routeEvidence.status_code,
+    run_id: routeEvidence.run_id,
+    profile_ref: routeEvidence.profile_ref,
+    session_id: routeEvidence.session_id,
+    target_tab_id: routeEvidence.target_tab_id,
+    page_url: routeEvidence.page_url,
+    action_ref: routeEvidence.action_ref,
+    observed_at: routeEvidence.observed_at,
+    captured_at: routeEvidence.captured_at,
+    page_context_namespace: routeEvidence.page_context_namespace,
+    shape_key: routeEvidence.shape_key,
+    artifact_identity: routeEvidence.artifact_identity
+});
+const withPassiveApiCaptureEvidenceDiagnostic = (routeEvidence) => ({
+    passive_api_capture_evidence: buildPassiveApiCaptureEvidenceDiagnostic(routeEvidence)
+});
 const normalizeSearchQueryText = (value) => {
     if (typeof value !== "string") {
         return null;
@@ -13394,6 +13427,7 @@ const executeXhsSearch = async (input, env) => {
                 audit_record: auditRecord,
                 ...buildProviderAwareReadPathSummaryFields(input.options),
                 ...layer2InteractionSummary(layer2Interaction),
+                ...withPassiveApiCaptureEvidenceDiagnostic(routeEvidence),
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence,
                 closeout_evidence_expected: closeoutEvidenceExpected,
@@ -13443,6 +13477,46 @@ const DETAIL_ENDPOINT = "/api/sns/web/v1/feed";
 const USER_HOME_ENDPOINT = "/api/sns/web/v1/user_posted";
 const XHS_READ_API_ORIGIN = "https://edith.xiaohongshu.com";
 const requiresSignedContinuity = (spec) => spec.command === "xhs.detail" || spec.command === "xhs.user_home";
+const buildPassiveApiCaptureEvidenceDiagnostic = (input) => {
+    if (input.templateEvidence.route_evidence_class !== "passive_api_capture" ||
+        input.templateEvidence.source_kind !== "page_request") {
+        return null;
+    }
+    return {
+        evidence_class: "passive_api_capture",
+        evidence_role: "diagnostic",
+        route_role: "supporting",
+        path_kind: "api",
+        source_kind: "page_request",
+        current_page_natural_request: true,
+        synthetic_replay: false,
+        live_closeout_evidence: false,
+        syvert_normalized_output: false,
+        request_payload_included: false,
+        response_payload_included: false,
+        redaction_state: "payload_omitted",
+        route: `${input.spec.command}.api`,
+        method: input.spec.method,
+        endpoint: input.spec.endpoint,
+        request_url: input.requestUrl ?? input.spec.buildSignatureUri(input.executionInput.params),
+        status_code: input.responseStatus,
+        run_id: input.executionInput.executionContext.runId,
+        profile_ref: input.executionInput.executionContext.profile,
+        session_id: input.executionInput.executionContext.sessionId,
+        target_tab_id: input.targetTabId,
+        page_url: input.pageUrl,
+        action_ref: input.executionInput.abilityAction,
+        observed_at: input.templateEvidence.observed_at,
+        captured_at: input.templateEvidence.captured_at,
+        page_context_namespace: input.templateEvidence.page_context_namespace,
+        shape_key: input.templateEvidence.shape_key,
+        artifact_identity: input.templateEvidence.template_identity
+    };
+};
+const withPassiveApiCaptureEvidenceDiagnostic = (input) => {
+    const diagnostic = buildPassiveApiCaptureEvidenceDiagnostic(input);
+    return diagnostic ? { passive_api_capture_evidence: diagnostic } : {};
+};
 const REQUEST_CONTEXT_FRESHNESS_WINDOW_MS = 5 * 60_000;
 const REQUEST_CONTEXT_WAIT_MAX_ATTEMPTS = 10;
 const REQUEST_CONTEXT_WAIT_RETRY_MS = 150;
@@ -15221,6 +15295,11 @@ const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, req
     const pageUrl = env.getLocationHref();
     const headSha = asString(input.options.__runtime_latest_head_sha);
     const artifactIdentity = template.template_identity;
+    const targetTabId = typeof input.options.actual_target_tab_id === "number"
+        ? input.options.actual_target_tab_id
+        : typeof input.options.target_tab_id === "number"
+            ? input.options.target_tab_id
+            : null;
     const routeEvidence = {
         route: `${spec.command}.api`,
         route_role: "primary",
@@ -15238,11 +15317,7 @@ const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, req
         artifact_identity: artifactIdentity,
         profile_ref: input.executionContext.profile,
         session_id: input.executionContext.sessionId,
-        target_tab_id: typeof input.options.actual_target_tab_id === "number"
-            ? input.options.actual_target_tab_id
-            : typeof input.options.target_tab_id === "number"
-                ? input.options.target_tab_id
-                : null,
+        target_tab_id: targetTabId,
         page_url: pageUrl,
         action_ref: input.abilityAction,
         observed_at: template.observed_at,
@@ -15284,6 +15359,15 @@ const createPassiveApiCaptureSuccess = (input, spec, gate, auditRecord, env, req
                 audit_record: auditRecord,
                 ...buildProviderAwareReadPathSummaryFields(input.options),
                 signed_continuity: requestContextResult.signedContinuity,
+                ...withPassiveApiCaptureEvidenceDiagnostic({
+                    spec,
+                    templateEvidence: template,
+                    requestUrl: requestContextResult.requestUrl,
+                    responseStatus: requestContextResult.responseStatus,
+                    executionInput: input,
+                    targetTabId,
+                    pageUrl
+                }),
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence
             },
@@ -16613,6 +16697,19 @@ const executeXhsRead = async (input, spec, env) => {
                 audit_record: auditRecord,
                 ...buildProviderAwareReadPathSummaryFields(input.options),
                 signed_continuity: requestContextResult.signedContinuity,
+                ...withPassiveApiCaptureEvidenceDiagnostic({
+                    spec,
+                    templateEvidence: requestContextResult.templateEvidence,
+                    requestUrl: requestContextResult.requestUrl,
+                    responseStatus: requestContextResult.responseStatus,
+                    executionInput: input,
+                    targetTabId: typeof input.options.actual_target_tab_id === "number"
+                        ? input.options.actual_target_tab_id
+                        : typeof input.options.target_tab_id === "number"
+                            ? input.options.target_tab_id
+                            : null,
+                    pageUrl: env.getLocationHref()
+                }),
                 route_evidence: activeFallbackGate
             },
             observability: createReadObservability({

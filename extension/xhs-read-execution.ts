@@ -198,6 +198,64 @@ type ActiveApiFetchFallbackTemplateEvidence = {
   shape_key: string | null;
 };
 
+type PassiveApiCaptureEvidenceDiagnosticInput = {
+  spec: XhsReadCommandSpec;
+  templateEvidence: ActiveApiFetchFallbackTemplateEvidence;
+  requestUrl: string | null;
+  responseStatus: number | null;
+  executionInput: XhsReadExecutionInput;
+  targetTabId: number | null;
+  pageUrl: string;
+};
+
+const buildPassiveApiCaptureEvidenceDiagnostic = (
+  input: PassiveApiCaptureEvidenceDiagnosticInput
+): JsonRecord | null => {
+  if (
+    input.templateEvidence.route_evidence_class !== "passive_api_capture" ||
+    input.templateEvidence.source_kind !== "page_request"
+  ) {
+    return null;
+  }
+  return {
+    evidence_class: "passive_api_capture",
+    evidence_role: "diagnostic",
+    route_role: "supporting",
+    path_kind: "api",
+    source_kind: "page_request",
+    current_page_natural_request: true,
+    synthetic_replay: false,
+    live_closeout_evidence: false,
+    syvert_normalized_output: false,
+    request_payload_included: false,
+    response_payload_included: false,
+    redaction_state: "payload_omitted",
+    route: `${input.spec.command}.api`,
+    method: input.spec.method,
+    endpoint: input.spec.endpoint,
+    request_url: input.requestUrl ?? input.spec.buildSignatureUri(input.executionInput.params),
+    status_code: input.responseStatus,
+    run_id: input.executionInput.executionContext.runId,
+    profile_ref: input.executionInput.executionContext.profile,
+    session_id: input.executionInput.executionContext.sessionId,
+    target_tab_id: input.targetTabId,
+    page_url: input.pageUrl,
+    action_ref: input.executionInput.abilityAction,
+    observed_at: input.templateEvidence.observed_at,
+    captured_at: input.templateEvidence.captured_at,
+    page_context_namespace: input.templateEvidence.page_context_namespace,
+    shape_key: input.templateEvidence.shape_key,
+    artifact_identity: input.templateEvidence.template_identity
+  };
+};
+
+const withPassiveApiCaptureEvidenceDiagnostic = (
+  input: PassiveApiCaptureEvidenceDiagnosticInput
+): JsonRecord => {
+  const diagnostic = buildPassiveApiCaptureEvidenceDiagnostic(input);
+  return diagnostic ? { passive_api_capture_evidence: diagnostic } : {};
+};
+
 type ActiveApiFetchFallbackGateResult =
   | {
       gate_decision: "allowed";
@@ -2536,6 +2594,12 @@ const createPassiveApiCaptureSuccess = (
   const pageUrl = env.getLocationHref();
   const headSha = asString(input.options.__runtime_latest_head_sha);
   const artifactIdentity = template.template_identity;
+  const targetTabId =
+    typeof input.options.actual_target_tab_id === "number"
+      ? input.options.actual_target_tab_id
+      : typeof input.options.target_tab_id === "number"
+        ? input.options.target_tab_id
+        : null;
   const routeEvidence: JsonRecord = {
     route: `${spec.command}.api`,
     route_role: "primary",
@@ -2553,12 +2617,7 @@ const createPassiveApiCaptureSuccess = (
     artifact_identity: artifactIdentity,
     profile_ref: input.executionContext.profile,
     session_id: input.executionContext.sessionId,
-    target_tab_id:
-      typeof input.options.actual_target_tab_id === "number"
-        ? input.options.actual_target_tab_id
-        : typeof input.options.target_tab_id === "number"
-          ? input.options.target_tab_id
-          : null,
+    target_tab_id: targetTabId,
     page_url: pageUrl,
     action_ref: input.abilityAction,
     observed_at: template.observed_at,
@@ -2600,6 +2659,15 @@ const createPassiveApiCaptureSuccess = (
         audit_record: auditRecord,
         ...buildProviderAwareReadPathSummaryFields(input.options),
         signed_continuity: requestContextResult.signedContinuity,
+        ...withPassiveApiCaptureEvidenceDiagnostic({
+          spec,
+          templateEvidence: template,
+          requestUrl: requestContextResult.requestUrl,
+          responseStatus: requestContextResult.responseStatus,
+          executionInput: input,
+          targetTabId,
+          pageUrl
+        }),
         route_evidence: routeEvidence,
         closeout_route_evidence: routeEvidence
       },
@@ -4358,6 +4426,20 @@ const executeXhsRead = async (
         audit_record: auditRecord,
         ...buildProviderAwareReadPathSummaryFields(input.options),
         signed_continuity: requestContextResult.signedContinuity,
+        ...withPassiveApiCaptureEvidenceDiagnostic({
+          spec,
+          templateEvidence: requestContextResult.templateEvidence,
+          requestUrl: requestContextResult.requestUrl,
+          responseStatus: requestContextResult.responseStatus,
+          executionInput: input,
+          targetTabId:
+            typeof input.options.actual_target_tab_id === "number"
+              ? input.options.actual_target_tab_id
+              : typeof input.options.target_tab_id === "number"
+                ? input.options.target_tab_id
+                : null,
+          pageUrl: env.getLocationHref()
+        }),
         route_evidence: activeFallbackGate
       },
       observability: createReadObservability({

@@ -31,6 +31,39 @@ const buildSearchPassiveApiCaptureArtifactIdentity = (input) => [
     input.shapeKey,
     String(input.capturedAt)
 ].join(":");
+const buildPassiveApiCaptureEvidenceDiagnostic = (routeEvidence) => ({
+    evidence_class: "passive_api_capture",
+    evidence_role: "diagnostic",
+    route_role: "supporting",
+    path_kind: "api",
+    source_kind: "page_request",
+    current_page_natural_request: true,
+    synthetic_replay: false,
+    live_closeout_evidence: false,
+    syvert_normalized_output: false,
+    request_payload_included: false,
+    response_payload_included: false,
+    redaction_state: "payload_omitted",
+    route: routeEvidence.route,
+    method: routeEvidence.method,
+    endpoint: routeEvidence.endpoint,
+    request_url: routeEvidence.request_url,
+    status_code: routeEvidence.status_code,
+    run_id: routeEvidence.run_id,
+    profile_ref: routeEvidence.profile_ref,
+    session_id: routeEvidence.session_id,
+    target_tab_id: routeEvidence.target_tab_id,
+    page_url: routeEvidence.page_url,
+    action_ref: routeEvidence.action_ref,
+    observed_at: routeEvidence.observed_at,
+    captured_at: routeEvidence.captured_at,
+    page_context_namespace: routeEvidence.page_context_namespace,
+    shape_key: routeEvidence.shape_key,
+    artifact_identity: routeEvidence.artifact_identity
+});
+const withPassiveApiCaptureEvidenceDiagnostic = (routeEvidence) => ({
+    passive_api_capture_evidence: buildPassiveApiCaptureEvidenceDiagnostic(routeEvidence)
+});
 const normalizeSearchQueryText = (value) => {
     if (typeof value !== "string") {
         return null;
@@ -2450,6 +2483,7 @@ export const executeXhsSearch = async (input, env) => {
                 audit_record: auditRecord,
                 ...buildProviderAwareReadPathSummaryFields(input.options),
                 ...layer2InteractionSummary(layer2Interaction),
+                ...withPassiveApiCaptureEvidenceDiagnostic(routeEvidence),
                 route_evidence: routeEvidence,
                 closeout_route_evidence: routeEvidence,
                 closeout_evidence_expected: closeoutEvidenceExpected,
