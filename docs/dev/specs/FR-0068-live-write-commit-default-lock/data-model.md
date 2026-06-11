@@ -107,6 +107,7 @@ Grouped refs:
 Constraints:
 
 - Refs must consume the source owner contracts rather than inline private evidence.
+- `risk_disposition_ref` must be owned by #1211 / release gate owner or an equivalent downstream risk owner; it summarizes risk disposition for the exact scope but does not replace the individual required refs.
 - Refs must not expose account identifiers, cookies, tokens, profile paths, browser paths, private URLs, page content, media content, raw manifests or live artifact payloads.
 - Each ref must bind source owner, collected time, head, run, freshness and redaction state.
 - Missing, partial, unavailable, stale, wrong-scope or redaction-invalid required refs fail closed.

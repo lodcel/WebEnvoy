@@ -114,10 +114,13 @@ Default lock release 必须至少消费以下 current exact-scope preconditions�
 - `live_evidence_gate_ref`: latest-head fresh real-browser live evidence gate result from downstream owner.
 - `freshness_ref`: evidence freshness record binding head/run/profile/target/workflow.
 - `redaction_policy_ref`: FR-0041 / #1181-compatible redaction disposition.
+- `risk_disposition_ref`: #1211 / release gate owner or equivalent downstream risk owner result that confirms all applicable high-risk live-write lanes for the exact scope have been evaluated and no unresolved risk blocker remains.
 
 约束：
 
 - Missing, stale, partial, wrong-head, wrong-run, wrong-profile, wrong-target, wrong-provider, under-redacted or unowned precondition keeps `state=locked|release_blocked|release_deferred`.
+- `risk_disposition_ref` is mandatory for release-ready status. It must be current, exact-scope, redacted, owner-bound, and must summarize the consumed provider, profile, bridge, account-safety, runtime-target-binding, anti-detection, operator-unlock and live-evidence dispositions without replacing those refs.
+- Missing, stale, scope-mismatched, under-redacted or unresolved risk disposition evidence keeps `state=release_blocked|release_deferred`.
 - #1179 `xhs.creator_publish.admit` supports `write_admit`; it cannot by itself satisfy commit workflow provider requirements unless a downstream provider requirement owner explicitly upgrades and reconsumes the exact commit scope.
 - Operator unlock can clear only the operator lane; default lock release still requires all other preconditions.
 - Account safety clear, extension/native bridge ready, profile allowlist accepted or provider requirement accepted can only clear their respective lanes.
@@ -188,6 +191,14 @@ Allowed gate status:
 - `live_evidence_missing`
 - `live_evidence_not_current`
 - `live_evidence_scope_mismatch`
+- `freshness_missing`
+- `freshness_stale`
+- `freshness_scope_mismatch`
+- `redaction_policy_missing`
+- `redaction_policy_invalid`
+- `risk_disposition_missing`
+- `risk_disposition_stale`
+- `risk_disposition_scope_mismatch`
 - `stub_or_fake_host_evidence`
 - `control_plane_only_signal`
 - `historical_or_stale_evidence`
