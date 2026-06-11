@@ -137,6 +137,9 @@ const createAdmittedLiveReadOptions = (input: {
   createLiveReadOptions({
     target_page: input.targetPage,
     actual_target_page: input.targetPage,
+    ...(input.targetPage === "explore_detail_tab"
+      ? createProviderAwareDetailReadPathOptions(input.runId)
+      : {}),
     active_api_fetch_fallback: createActiveFallbackGate(input.runId),
     admission_context: createApprovedReadAdmissionContext({
       runId: input.runId,
@@ -149,6 +152,96 @@ const createAdmittedLiveReadOptions = (input: {
     }),
     ...(input.overrides ?? {})
   });
+
+function createProviderAwareDetailReadPathOptions(runId: string) {
+  return {
+    xhs_driver_provider_requirements: {
+      declaration_id: "xhs-driver-provider-requirements:xhs.detail:read:v1",
+      declaration_version: "v1",
+      provider_requirement_ref: "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read",
+      provider_requirement_refs: ["FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read"],
+      ability_scope: {
+        command: "xhs.detail",
+        ability_id: "xhs.note.detail.v1",
+        ability_layer: "L3",
+        ability_action: "read"
+      },
+      required_actions: ["read", "diagnose"],
+      non_proofs: [
+        "driver_requirement_declaration_does_not_prove_provider_capability_allowed",
+        "driver_requirement_declaration_does_not_prove_runtime_ready"
+      ],
+      downstream_slice_refs: ["#1166", "#1167", "#1168"]
+    },
+    provider_requirement_refs: ["FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read"],
+    runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/detail`,
+    target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/detail`,
+    xhs_runtime_binding: {
+      target_domain: "www.xiaohongshu.com",
+      target_page: "explore_detail_tab",
+      execution_mode: "read",
+      binding_freshness: "current_run",
+      binding_status: "declared"
+    },
+    target_binding_snapshot: {
+      snapshot_version: "v1",
+      state: "bound",
+      run_id: runId,
+      target_scope: {
+        target_domain: "www.xiaohongshu.com",
+        target_page_class: "explore_detail_tab"
+      },
+      route_bucket: "detail",
+      freshness_scope: "current_run",
+      evidence_refs: {
+        candidate_ref: `FR-0063.target_binding_candidate.v1/${runId}/detail`,
+        url_match_ref: `FR-0063.target_binding_url_match.v1/${runId}/detail`,
+        dom_observation_ref: `FR-0063.target_binding_dom_observation.v1/${runId}/detail`,
+        runtime_state_ref: `FR-0063.target_binding_runtime_state.v1/${runId}/detail`,
+        extension_bridge_ref: `FR-0063.target_binding_extension_bridge.v1/${runId}/detail`,
+        transition_refs: [`target-binding-transition:${runId}:detail:bound`],
+        evidence_status: "complete",
+        evidence_completeness: "complete",
+        redaction_state: "redacted",
+        source_owner: "#1161"
+      },
+      blocking_reasons: []
+    },
+    target_binding_transition_evidence: [
+      {
+        transition_id: `target-binding-transition:${runId}:detail:bound`,
+        from_state: "candidate_found",
+        to_state: "bound"
+      }
+    ],
+    downstream_slice_refs: ["#1162", "#1166", "#1167", "#1168"],
+    non_proofs: ["syvert_normalized_result_complete", "write_enabled"],
+    page_runtime_readiness_ref: `issue-1162.xhs_page_runtime_readiness.v1/${runId}`,
+    xhs_page_runtime_readiness: {
+      owner_ref: "#1162",
+      command: "xhs.detail",
+      run_id: runId,
+      page_readiness: {
+        status: "ready",
+        required: true
+      },
+      runtime_readiness: {
+        status: "ready",
+        required: true,
+        source: "official_chrome_runtime_readiness"
+      },
+      provider_admission_readiness: {
+        status: "ready",
+        required: true,
+        source: "provider_admission_result"
+      },
+      overall_readiness: "ready",
+      gate_decision: "allow"
+    },
+    page_runtime_readiness_decision: "allow",
+    page_runtime_readiness_blocking_reasons: []
+  } as const;
+}
 
 const createEnvironment = (overrides?: Partial<XhsSearchEnvironment>): XhsSearchEnvironment => ({
   now: () => 1_000,
@@ -293,6 +386,266 @@ const createFallbackExecutionContext = (runId: string) => ({
 });
 
 describe("xhs read execution fallback", () => {
+  it("blocks xhs.detail when provider-aware readiness denies the read path", async () => {
+    const fetchJson = vi.fn(async () => {
+      throw new Error("provider-aware detail block should not continue to live fetch");
+    });
+    const runId = "run-detail-provider-aware-denied-001";
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-provider-denied-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "explore_detail_tab",
+          overrides: {
+            ...createProviderAwareDetailReadPathOptions(runId),
+            target_binding_snapshot: {
+              ...createProviderAwareDetailReadPathOptions(runId).target_binding_snapshot,
+              state: "candidate_found",
+              evidence_refs: undefined,
+              blocking_reasons: ["target_binding_not_bound"]
+            },
+            xhs_page_runtime_readiness: {
+              ...createProviderAwareDetailReadPathOptions(runId).xhs_page_runtime_readiness,
+              page_readiness: {
+                status: "blocked",
+                required: true,
+                blocking_reasons: ["target_binding_not_bound"]
+              },
+              provider_admission_readiness: {
+                status: "blocked",
+                required: true,
+                source: "provider_admission_result",
+                blocking_reasons: ["provider_requirement_refs_not_attested"]
+              },
+              overall_readiness: "blocked",
+              gate_decision: "deny"
+            },
+            page_runtime_readiness_decision: "deny",
+            page_runtime_readiness_blocking_reasons: [
+              "page:target_binding_not_bound",
+              "provider:provider_requirement_refs_not_attested"
+            ]
+          }
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/explore/note-provider-denied-001",
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.details).toMatchObject({
+      reason: "PROVIDER_AWARE_READINESS_DENIED",
+      blocking_reasons: expect.arrayContaining([
+        "target_binding:target_binding_not_bound",
+        "provider:provider_requirement_refs_not_attested",
+        "page_runtime_gate:deny",
+        "page_runtime_readiness_decision:deny"
+      ])
+    });
+    expect(result.payload).toMatchObject({
+      provider_aware_read_path_gate: {
+        gate_decision: "blocked",
+        live_execution_continued: false,
+        effective_execution_mode: null,
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      },
+      provider_requirement_refs: [
+        "FR-0061.xhs_driver_provider_requirements.v1/xhs.detail.read"
+      ],
+      runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/detail`,
+      target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/detail`
+    });
+    expect(result.payload.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      effective_execution_mode: null,
+      gate_reasons: expect.arrayContaining([
+        "PROVIDER_AWARE_READINESS_DENIED",
+        "PROVIDER_AWARE_LIVE_READ_NOT_CONTINUED"
+      ])
+    });
+  });
+
+  it("blocks xhs.detail simulated success when provider-aware readiness denies the read path", async () => {
+    const fetchJson = vi.fn(async () => {
+      throw new Error("provider-aware detail block should not continue to simulated live success");
+    });
+    const runId = "run-detail-provider-aware-simulated-denied-001";
+    const providerAwareOptions = createProviderAwareDetailReadPathOptions(runId);
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-provider-simulated-denied-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "explore_detail_tab",
+          overrides: {
+            ...providerAwareOptions,
+            simulate_result: "success",
+            target_binding_snapshot: {
+              ...providerAwareOptions.target_binding_snapshot,
+              state: "candidate_found",
+              evidence_refs: undefined,
+              blocking_reasons: ["target_binding_not_bound"]
+            },
+            xhs_page_runtime_readiness: {
+              ...providerAwareOptions.xhs_page_runtime_readiness,
+              page_readiness: {
+                status: "blocked",
+                required: true,
+                blocking_reasons: ["target_binding_not_bound"]
+              },
+              provider_admission_readiness: {
+                status: "blocked",
+                required: true,
+                source: "provider_admission_result",
+                blocking_reasons: ["provider_requirement_refs_not_attested"]
+              },
+              overall_readiness: "blocked",
+              gate_decision: "deny"
+            },
+            page_runtime_readiness_decision: "deny",
+            page_runtime_readiness_blocking_reasons: [
+              "page:target_binding_not_bound",
+              "provider:provider_requirement_refs_not_attested"
+            ]
+          }
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () =>
+          "https://www.xiaohongshu.com/explore/note-provider-simulated-denied-001",
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.details).toMatchObject({
+      reason: "PROVIDER_AWARE_READINESS_DENIED",
+      blocking_reasons: expect.arrayContaining([
+        "target_binding:target_binding_not_bound",
+        "provider:provider_requirement_refs_not_attested",
+        "page_runtime_gate:deny",
+        "page_runtime_readiness_decision:deny"
+      ])
+    });
+    expect(result.payload).toMatchObject({
+      provider_aware_read_path_gate: {
+        gate_decision: "blocked",
+        live_execution_continued: false,
+        effective_execution_mode: null,
+        blocking_reasons: expect.arrayContaining([
+          "target_binding:target_binding_not_bound",
+          "provider:provider_requirement_refs_not_attested"
+        ])
+      }
+    });
+    expect(result.payload.summary?.capability_result).toBeUndefined();
+  });
+
+  it("blocks xhs.detail when provider-aware evidence is scoped to xhs.search", async () => {
+    const fetchJson = vi.fn(async () => {
+      throw new Error("search-scoped provider evidence should not continue to detail fetch");
+    });
+    const runId = "run-detail-provider-aware-search-scope-001";
+
+    const result = await executeXhsDetail(
+      {
+        abilityId: "xhs.note.detail.v1",
+        abilityLayer: "L3",
+        abilityAction: "read",
+        params: {
+          note_id: "note-provider-search-scope-001"
+        },
+        options: createAdmittedLiveReadOptions({
+          runId,
+          targetPage: "explore_detail_tab",
+          overrides: {
+            ...createProviderAwareDetailReadPathOptions(runId),
+            xhs_driver_provider_requirements: {
+              ...createProviderAwareDetailReadPathOptions(runId).xhs_driver_provider_requirements,
+              provider_requirement_ref:
+                "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read",
+              provider_requirement_refs: [
+                "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+              ],
+              ability_scope: {
+                command: "xhs.search",
+                ability_id: "xhs.note.search.v1",
+                ability_layer: "L3",
+                ability_action: "read"
+              }
+            },
+            provider_requirement_refs: [
+              "FR-0061.xhs_driver_provider_requirements.v1/xhs.search.read"
+            ],
+            runtime_binding_ref: `FR-0061.xhs_runtime_binding.v1/${runId}/search`,
+            target_binding_snapshot_ref: `FR-0063.target_binding_snapshot.v1/${runId}/search`,
+            xhs_runtime_binding: {
+              target_domain: "www.xiaohongshu.com",
+              target_page: "search_tab",
+              execution_mode: "read",
+              binding_freshness: "current_run",
+              binding_status: "declared"
+            },
+            target_binding_snapshot: {
+              ...createProviderAwareDetailReadPathOptions(runId).target_binding_snapshot,
+              target_scope: {
+                target_domain: "www.xiaohongshu.com",
+                target_page_class: "search_tab"
+              },
+              route_bucket: "search"
+            },
+            xhs_page_runtime_readiness: {
+              ...createProviderAwareDetailReadPathOptions(runId).xhs_page_runtime_readiness,
+              command: "xhs.search"
+            }
+          }
+        }),
+        executionContext: createFallbackExecutionContext(runId)
+      },
+      createEnvironment({
+        getLocationHref: () => "https://www.xiaohongshu.com/explore/note-provider-search-scope-001",
+        fetchJson
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.payload.details).toMatchObject({
+      reason: "PROVIDER_AWARE_READINESS_DENIED",
+      blocking_reasons: expect.arrayContaining([
+        "provider_requirement_ref_mismatch",
+        "provider_requirement_scope_mismatch",
+        "runtime_binding_ref_mismatch",
+        "runtime_binding_scope_mismatch",
+        "target_binding_ref_route:search",
+        "target_binding_scope_mismatch",
+        "page_runtime_readiness_command_mismatch"
+      ])
+    });
+  });
+
   it("classifies login modal pages before request-context lookup", async () => {
     const readCapturedRequestContext = vi.fn(async () => null);
     const fetchJson = vi.fn(async () => ({ status: 200, body: { code: 0 } }));
