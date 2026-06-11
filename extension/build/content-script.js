@@ -11346,14 +11346,20 @@ const BLOCKED_READINESS_STATUSES = new Set(["blocked", "deny", "denied", "not_re
 const DENY_READINESS_DECISIONS = new Set(["deny", "denied", "blocked", "defer", "deferred"]);
 const TARGET_BINDING_ALLOWED_STATES = new Set(["bound"]);
 const ALLOWED_PROVIDER_AWARE_GATE_REASONS = new Set(["LIVE_MODE_APPROVED"]);
-const collectReadinessDimensionBlockers = (dimension, prefix) => {
-    if (!dimension || dimension.required === false) {
+const collectReadinessDimensionBlockers = (dimension, prefix, missingReason) => {
+    if (!dimension) {
+        return [missingReason];
+    }
+    if (dimension.required === false) {
         return [];
     }
     const status = asString(dimension.status);
     const gateDecision = asString(dimension.gate_decision);
     const blockingReasons = asStringArray(dimension.blocking_reasons);
     const reasons = [];
+    if (!status && !gateDecision && blockingReasons.length === 0) {
+        reasons.push(missingReason);
+    }
     if (status && BLOCKED_READINESS_STATUSES.has(status)) {
         reasons.push(`${prefix}:${status}`);
     }
@@ -11371,18 +11377,28 @@ const resolveProviderAwareReadPathBlock = (options) => {
     const runtimeReadiness = asRecord(pageRuntimeReadiness?.runtime_readiness);
     const providerAdmissionReadiness = asRecord(pageRuntimeReadiness?.provider_admission_readiness);
     const targetBindingState = asString(targetBindingSnapshot?.state);
-    const hasRequiredTargetBinding = targetBindingSnapshot !== null || asString(options.target_binding_snapshot_ref) !== null;
+    const targetBindingSnapshotRef = asString(options.target_binding_snapshot_ref);
+    const providerRequirements = asRecord(options.xhs_driver_provider_requirements);
+    const providerRequirementRefs = asStringArray(options.provider_requirement_refs);
+    const providerRequirementDeclarationRefs = asStringArray(providerRequirements?.provider_requirement_refs);
     const reasons = [
+        ...(targetBindingSnapshot ? [] : ["target_binding_snapshot_missing"]),
+        ...(targetBindingSnapshotRef ? [] : ["target_binding_snapshot_ref_missing"]),
+        ...(providerRequirements ? [] : ["xhs_driver_provider_requirements_missing"]),
+        ...(providerRequirementRefs.length > 0 && providerRequirementDeclarationRefs.length > 0
+            ? []
+            : ["provider_requirement_refs_missing"]),
+        ...(pageRuntimeReadiness ? [] : ["page_runtime_readiness_missing"]),
         ...asStringArray(targetBindingSnapshot?.blocking_reasons).map((reason) => `target_binding:${reason}`),
-        ...collectReadinessDimensionBlockers(pageReadiness, "page"),
-        ...collectReadinessDimensionBlockers(runtimeReadiness, "runtime"),
-        ...collectReadinessDimensionBlockers(providerAdmissionReadiness, "provider"),
+        ...collectReadinessDimensionBlockers(pageReadiness, "page", "page_readiness_missing"),
+        ...collectReadinessDimensionBlockers(runtimeReadiness, "runtime", "runtime_readiness_missing"),
+        ...collectReadinessDimensionBlockers(providerAdmissionReadiness, "provider", "provider_admission_result_missing"),
         ...asStringArray(options.page_runtime_readiness_blocking_reasons)
     ];
     const overallReadiness = asString(pageRuntimeReadiness?.overall_readiness);
     const readinessGateDecision = asString(pageRuntimeReadiness?.gate_decision);
     const optionReadinessDecision = asString(options.page_runtime_readiness_decision);
-    if (hasRequiredTargetBinding && !TARGET_BINDING_ALLOWED_STATES.has(targetBindingState ?? "")) {
+    if (!TARGET_BINDING_ALLOWED_STATES.has(targetBindingState ?? "")) {
         reasons.push("target_binding:target_binding_not_bound");
         reasons.push(`target_binding_state:${targetBindingState ?? "missing"}`);
     }
@@ -11421,6 +11437,9 @@ const resolveBlockedNextRiskState = (current) => {
     }
     return current;
 };
+const isProviderAwareLiveReadGate = (gate) => gate.consumer_gate_result.action_type === "read" &&
+    (gate.consumer_gate_result.effective_execution_mode === "live_read_limited" ||
+        gate.consumer_gate_result.effective_execution_mode === "live_read_high_risk");
 const withProviderAwareReadPathBlockPayload = (result, gate, auditRecord, block) => {
     if (result.ok) {
         return result;
@@ -12442,7 +12461,9 @@ const executeXhsSearch = async (input, env) => {
             summary: "登录态缺失，无法执行 xhs.search"
         }), gate, auditRecord), gate.execution_audit);
     }
-    const providerAwareReadPathBlock = resolveProviderAwareReadPathBlock(input.options);
+    const providerAwareReadPathBlock = isProviderAwareLiveReadGate(gate)
+        ? resolveProviderAwareReadPathBlock(input.options)
+        : null;
     if (providerAwareReadPathBlock) {
         const summary = "provider-aware read path readiness denied xhs.search execution";
         return withLayer2InteractionInPayload(withProviderAwareReadPathBlockPayload(withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", summary, {
