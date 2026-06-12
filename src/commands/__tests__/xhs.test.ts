@@ -11243,6 +11243,203 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
+  it("fails creator publish admission closed when legacy account risk is blocked even with current clear state", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-account-safety-admit-blocked-"));
+    const profile = "xhs_account_safety_admit_blocked_profile";
+    const runId = "run-account-safety-admit-blocked-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.creator_publish.admit",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
+        accountSafetyTargetTabId: 32,
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.readMeta(profile);
+      await profileStore.writeMeta(profile, {
+        ...meta,
+        accountSafety: {
+          state: "account_risk_blocked",
+          platform: "xhs",
+          reason: "ACCOUNT_ABNORMAL",
+          observedAt: "2026-06-12T00:05:00.000Z",
+          cooldownUntil: "2026-06-12T00:35:00.000Z",
+          sourceRunId: "run-account-risk-active-before-admit-001",
+          sourceCommand: "xhs.search",
+          targetDomain: "creator.xiaohongshu.com",
+          targetTabId: 32,
+          pageUrl: "https://creator.xiaohongshu.com/publish/publish",
+          statusCode: 461,
+          platformCode: 300011
+        }
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.admit",
+            profile,
+            run_id: runId,
+            params: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ]),
+            downstream_owner: "#1179"
+          }),
+          consumer_gate_result: expect.objectContaining({
+            gate_decision: "blocked",
+            gate_reasons: expect.arrayContaining(["ACCOUNT_SAFETY_NOT_READY"])
+          })
+        })
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("keeps creator publish account-safety ready with current clear state and no legacy account risk blocker", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-account-safety-admit-clear-"));
+    const profile = "xhs_account_safety_admit_clear_profile";
+    const runId = "run-account-safety-admit-clear-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.creator_publish.admit",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
+        accountSafetyTargetTabId: 32,
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+
+      try {
+        await executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.admit",
+            profile,
+            run_id: runId,
+            params: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        );
+        throw new Error("expected loopback profile readiness to block while account safety stays clear");
+      } catch (error) {
+        expect(error).toMatchObject({
+          code: "ERR_EXECUTION_FAILED",
+          details: expect.objectContaining({
+            account_safety_gate_result: expect.objectContaining({
+              gate_status: "clear",
+              decision: "allow"
+            }),
+            consumer_gate_result: expect.objectContaining({
+              gate_decision: "blocked"
+            })
+          })
+        });
+        const details = (error as { details?: Record<string, unknown> }).details ?? {};
+        const consumerGateResult =
+          details.consumer_gate_result as Record<string, unknown> | undefined;
+        expect(consumerGateResult?.gate_reasons).not.toEqual(
+          expect.arrayContaining(["ACCOUNT_SAFETY_NOT_READY"])
+        );
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
   it("rejects a caller-supplied ability envelope that does not match the dedicated XHS command", async () => {
     await expect(
       executeCommand(

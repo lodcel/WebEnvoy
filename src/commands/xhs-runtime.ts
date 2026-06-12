@@ -3769,9 +3769,12 @@ const xhsReadCommand = async (
           : {})
       },
       downstreamOwner: context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ? "#1179" : "none"
-    });
-  const accountSafetyGateInput =
-    profileMetaRecord?.accountSafetyStateRecord ?? profileMeta?.accountSafety;
+  });
+  const legacyAccountSafetyBlocked =
+    accountSafetyStatus.state === "account_risk_blocked";
+  const accountSafetyGateInput = legacyAccountSafetyBlocked
+    ? profileMeta?.accountSafety
+    : profileMetaRecord?.accountSafetyStateRecord ?? profileMeta?.accountSafety;
   const accountSafetyGateResult = buildCurrentAccountSafetyGateResult(accountSafetyGateInput);
   const profileReadiness = {
     profile: context.profile ?? null,
@@ -3780,7 +3783,7 @@ const xhsReadCommand = async (
   };
   const accountReadiness = {
     ...accountSafetyStatus,
-    ready: accountSafetyGateResult.decision === "allow"
+    ready: accountSafetyGateResult.decision === "allow" && !legacyAccountSafetyBlocked
   };
   const creatorPublishAdmissionGateReasons =
     context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
