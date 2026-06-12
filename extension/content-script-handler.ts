@@ -2689,6 +2689,17 @@ export class ContentScriptHandler {
                 )
               }
             : {}),
+          ...(options.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
+          ...(asRecord(options.risk_evidence_gate_result)
+            ? { risk_evidence_gate_result: asRecord(options.risk_evidence_gate_result) ?? {} }
+            : {}),
+          ...(Array.isArray(options.non_proofs_observed)
+            ? {
+                non_proofs_observed: options.non_proofs_observed.filter(
+                  (proof): proof is string => typeof proof === "string"
+                )
+              }
+            : {}),
           ...(Array.isArray(options.non_proofs)
             ? {
                 non_proofs: options.non_proofs.filter(

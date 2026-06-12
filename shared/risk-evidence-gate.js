@@ -10,6 +10,8 @@ const RISK_EVIDENCE_STATES = new Set([
 ]);
 
 const RISK_EVIDENCE_DECISIONS = new Set(["allow_input_to_1188", "deny", "defer"]);
+const RISK_EVIDENCE_SCHEMA_VERSION = "webenvoy-risk-evidence-boundary.v1";
+const RISK_EVIDENCE_DOWNSTREAM_OWNER = "#1188";
 
 const RISK_EVIDENCE_NON_PROOFS = new Set([
   "provider_stealth_declared",
@@ -114,6 +116,15 @@ const asRecord = (value) =>
 
 const asString = (value) => (typeof value === "string" && value.trim().length > 0 ? value.trim() : null);
 
+const asIsoTimestamp = (value) => {
+  const timestamp = asString(value);
+  if (!timestamp) {
+    return null;
+  }
+  const parsed = Date.parse(timestamp);
+  return Number.isNaN(parsed) ? null : timestamp;
+};
+
 const asStringArray = (value) =>
   Array.isArray(value)
     ? value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
@@ -149,6 +160,8 @@ const buildBlockedResult = (input) => ({
   non_proofs_observed: input.nonProofsObserved,
   risk_evidence_ref: input.riskEvidenceRef,
   evidence_refs_consumed: input.evidenceRefsConsumed,
+  schema_version: input.schemaVersion,
+  evaluated_at: input.evaluatedAt,
   downstream_owner: input.downstreamOwner
 });
 
@@ -216,17 +229,28 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
 
   const riskEvidenceState = asString(riskEvidenceGateResult.risk_state);
   const riskEvidenceDecision = asString(riskEvidenceGateResult.decision);
+  const schemaVersion = asString(riskEvidenceGateResult.schema_version);
   const riskEvidenceRef = asString(riskEvidenceGateResult.risk_evidence_ref);
   const evidenceRefsConsumed = asStringArray(riskEvidenceGateResult.evidence_refs_consumed);
+  const evaluatedAt = asIsoTimestamp(riskEvidenceGateResult.evaluated_at);
   const downstreamOwner = asString(riskEvidenceGateResult.downstream_owner) ?? "none";
   const blockingReasons = normalizeBlockingReasons(riskEvidenceGateResult.blocking_reasons);
   const gateReasons = [];
 
+  if (schemaVersion !== RISK_EVIDENCE_SCHEMA_VERSION) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
   if (!RISK_EVIDENCE_STATES.has(riskEvidenceState)) {
     pushReason(gateReasons, "risk_evidence_unclassified");
   }
   if (!RISK_EVIDENCE_DECISIONS.has(riskEvidenceDecision)) {
     pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (!evaluatedAt) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (downstreamOwner === "none") {
+    pushReason(gateReasons, "downstream_owner_required");
   }
   for (const reason of blockingReasons) {
     pushReason(
@@ -242,6 +266,9 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
     pushReason(gateReasons, blockingReasons.length > 0 ? null : "risk_evidence_unclassified");
   }
   if (riskEvidenceState === "accepted" && riskEvidenceDecision === "allow_input_to_1188") {
+    if (downstreamOwner !== RISK_EVIDENCE_DOWNSTREAM_OWNER) {
+      pushReason(gateReasons, "downstream_owner_required");
+    }
     if (blockingReasons.length > 0) {
       pushReason(gateReasons, "risk_evidence_unclassified");
     }
@@ -259,6 +286,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       nonProofsObserved,
       riskEvidenceRef,
       evidenceRefsConsumed,
+      schemaVersion,
+      evaluatedAt,
       downstreamOwner
     });
   }
@@ -274,6 +303,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
     non_proofs_observed: nonProofsObserved,
     risk_evidence_ref: riskEvidenceRef,
     evidence_refs_consumed: evidenceRefsConsumed,
+    schema_version: schemaVersion,
+    evaluated_at: evaluatedAt,
     downstream_owner: downstreamOwner
   };
 };
@@ -281,6 +312,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
 export {
   RISK_EVIDENCE_BLOCKING_REASONS,
   RISK_EVIDENCE_DECISIONS,
+  RISK_EVIDENCE_DOWNSTREAM_OWNER,
+  RISK_EVIDENCE_SCHEMA_VERSION,
   RISK_EVIDENCE_NON_PROOFS,
   RISK_EVIDENCE_STATES
 };

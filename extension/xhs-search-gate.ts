@@ -161,6 +161,10 @@ export const resolveGate = (
     auditRecord: options.audit_record,
     admissionContext: options.admission_context,
     limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
+    risk_evidence_required: options.risk_evidence_required === true,
+    risk_evidence_gate_result: asRecord(options.risk_evidence_gate_result) ?? undefined,
+    non_proofs_observed: asStringArray(options.non_proofs_observed),
+    non_proofs: asStringArray(options.non_proofs),
     additionalGateReasons: Array.isArray(options.admission_gate_reasons)
       ? options.admission_gate_reasons.filter((reason): reason is string => typeof reason === "string")
       : [],
@@ -349,6 +353,13 @@ export const createGateOnlySuccess = (input: {
         : {}),
       ...(asStringArray(input.options?.downstream_slice_refs).length > 0
         ? { downstream_slice_refs: asStringArray(input.options?.downstream_slice_refs) }
+        : {}),
+      ...(input.options?.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
+      ...(asRecord(input.options?.risk_evidence_gate_result)
+        ? { risk_evidence_gate_result: asRecord(input.options?.risk_evidence_gate_result) ?? {} }
+        : {}),
+      ...(asStringArray(input.options?.non_proofs_observed).length > 0
+        ? { non_proofs_observed: asStringArray(input.options?.non_proofs_observed) }
         : {}),
       ...(asStringArray(input.options?.non_proofs).length > 0
         ? { non_proofs: asStringArray(input.options?.non_proofs) }

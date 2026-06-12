@@ -343,6 +343,127 @@ describe("xhs-search gate helpers", () => {
     );
   });
 
+  it("forwards FR-0070 risk evidence fields from runtime options through resolveGate", () => {
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        risk_evidence_required: true,
+        risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+        approval_record: {}
+      },
+      {
+        runId: "run-risk-evidence-ingress-001",
+        requestId: "dispatch-risk-evidence-ingress-001",
+        commandRequestId: "cmd-risk-evidence-ingress-001",
+        sessionId: "session-risk-evidence-ingress-001",
+        profile: "profile-risk-evidence-ingress-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result.risk_evidence_consumer_gate).toMatchObject({
+      required: true,
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      risk_evidence_state: "accepted",
+      risk_evidence_decision: "allow_input_to_1188",
+      downstream_owner: "#1188"
+    });
+    expect(gate.consumer_gate_result.gate_decision).toBe("allowed");
+  });
+
+  it("forwards runtime non-proof signals through resolveGate as fail-closed risk evidence input", () => {
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        non_proofs_observed: ["provider_doctor_pass", "runtime_bootstrap_ack"],
+        approval_record: {}
+      },
+      {
+        runId: "run-risk-evidence-non-proof-001",
+        requestId: "dispatch-risk-evidence-non-proof-001",
+        commandRequestId: "cmd-risk-evidence-non-proof-001",
+        sessionId: "session-risk-evidence-non-proof-001",
+        profile: "profile-risk-evidence-non-proof-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result.risk_evidence_consumer_gate).toMatchObject({
+      required: true,
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "blocked"
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["provider_stealth_non_proof", "control_plane_only_signal"])
+    );
+  });
+
+  it("fails closed through resolveGate when runtime options carry malformed accepted risk evidence", () => {
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        risk_evidence_required: true,
+        risk_evidence_gate_result: {
+          ...acceptedRiskEvidenceGateResult(),
+          downstream_owner: "none"
+        },
+        approval_record: {}
+      },
+      {
+        runId: "run-risk-evidence-malformed-001",
+        requestId: "dispatch-risk-evidence-malformed-001",
+        commandRequestId: "cmd-risk-evidence-malformed-001",
+        sessionId: "session-risk-evidence-malformed-001",
+        profile: "profile-risk-evidence-malformed-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: false,
+        decision: "blocked"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["downstream_owner_required"])
+    );
+  });
+
   it("flags mismatched actual target context", () => {
     expect(
       resolveActualTargetGateReasons({

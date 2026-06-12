@@ -123,4 +123,44 @@ describe("FR-0070 risk evidence consumer gate", () => {
       gate_reasons: ["risk_evidence_missing"]
     });
   });
+
+  it.each([
+    ["schema_version", { schema_version: "unknown.v1" }],
+    ["evaluated_at", { evaluated_at: "not-a-timestamp" }],
+    ["downstream_owner", { downstream_owner: "none" }]
+  ])("fails closed when accepted payload has malformed %s", (_field, override) => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: {
+          ...acceptedRiskEvidence(),
+          ...override
+        }
+      })
+    ).toMatchObject({
+      accepted_risk_input: false,
+      decision: "blocked"
+    });
+  });
+
+  it.each([
+    ["schema_version", { schema_version: undefined }, "risk_evidence_unclassified"],
+    ["evaluated_at", { evaluated_at: undefined }, "risk_evidence_unclassified"],
+    ["downstream_owner", { downstream_owner: undefined }, "downstream_owner_required"]
+  ])("fails closed when accepted payload is missing %s", (_field, override, expectedReason) => {
+    const payload = {
+      ...acceptedRiskEvidence(),
+      ...override
+    };
+    for (const [key, value] of Object.entries(override)) {
+      if (value === undefined) {
+        delete (payload as Record<string, unknown>)[key];
+      }
+    }
+
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: payload
+      }).gate_reasons
+    ).toEqual(expect.arrayContaining([expectedReason]));
+  });
 });
