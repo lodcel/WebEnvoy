@@ -360,6 +360,12 @@ export const createGateOnlySuccess = (input: {
       ...(hasOwn(input.options, "risk_evidence_gate_result")
         ? { risk_evidence_gate_result: input.options?.risk_evidence_gate_result }
         : {}),
+      ...(input.options?.behavior_baseline_hint_required === true
+        ? { behavior_baseline_hint_required: true }
+        : {}),
+      ...(hasOwn(input.options, "behavior_baseline_hint")
+        ? { behavior_baseline_hint: input.options?.behavior_baseline_hint }
+        : {}),
       ...(hasOwn(input.options, "non_proofs_observed")
         ? { non_proofs_observed: input.options?.non_proofs_observed }
         : {}),

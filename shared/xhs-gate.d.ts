@@ -230,6 +230,10 @@ export interface XhsGateCoreInput {
   risk_evidence_required?: boolean;
   riskEvidenceGateResult?: RiskEvidenceConsumerInput["riskEvidenceGateResult"];
   risk_evidence_gate_result?: RiskEvidenceConsumerInput["risk_evidence_gate_result"];
+  behaviorBaselineHintRequired?: boolean;
+  behavior_baseline_hint_required?: boolean;
+  behaviorBaselineHint?: RiskEvidenceConsumerInput["behaviorBaselineHint"];
+  behavior_baseline_hint?: RiskEvidenceConsumerInput["behavior_baseline_hint"];
   nonProofsObserved?: unknown;
   non_proofs_observed?: unknown;
   nonProofs?: unknown;

@@ -103,10 +103,19 @@ export const buildCloseoutGateAggregator = (input: {
     : hasOwn(status, "non_proofs_observed")
       ? status.non_proofs_observed
       : status.non_proofs;
+  const rawBehaviorBaselineHint = hasOwn(params, "behavior_baseline_hint")
+    ? params.behavior_baseline_hint
+    : hasOwn(status, "behavior_baseline_hint")
+      ? status.behavior_baseline_hint
+      : status.behaviorBaselineHint;
   const riskEvidenceConsumerGate = evaluateRiskEvidenceConsumerGate({
     riskEvidenceRequired:
       params.risk_evidence_required === true || params.closeout_risk_evidence_required === true,
     risk_evidence_gate_result: rawRiskEvidenceGateResult,
+    behavior_baseline_hint_required:
+      params.behavior_baseline_hint_required === true ||
+      params.closeout_behavior_baseline_hint_required === true,
+    behavior_baseline_hint: rawBehaviorBaselineHint,
     non_proofs_observed: rawNonProofsObserved
   });
   const identityPreflightMode = asString(identityPreflight?.mode);

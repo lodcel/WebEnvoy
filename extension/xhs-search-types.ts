@@ -84,6 +84,8 @@ export interface XhsSearchOptions {
   downstream_slice_refs?: string[];
   risk_evidence_required?: boolean;
   risk_evidence_gate_result?: unknown;
+  behavior_baseline_hint_required?: boolean;
+  behavior_baseline_hint?: unknown;
   non_proofs_observed?: unknown;
   non_proofs?: string[];
   page_runtime_readiness_ref?: string;

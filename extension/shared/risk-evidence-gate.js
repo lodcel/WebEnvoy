@@ -12,6 +12,67 @@ const RISK_EVIDENCE_STATES = new Set([
 const RISK_EVIDENCE_DECISIONS = new Set(["allow_input_to_1188", "deny", "defer"]);
 const RISK_EVIDENCE_SCHEMA_VERSION = "webenvoy-risk-evidence-boundary.v1";
 const RISK_EVIDENCE_DOWNSTREAM_OWNER = "#1188";
+const BEHAVIOR_BASELINE_HINT_SCHEMA_VERSION = "webenvoy-behavior-baseline-hint.v1";
+
+const BEHAVIOR_BASELINE_HINT_BASELINE_STATES = new Set([
+  "unseeded",
+  "learning",
+  "ready",
+  "degraded"
+]);
+const BEHAVIOR_BASELINE_HINT_DRIFT_LEVELS = new Set([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "critical"
+]);
+const BEHAVIOR_BASELINE_HINT_DECISIONS = new Set([
+  "allow_read_only",
+  "no_additional_restriction",
+  "hold_live_write",
+  "require_manual_review",
+  "require_reseed"
+]);
+const BEHAVIOR_BASELINE_HINT_GOAL_KINDS = new Set(["read", "write"]);
+const BEHAVIOR_BASELINE_HINT_EXECUTION_MODES = new Set([
+  "dry_run",
+  "recon",
+  "live_read_limited",
+  "live_read_high_risk",
+  "live_write"
+]);
+const BEHAVIOR_BASELINE_HINT_ALLOWED_KEYS = new Set([
+  "schema_version",
+  "target_fr_ref",
+  "validation_scope",
+  "assessment_ref",
+  "baseline_ref",
+  "baseline_state",
+  "drift_level",
+  "decision_hint",
+  "confidence",
+  "profile_ref",
+  "target_domain",
+  "browser_channel",
+  "execution_surface",
+  "effective_execution_mode",
+  "probe_bundle_ref",
+  "goal_kind",
+  "reseed_required",
+  "evidence_refs_consumed",
+  "assessed_at"
+]);
+const BEHAVIOR_BASELINE_HINT_FORBIDDEN_ACCOUNT_OPS_KEYS = new Set([
+  "account_health_score",
+  "account_pool_ref",
+  "account_rotation_policy_ref",
+  "account_cooldown_policy_ref",
+  "persona_ref",
+  "behavior_persona_ref",
+  "operator_schedule_ref",
+  "long_term_profile_score"
+]);
 const RISK_HINT_INPUTS = new Set(["session_rhythm_evidence"]);
 
 const RISK_EVIDENCE_NON_PROOFS = new Set([
@@ -250,10 +311,144 @@ const buildBlockedResult = (input) => ({
   risk_evidence_ref: input.riskEvidenceRef,
   evidence_refs_consumed: input.evidenceRefsConsumed,
   risk_hints_consumed: input.riskHintsConsumed,
+  behavior_baseline_hint_accepted: input.behaviorBaselineHintAccepted ?? false,
+  behavior_baseline_hint: input.behaviorBaselineHint ?? null,
   schema_version: input.schemaVersion,
   evaluated_at: input.evaluatedAt,
   downstream_owner: input.downstreamOwner
 });
+
+const evaluateBehaviorBaselineHint = (value) => {
+  if (value === undefined) {
+    return {
+      present: false,
+      accepted: false,
+      reasons: [],
+      hint: null
+    };
+  }
+
+  const record = asRecord(value);
+  const reasons = [];
+  if (!record) {
+    return {
+      present: true,
+      accepted: false,
+      reasons: ["risk_evidence_unclassified"],
+      hint: null
+    };
+  }
+
+  for (const key of Object.keys(record)) {
+    if (BEHAVIOR_BASELINE_HINT_FORBIDDEN_ACCOUNT_OPS_KEYS.has(key)) {
+      pushReason(reasons, "risk_evidence_scope_mismatch");
+    } else if (!BEHAVIOR_BASELINE_HINT_ALLOWED_KEYS.has(key)) {
+      pushReason(reasons, "risk_evidence_unclassified");
+    }
+  }
+
+  const schemaVersion = asString(record.schema_version);
+  const targetFrRef = asString(record.target_fr_ref);
+  const validationScope = asString(record.validation_scope);
+  const assessmentRef = asString(record.assessment_ref);
+  const baselineRef = asString(record.baseline_ref);
+  const baselineState = asString(record.baseline_state);
+  const driftLevel = asString(record.drift_level);
+  const decisionHint = asString(record.decision_hint);
+  const profileRef = asString(record.profile_ref);
+  const targetDomain = asString(record.target_domain);
+  const browserChannel = asString(record.browser_channel);
+  const executionSurface = asString(record.execution_surface);
+  const effectiveExecutionMode = asString(record.effective_execution_mode);
+  const probeBundleRef = asString(record.probe_bundle_ref);
+  const goalKind = asString(record.goal_kind);
+  const assessedAt = asIsoTimestamp(record.assessed_at);
+  const evidenceRefsConsumed = asStringArray(record.evidence_refs_consumed);
+  const evidenceRefsConsumedShape = classifyStringArray(record.evidence_refs_consumed);
+  const confidence = typeof record.confidence === "number" ? record.confidence : null;
+  const reseedRequired = typeof record.reseed_required === "boolean" ? record.reseed_required : null;
+
+  if (schemaVersion !== BEHAVIOR_BASELINE_HINT_SCHEMA_VERSION) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (targetFrRef !== "FR-0022" || validationScope !== "cross_layer_baseline") {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (!assessmentRef || evidenceRefsConsumed.length === 0 || evidenceRefsConsumedShape.malformed) {
+    pushReason(reasons, "behavior_baseline_required");
+  }
+  if (!assessedAt) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!profileRef || !targetDomain || !probeBundleRef) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (browserChannel !== "Google Chrome stable" || executionSurface !== "real_browser") {
+    pushReason(reasons, "stub_or_fake_host_evidence");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_EXECUTION_MODES.has(effectiveExecutionMode)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_GOAL_KINDS.has(goalKind)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_BASELINE_STATES.has(baselineState)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_DRIFT_LEVELS.has(driftLevel)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_DECISIONS.has(decisionHint)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (confidence === null || confidence < 0 || confidence > 1) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (reseedRequired === null) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (
+    decisionHint === "no_additional_restriction" &&
+    (goalKind !== "write" ||
+      baselineState !== "ready" ||
+      !["none", "low"].includes(driftLevel) ||
+      reseedRequired !== false)
+  ) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (reseedRequired === true && !["require_manual_review", "require_reseed"].includes(decisionHint)) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+
+  const hint = {
+    schema_version: schemaVersion,
+    target_fr_ref: targetFrRef,
+    validation_scope: validationScope,
+    assessment_ref: assessmentRef,
+    baseline_ref: baselineRef,
+    baseline_state: baselineState,
+    drift_level: driftLevel,
+    decision_hint: decisionHint,
+    confidence,
+    profile_ref: profileRef,
+    target_domain: targetDomain,
+    browser_channel: browserChannel,
+    execution_surface: executionSurface,
+    effective_execution_mode: effectiveExecutionMode,
+    probe_bundle_ref: probeBundleRef,
+    goal_kind: goalKind,
+    reseed_required: reseedRequired,
+    evidence_refs_consumed: evidenceRefsConsumed,
+    assessed_at: assessedAt
+  };
+
+  return {
+    present: true,
+    accepted: reasons.length === 0,
+    reasons,
+    hint: reasons.length === 0 ? hint : null
+  };
+};
 
 export const isRiskEvidenceGateRequired = (input = {}) => {
   const record = asRecord(input);
@@ -264,8 +459,12 @@ export const isRiskEvidenceGateRequired = (input = {}) => {
     record.required === true ||
     record.riskEvidenceRequired === true ||
     record.risk_evidence_required === true ||
+    record.behaviorBaselineHintRequired === true ||
+    record.behavior_baseline_hint_required === true ||
     hasPresentField(record, "riskEvidenceGateResult") ||
     hasPresentField(record, "risk_evidence_gate_result") ||
+    hasPresentField(record, "behaviorBaselineHint") ||
+    hasPresentField(record, "behavior_baseline_hint") ||
     classifyNonProofs(record.nonProofsObserved).present ||
     classifyNonProofs(record.non_proofs_observed).present ||
     classifyNonProofs(record.nonProofs).present ||
@@ -291,6 +490,12 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
   const nonProofGateReasons = nonProofClassifications.flatMap(
     (classification) => classification.reasons
   );
+  const rawBehaviorBaselineHint = hasPresentField(record, "behaviorBaselineHint")
+    ? record.behaviorBaselineHint
+    : record.behavior_baseline_hint;
+  const behaviorBaselineHint = evaluateBehaviorBaselineHint(rawBehaviorBaselineHint);
+  const behaviorBaselineHintRequired =
+    record.behaviorBaselineHintRequired === true || record.behavior_baseline_hint_required === true;
   const required = isRiskEvidenceGateRequired(record);
   const riskEvidenceGateResultProvided =
     hasPresentField(record, "riskEvidenceGateResult") ||
@@ -309,6 +514,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       risk_evidence_ref: null,
       evidence_refs_consumed: [],
       risk_hints_consumed: [],
+      behavior_baseline_hint_accepted: false,
+      behavior_baseline_hint: null,
       downstream_owner: "none"
     };
   }
@@ -319,6 +526,10 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       gateReasons:
         riskEvidenceGateResultProvided && rawRiskEvidenceGateResult !== null
           ? ["risk_evidence_unclassified"]
+          : behaviorBaselineHintRequired && !behaviorBaselineHint.present
+          ? ["behavior_baseline_required"]
+          : behaviorBaselineHint.reasons.length > 0
+          ? behaviorBaselineHint.reasons
           : nonProofsObserved.length > 0 || nonProofGateReasons.length > 0
           ? [...collectNonProofBlockingReasons(nonProofsObserved), ...nonProofGateReasons].filter(
               (reason, index, reasons) => reasons.indexOf(reason) === index
@@ -330,6 +541,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       riskEvidenceRef: null,
       evidenceRefsConsumed: [],
       riskHintsConsumed: [],
+      behaviorBaselineHintAccepted: behaviorBaselineHint.accepted,
+      behaviorBaselineHint: behaviorBaselineHint.hint,
       downstreamOwner: "none"
     });
   }
@@ -352,6 +565,12 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
 
   for (const reason of nonProofGateReasons) {
     pushReason(gateReasons, reason);
+  }
+  for (const reason of behaviorBaselineHint.reasons) {
+    pushReason(gateReasons, reason);
+  }
+  if (behaviorBaselineHintRequired && !behaviorBaselineHint.present) {
+    pushReason(gateReasons, "behavior_baseline_required");
   }
   if (schemaVersion !== RISK_EVIDENCE_SCHEMA_VERSION) {
     pushReason(gateReasons, "risk_evidence_unclassified");
@@ -409,6 +628,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       riskEvidenceRef,
       evidenceRefsConsumed,
       riskHintsConsumed,
+      behaviorBaselineHintAccepted: behaviorBaselineHint.accepted,
+      behaviorBaselineHint: behaviorBaselineHint.hint,
       schemaVersion,
       evaluatedAt,
       downstreamOwner
@@ -427,6 +648,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
     risk_evidence_ref: riskEvidenceRef,
     evidence_refs_consumed: evidenceRefsConsumed,
     risk_hints_consumed: riskHintsConsumed,
+    behavior_baseline_hint_accepted: behaviorBaselineHint.accepted,
+    behavior_baseline_hint: behaviorBaselineHint.hint,
     schema_version: schemaVersion,
     evaluated_at: evaluatedAt,
     downstream_owner: downstreamOwner
@@ -438,6 +661,7 @@ export {
   RISK_EVIDENCE_DECISIONS,
   RISK_EVIDENCE_DOWNSTREAM_OWNER,
   RISK_EVIDENCE_SCHEMA_VERSION,
+  BEHAVIOR_BASELINE_HINT_SCHEMA_VERSION,
   RISK_HINT_INPUTS,
   RISK_EVIDENCE_NON_PROOFS,
   RISK_EVIDENCE_STATES

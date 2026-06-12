@@ -15,6 +15,28 @@ const acceptedRiskEvidence = () => ({
   downstream_owner: "#1188"
 });
 
+const acceptedBehaviorBaselineHint = () => ({
+  schema_version: "webenvoy-behavior-baseline-hint.v1",
+  target_fr_ref: "FR-0022",
+  validation_scope: "cross_layer_baseline",
+  assessment_ref: "behavior-assessment://current-head/run-001",
+  baseline_ref: "platform-behavior-baseline://xhs/www/read/v1",
+  baseline_state: "ready",
+  drift_level: "low",
+  decision_hint: "allow_read_only",
+  confidence: 0.82,
+  profile_ref: "xhs_001",
+  target_domain: "www.xiaohongshu.com",
+  browser_channel: "Google Chrome stable",
+  execution_surface: "real_browser",
+  effective_execution_mode: "live_read_high_risk",
+  probe_bundle_ref: "probe-bundle://fr-0022/xhs-read",
+  goal_kind: "read",
+  reseed_required: false,
+  evidence_refs_consumed: ["platform-behavior-signal-batch://run-001"],
+  assessed_at: "2026-06-12T09:51:00.000Z"
+});
+
 describe("FR-0070 risk evidence consumer gate", () => {
   it("accepts current-scope risk evidence only as #1188 input, not read/write allow proof", () => {
     expect(
@@ -58,6 +80,56 @@ describe("FR-0070 risk evidence consumer gate", () => {
     });
   });
 
+  it("accepts behavior baseline hint only as bounded evidence with no read/write allow proof", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: acceptedBehaviorBaselineHint()
+      })
+    ).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      behavior_baseline_hint_accepted: true,
+      behavior_baseline_hint: {
+        schema_version: "webenvoy-behavior-baseline-hint.v1",
+        target_fr_ref: "FR-0022",
+        validation_scope: "cross_layer_baseline",
+        decision_hint: "allow_read_only",
+        profile_ref: "xhs_001",
+        target_domain: "www.xiaohongshu.com"
+      }
+    });
+  });
+
+  it("does not let a valid behavior baseline hint replace accepted risk evidence", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        behavior_baseline_hint: acceptedBehaviorBaselineHint()
+      })
+    ).toMatchObject({
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "blocked",
+      gate_reasons: ["risk_evidence_missing"],
+      behavior_baseline_hint_accepted: true
+    });
+  });
+
+  it("fails closed when behavior baseline hint is required but absent", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint_required: true
+      })
+    ).toMatchObject({
+      accepted_risk_input: false,
+      decision: "blocked",
+      gate_reasons: ["behavior_baseline_required"],
+      behavior_baseline_hint_accepted: false
+    });
+  });
+
   it.each([
     ["unknown hint", ["detector_specific_session_rhythm"]],
     ["malformed hint entry", [{ source: "session_rhythm_evidence" }]],
@@ -76,6 +148,50 @@ describe("FR-0070 risk evidence consumer gate", () => {
       read_write_allow_proof: false,
       decision: "blocked",
       gate_reasons: ["risk_evidence_unclassified"]
+    });
+  });
+
+  it.each([
+    [
+      "mis-scoped target",
+      { target_fr_ref: "#238" },
+      "risk_evidence_scope_mismatch"
+    ],
+    [
+      "stub execution surface",
+      { execution_surface: "stub" },
+      "stub_or_fake_host_evidence"
+    ],
+    [
+      "missing evidence refs",
+      { evidence_refs_consumed: [] },
+      "behavior_baseline_required"
+    ],
+    [
+      "write-style non-restriction on a read baseline",
+      { decision_hint: "no_additional_restriction" },
+      "risk_evidence_scope_mismatch"
+    ],
+    [
+      "account operations field",
+      { account_health_score: 98 },
+      "risk_evidence_scope_mismatch"
+    ]
+  ])("fails closed for behavior baseline hint %s", (_caseName, override, expectedReason) => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: {
+          ...acceptedBehaviorBaselineHint(),
+          ...override
+        }
+      })
+    ).toMatchObject({
+      accepted_risk_input: false,
+      decision: "blocked",
+      gate_reasons: expect.arrayContaining([expectedReason]),
+      behavior_baseline_hint_accepted: false,
+      behavior_baseline_hint: null
     });
   });
 
