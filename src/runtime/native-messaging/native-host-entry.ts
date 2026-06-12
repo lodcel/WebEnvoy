@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   BRIDGE_PROTOCOL,
   ensureBridgeRequestEnvelope,
+  withBridgeCommandEnvelopeV2,
   type BridgeRequestEnvelope,
   type BridgeResponseEnvelope
 } from "./protocol.js";
@@ -32,6 +33,7 @@ const pendingSocketResponses = new Map<
   string,
   {
     socket: Socket;
+    request: BridgeRequestEnvelope;
   }
 >();
 const activeSockets = new Set<Socket>();
@@ -190,35 +192,41 @@ const writeSocketEnvelope = (socket: Socket, envelope: NativeEnvelope): void => 
 };
 
 const buildErrorEnvelope = (
-  request: Pick<BridgeRequestEnvelope, "id">,
+  request: Pick<BridgeRequestEnvelope, "id"> | BridgeRequestEnvelope,
   input: {
     code: string;
     message: string;
     summary?: Record<string, unknown>;
   }
-): BridgeResponseEnvelope => ({
-  id: request.id,
-  status: "error",
-  summary: input.summary ?? {},
-  error: {
-    code: input.code,
-    message: input.message
-  }
-});
+): BridgeResponseEnvelope => {
+  const response: BridgeResponseEnvelope = {
+    id: request.id,
+    status: "error",
+    summary: input.summary ?? {},
+    error: {
+      code: input.code,
+      message: input.message
+    }
+  };
+  return "method" in request ? withBridgeCommandEnvelopeV2(request, response) : response;
+};
 
 const buildSuccessEnvelope = (
-  request: Pick<BridgeRequestEnvelope, "id">,
+  request: Pick<BridgeRequestEnvelope, "id"> | BridgeRequestEnvelope,
   input: {
     summary: Record<string, unknown>;
     payload?: Record<string, unknown>;
   }
-): BridgeResponseEnvelope => ({
-  id: request.id,
-  status: "success",
-  summary: input.summary,
-  ...(input.payload ? { payload: input.payload } : {}),
-  error: null
-});
+): BridgeResponseEnvelope => {
+  const response: BridgeResponseEnvelope = {
+    id: request.id,
+    status: "success",
+    summary: input.summary,
+    ...(input.payload ? { payload: input.payload } : {}),
+    error: null
+  };
+  return "method" in request ? withBridgeCommandEnvelopeV2(request, response) : response;
+};
 
 const buildPingPayload = (request: BridgeRequestEnvelope): Record<string, unknown> => ({
   message: "pong",
@@ -228,7 +236,7 @@ const buildPingPayload = (request: BridgeRequestEnvelope): Record<string, unknow
 });
 
 const writeNativeSuccess = (
-  request: Pick<BridgeRequestEnvelope, "id">,
+  request: Pick<BridgeRequestEnvelope, "id"> | BridgeRequestEnvelope,
   input: {
     summary: Record<string, unknown>;
     payload?: Record<string, unknown>;
@@ -239,7 +247,7 @@ const writeNativeSuccess = (
 };
 
 const writeNativeError = (
-  request: Pick<BridgeRequestEnvelope, "id">,
+  request: Pick<BridgeRequestEnvelope, "id"> | BridgeRequestEnvelope,
   input: {
     code: string;
     message: string;
@@ -251,13 +259,11 @@ const writeNativeError = (
 };
 
 const failPendingSocketResponses = (input: { code: string; message: string }): void => {
-  for (const [id, pending] of pendingSocketResponses.entries()) {
+  for (const pending of pendingSocketResponses.values()) {
     writeSocketEnvelope(
       pending.socket,
       buildErrorEnvelope(
-        {
-          id
-        },
+        pending.request,
         {
           code: input.code,
           message: input.message,
@@ -267,8 +273,8 @@ const failPendingSocketResponses = (input: { code: string; message: string }): v
         }
       )
     );
-    pendingSocketResponses.delete(id);
   }
+  pendingSocketResponses.clear();
 };
 
 const cleanupSocketServer = async (options?: {
@@ -481,7 +487,7 @@ const handleSocketRequest = async (socket: Socket, rawRequest: unknown): Promise
       return;
     }
 
-    pendingSocketResponses.set(request.id, { socket });
+    pendingSocketResponses.set(request.id, { socket, request });
     writeNativeEnvelope(request);
   } catch (error) {
     writeSocketEnvelope(
@@ -621,7 +627,7 @@ const handleExtensionResponse = (response: BridgeResponseEnvelope): void => {
     return;
   }
   pendingSocketResponses.delete(response.id);
-  writeSocketEnvelope(pending.socket, response);
+  writeSocketEnvelope(pending.socket, withBridgeCommandEnvelopeV2(pending.request, response));
 };
 
 const handleNativeInput = async (rawInput: unknown): Promise<void> => {

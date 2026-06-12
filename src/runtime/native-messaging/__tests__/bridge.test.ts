@@ -142,6 +142,33 @@ describe("native messaging bridge", () => {
     expect(forwardedTimeoutMs).toBe(66_500);
   });
 
+  it("returns command envelope v2 parity for command-forward results", async () => {
+    const bridge = new NativeMessagingBridge({
+      transport: createFakeNativeBridgeTransport()
+    });
+
+    const result = await bridge.runCommand({
+      runId: "run-command-envelope-parity-001",
+      profile: "profile-a",
+      cwd: "/tmp",
+      command: "runtime.ping",
+      params: {}
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      command_envelope_v2: {
+        ok: true,
+        run_id: "run-command-envelope-parity-001",
+        command: "runtime.ping",
+        data: {
+          message: "pong"
+        },
+        errors: []
+      }
+    });
+  });
+
   it("maps timeout to transport timeout error", async () => {
     const bridge = new NativeMessagingBridge({
       transport: createFakeNativeBridgeTransport({
@@ -1538,7 +1565,7 @@ describe("native messaging bridge", () => {
       }
     });
 
-    await bridge.runCommand({
+    const result = await bridge.runCommand({
       runId: "run-canonical-requested-at-001",
       profile: "profile-a",
       cwd: "/tmp",
@@ -1571,5 +1598,10 @@ describe("native messaging bridge", () => {
 
     expect(topLevelGrant?.granted_at).toBe("2026-04-18T01:02:03.000Z");
     expect(optionGrant?.granted_at).toBe("2026-04-18T01:02:03.000Z");
+    expect(result.command_envelope_v2).toMatchObject({
+      ok: true,
+      run_id: "run-canonical-requested-at-001",
+      command: "xhs.search"
+    });
   });
 });
