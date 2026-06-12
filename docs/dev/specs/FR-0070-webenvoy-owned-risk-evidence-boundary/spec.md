@@ -150,6 +150,8 @@ WebEnvoy-owned risk evidence 必须至少支持：
 - 任何 workflow、capability、target、profile、browser、execution surface、provider、head、run、page 或 artifact drift 都必须使 evidence 进入 `stale`、`scope_mismatch` 或 `blocked`。
 - `execution_surface=real_browser` 是 live / account-touching closeout 的必要字段，但不能单独证明 risk accepted。
 - Formal spec sample 可以使用 synthetic refs；真实 evaluation 不得把 sample、历史 artifact 或同一 head 的旧 artifact 当作 fresh evidence。
+- `evidence_collected_at` 是 scope-level freshness binding，必须从 consumed required evidence refs 的 `collected_at` 聚合而来，取最新非空 timestamp。
+- `evidence_collected_at` 不替代 ref-level `collected_at`；real evaluation / closeout-bound risk evidence 的每个 required evidence ref 仍必须声明自己的 `collected_at`。
 
 ### 5. Freshness semantics
 
@@ -164,7 +166,7 @@ WebEnvoy-owned risk evidence 必须冻结 freshness 规则。
 约束：
 
 - 旧 head、旧 run、历史 artifact、same-head historical artifact、post-merge 补证据、runtime ping、runtime bootstrap ack、stub/fake host 或 control-plane-only signal 均不能满足 current risk evidence freshness。
-- `evidence_collected_at`、`expires_at` 或 equivalent freshness ref 必须存在于 real evaluation；过期或缺失时必须 fail-closed。
+- Scope-level `evidence_collected_at` 必须存在于 real evaluation / closeout-bound risk evidence；每个 required evidence ref 还必须提供 `collected_at`，并提供 `expires_at` 或 equivalent `freshness_ref`。过期、缺失或聚合值无法从 ref-level `collected_at` 推导时必须 fail-closed。
 - 如果 target/profile/provider/head/run/page 发生 drift，必须重新评估 risk evidence，不能沿用旧 accepted。
 
 ### 6. Non-proof signals

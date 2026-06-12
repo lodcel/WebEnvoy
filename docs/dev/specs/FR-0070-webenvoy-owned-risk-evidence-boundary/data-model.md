@@ -77,6 +77,7 @@
 - `head_sha`
 - `run_id`
 - `evaluation_context_ref`
+- `evidence_collected_at`
 - `artifact_identity`
 
 约束：
@@ -84,6 +85,9 @@
 - `formal_spec` 只允许用于 spec review/static validation sample。
 - `stub` 和 `fake_host` 不能满足 live/account-touching closeout 或 #1188 gate allow。
 - `write_prepare` / `live_write_commit` 必须消费 exact-scope account safety ref。
+- `evidence_collected_at` 是 scope-level freshness binding。Real evaluation / closeout-bound risk evidence 必须从 consumed required `evidence_refs[].collected_at` 聚合出最新非空 timestamp。
+- `evidence_collected_at` 不替代 ref-level `collected_at`；每个 required real-evaluation evidence ref 仍必须声明自己的 `collected_at`，并提供 `freshness_ref` 或 `expires_at`。
+- `formal_spec` sample 可使用 `evidence_collected_at=null`；real/browser/account/live/closeout-bound evaluation 缺失该字段必须 fail-closed。
 
 ### `WebEnvoyRiskEvidenceRef`
 
@@ -105,7 +109,7 @@
 
 - `redaction_state` 必须与 `FR-0040` / `FR-0041` 对齐。
 - `redaction_required|policy_missing|invalid` 命中 required evidence 时必须 fail-closed。
-- Real evaluation 必须提供 freshness 证据；formal sample 可使用 synthetic context。
+- Real evaluation 必须提供 ref-level `collected_at` 与 freshness 证据；formal sample 可使用 synthetic context。
 
 ### `ManualRiskDispositionRef`
 

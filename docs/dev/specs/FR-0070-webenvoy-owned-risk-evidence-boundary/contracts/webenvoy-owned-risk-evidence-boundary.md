@@ -126,6 +126,7 @@ interface WebEnvoyRiskEvidenceScopeV1 {
   head_sha: string
   run_id: string | null
   evaluation_context_ref: string
+  evidence_collected_at: string | null
   artifact_identity: string | null
 }
 ```
@@ -136,6 +137,9 @@ Rules:
 - `stub` and `fake_host` cannot satisfy live/account-touching closeout or #1188 gate allow.
 - `account_safety_ref` is required for `write_prepare` and `live_write_commit`.
 - `runtime_target_binding_ref` is required when the downstream gate depends on current browser/page/profile binding.
+- `evidence_collected_at` is the scope-level freshness binding for real evaluations and closeout-bound risk evidence. It must be derived from the consumed required `evidence_refs[].collected_at` values, using the latest non-null timestamp among those refs.
+- Scope-level `evidence_collected_at` does not replace per-ref `collected_at`; each required real-evaluation evidence ref still must provide its own `collected_at` and either `freshness_ref` or `expires_at`.
+- `formal_spec` samples may set `evidence_collected_at=null`; real/browser/account/live/closeout-bound evaluations must treat missing `evidence_collected_at` as stale/unclassified and fail closed.
 
 ## 6. Evidence refs
 
@@ -433,6 +437,7 @@ This payload is valid only as formal planning input. It cannot be used as runtim
     "head_sha": "a16bcdf8a7f5245fcda0ee587bbd2f0b9999377b",
     "run_id": null,
     "evaluation_context_ref": "issue:#1183",
+    "evidence_collected_at": null,
     "artifact_identity": null
   },
   "provider_boundary_ref": "FR-0069.provider_owned_stealth_boundary.v1",
