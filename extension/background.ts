@@ -1555,6 +1555,12 @@ const XHS_FORWARD_OPTION_KEYS = [
   "behavior_baseline_hint_required",
   "behavior_baseline_hint",
   "non_proofs_observed",
+  "platform_behavior_assessment_required",
+  "platform_behavior_assessment",
+  "platform_behavior_assessment_context",
+  "expected_platform_behavior_scope",
+  "platform_behavior_as_of",
+  "platform_behavior_freshness_window_ms",
   "admission_gate_reasons",
   "upstream_authorization_request",
   "__legacy_requested_execution_mode",
@@ -1914,6 +1920,47 @@ const buildCanonicalGateAuditArtifacts = (input: {
       : {}),
     ...(hasCommandGateParam("non_proofs_observed")
       ? { non_proofs_observed: readXhsGateParam(commandParams ?? {}, "non_proofs_observed") }
+      : {}),
+    ...(commandParams &&
+    readXhsGateParam(commandParams, "platform_behavior_assessment_required") === true
+      ? { platform_behavior_assessment_required: true }
+      : {}),
+    ...(hasCommandGateParam("platform_behavior_assessment")
+      ? {
+          platform_behavior_assessment: readXhsGateParam(
+            commandParams ?? {},
+            "platform_behavior_assessment"
+          )
+        }
+      : {}),
+    ...(hasCommandGateParam("platform_behavior_assessment_context")
+      ? {
+          platform_behavior_assessment_context: readXhsGateParam(
+            commandParams ?? {},
+            "platform_behavior_assessment_context"
+          )
+        }
+      : {}),
+    ...(hasCommandGateParam("expected_platform_behavior_scope")
+      ? {
+          expected_platform_behavior_scope: readXhsGateParam(
+            commandParams ?? {},
+            "expected_platform_behavior_scope"
+          )
+        }
+      : {}),
+    ...(hasCommandGateParam("platform_behavior_as_of")
+      ? {
+          platform_behavior_as_of: readXhsGateParam(commandParams ?? {}, "platform_behavior_as_of")
+        }
+      : {}),
+    ...(hasCommandGateParam("platform_behavior_freshness_window_ms")
+      ? {
+          platform_behavior_freshness_window_ms: readXhsGateParam(
+            commandParams ?? {},
+            "platform_behavior_freshness_window_ms"
+          )
+        }
       : {}),
     decisionId: resolveBridgeRequestGateDecisionId(input.request),
     approvalId: resolveGatePayloadApprovalId({
@@ -9315,11 +9362,13 @@ class ChromeBackgroundBridge {
     const canonicalRiskEvidenceConsumerGate = asRecord(
       canonicalConsumerGateResult?.risk_evidence_consumer_gate
     );
-    const canonicalRiskEvidenceGateReasons = asStringArray(
-      canonicalConsumerGateResult?.gate_reasons
+    const canonicalPlatformBehaviorAssessmentGate = asRecord(
+      canonicalConsumerGateResult?.platform_behavior_assessment_gate
     );
-    const shouldAdoptCanonicalRiskEvidenceBlock =
-      canonicalRiskEvidenceConsumerGate !== null &&
+    const canonicalConsumerGateReasons = asStringArray(canonicalConsumerGateResult?.gate_reasons);
+    const shouldAdoptCanonicalHintGateBlock =
+      (canonicalRiskEvidenceConsumerGate !== null ||
+        canonicalPlatformBehaviorAssessmentGate !== null) &&
       canonicalConsumerGateResult?.gate_decision === "blocked";
     const legacyAdmissionOnlyBlocked =
       finalizedGate.gateDecision === "blocked" && legacyAdmissionOnlyBlockedBeforeFingerprint;
@@ -9334,7 +9383,7 @@ class ChromeBackgroundBridge {
       legacyAdmissionOnlyBlocked;
     const adoptedGateDecision = canAdoptCanonicalLiveAdmission
       ? "allowed"
-      : shouldAdoptCanonicalRiskEvidenceBlock
+      : shouldAdoptCanonicalHintGateBlock
         ? "blocked"
         : finalizedGate.gateDecision;
     const adoptedEffectiveExecutionMode =
@@ -9344,9 +9393,9 @@ class ChromeBackgroundBridge {
         ? canonicalRequestedExecutionMode
         : resolvedEffectiveExecutionMode;
     const adoptedGateReasons = canAdoptCanonicalLiveAdmission
-      ? canonicalRiskEvidenceGateReasons
-      : shouldAdoptCanonicalRiskEvidenceBlock
-        ? canonicalRiskEvidenceGateReasons
+      ? canonicalConsumerGateReasons
+      : shouldAdoptCanonicalHintGateBlock
+        ? canonicalConsumerGateReasons
         : finalizedGate.gateReasons;
     const adoptedAllowed = adoptedGateDecision === "allowed";
     const sharedCanonicalApprovalRecord = normalizeXhsApprovalRecord(
@@ -9389,6 +9438,9 @@ class ChromeBackgroundBridge {
       fingerprint_reason_codes: resolvedFingerprintReasonCodes,
       ...(canonicalRiskEvidenceConsumerGate
         ? { risk_evidence_consumer_gate: canonicalRiskEvidenceConsumerGate }
+        : {}),
+      ...(canonicalPlatformBehaviorAssessmentGate
+        ? { platform_behavior_assessment_gate: canonicalPlatformBehaviorAssessmentGate }
         : {}),
       write_interaction_tier: gateState.writeActionMatrixDecisions?.write_interaction_tier ?? null
     };

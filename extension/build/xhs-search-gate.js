@@ -5,6 +5,7 @@ export { resolveRiskStateOutput } from "./xhs-search-telemetry.js";
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
+const hasOwn = (record, key) => record !== null && record !== undefined && Object.prototype.hasOwnProperty.call(record, key);
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 const asRecordArray = (value) => Array.isArray(value)
@@ -91,6 +92,15 @@ export const resolveGate = (options, context, actualTargetUrl) => {
         auditRecord: options.audit_record,
         admissionContext: options.admission_context,
         limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
+        risk_evidence_required: options.risk_evidence_required === true,
+        risk_evidence_gate_result: options.risk_evidence_gate_result,
+        non_proofs_observed: options.non_proofs_observed,
+        platform_behavior_assessment_required: options.platform_behavior_assessment_required === true,
+        platform_behavior_assessment: options.platform_behavior_assessment,
+        platform_behavior_assessment_context: options.platform_behavior_assessment_context,
+        expected_platform_behavior_scope: options.expected_platform_behavior_scope,
+        platform_behavior_as_of: options.platform_behavior_as_of,
+        platform_behavior_freshness_window_ms: options.platform_behavior_freshness_window_ms,
         additionalGateReasons: Array.isArray(options.admission_gate_reasons)
             ? options.admission_gate_reasons.filter((reason) => typeof reason === "string")
             : [],
@@ -208,6 +218,7 @@ export const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                         target_page: gate.consumer_gate_result.target_page,
                         profile_readiness: asRecord(input.options?.profile_readiness),
                         account_readiness: asRecord(input.options?.account_readiness),
+                        account_safety_gate_result: asRecord(input.options?.account_safety_gate_result),
                         provider_requirement_refs: Array.isArray(input.options?.provider_requirement_refs)
                             ? input.options.provider_requirement_refs
                             : [],
@@ -247,6 +258,35 @@ export const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                 : {}),
             ...(asStringArray(input.options?.downstream_slice_refs).length > 0
                 ? { downstream_slice_refs: asStringArray(input.options?.downstream_slice_refs) }
+                : {}),
+            ...(input.options?.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
+            ...(hasOwn(input.options, "risk_evidence_gate_result")
+                ? { risk_evidence_gate_result: input.options?.risk_evidence_gate_result }
+                : {}),
+            ...(hasOwn(input.options, "non_proofs_observed")
+                ? { non_proofs_observed: input.options?.non_proofs_observed }
+                : {}),
+            ...(input.options?.platform_behavior_assessment_required === true
+                ? { platform_behavior_assessment_required: true }
+                : {}),
+            ...(hasOwn(input.options, "platform_behavior_assessment")
+                ? { platform_behavior_assessment: input.options?.platform_behavior_assessment }
+                : {}),
+            ...(hasOwn(input.options, "platform_behavior_assessment_context")
+                ? {
+                    platform_behavior_assessment_context: input.options?.platform_behavior_assessment_context
+                }
+                : {}),
+            ...(hasOwn(input.options, "expected_platform_behavior_scope")
+                ? { expected_platform_behavior_scope: input.options?.expected_platform_behavior_scope }
+                : {}),
+            ...(asNonEmptyString(input.options?.platform_behavior_as_of)
+                ? { platform_behavior_as_of: asNonEmptyString(input.options?.platform_behavior_as_of) }
+                : {}),
+            ...(typeof input.options?.platform_behavior_freshness_window_ms === "number"
+                ? {
+                    platform_behavior_freshness_window_ms: input.options.platform_behavior_freshness_window_ms
+                }
                 : {}),
             ...(asStringArray(input.options?.non_proofs).length > 0
                 ? { non_proofs: asStringArray(input.options?.non_proofs) }

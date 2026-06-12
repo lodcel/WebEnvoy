@@ -44,6 +44,49 @@ const acceptedBehaviorBaselineHint = () => ({
   assessed_at: "2026-06-12T09:51:00.000Z"
 });
 
+const platformBehaviorAssessmentContext = () => ({
+  target_fr_ref: "FR-0022",
+  validation_scope: "cross_layer_baseline"
+});
+
+const platformBehaviorAssessment = () => ({
+  assessment_id: "platform-assess-sw-read-001",
+  profile_ref: "profile-a",
+  platform: "xhs",
+  target_domain: "www.xiaohongshu.com",
+  browser_channel: "Google Chrome stable",
+  execution_surface: "real_browser",
+  requested_execution_mode: "dry_run",
+  effective_execution_mode: "dry_run",
+  probe_bundle_ref: "probe-bundle-fr0022-sw-read-001",
+  goal_kind: "read",
+  runtime_context_id: "runtime-context-fr0022-sw-read-001",
+  baseline_state: "learning",
+  drift_level: "low",
+  action_type: "click",
+  interaction_semantics: "reveal_only_click",
+  click_kind: "open_detail_view",
+  threshold_config_snapshot_ref: "threshold-fr0022-sw-read-001",
+  decision_hint: "allow_read_only",
+  confidence: 0.7,
+  evidence_refs: ["platform-signal-batch://sw-read-001"],
+  assessed_at: "2026-06-12T10:00:00.000Z",
+  model_version: "platform-behavior-assessor.v1",
+  reseed_required: false
+});
+
+const expectedPlatformBehaviorScope = () => ({
+  profile_ref: "profile-a",
+  platform: "xhs",
+  target_domain: "www.xiaohongshu.com",
+  browser_channel: "Google Chrome stable",
+  execution_surface: "real_browser",
+  requested_execution_mode: "dry_run",
+  effective_execution_mode: "dry_run",
+  probe_bundle_ref: "probe-bundle-fr0022-sw-read-001",
+  goal_kind: "read"
+});
+
 describe("extension service worker / background command dispatch", () => {
   it("handles runtime.readiness in background without content-script forwarding", async () => {
     const firstPort = createMockPort();
@@ -274,6 +317,74 @@ describe("extension service worker / background command dispatch", () => {
             options: expect.objectContaining({
               behavior_baseline_hint_required: true,
               behavior_baseline_hint: behaviorBaselineHint
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("forwards top-level FR-0022 platform drift command params through background XHS options", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 32,
+        url: "https://www.xiaohongshu.com/search_result?keyword=露营",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    const assessment = platformBehaviorAssessment();
+    const assessmentContext = platformBehaviorAssessmentContext();
+    const expectedScope = expectedPlatformBehaviorScope();
+    firstPort.onMessageListeners[0]?.({
+      id: "run-command-dispatch-platform-behavior-top-level-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-command-dispatch-platform-behavior-top-level-001",
+        command: "xhs.search",
+        command_params: createXhsCommandParams({
+          run_id: "run-command-dispatch-platform-behavior-top-level-001",
+          risk_state: "allowed",
+          platform_behavior_assessment_required: true,
+          platform_behavior_assessment: assessment,
+          platform_behavior_assessment_context: assessmentContext,
+          expected_platform_behavior_scope: expectedScope,
+          platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+          platform_behavior_freshness_window_ms: 5 * 60 * 1000
+        }),
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+
+    await vi.waitFor(() => {
+      expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
+        32,
+        expect.objectContaining({
+          id: "run-command-dispatch-platform-behavior-top-level-001",
+          command: "xhs.search",
+          commandParams: expect.objectContaining({
+            platform_behavior_assessment_required: true,
+            platform_behavior_assessment: assessment,
+            platform_behavior_assessment_context: assessmentContext,
+            expected_platform_behavior_scope: expectedScope,
+            platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+            platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+            options: expect.objectContaining({
+              platform_behavior_assessment_required: true,
+              platform_behavior_assessment: assessment,
+              platform_behavior_assessment_context: assessmentContext,
+              expected_platform_behavior_scope: expectedScope,
+              platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+              platform_behavior_freshness_window_ms: 5 * 60 * 1000
             })
           })
         })

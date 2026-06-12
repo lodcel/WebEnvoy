@@ -3030,7 +3030,12 @@ const executeXhsRead = async (input, spec, env) => {
         return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", `执行模式门禁阻断了当前 ${spec.command} 请求`, {
             ability_id: input.abilityId,
             stage: "execution",
-            reason: "EXECUTION_MODE_GATE_BLOCKED"
+            reason: "EXECUTION_MODE_GATE_BLOCKED",
+            ...(asRecord(input.options.account_safety_gate_result)
+                ? {
+                    account_safety_gate_result: asRecord(input.options.account_safety_gate_result) ?? {}
+                }
+                : {})
         }, createReadObservability({
             spec,
             href: env.getLocationHref(),

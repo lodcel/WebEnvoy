@@ -23,6 +23,9 @@ import {
 import {
   evaluateRiskEvidenceConsumerGate
 } from "./risk-evidence-gate.js";
+import {
+  evaluatePlatformBehaviorAssessmentGate
+} from "./platform-behavior-assessment-gate.js";
 
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
@@ -1767,7 +1770,25 @@ const evaluateXhsGate = (input) => {
     nonProofs: input.nonProofs,
     non_proofs: input.non_proofs
   });
+  const platformBehaviorAssessmentGate = evaluatePlatformBehaviorAssessmentGate({
+    required: input.platformBehaviorAssessmentRequired,
+    platform_behavior_assessment_required: input.platform_behavior_assessment_required,
+    platformBehaviorAssessment: input.platformBehaviorAssessment,
+    platform_behavior_assessment: input.platform_behavior_assessment,
+    platformBehaviorAssessmentContext: input.platformBehaviorAssessmentContext,
+    platform_behavior_assessment_context: input.platform_behavior_assessment_context,
+    platformBehaviorContext: input.platformBehaviorContext,
+    platform_behavior_context: input.platform_behavior_context,
+    expectedPlatformBehaviorScope: input.expectedPlatformBehaviorScope,
+    expected_platform_behavior_scope: input.expected_platform_behavior_scope,
+    asOf: input.platformBehaviorAsOf ?? input.platform_behavior_as_of,
+    freshnessWindowMs:
+      input.platformBehaviorFreshnessWindowMs ?? input.platform_behavior_freshness_window_ms
+  });
   for (const reason of riskEvidenceConsumerGate.gate_reasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of platformBehaviorAssessmentGate.gate_reasons) {
     pushReason(gateReasons, reason);
   }
   const expectedApprovalId = deriveApprovalId(input, decisionId);
@@ -1894,6 +1915,9 @@ const evaluateXhsGate = (input) => {
       admission_context: admissionContext,
       ...(riskEvidenceConsumerGate.required
         ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {}),
+      ...(platformBehaviorAssessmentGate.required
+        ? { platform_behavior_assessment_gate: platformBehaviorAssessmentGate }
         : {})
     },
     gate_outcome: {
@@ -1922,6 +1946,9 @@ const evaluateXhsGate = (input) => {
       write_interaction_tier: state.writeActionMatrixDecisions?.write_interaction_tier ?? null,
       ...(riskEvidenceConsumerGate.required
         ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {}),
+      ...(platformBehaviorAssessmentGate.required
+        ? { platform_behavior_assessment_gate: platformBehaviorAssessmentGate }
         : {})
     },
     request_admission_result: requestAdmissionResult,

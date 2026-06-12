@@ -88,6 +88,12 @@ export interface XhsSearchOptions {
   behavior_baseline_hint?: unknown;
   non_proofs_observed?: unknown;
   non_proofs?: string[];
+  platform_behavior_assessment_required?: boolean;
+  platform_behavior_assessment?: unknown;
+  platform_behavior_assessment_context?: unknown;
+  expected_platform_behavior_scope?: unknown;
+  platform_behavior_as_of?: string;
+  platform_behavior_freshness_window_ms?: number;
   page_runtime_readiness_ref?: string;
   xhs_page_runtime_readiness?: Record<string, unknown>;
   page_runtime_readiness_decision?: string;

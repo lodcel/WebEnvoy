@@ -16,6 +16,7 @@ export { resolveFingerprintContextForContract };
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
+const hasOwn = (record, key) => record !== null && record !== undefined && Object.prototype.hasOwnProperty.call(record, key);
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
 const XHS_PAGE_COMMANDS = new Set([
     "xhs.search",
@@ -2228,6 +2229,35 @@ export class ContentScriptHandler {
                             downstream_slice_refs: options.downstream_slice_refs.filter((ref) => typeof ref === "string")
                         }
                         : {}),
+                    ...(options.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
+                    ...(hasOwn(options, "risk_evidence_gate_result")
+                        ? { risk_evidence_gate_result: options.risk_evidence_gate_result }
+                        : {}),
+                    ...(hasOwn(options, "non_proofs_observed")
+                        ? { non_proofs_observed: options.non_proofs_observed }
+                        : {}),
+                    ...(options.platform_behavior_assessment_required === true
+                        ? { platform_behavior_assessment_required: true }
+                        : {}),
+                    ...(hasOwn(options, "platform_behavior_assessment")
+                        ? { platform_behavior_assessment: options.platform_behavior_assessment }
+                        : {}),
+                    ...(hasOwn(options, "platform_behavior_assessment_context")
+                        ? {
+                            platform_behavior_assessment_context: options.platform_behavior_assessment_context
+                        }
+                        : {}),
+                    ...(hasOwn(options, "expected_platform_behavior_scope")
+                        ? { expected_platform_behavior_scope: options.expected_platform_behavior_scope }
+                        : {}),
+                    ...(typeof options.platform_behavior_as_of === "string"
+                        ? { platform_behavior_as_of: options.platform_behavior_as_of }
+                        : {}),
+                    ...(typeof options.platform_behavior_freshness_window_ms === "number"
+                        ? {
+                            platform_behavior_freshness_window_ms: options.platform_behavior_freshness_window_ms
+                        }
+                        : {}),
                     ...(Array.isArray(options.non_proofs)
                         ? {
                             non_proofs: options.non_proofs.filter((proof) => typeof proof === "string")
@@ -2238,6 +2268,9 @@ export class ContentScriptHandler {
                         : {}),
                     ...(asRecord(options.xhs_page_runtime_readiness)
                         ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) ?? {} }
+                        : {}),
+                    ...(asRecord(options.account_safety_gate_result)
+                        ? { account_safety_gate_result: asRecord(options.account_safety_gate_result) ?? {} }
                         : {}),
                     ...(typeof options.page_runtime_readiness_decision === "string"
                         ? { page_runtime_readiness_decision: options.page_runtime_readiness_decision }
