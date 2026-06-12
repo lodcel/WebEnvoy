@@ -3188,9 +3188,10 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   const accountSafetyClear = asString(input.accountSafetyGateResult.decision) === "allow";
   const accountRiskBlocked = input.accountSafety.state === "account_risk_blocked";
   const accountSafetyRequiredForPreflight =
+    input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND ||
+    input.command === XHS_EDITOR_TEXT_WRITE_COMMAND ||
     input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ||
-    input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND ||
-    input.requestedExecutionMode === "live_write";
+    input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND;
   const accountSafetyAllowsPreflight =
     !accountRiskBlocked && (!accountSafetyRequiredForPreflight || accountSafetyClear);
 
