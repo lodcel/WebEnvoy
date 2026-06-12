@@ -47,6 +47,32 @@ const expectedScope = () => ({
   goal_kind: "write"
 });
 
+const readAssessment = (overrides: Record<string, unknown> = {}) =>
+  readyWriteAssessment({
+    assessment_id: "platform-assess-read-001",
+    target_domain: "www.xiaohongshu.com",
+    requested_execution_mode: "dry_run",
+    effective_execution_mode: "dry_run",
+    goal_kind: "read",
+    baseline_ref: "l4-baseline-xhs-read-001",
+    baseline_state: "ready",
+    drift_level: "low",
+    action_type: "extract",
+    interaction_semantics: undefined,
+    click_kind: undefined,
+    decision_hint: "allow_read_only",
+    reseed_required: false,
+    ...overrides
+  });
+
+const readExpectedScope = () => ({
+  ...expectedScope(),
+  target_domain: "www.xiaohongshu.com",
+  requested_execution_mode: "dry_run",
+  effective_execution_mode: "dry_run",
+  goal_kind: "read"
+});
+
 const freshInputs = () => ({
   as_of: "2026-06-12T10:03:00.000Z",
   freshness_window_ms: 5 * 60 * 1000
@@ -325,6 +351,7 @@ describe("FR-0022 platform behavior assessment gate", () => {
       platform_behavior_assessment: readyWriteAssessment({
         drift_level: driftLevel,
         decision_hint: decisionHint,
+        baseline_state: decisionHint === "require_reseed" ? "degraded" : "ready",
         reseed_required: decisionHint === "require_reseed"
       }),
       platform_behavior_assessment_context: context(),
@@ -341,6 +368,78 @@ describe("FR-0022 platform behavior assessment gate", () => {
       drift_level: driftLevel,
       decision_hint: decisionHint
     });
+  });
+
+  it.each([
+    ["navigate", {}],
+    ["locate", {}],
+    [
+      "click",
+      {
+        interaction_semantics: "reveal_only_click",
+        click_kind: "open_detail_view"
+      }
+    ],
+    ["extract", {}],
+    ["wait_settled", {}]
+  ])("accepts read goal with read-safe %s action only as bounded risk input", (actionType, actionFields) => {
+    const result = evaluatePlatformBehaviorAssessmentGate({
+      platform_behavior_assessment: readAssessment({
+        action_type: actionType,
+        ...actionFields
+      }),
+      platform_behavior_assessment_context: context(),
+      expected_platform_behavior_scope: readExpectedScope(),
+      ...freshInputs()
+    });
+
+    expect(result).toMatchObject({
+      accepted_risk_hint: true,
+      decision: "allow_input_to_provider_runtime_decision",
+      read_write_allow_proof: false,
+      account_safety_clearance: false,
+      gate_override_proof: false
+    });
+  });
+
+  it.each(["type", "submit", "confirm", "publish", "purchase", "dispatch", "bind"])(
+    "fails closed when read goal carries write-like %s action",
+    (actionType) => {
+      const result = evaluatePlatformBehaviorAssessmentGate({
+        platform_behavior_assessment: readAssessment({ action_type: actionType }),
+        platform_behavior_assessment_context: context(),
+        expected_platform_behavior_scope: readExpectedScope(),
+        ...freshInputs()
+      });
+
+      expect(result).toMatchObject({
+        accepted_risk_hint: false,
+        decision: "blocked",
+        read_write_allow_proof: false
+      });
+      expect(result.gate_reasons).toContain("platform_behavior_read_goal_action_type_invalid");
+    }
+  );
+
+  it("fails closed when reseed-required assessment keeps ready baseline semantics", () => {
+    const result = evaluatePlatformBehaviorAssessmentGate({
+      platform_behavior_assessment: readyWriteAssessment({
+        baseline_state: "ready",
+        drift_level: "critical",
+        decision_hint: "require_reseed",
+        reseed_required: true
+      }),
+      platform_behavior_assessment_context: context(),
+      expected_platform_behavior_scope: expectedScope(),
+      ...freshInputs()
+    });
+
+    expect(result).toMatchObject({
+      accepted_risk_hint: false,
+      decision: "blocked",
+      read_write_allow_proof: false
+    });
+    expect(result.gate_reasons).toContain("platform_behavior_reseed_ready_baseline_invalid");
   });
 
   it.each([

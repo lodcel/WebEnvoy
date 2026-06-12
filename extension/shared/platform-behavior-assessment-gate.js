@@ -52,6 +52,13 @@ const ACTION_TYPES = new Set([
   "dispatch",
   "bind"
 ]);
+const READ_SAFE_ACTION_TYPES = new Set([
+  "navigate",
+  "locate",
+  "click",
+  "extract",
+  "wait_settled"
+]);
 const CLICK_KINDS = new Set([
   "expand_or_collapse",
   "switch_content_tab",
@@ -368,6 +375,12 @@ const collectDecisionHintReasons = (assessment) => {
   const reasons = [];
   if (!assessment) {
     return reasons;
+  }
+  if (assessment.goal_kind === "read" && !READ_SAFE_ACTION_TYPES.has(assessment.action_type)) {
+    pushReason(reasons, "platform_behavior_read_goal_action_type_invalid");
+  }
+  if (assessment.reseed_required && assessment.baseline_state === "ready") {
+    pushReason(reasons, "platform_behavior_reseed_ready_baseline_invalid");
   }
   if (assessment.reseed_required && !RESEED_DECISION_HINTS.has(assessment.decision_hint)) {
     pushReason(reasons, "platform_behavior_reseed_hint_invalid");

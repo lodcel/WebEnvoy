@@ -1112,7 +1112,9 @@ describe("xhs-search gate helpers", () => {
         runtimeProfileRef: "profile-risk-evidence-ingress-001",
         platform_behavior_assessment: liveWritePlatformBehaviorAssessment({
           decision_hint: decisionHint,
-          ...(decisionHint === "require_reseed" ? { reseed_required: true } : {})
+          ...(decisionHint === "require_reseed"
+            ? { baseline_state: "degraded", reseed_required: true }
+            : {})
         }),
         platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
         expected_platform_behavior_scope: expectedLiveWritePlatformBehaviorScope(),
@@ -1193,7 +1195,7 @@ describe("xhs-search gate helpers", () => {
         runtimeProfileRef: "profile-risk-evidence-ingress-001",
         platform_behavior_assessment: platformBehaviorAssessment({
           baseline_ref: "l4-baseline-xhs-read-001",
-          baseline_state: "ready",
+          baseline_state: decisionHint === "require_reseed" ? "degraded" : "ready",
           drift_level: "high",
           decision_hint: decisionHint,
           ...(decisionHint === "require_reseed" ? { reseed_required: true } : {})
@@ -1218,6 +1220,45 @@ describe("xhs-search gate helpers", () => {
       expect(gate.consumer_gate_result.gate_reasons).toContain(expectedReason);
     }
   );
+
+  it("fails closed before XHS consumption when FR-0022 reseed-required assessment claims ready baseline", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      runtimeProfileRef: "profile-risk-evidence-ingress-001",
+      platform_behavior_assessment: platformBehaviorAssessment({
+        baseline_ref: "l4-baseline-xhs-read-001",
+        baseline_state: "ready",
+        drift_level: "high",
+        decision_hint: "require_reseed",
+        reseed_required: true
+      }),
+      platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+      expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-read-001",
+      platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+      platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      effective_execution_mode: "dry_run",
+      platform_behavior_assessment_gate: {
+        accepted_risk_hint: false,
+        read_write_allow_proof: false,
+        decision_hint: "require_reseed"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toContain(
+      "platform_behavior_reseed_ready_baseline_invalid"
+    );
+  });
 
   it("forwards FR-0070 risk evidence fields from runtime options through resolveGate", () => {
     const gate = resolveGate(
