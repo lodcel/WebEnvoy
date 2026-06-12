@@ -748,6 +748,38 @@ const isLegacyXhsSearchEditorInputValidation = (input: {
   asString(input.options.issue_scope) === "issue_208" &&
   asString(input.options.validation_action) === "editor_input";
 
+const isXhsEditorWritePreparePath = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+  requestedExecutionMode: XhsExecutionMode;
+}): boolean =>
+  input.requestedExecutionMode === "live_write" &&
+  (input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND ||
+    input.command === XHS_EDITOR_TEXT_WRITE_COMMAND ||
+    isLegacyXhsSearchEditorInputValidation(input));
+
+const resolveAccountSafetyGateCapabilityLevelForXhs = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+  requestedExecutionMode: XhsExecutionMode;
+}): "write_admit" | "write_prepare" | "live_write_commit" =>
+  input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+    ? "live_write_commit"
+    : isXhsEditorWritePreparePath(input)
+      ? "write_prepare"
+      : "write_admit";
+
+const requiresAccountSafetyPreflightForXhs = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+  requestedExecutionMode: XhsExecutionMode;
+}): boolean =>
+  input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ||
+  resolveAccountSafetyGateCapabilityLevelForXhs(input) !== "write_admit";
+
 const buildXhsCommandAliasDiagnostics = (input: {
   command: string;
   ability: AbilityRef;
@@ -3187,11 +3219,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   const probeRunId = asString(input.xhsCloseoutRhythm.probe_run_id);
   const accountSafetyClear = asString(input.accountSafetyGateResult.decision) === "allow";
   const accountRiskBlocked = input.accountSafety.state === "account_risk_blocked";
-  const accountSafetyRequiredForPreflight =
-    input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND ||
-    input.command === XHS_EDITOR_TEXT_WRITE_COMMAND ||
-    input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ||
-    input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND;
+  const accountSafetyRequiredForPreflight = requiresAccountSafetyPreflightForXhs(input);
   const accountSafetyAllowsPreflight =
     !accountRiskBlocked && (!accountSafetyRequiredForPreflight || accountSafetyClear);
 
@@ -3689,12 +3717,12 @@ const xhsReadCommand = async (
   let profileMeta = context.profile ? await profileStore.readMeta(context.profile) : null;
   const profileMetaRecord = asObject(profileMeta);
   const accountSafetyStatus = toAccountSafetyStatus(profileMeta?.accountSafety);
-  const accountSafetyGateCapabilityLevel =
-    context.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
-      ? "live_write_commit"
-      : context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
-        ? "write_admit"
-        : "write_admit";
+  const accountSafetyGateCapabilityLevel = resolveAccountSafetyGateCapabilityLevelForXhs({
+    command: context.command,
+    ability: envelope.ability,
+    options: gate.options,
+    requestedExecutionMode: gate.requestedExecutionMode
+  });
   const accountSafetyTargetBindingRef =
     runtimeBindingBoundary?.target_binding_snapshot_ref ??
     `FR-0063.target_binding_snapshot.v1/${context.run_id}/${context.command}`;

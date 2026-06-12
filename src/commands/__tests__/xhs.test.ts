@@ -180,6 +180,19 @@ const resolveAccountSafetyHeadShaForTest = (): string =>
   }).stdout.trim() ??
   "head:unknown";
 
+const resolveAccountSafetyCapabilityLevelForTest = (input: {
+  command: string;
+  requestedExecutionMode: "live_read_high_risk" | "live_read_limited" | "live_write";
+}): "write_admit" | "write_prepare" | "live_write_commit" =>
+  input.command === "xhs.creator_publish.controlled_live_write"
+    ? "live_write_commit"
+    : input.requestedExecutionMode === "live_write" &&
+        (input.command === "xhs.search" ||
+          input.command === "xhs.editor_input.validate" ||
+          input.command === "xhs.editor_text.write")
+      ? "write_prepare"
+      : "write_admit";
+
 const buildAccountSafetyStateRecordForTest = (input: {
   profile: string;
   runId: string;
@@ -219,10 +232,10 @@ const buildAccountSafetyStateRecordForTest = (input: {
     canonical_issue_ref: "#1176",
     scope: {
       schema_version: "account-safety-gate.v1",
-      capability_level:
-        input.command === "xhs.creator_publish.controlled_live_write"
-          ? "live_write_commit"
-          : "write_admit",
+      capability_level: resolveAccountSafetyCapabilityLevelForTest({
+        command: input.command,
+        requestedExecutionMode: input.requestedExecutionMode
+      }),
       workflow_ref:
         input.command === "xhs.creator_publish.admit"
           ? "xhs.creator_publish.admit"
@@ -295,6 +308,8 @@ const seedXhsCloseoutReady = async (input: {
             ? "xhs.user.home.v1"
             : accountSafetyCommand === "xhs.editor_input.validate"
               ? "xhs.editor.input.v1"
+              : accountSafetyCommand === "xhs.editor_text.write"
+                ? "xhs.editor.input.v1"
               : accountSafetyCommand === "xhs.creator_publish.controlled_live_write"
                 ? "xhs.creator.publish.v1"
                 : "xhs.note.search.v1",
@@ -302,6 +317,7 @@ const seedXhsCloseoutReady = async (input: {
       action:
         effectiveExecutionMode === "live_write" ||
         accountSafetyCommand === "xhs.editor_input.validate" ||
+        accountSafetyCommand === "xhs.editor_text.write" ||
         accountSafetyCommand === "xhs.creator_publish.controlled_live_write"
           ? "write"
           : "read"
@@ -368,10 +384,10 @@ const seedXhsCloseoutReady = async (input: {
             canonical_issue_ref: "#1176",
             scope: {
               schema_version: "account-safety-gate.v1",
-              capability_level:
-                accountSafetyCommand === "xhs.creator_publish.controlled_live_write"
-                  ? "live_write_commit"
-                  : "write_admit",
+              capability_level: resolveAccountSafetyCapabilityLevelForTest({
+                command: accountSafetyCommand,
+                requestedExecutionMode: effectiveExecutionMode
+              }),
               workflow_ref:
                 accountSafetyCommand === "xhs.creator_publish.admit"
                   ? "xhs.creator_publish.admit"
@@ -10493,6 +10509,199 @@ describe("normalizeGateOptionsForContract", () => {
       } else {
         process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
       }
+    }
+  });
+
+  it("fails legacy xhs.search editor_input live_write closed without current account-safety state", async () => {
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd: "/tmp/webenvoy",
+        profile: "profile-loopback-editor-input-legacy-clear-001",
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+      await expect(
+        executeCommand(
+          {
+            cwd: "/tmp/webenvoy",
+            command: "xhs.search",
+            profile: "profile-loopback-editor-input-legacy-clear-001",
+            run_id: "run-loopback-editor-input-legacy-clear-001",
+            params: {
+              ability: {
+                id: "xhs.note.search.v1",
+                layer: "L3",
+                action: "write"
+              },
+              input: {
+                query: "露营装备"
+              },
+              options: {
+                issue_scope: "issue_208",
+                target_domain: "creator.xiaohongshu.com",
+                target_tab_id: 32,
+                target_page: "creator_publish_tab",
+                action_type: "write",
+                requested_execution_mode: "live_write",
+                validation_action: "editor_input",
+                risk_state: "allowed",
+                approval_record: {
+                  approved: true,
+                  approver: "qa-reviewer",
+                  approved_at: "2026-03-23T10:00:00Z",
+                  checks: {
+                    target_domain_confirmed: true,
+                    target_tab_confirmed: true,
+                    target_page_confirmed: true,
+                    risk_state_checked: true,
+                    action_type_confirmed: true
+                  }
+                }
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          reason: "ACCOUNT_SAFETY_NOT_READY",
+          account_safety_gate_result: expect.objectContaining({
+            gate_status: "unknown",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining(["historical_or_stale_evidence"])
+          })
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("fails legacy xhs.search editor_input live_write closed with write_admit scoped account-safety state", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-legacy-editor-write-admit-"));
+    const profile = "profile-loopback-editor-input-write-admit-001";
+    const runId = "run-loopback-editor-input-write-admit-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: runId,
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.readMeta(profile);
+      const accountSafetyStateRecord =
+        meta.accountSafetyStateRecord as Record<string, unknown>;
+      const scope = accountSafetyStateRecord.scope as Record<string, unknown>;
+      await profileStore.writeMeta(profile, {
+        ...meta,
+        accountSafetyStateRecord: {
+          ...accountSafetyStateRecord,
+          scope: {
+            ...scope,
+            capability_level: "write_admit"
+          }
+        }
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.search",
+            profile,
+            run_id: runId,
+            params: {
+              ability: {
+                id: "xhs.note.search.v1",
+                layer: "L3",
+                action: "write"
+              },
+              input: {
+                query: "露营装备"
+              },
+              options: {
+                issue_scope: "issue_208",
+                target_domain: "creator.xiaohongshu.com",
+                target_tab_id: 32,
+                target_page: "creator_publish_tab",
+                action_type: "write",
+                requested_execution_mode: "live_write",
+                validation_action: "editor_input",
+                risk_state: "allowed",
+                approval_record: {
+                  approved: true,
+                  approver: "qa-reviewer",
+                  approved_at: "2026-03-23T10:00:00Z",
+                  checks: {
+                    target_domain_confirmed: true,
+                    target_tab_confirmed: true,
+                    target_page_confirmed: true,
+                    risk_state_checked: true,
+                    action_type_confirmed: true
+                  }
+                }
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          reason: "ACCOUNT_SAFETY_NOT_READY",
+          account_safety_gate_result: expect.objectContaining({
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining(["account_safety_scope_mismatch"])
+          })
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      await rm(cwd, { recursive: true, force: true });
     }
   });
 
