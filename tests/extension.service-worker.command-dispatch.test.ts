@@ -392,6 +392,61 @@ describe("extension service worker / background command dispatch", () => {
     });
   });
 
+  it("fails closed before content dispatch when FR-0022 profile scope differs from request profile", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 32,
+        url: "https://www.xiaohongshu.com/search_result?keyword=露营",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-command-dispatch-platform-behavior-profile-mismatch-001",
+      method: "bridge.forward",
+      profile: "profile-b",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-command-dispatch-platform-behavior-profile-mismatch-001",
+        command: "xhs.search",
+        command_params: createXhsCommandParams({
+          run_id: "run-command-dispatch-platform-behavior-profile-mismatch-001",
+          risk_state: "allowed",
+          platform_behavior_assessment_required: true,
+          platform_behavior_assessment: platformBehaviorAssessment({
+            profile_ref: "profile-a"
+          }),
+          platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+          expected_platform_behavior_scope: expectedPlatformBehaviorScope({
+            profile_ref: "profile-a"
+          }),
+          platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+          platform_behavior_freshness_window_ms: 5 * 60 * 1000
+        }),
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-command-dispatch-platform-behavior-profile-mismatch-001",
+      status: "error",
+      payload: expect.objectContaining({
+        consumer_gate_result: expect.objectContaining({
+          gate_decision: "blocked",
+          gate_reasons: expect.arrayContaining(["platform_behavior_profile_ref_mismatch"])
+        })
+      })
+    });
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("fails closed when top-level #1188 non-proof command params are unknown", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);

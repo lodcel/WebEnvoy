@@ -4141,10 +4141,23 @@ const deriveXhsPlatformBehaviorGoalKind = (actionType) => {
   return null;
 };
 
+const resolveXhsRuntimeProfileRef = (input, state) =>
+  asString(input.runtimeProfileRef ?? input.__runtime_profile_ref) ??
+  state.upstreamAuthorizationRequest?.resource_binding?.profile_ref ??
+  null;
+
 const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
   const providedScope =
     asRecord(input.expectedPlatformBehaviorScope) ??
     asRecord(input.expected_platform_behavior_scope);
+  const providedScopeForBinding = providedScope ? { ...providedScope } : null;
+  if (providedScopeForBinding) {
+    delete providedScopeForBinding.profile_ref;
+  }
+  const assessment =
+    asRecord(input.platformBehaviorAssessment) ??
+    asRecord(input.platform_behavior_assessment);
+  const currentProfileRef = resolveXhsRuntimeProfileRef(input, state);
   const targetDomain =
     state.upstreamAuthorizationRequest?.runtime_target?.domain ?? asString(input.targetDomain);
   const targetPage =
@@ -4154,6 +4167,12 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
 
   if (!providedScope) {
     pushReason(bindingReasons, "platform_behavior_expected_scope_missing");
+  }
+  if (
+    !currentProfileRef &&
+    (asString(providedScope?.profile_ref) || asString(assessment?.profile_ref))
+  ) {
+    pushReason(bindingReasons, "platform_behavior_xhs_runtime_profile_ref_missing");
   }
   if (!targetDomain) {
     pushReason(bindingReasons, "platform_behavior_xhs_target_domain_missing");
@@ -4170,7 +4189,8 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
 
   return {
     expectedScope: {
-      ...(providedScope ?? {}),
+      ...(providedScopeForBinding ?? {}),
+      ...(currentProfileRef ? { profile_ref: currentProfileRef } : {}),
       platform: "xhs",
       ...(targetDomain ? { target_domain: targetDomain } : {}),
       ...(state.requestedExecutionMode

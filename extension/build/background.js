@@ -7275,6 +7275,7 @@ class ChromeBackgroundBridge {
         let writeGateOnlyApprovalDecision = null;
         let writeGateOnlyEligible = false;
         const requestRunId = String(request.params.run_id ?? request.id);
+        const currentRuntimeProfileRef = runtimeProfileRef ?? (typeof request.profile === "string" ? request.profile : null);
         const gateState = buildXhsGatePolicyState({
             issueScope,
             riskState,
@@ -7510,7 +7511,7 @@ class ChromeBackgroundBridge {
             abilityActionType,
             requestedExecutionMode: canonicalRequestedExecutionMode,
             legacyRequestedExecutionMode: canonicalLegacyRequestedExecutionMode,
-            runtimeProfileRef,
+            runtimeProfileRef: currentRuntimeProfileRef,
             sessionRhythmWindowId,
             sessionRhythmDecisionId,
             upstreamAuthorizationRequest: canonicalUpstreamAuthorizationRequest,
