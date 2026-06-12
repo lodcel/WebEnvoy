@@ -34,6 +34,23 @@ const BEHAVIOR_BASELINE_HINT_DECISIONS = new Set([
   "require_manual_review",
   "require_reseed"
 ]);
+const BEHAVIOR_BASELINE_HINT_HIGH_DRIFT_DECISIONS = new Set([
+  "hold_live_write",
+  "require_manual_review",
+  "require_reseed"
+]);
+const BEHAVIOR_BASELINE_HINT_RESEED_DECISIONS = new Set([
+  "require_manual_review",
+  "require_reseed"
+]);
+const BEHAVIOR_BASELINE_HINT_LEARNING_READ_DECISIONS = new Set([
+  "allow_read_only",
+  "require_manual_review"
+]);
+const BEHAVIOR_BASELINE_HINT_LEARNING_WRITE_DECISIONS = new Set([
+  "hold_live_write",
+  "require_manual_review"
+]);
 const BEHAVIOR_BASELINE_HINT_GOAL_KINDS = new Set(["read", "write"]);
 const BEHAVIOR_BASELINE_HINT_EXECUTION_MODES = new Set([
   "dry_run",
@@ -417,6 +434,35 @@ const evaluateBehaviorBaselineHint = (value) => {
     pushReason(reasons, "risk_evidence_scope_mismatch");
   }
   if (reseedRequired === true && !["require_manual_review", "require_reseed"].includes(decisionHint)) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  const highDrift = driftLevel === "high" || driftLevel === "critical";
+  if (highDrift && !BEHAVIOR_BASELINE_HINT_HIGH_DRIFT_DECISIONS.has(decisionHint)) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (goalKind === "write" && decisionHint === "allow_read_only") {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (baselineState === "ready" && highDrift) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (
+    (baselineState === "unseeded" || baselineState === "learning") &&
+    ((goalKind === "read" && !BEHAVIOR_BASELINE_HINT_LEARNING_READ_DECISIONS.has(decisionHint)) ||
+      (goalKind === "write" && !BEHAVIOR_BASELINE_HINT_LEARNING_WRITE_DECISIONS.has(decisionHint)))
+  ) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (
+    baselineState === "degraded" &&
+    !BEHAVIOR_BASELINE_HINT_HIGH_DRIFT_DECISIONS.has(decisionHint)
+  ) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (
+    reseedRequired === true &&
+    (baselineState === "ready" || !BEHAVIOR_BASELINE_HINT_RESEED_DECISIONS.has(decisionHint))
+  ) {
     pushReason(reasons, "risk_evidence_scope_mismatch");
   }
   if (

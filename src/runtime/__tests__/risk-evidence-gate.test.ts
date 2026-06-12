@@ -55,6 +55,29 @@ const learningConservativeBehaviorBaselineHint = () => ({
   goal_kind: "write"
 });
 
+const unseededReadBehaviorBaselineHint = () => ({
+  ...acceptedBehaviorBaselineHint(),
+  baseline_ref: null,
+  baseline_state: "unseeded",
+  drift_level: "medium",
+  decision_hint: "allow_read_only",
+  effective_execution_mode: "recon"
+});
+
+const degradedCriticalBehaviorBaselineHint = () => ({
+  ...acceptedBehaviorBaselineHint(),
+  baseline_state: "degraded",
+  drift_level: "critical",
+  decision_hint: "require_manual_review",
+  effective_execution_mode: "recon"
+});
+
+const reseedBehaviorBaselineHint = () => ({
+  ...degradedCriticalBehaviorBaselineHint(),
+  decision_hint: "require_reseed",
+  reseed_required: true
+});
+
 describe("FR-0070 risk evidence consumer gate", () => {
   it("accepts current-scope risk evidence only as #1188 input, not read/write allow proof", () => {
     expect(
@@ -230,6 +253,141 @@ describe("FR-0070 risk evidence consumer gate", () => {
         decision_hint: "hold_live_write",
         goal_kind: "write"
       }
+    });
+  });
+
+  it("allows unseeded read assessment without baseline_ref only as bounded read-only evidence", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: unseededReadBehaviorBaselineHint()
+      })
+    ).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      behavior_baseline_hint_accepted: true,
+      behavior_baseline_hint: {
+        baseline_ref: null,
+        baseline_state: "unseeded",
+        decision_hint: "allow_read_only",
+        goal_kind: "read"
+      }
+    });
+  });
+
+  it("accepts high-drift degraded behavior hint only when it converges to a conservative decision", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: degradedCriticalBehaviorBaselineHint()
+      })
+    ).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      behavior_baseline_hint_accepted: true,
+      behavior_baseline_hint: {
+        baseline_state: "degraded",
+        drift_level: "critical",
+        decision_hint: "require_manual_review"
+      }
+    });
+  });
+
+  it("accepts reseed-required behavior hint only as conservative bounded evidence", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: reseedBehaviorBaselineHint()
+      })
+    ).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      behavior_baseline_hint_accepted: true,
+      behavior_baseline_hint: {
+        baseline_state: "degraded",
+        drift_level: "critical",
+        decision_hint: "require_reseed",
+        reseed_required: true
+      }
+    });
+  });
+
+  it.each([
+    [
+      "critical drift with non-conservative read allowance",
+      { drift_level: "critical", decision_hint: "allow_read_only" }
+    ],
+    [
+      "high drift with no additional write restriction",
+      {
+        goal_kind: "write",
+        effective_execution_mode: "live_write",
+        baseline_ref: "platform-behavior-baseline://xhs/www/write/v1",
+        drift_level: "high",
+        decision_hint: "no_additional_restriction"
+      }
+    ],
+    [
+      "write goal with read-only allowance",
+      {
+        goal_kind: "write",
+        effective_execution_mode: "live_write",
+        baseline_ref: "platform-behavior-baseline://xhs/www/write/v1",
+        decision_hint: "allow_read_only"
+      }
+    ],
+    [
+      "learning write goal with read-only allowance",
+      {
+        ...learningConservativeBehaviorBaselineHint(),
+        decision_hint: "allow_read_only"
+      }
+    ],
+    [
+      "degraded baseline with read-only allowance",
+      {
+        baseline_state: "degraded",
+        drift_level: "medium",
+        decision_hint: "allow_read_only",
+        effective_execution_mode: "recon"
+      }
+    ],
+    [
+      "reseed-required baseline still claiming ready",
+      {
+        decision_hint: "require_reseed",
+        reseed_required: true
+      }
+    ],
+    [
+      "reseed-required baseline with hold-only decision",
+      {
+        baseline_state: "degraded",
+        drift_level: "critical",
+        decision_hint: "hold_live_write",
+        reseed_required: true,
+        effective_execution_mode: "recon"
+      }
+    ]
+  ])("fails closed for forbidden behavior baseline decision matrix: %s", (_caseName, override) => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: {
+          ...acceptedBehaviorBaselineHint(),
+          ...override
+        }
+      })
+    ).toMatchObject({
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "blocked",
+      gate_reasons: expect.arrayContaining(["risk_evidence_scope_mismatch"]),
+      behavior_baseline_hint_accepted: false,
+      behavior_baseline_hint: null
     });
   });
 

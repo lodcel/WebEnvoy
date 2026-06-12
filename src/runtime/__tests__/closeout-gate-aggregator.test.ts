@@ -243,6 +243,37 @@ describe("closeout gate aggregator", () => {
     });
   });
 
+  it("blocks closeout when behavior baseline hint violates the FR-0022 decision matrix", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: {
+            ...acceptedBehaviorBaselineHint(),
+            drift_level: "critical",
+            decision_hint: "allow_read_only"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "risk_evidence_scope_mismatch",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          behavior_baseline_hint_accepted: false,
+          behavior_baseline_hint: null
+        }
+      }
+    });
+  });
+
   it("blocks closeout when risk evidence is missing or only non-proof signals are present", () => {
     expect(
       buildGate({
