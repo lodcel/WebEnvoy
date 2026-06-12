@@ -907,6 +907,8 @@ const XHS_FORWARD_OPTION_KEYS = [
     "account_safety_gate_result",
     "risk_evidence_required",
     "risk_evidence_gate_result",
+    "behavior_baseline_hint_required",
+    "behavior_baseline_hint",
     "non_proofs_observed",
     "platform_behavior_assessment_required",
     "platform_behavior_assessment",
@@ -1142,6 +1144,12 @@ const buildCanonicalGateAuditArtifacts = (input) => {
             : {}),
         ...(hasCommandGateParam("risk_evidence_gate_result")
             ? { risk_evidence_gate_result: readXhsGateParam(commandParams ?? {}, "risk_evidence_gate_result") }
+            : {}),
+        ...(commandParams && readXhsGateParam(commandParams, "behavior_baseline_hint_required") === true
+            ? { behavior_baseline_hint_required: true }
+            : {}),
+        ...(hasCommandGateParam("behavior_baseline_hint")
+            ? { behavior_baseline_hint: readXhsGateParam(commandParams ?? {}, "behavior_baseline_hint") }
             : {}),
         ...(hasCommandGateParam("non_proofs_observed")
             ? { non_proofs_observed: readXhsGateParam(commandParams ?? {}, "non_proofs_observed") }

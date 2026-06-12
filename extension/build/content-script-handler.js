@@ -2233,6 +2233,12 @@ export class ContentScriptHandler {
                     ...(hasOwn(options, "risk_evidence_gate_result")
                         ? { risk_evidence_gate_result: options.risk_evidence_gate_result }
                         : {}),
+                    ...(options.behavior_baseline_hint_required === true
+                        ? { behavior_baseline_hint_required: true }
+                        : {}),
+                    ...(hasOwn(options, "behavior_baseline_hint")
+                        ? { behavior_baseline_hint: options.behavior_baseline_hint }
+                        : {}),
                     ...(hasOwn(options, "non_proofs_observed")
                         ? { non_proofs_observed: options.non_proofs_observed }
                         : {}),
