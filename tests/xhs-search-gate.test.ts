@@ -268,6 +268,43 @@ describe("xhs-search gate helpers", () => {
     });
   });
 
+  it("carries session rhythm evidence as a #1188 risk hint without changing read/write proof semantics", () => {
+    const riskEvidenceGateResult = {
+      ...acceptedRiskEvidenceGateResult(),
+      evidence_refs_consumed: [
+        "provider-boundary://fr-0069",
+        "session-rhythm://FR-0014/window/rhythm_win_profile_issue_209",
+        "session-rhythm://FR-0014/decision/rhythm_decision_run_001"
+      ],
+      risk_hints_consumed: ["session_rhythm_evidence"]
+    };
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      risk_evidence_gate_result: riskEvidenceGateResult,
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "allowed",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: true,
+        read_write_allow_proof: false,
+        decision: "allow_input_to_consumer_gate",
+        risk_hints_consumed: ["session_rhythm_evidence"],
+        evidence_refs_consumed: expect.arrayContaining([
+          "session-rhythm://FR-0014/window/rhythm_win_profile_issue_209",
+          "session-rhythm://FR-0014/decision/rhythm_decision_run_001"
+        ])
+      }
+    });
+  });
+
   it("still blocks invalid target context even when FR-0070 input is accepted", () => {
     const gate = evaluateXhsGate({
       issueScope: "issue_209",

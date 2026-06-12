@@ -32,6 +32,53 @@ describe("FR-0070 risk evidence consumer gate", () => {
     });
   });
 
+  it("accepts session rhythm evidence only as a risk hint carrier for the consumer gate", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: {
+          ...acceptedRiskEvidence(),
+          evidence_refs_consumed: [
+            "provider-boundary://fr-0069",
+            "session-rhythm://FR-0014/window/rhythm_win_profile_issue_209",
+            "session-rhythm://FR-0014/decision/rhythm_decision_run_001"
+          ],
+          risk_hints_consumed: ["session_rhythm_evidence"]
+        }
+      })
+    ).toMatchObject({
+      required: true,
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      risk_hints_consumed: ["session_rhythm_evidence"],
+      evidence_refs_consumed: expect.arrayContaining([
+        "session-rhythm://FR-0014/window/rhythm_win_profile_issue_209",
+        "session-rhythm://FR-0014/decision/rhythm_decision_run_001"
+      ])
+    });
+  });
+
+  it.each([
+    ["unknown hint", ["detector_specific_session_rhythm"]],
+    ["malformed hint entry", [{ source: "session_rhythm_evidence" }]],
+    ["non-array hints", "session_rhythm_evidence"]
+  ])("fails closed for %s in risk_hints_consumed", (_caseName, riskHintsConsumed) => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: {
+          ...acceptedRiskEvidence(),
+          risk_hints_consumed: riskHintsConsumed
+        }
+      })
+    ).toMatchObject({
+      required: true,
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "blocked",
+      gate_reasons: ["risk_evidence_unclassified"]
+    });
+  });
+
   it("fails closed when required risk evidence is missing", () => {
     expect(evaluateRiskEvidenceConsumerGate({ risk_evidence_required: true })).toMatchObject({
       accepted_risk_input: false,
@@ -94,7 +141,14 @@ describe("FR-0070 risk evidence consumer gate", () => {
     ["same_head_historical_artifact", "historical_or_stale_evidence"],
     ["stub_or_fake_host", "stub_or_fake_host_evidence"],
     ["manual_disposition_present", "manual_disposition_not_accepted"],
-    ["account_safety_issue_closed", "account_safety_required"]
+    ["account_safety_issue_closed", "account_safety_required"],
+    ["session_rhythm_detector_specific_stealth", "provider_stealth_non_proof"],
+    ["detector_specific_stealth", "provider_stealth_non_proof"],
+    ["cloakbrowser_as_core", "provider_stealth_non_proof"],
+    ["browser_patching", "provider_stealth_non_proof"],
+    ["default_live_write_commit", "default_lock_required"],
+    ["account_operations", "account_safety_required"],
+    ["issue_835_recovery", "risk_evidence_scope_mismatch"]
   ])("does not accept %s as proof", (nonProof, expectedReason) => {
     expect(
       evaluateRiskEvidenceConsumerGate({
