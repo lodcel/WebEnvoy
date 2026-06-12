@@ -114,6 +114,14 @@ const acceptedBehaviorBaselineHint = () => ({
   assessed_at: "2026-06-12T09:51:00.000Z"
 });
 
+const acceptedWriteBehaviorBaselineHint = () => ({
+  ...acceptedBehaviorBaselineHint(),
+  baseline_ref: "platform-behavior-baseline://xhs/www/write/v1",
+  decision_hint: "no_additional_restriction",
+  effective_execution_mode: "live_write",
+  goal_kind: "write"
+});
+
 describe("closeout gate aggregator", () => {
   it("returns GO when profile, account, rhythm, target, runtime, and validation gates are ready", () => {
     expect(buildGate()).toMatchObject({
@@ -200,6 +208,36 @@ describe("closeout gate aggregator", () => {
         risk_evidence_consumer_gate: {
           accepted_risk_input: false,
           behavior_baseline_hint_accepted: false
+        }
+      }
+    });
+  });
+
+  it("blocks closeout when required behavior baseline hint lacks ready write baseline locator evidence", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: {
+            ...acceptedWriteBehaviorBaselineHint(),
+            baseline_ref: null
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "behavior_baseline_required",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          behavior_baseline_hint_accepted: false,
+          behavior_baseline_hint: null
         }
       }
     });

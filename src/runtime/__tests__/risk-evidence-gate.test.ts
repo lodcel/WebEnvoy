@@ -37,6 +37,24 @@ const acceptedBehaviorBaselineHint = () => ({
   assessed_at: "2026-06-12T09:51:00.000Z"
 });
 
+const acceptedWriteBehaviorBaselineHint = () => ({
+  ...acceptedBehaviorBaselineHint(),
+  baseline_ref: "platform-behavior-baseline://xhs/www/write/v1",
+  decision_hint: "no_additional_restriction",
+  effective_execution_mode: "live_write",
+  goal_kind: "write"
+});
+
+const learningConservativeBehaviorBaselineHint = () => ({
+  ...acceptedBehaviorBaselineHint(),
+  baseline_ref: null,
+  baseline_state: "learning",
+  drift_level: "medium",
+  decision_hint: "hold_live_write",
+  effective_execution_mode: "recon",
+  goal_kind: "write"
+});
+
 describe("FR-0070 risk evidence consumer gate", () => {
   it("accepts current-scope risk evidence only as #1188 input, not read/write allow proof", () => {
     expect(
@@ -127,6 +145,91 @@ describe("FR-0070 risk evidence consumer gate", () => {
       decision: "blocked",
       gate_reasons: ["behavior_baseline_required"],
       behavior_baseline_hint_accepted: false
+    });
+  });
+
+  it("fails closed when a ready behavior baseline hint lacks baseline_ref", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: {
+          ...acceptedBehaviorBaselineHint(),
+          baseline_ref: null
+        }
+      })
+    ).toMatchObject({
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "blocked",
+      gate_reasons: expect.arrayContaining(["behavior_baseline_required"]),
+      behavior_baseline_hint_accepted: false,
+      behavior_baseline_hint: null
+    });
+  });
+
+  it.each([
+    ["missing", { baseline_ref: undefined }],
+    ["null", { baseline_ref: null }],
+    ["empty", { baseline_ref: " " }]
+  ])(
+    "fails closed when ready write no-additional-restriction behavior baseline hint has %s baseline_ref",
+    (_caseName, override) => {
+      expect(
+        evaluateRiskEvidenceConsumerGate({
+          risk_evidence_gate_result: acceptedRiskEvidence(),
+          behavior_baseline_hint: {
+            ...acceptedWriteBehaviorBaselineHint(),
+            ...override
+          }
+        })
+      ).toMatchObject({
+        accepted_risk_input: false,
+        read_write_allow_proof: false,
+        decision: "blocked",
+        gate_reasons: expect.arrayContaining(["behavior_baseline_required"]),
+        behavior_baseline_hint_accepted: false,
+        behavior_baseline_hint: null
+      });
+    }
+  );
+
+  it("accepts ready write no-additional-restriction behavior hint with baseline_ref only as bounded risk input", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: acceptedWriteBehaviorBaselineHint()
+      })
+    ).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      behavior_baseline_hint_accepted: true,
+      behavior_baseline_hint: {
+        baseline_ref: "platform-behavior-baseline://xhs/www/write/v1",
+        baseline_state: "ready",
+        decision_hint: "no_additional_restriction",
+        goal_kind: "write"
+      }
+    });
+  });
+
+  it("allows learning conservative behavior hint without baseline_ref without claiming write clearance", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: learningConservativeBehaviorBaselineHint()
+      })
+    ).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      behavior_baseline_hint_accepted: true,
+      behavior_baseline_hint: {
+        baseline_ref: null,
+        baseline_state: "learning",
+        decision_hint: "hold_live_write",
+        goal_kind: "write"
+      }
     });
   });
 

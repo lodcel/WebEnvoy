@@ -419,6 +419,13 @@ const evaluateBehaviorBaselineHint = (value) => {
   if (reseedRequired === true && !["require_manual_review", "require_reseed"].includes(decisionHint)) {
     pushReason(reasons, "risk_evidence_scope_mismatch");
   }
+  if (
+    (baselineState === "ready" ||
+      (goalKind === "write" && decisionHint === "no_additional_restriction")) &&
+    !baselineRef
+  ) {
+    pushReason(reasons, "behavior_baseline_required");
+  }
 
   const hint = {
     schema_version: schemaVersion,
