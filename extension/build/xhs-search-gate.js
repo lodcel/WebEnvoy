@@ -101,6 +101,7 @@ export const resolveGate = (options, context, actualTargetUrl) => {
         platform_behavior_assessment: options.platform_behavior_assessment,
         platform_behavior_assessment_context: options.platform_behavior_assessment_context,
         expected_platform_behavior_scope: options.expected_platform_behavior_scope,
+        platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref,
         platform_behavior_as_of: options.platform_behavior_as_of,
         platform_behavior_freshness_window_ms: options.platform_behavior_freshness_window_ms,
         additionalGateReasons: Array.isArray(options.admission_gate_reasons)
@@ -287,6 +288,9 @@ export const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                 : {}),
             ...(hasOwn(input.options, "expected_platform_behavior_scope")
                 ? { expected_platform_behavior_scope: input.options?.expected_platform_behavior_scope }
+                : {}),
+            ...(hasOwn(input.options, "platform_behavior_probe_bundle_ref")
+                ? { platform_behavior_probe_bundle_ref: input.options?.platform_behavior_probe_bundle_ref }
                 : {}),
             ...(asNonEmptyString(input.options?.platform_behavior_as_of)
                 ? { platform_behavior_as_of: asNonEmptyString(input.options?.platform_behavior_as_of) }

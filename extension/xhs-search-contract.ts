@@ -70,6 +70,7 @@ export interface XhsSearchOptions {
   platform_behavior_assessment?: unknown;
   platform_behavior_assessment_context?: unknown;
   expected_platform_behavior_scope?: unknown;
+  platform_behavior_probe_bundle_ref?: unknown;
   platform_behavior_as_of?: string;
   platform_behavior_freshness_window_ms?: number;
   page_runtime_readiness_ref?: string;

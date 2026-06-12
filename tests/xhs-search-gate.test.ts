@@ -514,6 +514,7 @@ describe("xhs-search gate helpers", () => {
       platform_behavior_assessment: platformBehaviorAssessment(),
       platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
       expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-read-001",
       platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
       platform_behavior_freshness_window_ms: 5 * 60 * 1000,
       approvalRecord: {}
@@ -602,6 +603,80 @@ describe("xhs-search gate helpers", () => {
         "platform_behavior_xhs_runtime_profile_ref_missing",
         "platform_behavior_expected_profile_ref_missing"
       ])
+    );
+  });
+
+  it("fails closed when XHS gate lacks current probe bundle context for probe-bound assessment", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      runtimeProfileRef: "profile-risk-evidence-ingress-001",
+      platform_behavior_assessment_required: true,
+      platform_behavior_assessment: platformBehaviorAssessment(),
+      platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+      expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+      platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+      platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      platform_behavior_assessment_gate: {
+        accepted_risk_hint: false,
+        read_write_allow_proof: false,
+        account_safety_clearance: false,
+        gate_override_proof: false,
+        decision: "blocked"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining([
+        "platform_behavior_xhs_probe_bundle_ref_missing",
+        "platform_behavior_expected_probe_bundle_ref_missing"
+      ])
+    );
+  });
+
+  it("fails closed when platform behavior assessment probe bundle differs from current gate context", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      runtimeProfileRef: "profile-risk-evidence-ingress-001",
+      platform_behavior_assessment_required: true,
+      platform_behavior_assessment: platformBehaviorAssessment({
+        probe_bundle_ref: "probe-bundle-fr0022-xhs-other-001"
+      }),
+      platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+      expected_platform_behavior_scope: expectedPlatformBehaviorScope({
+        probe_bundle_ref: "probe-bundle-fr0022-xhs-other-001"
+      }),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-read-001",
+      platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+      platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      platform_behavior_assessment_gate: {
+        accepted_risk_hint: false,
+        read_write_allow_proof: false,
+        decision: "blocked"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toContain(
+      "platform_behavior_probe_bundle_ref_mismatch"
     );
   });
 
@@ -762,6 +837,7 @@ describe("xhs-search gate helpers", () => {
         probe_bundle_ref: "probe-bundle-fr0022-xhs-write-001",
         goal_kind: "write"
       }),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-write-001",
       platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
       platform_behavior_freshness_window_ms: 5 * 60 * 1000,
       approvalRecord: {}
@@ -898,6 +974,7 @@ describe("xhs-search gate helpers", () => {
         probe_bundle_ref: "probe-bundle-fr0022-xhs-write-001",
         goal_kind: "write"
       }),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-write-001",
       platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
       platform_behavior_freshness_window_ms: 5 * 60 * 1000,
       approvalRecord: {}
@@ -947,6 +1024,7 @@ describe("xhs-search gate helpers", () => {
         probe_bundle_ref: "probe-bundle-fr0022-xhs-write-001",
         goal_kind: "write"
       }),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-write-001",
       platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
       platform_behavior_freshness_window_ms: 5 * 60 * 1000,
       approvalRecord: {}
@@ -988,6 +1066,7 @@ describe("xhs-search gate helpers", () => {
       platform_behavior_assessment: liveWritePlatformBehaviorAssessment(),
       platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
       expected_platform_behavior_scope: expectedLiveWritePlatformBehaviorScope(),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-live-write-001",
       platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
       platform_behavior_freshness_window_ms: 5 * 60 * 1000,
       approvalRecord: approvedWriteApprovalRecord()
@@ -1037,6 +1116,7 @@ describe("xhs-search gate helpers", () => {
         }),
         platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
         expected_platform_behavior_scope: expectedLiveWritePlatformBehaviorScope(),
+        platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-live-write-001",
         platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
         platform_behavior_freshness_window_ms: 5 * 60 * 1000,
         approvalRecord: approvedWriteApprovalRecord()
@@ -1077,6 +1157,7 @@ describe("xhs-search gate helpers", () => {
       }),
       platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
       expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+      platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-read-001",
       platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
       platform_behavior_freshness_window_ms: 5 * 60 * 1000,
       approvalRecord: {}
@@ -1119,6 +1200,7 @@ describe("xhs-search gate helpers", () => {
         }),
         platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
         expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+        platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-read-001",
         platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
         platform_behavior_freshness_window_ms: 5 * 60 * 1000,
         approvalRecord: {}
@@ -1460,6 +1542,7 @@ describe("xhs-search gate helpers", () => {
         platform_behavior_assessment: platformBehaviorAssessment(),
         platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
         expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+        platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-xhs-read-001",
         platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
         platform_behavior_freshness_window_ms: 5 * 60 * 1000,
         approval_record: {}

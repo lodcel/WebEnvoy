@@ -2720,6 +2720,9 @@ export class ContentScriptHandler {
           ...(hasOwn(options, "expected_platform_behavior_scope")
             ? { expected_platform_behavior_scope: options.expected_platform_behavior_scope }
             : {}),
+          ...(hasOwn(options, "platform_behavior_probe_bundle_ref")
+            ? { platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref }
+            : {}),
           ...(typeof options.platform_behavior_as_of === "string"
             ? { platform_behavior_as_of: options.platform_behavior_as_of }
             : {}),

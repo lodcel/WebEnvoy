@@ -790,6 +790,14 @@ const resolveXhsRuntimeProfileRef = (input, state) =>
   state.upstreamAuthorizationRequest?.resource_binding?.profile_ref ??
   null;
 
+const resolveXhsPlatformBehaviorProbeBundleRef = (input) =>
+  asString(
+    input.platformBehaviorProbeBundleRef ??
+      input.platform_behavior_probe_bundle_ref ??
+      input.probeBundleRef ??
+      input.probe_bundle_ref
+  );
+
 const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
   const providedScope =
     asRecord(input.expectedPlatformBehaviorScope) ??
@@ -797,11 +805,13 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
   const providedScopeForBinding = providedScope ? { ...providedScope } : null;
   if (providedScopeForBinding) {
     delete providedScopeForBinding.profile_ref;
+    delete providedScopeForBinding.probe_bundle_ref;
   }
   const assessment =
     asRecord(input.platformBehaviorAssessment) ??
     asRecord(input.platform_behavior_assessment);
   const currentProfileRef = resolveXhsRuntimeProfileRef(input, state);
+  const currentProbeBundleRef = resolveXhsPlatformBehaviorProbeBundleRef(input);
   const targetDomain =
     state.upstreamAuthorizationRequest?.runtime_target?.domain ?? asString(input.targetDomain);
   const targetPage =
@@ -817,6 +827,12 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
     (asString(providedScope?.profile_ref) || asString(assessment?.profile_ref))
   ) {
     pushReason(bindingReasons, "platform_behavior_xhs_runtime_profile_ref_missing");
+  }
+  if (
+    !currentProbeBundleRef &&
+    (asString(providedScope?.probe_bundle_ref) || asString(assessment?.probe_bundle_ref))
+  ) {
+    pushReason(bindingReasons, "platform_behavior_xhs_probe_bundle_ref_missing");
   }
   if (!targetDomain) {
     pushReason(bindingReasons, "platform_behavior_xhs_target_domain_missing");
@@ -837,6 +853,7 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
       ...(currentProfileRef ? { profile_ref: currentProfileRef } : {}),
       platform: "xhs",
       ...(targetDomain ? { target_domain: targetDomain } : {}),
+      ...(currentProbeBundleRef ? { probe_bundle_ref: currentProbeBundleRef } : {}),
       ...(state.requestedExecutionMode
         ? {
             requested_execution_mode: state.requestedExecutionMode,

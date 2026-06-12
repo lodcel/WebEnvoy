@@ -4521,6 +4521,14 @@ const resolveXhsRuntimeProfileRef = (input, state) =>
   state.upstreamAuthorizationRequest?.resource_binding?.profile_ref ??
   null;
 
+const resolveXhsPlatformBehaviorProbeBundleRef = (input) =>
+  asString(
+    input.platformBehaviorProbeBundleRef ??
+      input.platform_behavior_probe_bundle_ref ??
+      input.probeBundleRef ??
+      input.probe_bundle_ref
+  );
+
 const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
   const providedScope =
     asRecord(input.expectedPlatformBehaviorScope) ??
@@ -4528,11 +4536,13 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
   const providedScopeForBinding = providedScope ? { ...providedScope } : null;
   if (providedScopeForBinding) {
     delete providedScopeForBinding.profile_ref;
+    delete providedScopeForBinding.probe_bundle_ref;
   }
   const assessment =
     asRecord(input.platformBehaviorAssessment) ??
     asRecord(input.platform_behavior_assessment);
   const currentProfileRef = resolveXhsRuntimeProfileRef(input, state);
+  const currentProbeBundleRef = resolveXhsPlatformBehaviorProbeBundleRef(input);
   const targetDomain =
     state.upstreamAuthorizationRequest?.runtime_target?.domain ?? asString(input.targetDomain);
   const targetPage =
@@ -4548,6 +4558,12 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
     (asString(providedScope?.profile_ref) || asString(assessment?.profile_ref))
   ) {
     pushReason(bindingReasons, "platform_behavior_xhs_runtime_profile_ref_missing");
+  }
+  if (
+    !currentProbeBundleRef &&
+    (asString(providedScope?.probe_bundle_ref) || asString(assessment?.probe_bundle_ref))
+  ) {
+    pushReason(bindingReasons, "platform_behavior_xhs_probe_bundle_ref_missing");
   }
   if (!targetDomain) {
     pushReason(bindingReasons, "platform_behavior_xhs_target_domain_missing");
@@ -4568,6 +4584,7 @@ const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
       ...(currentProfileRef ? { profile_ref: currentProfileRef } : {}),
       platform: "xhs",
       ...(targetDomain ? { target_domain: targetDomain } : {}),
+      ...(currentProbeBundleRef ? { probe_bundle_ref: currentProbeBundleRef } : {}),
       ...(state.requestedExecutionMode
         ? {
             requested_execution_mode: state.requestedExecutionMode,
@@ -6623,6 +6640,7 @@ const resolveGate = (options, context, actualTargetUrl) => {
         platform_behavior_assessment: options.platform_behavior_assessment,
         platform_behavior_assessment_context: options.platform_behavior_assessment_context,
         expected_platform_behavior_scope: options.expected_platform_behavior_scope,
+        platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref,
         platform_behavior_as_of: options.platform_behavior_as_of,
         platform_behavior_freshness_window_ms: options.platform_behavior_freshness_window_ms,
         additionalGateReasons: Array.isArray(options.admission_gate_reasons)
@@ -6809,6 +6827,9 @@ const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                 : {}),
             ...(hasOwn(input.options, "expected_platform_behavior_scope")
                 ? { expected_platform_behavior_scope: input.options?.expected_platform_behavior_scope }
+                : {}),
+            ...(hasOwn(input.options, "platform_behavior_probe_bundle_ref")
+                ? { platform_behavior_probe_bundle_ref: input.options?.platform_behavior_probe_bundle_ref }
                 : {}),
             ...(asNonEmptyString(input.options?.platform_behavior_as_of)
                 ? { platform_behavior_as_of: asNonEmptyString(input.options?.platform_behavior_as_of) }
@@ -22693,6 +22714,9 @@ class ContentScriptHandler {
                         : {}),
                     ...(hasOwn(options, "expected_platform_behavior_scope")
                         ? { expected_platform_behavior_scope: options.expected_platform_behavior_scope }
+                        : {}),
+                    ...(hasOwn(options, "platform_behavior_probe_bundle_ref")
+                        ? { platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref }
                         : {}),
                     ...(typeof options.platform_behavior_as_of === "string"
                         ? { platform_behavior_as_of: options.platform_behavior_as_of }

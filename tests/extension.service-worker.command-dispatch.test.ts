@@ -357,6 +357,7 @@ describe("extension service worker / background command dispatch", () => {
           platform_behavior_assessment: assessment,
           platform_behavior_assessment_context: assessmentContext,
           expected_platform_behavior_scope: expectedScope,
+          platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-sw-read-001",
           platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
           platform_behavior_freshness_window_ms: 5 * 60 * 1000
         }),
@@ -376,6 +377,7 @@ describe("extension service worker / background command dispatch", () => {
             platform_behavior_assessment: assessment,
             platform_behavior_assessment_context: assessmentContext,
             expected_platform_behavior_scope: expectedScope,
+            platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-sw-read-001",
             platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
             platform_behavior_freshness_window_ms: 5 * 60 * 1000,
             options: expect.objectContaining({
@@ -383,6 +385,7 @@ describe("extension service worker / background command dispatch", () => {
               platform_behavior_assessment: assessment,
               platform_behavior_assessment_context: assessmentContext,
               expected_platform_behavior_scope: expectedScope,
+              platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-sw-read-001",
               platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
               platform_behavior_freshness_window_ms: 5 * 60 * 1000
             })
@@ -426,6 +429,7 @@ describe("extension service worker / background command dispatch", () => {
           expected_platform_behavior_scope: expectedPlatformBehaviorScope({
             profile_ref: "profile-a"
           }),
+          platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-sw-read-001",
           platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
           platform_behavior_freshness_window_ms: 5 * 60 * 1000
         }),
@@ -520,6 +524,7 @@ describe("extension service worker / background command dispatch", () => {
             probe_bundle_ref: "probe-bundle-fr0022-sw-live-write-001",
             goal_kind: "write"
           },
+          platform_behavior_probe_bundle_ref: "probe-bundle-fr0022-sw-live-write-001",
           platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
           platform_behavior_freshness_window_ms: 5 * 60 * 1000
         }),
@@ -587,6 +592,60 @@ describe("extension service worker / background command dispatch", () => {
         consumer_gate_result: expect.objectContaining({
           gate_decision: "blocked",
           gate_reasons: expect.arrayContaining(["risk_evidence_unclassified"])
+        })
+      })
+    });
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before content dispatch when FR-0022 probe bundle context is missing", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 32,
+        url: "https://www.xiaohongshu.com/search_result?keyword=露营",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    firstPort.onMessageListeners[0]?.({
+      id: "run-command-dispatch-platform-behavior-probe-missing-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-command-dispatch-platform-behavior-probe-missing-001",
+        command: "xhs.search",
+        command_params: createXhsCommandParams({
+          run_id: "run-command-dispatch-platform-behavior-probe-missing-001",
+          risk_state: "allowed",
+          platform_behavior_assessment_required: true,
+          platform_behavior_assessment: platformBehaviorAssessment(),
+          platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+          expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+          platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+          platform_behavior_freshness_window_ms: 5 * 60 * 1000
+        }),
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-command-dispatch-platform-behavior-probe-missing-001",
+      status: "error",
+      payload: expect.objectContaining({
+        consumer_gate_result: expect.objectContaining({
+          gate_decision: "blocked",
+          gate_reasons: expect.arrayContaining([
+            "platform_behavior_xhs_probe_bundle_ref_missing",
+            "platform_behavior_expected_probe_bundle_ref_missing"
+          ])
         })
       })
     });

@@ -914,6 +914,7 @@ const XHS_FORWARD_OPTION_KEYS = [
     "platform_behavior_assessment",
     "platform_behavior_assessment_context",
     "expected_platform_behavior_scope",
+    "platform_behavior_probe_bundle_ref",
     "platform_behavior_as_of",
     "platform_behavior_freshness_window_ms",
     "admission_gate_reasons",
@@ -1171,6 +1172,11 @@ const buildCanonicalGateAuditArtifacts = (input) => {
         ...(hasCommandGateParam("expected_platform_behavior_scope")
             ? {
                 expected_platform_behavior_scope: readXhsGateParam(commandParams ?? {}, "expected_platform_behavior_scope")
+            }
+            : {}),
+        ...(hasCommandGateParam("platform_behavior_probe_bundle_ref")
+            ? {
+                platform_behavior_probe_bundle_ref: readXhsGateParam(commandParams ?? {}, "platform_behavior_probe_bundle_ref")
             }
             : {}),
         ...(hasCommandGateParam("platform_behavior_as_of")
