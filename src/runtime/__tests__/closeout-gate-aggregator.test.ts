@@ -167,6 +167,7 @@ describe("closeout gate aggregator", () => {
         params: {
           closeout_risk_evidence_required: true,
           closeout_behavior_baseline_hint_required: true,
+          goal_kind: "read",
           risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
           behavior_baseline_hint: acceptedBehaviorBaselineHint()
         }
@@ -183,6 +184,34 @@ describe("closeout gate aggregator", () => {
             decision_hint: "allow_read_only",
             target_fr_ref: "FR-0022"
           }
+        }
+      }
+    });
+  });
+
+  it("blocks closeout behavior baseline hint when current goal or action scope is missing", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: acceptedBehaviorBaselineHint()
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "risk_evidence_scope_mismatch",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          read_write_allow_proof: false,
+          behavior_baseline_hint_accepted: false,
+          behavior_baseline_hint: null
         }
       }
     });
@@ -209,6 +238,7 @@ describe("closeout gate aggregator", () => {
         params: {
           closeout_risk_evidence_required: true,
           closeout_behavior_baseline_hint_required: true,
+          goal_kind: "read",
           risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
           behavior_baseline_hint: {
             ...acceptedBehaviorBaselineHint(),
@@ -264,6 +294,9 @@ describe("closeout gate aggregator", () => {
         params: {
           closeout_risk_evidence_required: true,
           closeout_behavior_baseline_hint_required: true,
+          goal_kind: "write",
+          requested_execution_mode: "live_write",
+          effective_execution_mode: "live_write",
           risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
           behavior_baseline_hint: {
             ...acceptedWriteBehaviorBaselineHint(),
@@ -294,6 +327,7 @@ describe("closeout gate aggregator", () => {
         params: {
           closeout_risk_evidence_required: true,
           closeout_behavior_baseline_hint_required: true,
+          goal_kind: "read",
           risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
           behavior_baseline_hint: {
             ...acceptedBehaviorBaselineHint(),

@@ -81,6 +81,8 @@ const blocker = (
 const isCloseoutRhythmAllowed = (rhythmState: string | null): boolean =>
   rhythmState === "not_required" || rhythmState === "single_probe_passed";
 
+const MISSING_BEHAVIOR_BASELINE_GOAL_SCOPE = "__missing_closeout_goal_scope__";
+
 const resolveBehaviorBaselineGoalKind = (params: JsonObject): "read" | "write" | null => {
   const explicitGoalKind = asString(params.goal_kind);
   if (explicitGoalKind === "read" || explicitGoalKind === "write") {
@@ -93,7 +95,7 @@ const resolveBehaviorBaselineGoalKind = (params: JsonObject): "read" | "write" |
   if (actionType === "read") {
     return "read";
   }
-  return asString(params.requested_execution_mode) === "live_write" ? "write" : "read";
+  return null;
 };
 
 const resolveBehaviorBaselineProbeBundleRef = (
@@ -142,6 +144,12 @@ export const buildCloseoutGateAggregator = (input: {
       ? status.behavior_baseline_hint
       : status.behaviorBaselineHint;
   const behaviorBaselineGoalKind = resolveBehaviorBaselineGoalKind(params);
+  const behaviorBaselineHintScopeRequired =
+    params.behavior_baseline_hint_required === true ||
+    params.closeout_behavior_baseline_hint_required === true ||
+    hasOwn(params, "behavior_baseline_hint") ||
+    hasOwn(status, "behavior_baseline_hint") ||
+    hasOwn(status, "behaviorBaselineHint");
   const closeoutTargetDomain =
     asString(params.target_domain) ??
     asString(params.requested_target_domain) ??
@@ -162,7 +170,9 @@ export const buildCloseoutGateAggregator = (input: {
       effective_execution_mode:
         asString(params.effective_execution_mode) ?? asString(params.requested_execution_mode),
       probe_bundle_ref: resolveBehaviorBaselineProbeBundleRef(params, behaviorBaselineGoalKind),
-      goal_kind: behaviorBaselineGoalKind
+      goal_kind:
+        behaviorBaselineGoalKind ??
+        (behaviorBaselineHintScopeRequired ? MISSING_BEHAVIOR_BASELINE_GOAL_SCOPE : null)
     },
     non_proofs_observed: rawNonProofsObserved
   });
