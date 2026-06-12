@@ -137,3 +137,5 @@ mappings:
     canonical_issue_number: 1180
   - spec_path: docs/dev/specs/FR-0069-provider-owned-stealth-boundary/spec.md
     canonical_issue_number: 1182
+  - spec_path: docs/dev/specs/FR-0070-webenvoy-owned-risk-evidence-boundary/spec.md
+    canonical_issue_number: 1183
