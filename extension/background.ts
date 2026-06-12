@@ -1550,6 +1550,9 @@ const XHS_FORWARD_OPTION_KEYS = [
   "profile_readiness",
   "account_readiness",
   "account_safety_gate_result",
+  "risk_evidence_required",
+  "risk_evidence_gate_result",
+  "non_proofs_observed",
   "admission_gate_reasons",
   "upstream_authorization_request",
   "__legacy_requested_execution_mode",
@@ -1853,6 +1856,15 @@ const buildCanonicalGateAuditArtifacts = (input: {
   controlledLiveWrite: boolean;
 }) => {
   const commandParams = asRecord(input.request.params.command_params);
+  const hasCommandGateParam = (key: string): boolean => {
+    if (!commandParams) {
+      return false;
+    }
+    return (
+      Object.prototype.hasOwnProperty.call(commandParams, key) ||
+      Object.prototype.hasOwnProperty.call(asRecord(commandParams.options) ?? {}, key)
+    );
+  };
   const canonicalGate = evaluateXhsGate({
     issueScope: input.issueScope,
     riskState: input.riskState,
@@ -1886,6 +1898,15 @@ const buildCanonicalGateAuditArtifacts = (input: {
     admissionContext: input.admissionContext,
     limitedReadRolloutReadyTrue: input.limitedReadRolloutReadyTrue,
     controlledLiveWrite: input.controlledLiveWrite,
+    ...(commandParams && readXhsGateParam(commandParams, "risk_evidence_required") === true
+      ? { risk_evidence_required: true }
+      : {}),
+    ...(hasCommandGateParam("risk_evidence_gate_result")
+      ? { risk_evidence_gate_result: readXhsGateParam(commandParams ?? {}, "risk_evidence_gate_result") }
+      : {}),
+    ...(hasCommandGateParam("non_proofs_observed")
+      ? { non_proofs_observed: readXhsGateParam(commandParams ?? {}, "non_proofs_observed") }
+      : {}),
     decisionId: resolveBridgeRequestGateDecisionId(input.request),
     approvalId: resolveGatePayloadApprovalId({
       approvalActive:
@@ -9283,6 +9304,15 @@ class ChromeBackgroundBridge {
     const canonicalRequestAdmissionResult = asRecord(sharedCanonicalGate.request_admission_result);
     const canonicalExecutionAudit = asRecord(sharedCanonicalGate.execution_audit);
     const canonicalConsumerGateResult = asRecord(sharedCanonicalGate.consumer_gate_result);
+    const canonicalRiskEvidenceConsumerGate = asRecord(
+      canonicalConsumerGateResult?.risk_evidence_consumer_gate
+    );
+    const canonicalRiskEvidenceGateReasons = asStringArray(
+      canonicalConsumerGateResult?.gate_reasons
+    );
+    const shouldAdoptCanonicalRiskEvidenceBlock =
+      canonicalRiskEvidenceConsumerGate !== null &&
+      canonicalConsumerGateResult?.gate_decision === "blocked";
     const legacyAdmissionOnlyBlocked =
       finalizedGate.gateDecision === "blocked" && legacyAdmissionOnlyBlockedBeforeFingerprint;
     const canAdoptCanonicalLiveAdmission =
@@ -9296,7 +9326,9 @@ class ChromeBackgroundBridge {
       legacyAdmissionOnlyBlocked;
     const adoptedGateDecision = canAdoptCanonicalLiveAdmission
       ? "allowed"
-      : finalizedGate.gateDecision;
+      : shouldAdoptCanonicalRiskEvidenceBlock
+        ? "blocked"
+        : finalizedGate.gateDecision;
     const adoptedEffectiveExecutionMode =
       canAdoptCanonicalLiveAdmission &&
       (canonicalRequestedExecutionMode === "live_read_limited" ||
@@ -9304,8 +9336,10 @@ class ChromeBackgroundBridge {
         ? canonicalRequestedExecutionMode
         : resolvedEffectiveExecutionMode;
     const adoptedGateReasons = canAdoptCanonicalLiveAdmission
-      ? asStringArray(canonicalConsumerGateResult?.gate_reasons)
-      : finalizedGate.gateReasons;
+      ? canonicalRiskEvidenceGateReasons
+      : shouldAdoptCanonicalRiskEvidenceBlock
+        ? canonicalRiskEvidenceGateReasons
+        : finalizedGate.gateReasons;
     const adoptedAllowed = adoptedGateDecision === "allowed";
     const sharedCanonicalApprovalRecord = normalizeXhsApprovalRecord(
       asRecord(sharedCanonicalGate.approval_record)
@@ -9345,6 +9379,9 @@ class ChromeBackgroundBridge {
       gate_reasons: adoptedGateReasons,
       fingerprint_gate_decision: fingerprintGateDecision,
       fingerprint_reason_codes: resolvedFingerprintReasonCodes,
+      ...(canonicalRiskEvidenceConsumerGate
+        ? { risk_evidence_consumer_gate: canonicalRiskEvidenceConsumerGate }
+        : {}),
       write_interaction_tier: gateState.writeActionMatrixDecisions?.write_interaction_tier ?? null
     };
     const runId = requestRunId;
