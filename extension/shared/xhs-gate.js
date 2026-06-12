@@ -23,6 +23,9 @@ import {
 import {
   evaluateRiskEvidenceConsumerGate
 } from "./risk-evidence-gate.js";
+import {
+  evaluatePlatformBehaviorAssessmentGate
+} from "./platform-behavior-assessment-gate.js";
 
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
@@ -771,6 +774,135 @@ const resolveXhsExecutionMode = (value) =>
 const resolveXhsRiskState = (value) => resolveSharedRiskState(value);
 
 const resolveXhsIssueScope = (value) => resolveSharedIssueScope(value);
+
+const deriveXhsPlatformBehaviorGoalKind = (actionType) => {
+  if (actionType === "read") {
+    return "read";
+  }
+  if (actionType === "write" || actionType === "irreversible_write") {
+    return "write";
+  }
+  return null;
+};
+
+const resolveXhsRuntimeProfileRef = (input, state) =>
+  asString(input.runtimeProfileRef ?? input.__runtime_profile_ref) ??
+  state.upstreamAuthorizationRequest?.resource_binding?.profile_ref ??
+  null;
+
+const resolveXhsPlatformBehaviorProbeBundleRef = (input) =>
+  asString(
+    input.platformBehaviorProbeBundleRef ??
+      input.platform_behavior_probe_bundle_ref ??
+      input.probeBundleRef ??
+      input.probe_bundle_ref
+  );
+
+const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
+  const providedScope =
+    asRecord(input.expectedPlatformBehaviorScope) ??
+    asRecord(input.expected_platform_behavior_scope);
+  const providedScopeForBinding = providedScope ? { ...providedScope } : null;
+  if (providedScopeForBinding) {
+    delete providedScopeForBinding.profile_ref;
+    delete providedScopeForBinding.probe_bundle_ref;
+  }
+  const assessment =
+    asRecord(input.platformBehaviorAssessment) ??
+    asRecord(input.platform_behavior_assessment);
+  const currentProfileRef = resolveXhsRuntimeProfileRef(input, state);
+  const currentProbeBundleRef = resolveXhsPlatformBehaviorProbeBundleRef(input);
+  const targetDomain =
+    state.upstreamAuthorizationRequest?.runtime_target?.domain ?? asString(input.targetDomain);
+  const targetPage =
+    state.upstreamAuthorizationRequest?.runtime_target?.page ?? asString(input.targetPage);
+  const goalKind = deriveXhsPlatformBehaviorGoalKind(state.actionType);
+  const bindingReasons = [];
+
+  if (!providedScope) {
+    pushReason(bindingReasons, "platform_behavior_expected_scope_missing");
+  }
+  if (
+    !currentProfileRef &&
+    (asString(providedScope?.profile_ref) || asString(assessment?.profile_ref))
+  ) {
+    pushReason(bindingReasons, "platform_behavior_xhs_runtime_profile_ref_missing");
+  }
+  if (
+    !currentProbeBundleRef &&
+    (asString(providedScope?.probe_bundle_ref) || asString(assessment?.probe_bundle_ref))
+  ) {
+    pushReason(bindingReasons, "platform_behavior_xhs_probe_bundle_ref_missing");
+  }
+  if (!targetDomain) {
+    pushReason(bindingReasons, "platform_behavior_xhs_target_domain_missing");
+  }
+  if (!targetPage) {
+    pushReason(bindingReasons, "platform_behavior_xhs_target_page_missing");
+  }
+  if (!state.actionType) {
+    pushReason(bindingReasons, "platform_behavior_xhs_action_type_missing");
+  }
+  if (!state.requestedExecutionMode) {
+    pushReason(bindingReasons, "platform_behavior_xhs_execution_mode_missing");
+  }
+
+  return {
+    expectedScope: {
+      ...(providedScopeForBinding ?? {}),
+      ...(currentProfileRef ? { profile_ref: currentProfileRef } : {}),
+      platform: "xhs",
+      ...(targetDomain ? { target_domain: targetDomain } : {}),
+      ...(currentProbeBundleRef ? { probe_bundle_ref: currentProbeBundleRef } : {}),
+      ...(state.requestedExecutionMode
+        ? {
+            requested_execution_mode: state.requestedExecutionMode,
+            effective_execution_mode: state.requestedExecutionMode
+          }
+        : {}),
+      ...(goalKind ? { goal_kind: goalKind } : {})
+    },
+    bindingReasons
+  };
+};
+
+const applyPlatformBehaviorScopeBindingReasons = (gate, bindingReasons) => {
+  if (!gate.required || bindingReasons.length === 0) {
+    return gate;
+  }
+  const gateReasons = [...gate.gate_reasons];
+  for (const reason of bindingReasons) {
+    pushReason(gateReasons, reason);
+  }
+  return {
+    ...gate,
+    accepted_risk_hint: false,
+    decision: "blocked",
+    gate_reasons: gateReasons
+  };
+};
+
+const collectXhsPlatformBehaviorDecisionHintGateReasons = (gate, state) => {
+  if (!gate.required || gate.accepted_risk_hint !== true) {
+    return [];
+  }
+  const reasons = [];
+  if (
+    gate.decision_hint === "hold_live_write" &&
+    (state.requestedExecutionMode === "live_write" ||
+      state.actionType === "write" ||
+      state.actionType === "irreversible_write")
+  ) {
+    pushReason(reasons, "platform_behavior_hold_live_write");
+  }
+  if (gate.decision_hint === "require_manual_review") {
+    pushReason(reasons, "platform_behavior_manual_review_required");
+  }
+  if (gate.decision_hint === "require_reseed" || gate.reseed_required === true) {
+    pushReason(reasons, "platform_behavior_reseed_required");
+  }
+  return reasons;
+};
 
 const normalizeXhsApprovalRecord = (value) => {
   const record = asRecord(value);
@@ -1767,7 +1899,34 @@ const evaluateXhsGate = (input) => {
     nonProofs: input.nonProofs,
     non_proofs: input.non_proofs
   });
+  const platformBehaviorScopeBinding = deriveXhsPlatformBehaviorExpectedScope(input, state);
+  const platformBehaviorAssessmentGate = applyPlatformBehaviorScopeBindingReasons(
+    evaluatePlatformBehaviorAssessmentGate({
+      required: input.platformBehaviorAssessmentRequired,
+      platform_behavior_assessment_required: input.platform_behavior_assessment_required,
+      platformBehaviorAssessment: input.platformBehaviorAssessment,
+      platform_behavior_assessment: input.platform_behavior_assessment,
+      platformBehaviorAssessmentContext: input.platformBehaviorAssessmentContext,
+      platform_behavior_assessment_context: input.platform_behavior_assessment_context,
+      platformBehaviorContext: input.platformBehaviorContext,
+      platform_behavior_context: input.platform_behavior_context,
+      expected_platform_behavior_scope: platformBehaviorScopeBinding.expectedScope,
+      asOf: input.platformBehaviorAsOf ?? input.platform_behavior_as_of,
+      freshnessWindowMs:
+        input.platformBehaviorFreshnessWindowMs ?? input.platform_behavior_freshness_window_ms
+    }),
+    platformBehaviorScopeBinding.bindingReasons
+  );
   for (const reason of riskEvidenceConsumerGate.gate_reasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of platformBehaviorAssessmentGate.gate_reasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of collectXhsPlatformBehaviorDecisionHintGateReasons(
+    platformBehaviorAssessmentGate,
+    state
+  )) {
     pushReason(gateReasons, reason);
   }
   const expectedApprovalId = deriveApprovalId(input, decisionId);
@@ -1894,6 +2053,9 @@ const evaluateXhsGate = (input) => {
       admission_context: admissionContext,
       ...(riskEvidenceConsumerGate.required
         ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {}),
+      ...(platformBehaviorAssessmentGate.required
+        ? { platform_behavior_assessment_gate: platformBehaviorAssessmentGate }
         : {})
     },
     gate_outcome: {
@@ -1922,6 +2084,9 @@ const evaluateXhsGate = (input) => {
       write_interaction_tier: state.writeActionMatrixDecisions?.write_interaction_tier ?? null,
       ...(riskEvidenceConsumerGate.required
         ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {}),
+      ...(platformBehaviorAssessmentGate.required
+        ? { platform_behavior_assessment_gate: platformBehaviorAssessmentGate }
         : {})
     },
     request_admission_result: requestAdmissionResult,

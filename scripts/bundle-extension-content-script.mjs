@@ -47,6 +47,9 @@ const buildContentScriptBundle = async () => {
   const fingerprintSource = await readSource(join(sharedRoot, "fingerprint-profile.js"));
   const riskStateSource = await readSource(join(sharedRoot, "risk-state.js"));
   const riskEvidenceGateSource = await readSource(join(sharedRoot, "risk-evidence-gate.js"));
+  const platformBehaviorAssessmentGateSource = await readSource(
+    join(sharedRoot, "platform-behavior-assessment-gate.js")
+  );
   const issue209AdmissionSource = await readSource(
     join(sharedRoot, "issue209-live-read", "admission.js")
   );
@@ -120,6 +123,12 @@ const buildContentScriptBundle = async () => {
     moduleVar: "__webenvoy_module_risk_evidence_gate",
     sourceBody: riskEvidenceGateSource,
     exports: ["evaluateRiskEvidenceConsumerGate"]
+  });
+
+  const platformBehaviorAssessmentGateModule = renderClassicModule({
+    moduleVar: "__webenvoy_module_platform_behavior_assessment_gate",
+    sourceBody: platformBehaviorAssessmentGateSource,
+    exports: ["evaluatePlatformBehaviorAssessmentGate"]
   });
 
   const issue209AdmissionModule = renderClassicModule({
@@ -231,7 +240,10 @@ const buildContentScriptBundle = async () => {
       "  isIssue209LiveReadGateRequest,",
       "  resolveIssue209LiveReadApprovalId",
       "} = __webenvoy_module_issue209_identity;",
-      "const { evaluateRiskEvidenceConsumerGate } = __webenvoy_module_risk_evidence_gate;"
+      "const { evaluateRiskEvidenceConsumerGate } = __webenvoy_module_risk_evidence_gate;",
+      "const {",
+      "  evaluatePlatformBehaviorAssessmentGate",
+      "} = __webenvoy_module_platform_behavior_assessment_gate;"
     ].join("\n"),
     sourceBody: sharedXhsGateSource,
     exports: [
@@ -573,6 +585,7 @@ const buildContentScriptBundle = async () => {
     "",
     riskStateModule,
     riskEvidenceGateModule,
+    platformBehaviorAssessmentGateModule,
     fingerprintModule,
     issue209AdmissionModule,
     issue209IdentityModule,

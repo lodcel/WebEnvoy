@@ -169,6 +169,13 @@ export const resolveGate = (
     behavior_baseline_hint_required: options.behavior_baseline_hint_required === true,
     behavior_baseline_hint: options.behavior_baseline_hint,
     non_proofs_observed: options.non_proofs_observed,
+    platform_behavior_assessment_required: options.platform_behavior_assessment_required === true,
+    platform_behavior_assessment: options.platform_behavior_assessment,
+    platform_behavior_assessment_context: options.platform_behavior_assessment_context,
+    expected_platform_behavior_scope: options.expected_platform_behavior_scope,
+    platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref,
+    platform_behavior_as_of: options.platform_behavior_as_of,
+    platform_behavior_freshness_window_ms: options.platform_behavior_freshness_window_ms,
     additionalGateReasons: Array.isArray(options.admission_gate_reasons)
       ? options.admission_gate_reasons.filter((reason): reason is string => typeof reason === "string")
       : [],
@@ -370,6 +377,33 @@ export const createGateOnlySuccess = (input: {
         : {}),
       ...(hasOwn(input.options, "non_proofs_observed")
         ? { non_proofs_observed: input.options?.non_proofs_observed }
+        : {}),
+      ...(input.options?.platform_behavior_assessment_required === true
+        ? { platform_behavior_assessment_required: true }
+        : {}),
+      ...(hasOwn(input.options, "platform_behavior_assessment")
+        ? { platform_behavior_assessment: input.options?.platform_behavior_assessment }
+        : {}),
+      ...(hasOwn(input.options, "platform_behavior_assessment_context")
+        ? {
+            platform_behavior_assessment_context:
+              input.options?.platform_behavior_assessment_context
+          }
+        : {}),
+      ...(hasOwn(input.options, "expected_platform_behavior_scope")
+        ? { expected_platform_behavior_scope: input.options?.expected_platform_behavior_scope }
+        : {}),
+      ...(hasOwn(input.options, "platform_behavior_probe_bundle_ref")
+        ? { platform_behavior_probe_bundle_ref: input.options?.platform_behavior_probe_bundle_ref }
+        : {}),
+      ...(asNonEmptyString(input.options?.platform_behavior_as_of)
+        ? { platform_behavior_as_of: asNonEmptyString(input.options?.platform_behavior_as_of) }
+        : {}),
+      ...(typeof input.options?.platform_behavior_freshness_window_ms === "number"
+        ? {
+            platform_behavior_freshness_window_ms:
+              input.options.platform_behavior_freshness_window_ms
+          }
         : {}),
       ...(asStringArray(input.options?.non_proofs).length > 0
         ? { non_proofs: asStringArray(input.options?.non_proofs) }

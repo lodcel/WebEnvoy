@@ -670,6 +670,1277 @@ const buildUnifiedRiskStateOutput = (state, options = {}) => ({
 });
 return { APPROVAL_CHECK_KEYS, EXECUTION_MODES, WRITE_INTERACTION_TIER, buildRiskTransitionAudit, buildUnifiedRiskStateOutput, getWriteActionMatrixDecisions, getIssueActionMatrixEntry, resolveIssueScope, resolveRiskState };
 })();
+const __webenvoy_module_risk_evidence_gate = (() => {
+const RISK_EVIDENCE_STATES = new Set([
+  "accepted",
+  "blocked",
+  "unclassified",
+  "missing",
+  "stale",
+  "scope_mismatch",
+  "redaction_invalid",
+  "provider_private_boundary_violation"
+]);
+
+const RISK_EVIDENCE_DECISIONS = new Set(["allow_input_to_1188", "deny", "defer"]);
+const RISK_EVIDENCE_SCHEMA_VERSION = "webenvoy-risk-evidence-boundary.v1";
+const RISK_EVIDENCE_DOWNSTREAM_OWNER = "#1188";
+const BEHAVIOR_BASELINE_HINT_SCHEMA_VERSION = "webenvoy-behavior-baseline-hint.v1";
+
+const BEHAVIOR_BASELINE_HINT_BASELINE_STATES = new Set([
+  "unseeded",
+  "learning",
+  "ready",
+  "degraded"
+]);
+const BEHAVIOR_BASELINE_HINT_DRIFT_LEVELS = new Set([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "critical"
+]);
+const BEHAVIOR_BASELINE_HINT_DECISIONS = new Set([
+  "allow_read_only",
+  "no_additional_restriction",
+  "hold_live_write",
+  "require_manual_review",
+  "require_reseed"
+]);
+const BEHAVIOR_BASELINE_HINT_HIGH_DRIFT_DECISIONS = new Set([
+  "hold_live_write",
+  "require_manual_review",
+  "require_reseed"
+]);
+const BEHAVIOR_BASELINE_HINT_RESEED_DECISIONS = new Set([
+  "require_manual_review",
+  "require_reseed"
+]);
+const BEHAVIOR_BASELINE_HINT_LEARNING_READ_DECISIONS = new Set([
+  "allow_read_only",
+  "require_manual_review"
+]);
+const BEHAVIOR_BASELINE_HINT_LEARNING_WRITE_DECISIONS = new Set([
+  "hold_live_write",
+  "require_manual_review"
+]);
+const BEHAVIOR_BASELINE_HINT_GOAL_KINDS = new Set(["read", "write"]);
+const BEHAVIOR_BASELINE_HINT_EXECUTION_MODES = new Set([
+  "dry_run",
+  "recon",
+  "live_read_limited",
+  "live_read_high_risk",
+  "live_write"
+]);
+const BEHAVIOR_BASELINE_HINT_ALLOWED_KEYS = new Set([
+  "schema_version",
+  "target_fr_ref",
+  "validation_scope",
+  "assessment_ref",
+  "baseline_ref",
+  "baseline_state",
+  "drift_level",
+  "decision_hint",
+  "confidence",
+  "profile_ref",
+  "target_domain",
+  "browser_channel",
+  "execution_surface",
+  "effective_execution_mode",
+  "probe_bundle_ref",
+  "goal_kind",
+  "reseed_required",
+  "evidence_refs_consumed",
+  "assessed_at"
+]);
+const BEHAVIOR_BASELINE_HINT_FORBIDDEN_ACCOUNT_OPS_KEYS = new Set([
+  "account_health_score",
+  "account_pool_ref",
+  "account_rotation_policy_ref",
+  "account_cooldown_policy_ref",
+  "persona_ref",
+  "behavior_persona_ref",
+  "operator_schedule_ref",
+  "long_term_profile_score"
+]);
+const RISK_HINT_INPUTS = new Set(["session_rhythm_evidence"]);
+
+const RISK_EVIDENCE_NON_PROOFS = new Set([
+  "provider_stealth_declared",
+  "provider_contract_present",
+  "provider_descriptor_present",
+  "provider_capability_matrix_present",
+  "provider_registry_row_present",
+  "provider_doctor_pass",
+  "provider_health_pass",
+  "runtime_ping",
+  "runtime_bootstrap_ack",
+  "fingerprint_seed_ref_present",
+  "private_patch_ref_present",
+  "account_safety_issue_closed",
+  "operator_unlock_present",
+  "default_lock_present",
+  "live_evidence_gate_present",
+  "historical_artifact",
+  "same_head_historical_artifact",
+  "post_merge_evidence",
+  "stub_or_fake_host",
+  "control_plane_only_signal",
+  "dry_run_only_output",
+  "spec_sample_or_fixture",
+  "manual_disposition_present",
+  "session_rhythm_detector_specific_stealth",
+  "detector_specific_stealth",
+  "cloakbrowser_as_core",
+  "browser_patching",
+  "default_live_write_commit",
+  "account_operations",
+  "issue_835_recovery"
+]);
+
+const RISK_EVIDENCE_BLOCKING_REASONS = new Set([
+  "risk_evidence_missing",
+  "risk_evidence_unclassified",
+  "risk_evidence_stale",
+  "risk_evidence_scope_mismatch",
+  "risk_evidence_head_mismatch",
+  "risk_evidence_run_mismatch",
+  "risk_evidence_profile_mismatch",
+  "risk_evidence_page_mismatch",
+  "risk_evidence_provider_mismatch",
+  "risk_evidence_redaction_invalid",
+  "provider_stealth_boundary_missing",
+  "provider_stealth_boundary_unresolved",
+  "provider_stealth_non_proof",
+  "provider_private_patch_disclosed",
+  "provider_private_patch_required_but_unverified",
+  "account_safety_required",
+  "account_safety_not_clear",
+  "runtime_target_binding_required",
+  "runtime_target_binding_not_accepted",
+  "extension_native_bridge_required",
+  "default_lock_required",
+  "operator_unlock_required",
+  "live_evidence_required",
+  "behavior_baseline_required",
+  "route_evidence_required",
+  "closeout_audit_required",
+  "stub_or_fake_host_evidence",
+  "control_plane_only_signal",
+  "historical_or_stale_evidence",
+  "manual_disposition_required",
+  "manual_disposition_not_accepted",
+  "risk_hint_consumer_required",
+  "downstream_owner_required"
+]);
+
+const STATE_REASON_MAP = {
+  blocked: "risk_hint_consumer_required",
+  unclassified: "risk_evidence_unclassified",
+  missing: "risk_evidence_missing",
+  stale: "risk_evidence_stale",
+  scope_mismatch: "risk_evidence_scope_mismatch",
+  redaction_invalid: "risk_evidence_redaction_invalid",
+  provider_private_boundary_violation: "provider_private_patch_disclosed"
+};
+
+const NON_PROOF_REASON_MAP = {
+  provider_stealth_declared: "provider_stealth_non_proof",
+  provider_contract_present: "provider_stealth_non_proof",
+  provider_descriptor_present: "provider_stealth_non_proof",
+  provider_capability_matrix_present: "provider_stealth_non_proof",
+  provider_registry_row_present: "provider_stealth_non_proof",
+  provider_doctor_pass: "provider_stealth_non_proof",
+  provider_health_pass: "provider_stealth_non_proof",
+  runtime_ping: "control_plane_only_signal",
+  runtime_bootstrap_ack: "control_plane_only_signal",
+  fingerprint_seed_ref_present: "provider_stealth_non_proof",
+  private_patch_ref_present: "provider_stealth_non_proof",
+  account_safety_issue_closed: "account_safety_required",
+  operator_unlock_present: "operator_unlock_required",
+  default_lock_present: "default_lock_required",
+  live_evidence_gate_present: "live_evidence_required",
+  historical_artifact: "historical_or_stale_evidence",
+  same_head_historical_artifact: "historical_or_stale_evidence",
+  post_merge_evidence: "historical_or_stale_evidence",
+  stub_or_fake_host: "stub_or_fake_host_evidence",
+  control_plane_only_signal: "control_plane_only_signal",
+  dry_run_only_output: "control_plane_only_signal",
+  spec_sample_or_fixture: "historical_or_stale_evidence",
+  manual_disposition_present: "manual_disposition_not_accepted",
+  session_rhythm_detector_specific_stealth: "provider_stealth_non_proof",
+  detector_specific_stealth: "provider_stealth_non_proof",
+  cloakbrowser_as_core: "provider_stealth_non_proof",
+  browser_patching: "provider_stealth_non_proof",
+  default_live_write_commit: "default_lock_required",
+  account_operations: "account_safety_required",
+  issue_835_recovery: "risk_evidence_scope_mismatch"
+};
+
+const asRecord = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+
+const hasPresentField = (record, key) =>
+  Object.prototype.hasOwnProperty.call(record, key) && record[key] !== undefined;
+
+const asString = (value) => (typeof value === "string" && value.trim().length > 0 ? value.trim() : null);
+
+const asIsoTimestamp = (value) => {
+  const timestamp = asString(value);
+  if (!timestamp) {
+    return null;
+  }
+  const parsed = Date.parse(timestamp);
+  return Number.isNaN(parsed) ? null : timestamp;
+};
+
+const classifyStringArray = (value) => {
+  if (!Array.isArray(value)) {
+    return {
+      values: [],
+      malformed: value !== undefined && value !== null
+    };
+  }
+
+  const values = [];
+  let malformed = false;
+  for (const item of value) {
+    const normalized = asString(item);
+    if (normalized) {
+      values.push(normalized);
+    } else {
+      malformed = true;
+    }
+  }
+  return { values, malformed };
+};
+
+const asStringArray = (value) => classifyStringArray(value).values;
+
+const pushReason = (target, reason) => {
+  if (reason && !target.includes(reason)) {
+    target.push(reason);
+  }
+};
+
+const classifyNonProofs = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  for (const item of classified.values) {
+    if (!RISK_EVIDENCE_NON_PROOFS.has(item)) {
+      pushReason(reasons, "risk_evidence_unclassified");
+    }
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    present: Array.isArray(value) || classified.malformed
+  };
+};
+
+const classifyBlockingReasons = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  if (!Array.isArray(value)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  for (const reason of classified.values) {
+    pushReason(
+      reasons,
+      RISK_EVIDENCE_BLOCKING_REASONS.has(reason) ? reason : "risk_evidence_unclassified"
+    );
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    malformed: reasons.includes("risk_evidence_unclassified")
+  };
+};
+
+const classifyRiskHints = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  for (const hint of classified.values) {
+    if (!RISK_HINT_INPUTS.has(hint)) {
+      pushReason(reasons, "risk_evidence_unclassified");
+    }
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    malformed: reasons.includes("risk_evidence_unclassified")
+  };
+};
+
+const collectNonProofBlockingReasons = (nonProofs) => {
+  const reasons = [];
+  for (const nonProof of nonProofs) {
+    pushReason(reasons, NON_PROOF_REASON_MAP[nonProof] ?? "risk_evidence_unclassified");
+  }
+  return reasons;
+};
+
+const buildBlockedResult = (input) => ({
+  required: input.required,
+  accepted_risk_input: false,
+  read_write_allow_proof: false,
+  decision: "blocked",
+  gate_reasons: input.gateReasons,
+  risk_evidence_state: input.riskEvidenceState,
+  risk_evidence_decision: input.riskEvidenceDecision,
+  non_proofs_observed: input.nonProofsObserved,
+  risk_evidence_ref: input.riskEvidenceRef,
+  evidence_refs_consumed: input.evidenceRefsConsumed,
+  risk_hints_consumed: input.riskHintsConsumed,
+  behavior_baseline_hint_accepted: input.behaviorBaselineHintAccepted ?? false,
+  behavior_baseline_hint: input.behaviorBaselineHint ?? null,
+  schema_version: input.schemaVersion,
+  evaluated_at: input.evaluatedAt,
+  downstream_owner: input.downstreamOwner
+});
+
+const normalizeBehaviorBaselineScope = (value) => {
+  const record = asRecord(value);
+  if (!record) {
+    return {
+      profile_ref: null,
+      target_domain: null,
+      requested_execution_mode: null,
+      effective_execution_mode: null,
+      probe_bundle_ref: null,
+      goal_kind: null
+    };
+  }
+  return {
+    profile_ref: asString(record.profile_ref ?? record.profileRef),
+    target_domain: asString(record.target_domain ?? record.targetDomain),
+    requested_execution_mode: asString(
+      record.requested_execution_mode ?? record.requestedExecutionMode
+    ),
+    effective_execution_mode: asString(
+      record.effective_execution_mode ?? record.effectiveExecutionMode
+    ),
+    probe_bundle_ref: asString(record.probe_bundle_ref ?? record.probeBundleRef),
+    goal_kind: asString(record.goal_kind ?? record.goalKind)
+  };
+};
+
+const pushBehaviorBaselineScopeMismatch = (input) => {
+  if (input.expected === null || input.expected === undefined) {
+    return;
+  }
+  if (input.actual !== input.expected) {
+    pushReason(input.reasons, "risk_evidence_scope_mismatch");
+  }
+};
+
+const evaluateBehaviorBaselineHint = (value, expectedScopeInput = null) => {
+  if (value === undefined) {
+    return {
+      present: false,
+      accepted: false,
+      reasons: [],
+      hint: null
+    };
+  }
+
+  const record = asRecord(value);
+  const reasons = [];
+  if (!record) {
+    return {
+      present: true,
+      accepted: false,
+      reasons: ["risk_evidence_unclassified"],
+      hint: null
+    };
+  }
+
+  for (const key of Object.keys(record)) {
+    if (BEHAVIOR_BASELINE_HINT_FORBIDDEN_ACCOUNT_OPS_KEYS.has(key)) {
+      pushReason(reasons, "risk_evidence_scope_mismatch");
+    } else if (!BEHAVIOR_BASELINE_HINT_ALLOWED_KEYS.has(key)) {
+      pushReason(reasons, "risk_evidence_unclassified");
+    }
+  }
+
+  const schemaVersion = asString(record.schema_version);
+  const targetFrRef = asString(record.target_fr_ref);
+  const validationScope = asString(record.validation_scope);
+  const assessmentRef = asString(record.assessment_ref);
+  const baselineRef = asString(record.baseline_ref);
+  const baselineState = asString(record.baseline_state);
+  const driftLevel = asString(record.drift_level);
+  const decisionHint = asString(record.decision_hint);
+  const profileRef = asString(record.profile_ref);
+  const targetDomain = asString(record.target_domain);
+  const browserChannel = asString(record.browser_channel);
+  const executionSurface = asString(record.execution_surface);
+  const effectiveExecutionMode = asString(record.effective_execution_mode);
+  const probeBundleRef = asString(record.probe_bundle_ref);
+  const goalKind = asString(record.goal_kind);
+  const assessedAt = asIsoTimestamp(record.assessed_at);
+  const evidenceRefsConsumed = asStringArray(record.evidence_refs_consumed);
+  const evidenceRefsConsumedShape = classifyStringArray(record.evidence_refs_consumed);
+  const confidence = typeof record.confidence === "number" ? record.confidence : null;
+  const reseedRequired = typeof record.reseed_required === "boolean" ? record.reseed_required : null;
+
+  if (schemaVersion !== BEHAVIOR_BASELINE_HINT_SCHEMA_VERSION) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (targetFrRef !== "FR-0022" || validationScope !== "cross_layer_baseline") {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (!assessmentRef || evidenceRefsConsumed.length === 0 || evidenceRefsConsumedShape.malformed) {
+    pushReason(reasons, "behavior_baseline_required");
+  }
+  if (!assessedAt) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!profileRef || !targetDomain || !probeBundleRef) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (browserChannel !== "Google Chrome stable" || executionSurface !== "real_browser") {
+    pushReason(reasons, "stub_or_fake_host_evidence");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_EXECUTION_MODES.has(effectiveExecutionMode)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_GOAL_KINDS.has(goalKind)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_BASELINE_STATES.has(baselineState)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_DRIFT_LEVELS.has(driftLevel)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (!BEHAVIOR_BASELINE_HINT_DECISIONS.has(decisionHint)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (confidence === null || confidence < 0 || confidence > 1) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (reseedRequired === null) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  if (
+    decisionHint === "no_additional_restriction" &&
+    (goalKind !== "write" ||
+      baselineState !== "ready" ||
+      !["none", "low"].includes(driftLevel) ||
+      reseedRequired !== false)
+  ) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (reseedRequired === true && !["require_manual_review", "require_reseed"].includes(decisionHint)) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  const highDrift = driftLevel === "high" || driftLevel === "critical";
+  if (highDrift && !BEHAVIOR_BASELINE_HINT_HIGH_DRIFT_DECISIONS.has(decisionHint)) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (goalKind === "write" && decisionHint === "allow_read_only") {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (baselineState === "ready" && highDrift) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (
+    (baselineState === "unseeded" || baselineState === "learning") &&
+    ((goalKind === "read" && !BEHAVIOR_BASELINE_HINT_LEARNING_READ_DECISIONS.has(decisionHint)) ||
+      (goalKind === "write" && !BEHAVIOR_BASELINE_HINT_LEARNING_WRITE_DECISIONS.has(decisionHint)))
+  ) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (
+    baselineState === "degraded" &&
+    !BEHAVIOR_BASELINE_HINT_HIGH_DRIFT_DECISIONS.has(decisionHint)
+  ) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (
+    reseedRequired === true &&
+    (baselineState === "ready" || !BEHAVIOR_BASELINE_HINT_RESEED_DECISIONS.has(decisionHint))
+  ) {
+    pushReason(reasons, "risk_evidence_scope_mismatch");
+  }
+  if (
+    (baselineState === "ready" ||
+      (goalKind === "write" && decisionHint === "no_additional_restriction")) &&
+    !baselineRef
+  ) {
+    pushReason(reasons, "behavior_baseline_required");
+  }
+  const expectedScope = normalizeBehaviorBaselineScope(expectedScopeInput);
+  const expectedExecutionMode =
+    expectedScope.effective_execution_mode ?? expectedScope.requested_execution_mode;
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: profileRef,
+    expected: expectedScope.profile_ref
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: targetDomain,
+    expected: expectedScope.target_domain
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: effectiveExecutionMode,
+    expected: expectedExecutionMode
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: probeBundleRef,
+    expected: expectedScope.probe_bundle_ref
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: goalKind,
+    expected: expectedScope.goal_kind
+  });
+
+  const hint = {
+    schema_version: schemaVersion,
+    target_fr_ref: targetFrRef,
+    validation_scope: validationScope,
+    assessment_ref: assessmentRef,
+    baseline_ref: baselineRef,
+    baseline_state: baselineState,
+    drift_level: driftLevel,
+    decision_hint: decisionHint,
+    confidence,
+    profile_ref: profileRef,
+    target_domain: targetDomain,
+    browser_channel: browserChannel,
+    execution_surface: executionSurface,
+    effective_execution_mode: effectiveExecutionMode,
+    probe_bundle_ref: probeBundleRef,
+    goal_kind: goalKind,
+    reseed_required: reseedRequired,
+    evidence_refs_consumed: evidenceRefsConsumed,
+    assessed_at: assessedAt
+  };
+
+  return {
+    present: true,
+    accepted: reasons.length === 0,
+    reasons,
+    hint: reasons.length === 0 ? hint : null
+  };
+};
+
+const isRiskEvidenceGateRequired = (input = {}) => {
+  const record = asRecord(input);
+  if (!record) {
+    return false;
+  }
+  return (
+    record.required === true ||
+    record.riskEvidenceRequired === true ||
+    record.risk_evidence_required === true ||
+    record.behaviorBaselineHintRequired === true ||
+    record.behavior_baseline_hint_required === true ||
+    hasPresentField(record, "riskEvidenceGateResult") ||
+    hasPresentField(record, "risk_evidence_gate_result") ||
+    hasPresentField(record, "behaviorBaselineHint") ||
+    hasPresentField(record, "behavior_baseline_hint") ||
+    classifyNonProofs(record.nonProofsObserved).present ||
+    classifyNonProofs(record.non_proofs_observed).present ||
+    classifyNonProofs(record.nonProofs).present ||
+    classifyNonProofs(record.non_proofs).present
+  );
+};
+
+const evaluateRiskEvidenceConsumerGate = (input = {}) => {
+  const record = asRecord(input) ?? {};
+  const rawRiskEvidenceGateResult = hasPresentField(record, "riskEvidenceGateResult")
+    ? record.riskEvidenceGateResult
+    : record.risk_evidence_gate_result;
+  const riskEvidenceGateResult = asRecord(rawRiskEvidenceGateResult);
+  const nonProofClassifications = [
+    classifyNonProofs(record.nonProofsObserved),
+    classifyNonProofs(record.non_proofs_observed),
+    classifyNonProofs(record.nonProofs),
+    classifyNonProofs(record.non_proofs)
+  ];
+  const nonProofsObserved = [
+    ...nonProofClassifications.flatMap((classification) => classification.values)
+  ].filter((item, index, items) => items.indexOf(item) === index);
+  const nonProofGateReasons = nonProofClassifications.flatMap(
+    (classification) => classification.reasons
+  );
+  const rawBehaviorBaselineHint = hasPresentField(record, "behaviorBaselineHint")
+    ? record.behaviorBaselineHint
+    : record.behavior_baseline_hint;
+  const rawBehaviorBaselineScope = hasPresentField(record, "behaviorBaselineScope")
+    ? record.behaviorBaselineScope
+    : record.behavior_baseline_scope;
+  const behaviorBaselineHint = evaluateBehaviorBaselineHint(
+    rawBehaviorBaselineHint,
+    rawBehaviorBaselineScope
+  );
+  const behaviorBaselineHintRequired =
+    record.behaviorBaselineHintRequired === true || record.behavior_baseline_hint_required === true;
+  const required = isRiskEvidenceGateRequired(record);
+  const riskEvidenceGateResultProvided =
+    hasPresentField(record, "riskEvidenceGateResult") ||
+    hasPresentField(record, "risk_evidence_gate_result");
+
+  if (!required) {
+    return {
+      required: false,
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "not_required",
+      gate_reasons: [],
+      risk_evidence_state: null,
+      risk_evidence_decision: null,
+      non_proofs_observed: nonProofsObserved,
+      risk_evidence_ref: null,
+      evidence_refs_consumed: [],
+      risk_hints_consumed: [],
+      behavior_baseline_hint_accepted: false,
+      behavior_baseline_hint: null,
+      downstream_owner: "none"
+    };
+  }
+
+  if (!riskEvidenceGateResult) {
+    return buildBlockedResult({
+      required,
+      gateReasons:
+        riskEvidenceGateResultProvided && rawRiskEvidenceGateResult !== null
+          ? ["risk_evidence_unclassified"]
+          : behaviorBaselineHintRequired && !behaviorBaselineHint.present
+          ? ["behavior_baseline_required"]
+          : behaviorBaselineHint.reasons.length > 0
+          ? behaviorBaselineHint.reasons
+          : nonProofsObserved.length > 0 || nonProofGateReasons.length > 0
+          ? [...collectNonProofBlockingReasons(nonProofsObserved), ...nonProofGateReasons].filter(
+              (reason, index, reasons) => reasons.indexOf(reason) === index
+            )
+          : ["risk_evidence_missing"],
+      riskEvidenceState: "missing",
+      riskEvidenceDecision: null,
+      nonProofsObserved,
+      riskEvidenceRef: null,
+      evidenceRefsConsumed: [],
+      riskHintsConsumed: [],
+      behaviorBaselineHintAccepted: behaviorBaselineHint.accepted,
+      behaviorBaselineHint: behaviorBaselineHint.hint,
+      downstreamOwner: "none"
+    });
+  }
+
+  const riskEvidenceState = asString(riskEvidenceGateResult.risk_state);
+  const riskEvidenceDecision = asString(riskEvidenceGateResult.decision);
+  const schemaVersion = asString(riskEvidenceGateResult.schema_version);
+  const riskEvidenceRef = asString(riskEvidenceGateResult.risk_evidence_ref);
+  const evidenceRefsConsumed = asStringArray(riskEvidenceGateResult.evidence_refs_consumed);
+  const evidenceRefsConsumedShape = classifyStringArray(
+    riskEvidenceGateResult.evidence_refs_consumed
+  );
+  const riskHintsConsumedShape = classifyRiskHints(riskEvidenceGateResult.risk_hints_consumed);
+  const riskHintsConsumed = riskHintsConsumedShape.values;
+  const evaluatedAt = asIsoTimestamp(riskEvidenceGateResult.evaluated_at);
+  const downstreamOwner = asString(riskEvidenceGateResult.downstream_owner) ?? "none";
+  const blockingReasonsShape = classifyBlockingReasons(riskEvidenceGateResult.blocking_reasons);
+  const blockingReasons = blockingReasonsShape.values;
+  const gateReasons = [];
+
+  for (const reason of nonProofGateReasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of behaviorBaselineHint.reasons) {
+    pushReason(gateReasons, reason);
+  }
+  if (behaviorBaselineHintRequired && !behaviorBaselineHint.present) {
+    pushReason(gateReasons, "behavior_baseline_required");
+  }
+  if (schemaVersion !== RISK_EVIDENCE_SCHEMA_VERSION) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (!RISK_EVIDENCE_STATES.has(riskEvidenceState)) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (!RISK_EVIDENCE_DECISIONS.has(riskEvidenceDecision)) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (!evaluatedAt) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (downstreamOwner === "none") {
+    pushReason(gateReasons, "downstream_owner_required");
+  }
+  if (evidenceRefsConsumedShape.malformed) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  for (const reason of riskHintsConsumedShape.reasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of blockingReasonsShape.reasons) {
+    pushReason(gateReasons, reason);
+  }
+
+  if (riskEvidenceState && riskEvidenceState !== "accepted") {
+    pushReason(gateReasons, STATE_REASON_MAP[riskEvidenceState] ?? "risk_evidence_unclassified");
+  }
+  if (riskEvidenceDecision !== "allow_input_to_1188") {
+    pushReason(gateReasons, blockingReasons.length > 0 ? null : "risk_evidence_unclassified");
+  }
+  if (riskEvidenceState === "accepted" && riskEvidenceDecision === "allow_input_to_1188") {
+    if (blockingReasonsShape.malformed) {
+      pushReason(gateReasons, "risk_evidence_unclassified");
+    }
+    if (downstreamOwner !== RISK_EVIDENCE_DOWNSTREAM_OWNER) {
+      pushReason(gateReasons, "downstream_owner_required");
+    }
+    if (blockingReasons.length > 0) {
+      pushReason(gateReasons, "risk_evidence_unclassified");
+    }
+    if (!riskEvidenceRef || evidenceRefsConsumed.length === 0) {
+      pushReason(gateReasons, "risk_evidence_missing");
+    }
+  }
+
+  if (gateReasons.length > 0) {
+    return buildBlockedResult({
+      required,
+      gateReasons,
+      riskEvidenceState: riskEvidenceState ?? "unclassified",
+      riskEvidenceDecision,
+      nonProofsObserved,
+      riskEvidenceRef,
+      evidenceRefsConsumed,
+      riskHintsConsumed,
+      behaviorBaselineHintAccepted: behaviorBaselineHint.accepted,
+      behaviorBaselineHint: behaviorBaselineHint.hint,
+      schemaVersion,
+      evaluatedAt,
+      downstreamOwner
+    });
+  }
+
+  return {
+    required,
+    accepted_risk_input: true,
+    read_write_allow_proof: false,
+    decision: "allow_input_to_consumer_gate",
+    gate_reasons: [],
+    risk_evidence_state: "accepted",
+    risk_evidence_decision: "allow_input_to_1188",
+    non_proofs_observed: nonProofsObserved,
+    risk_evidence_ref: riskEvidenceRef,
+    evidence_refs_consumed: evidenceRefsConsumed,
+    risk_hints_consumed: riskHintsConsumed,
+    behavior_baseline_hint_accepted: behaviorBaselineHint.accepted,
+    behavior_baseline_hint: behaviorBaselineHint.hint,
+    schema_version: schemaVersion,
+    evaluated_at: evaluatedAt,
+    downstream_owner: downstreamOwner
+  };
+};
+return { evaluateRiskEvidenceConsumerGate };
+})();
+const __webenvoy_module_platform_behavior_assessment_gate = (() => {
+const PLATFORM_BEHAVIOR_RISK_HINT_SCHEMA_VERSION =
+  "webenvoy-platform-behavior-assessment-risk-hint.v1";
+const PLATFORM_BEHAVIOR_TARGET_FR_REF = "FR-0022";
+const PLATFORM_BEHAVIOR_VALIDATION_SCOPE = "cross_layer_baseline";
+
+const BROWSER_CHANNEL = "Google Chrome stable";
+const EXECUTION_SURFACE = "real_browser";
+const GOAL_KINDS = new Set(["read", "write"]);
+const BASELINE_STATES = new Set(["unseeded", "learning", "ready", "degraded"]);
+const DRIFT_LEVELS = new Set(["none", "low", "medium", "high", "critical"]);
+const DECISION_HINTS = new Set([
+  "allow_read_only",
+  "no_additional_restriction",
+  "hold_live_write",
+  "require_manual_review",
+  "require_reseed"
+]);
+const HIGH_DRIFT_DECISION_HINTS = new Set([
+  "hold_live_write",
+  "require_manual_review",
+  "require_reseed"
+]);
+const RESEED_DECISION_HINTS = new Set(["require_manual_review", "require_reseed"]);
+const EXECUTION_MODES = new Set([
+  "dry_run",
+  "recon",
+  "live_read_limited",
+  "live_read_high_risk",
+  "live_write"
+]);
+const REQUIRED_EXPECTED_SCOPE_KEYS = [
+  "profile_ref",
+  "platform",
+  "target_domain",
+  "browser_channel",
+  "execution_surface",
+  "effective_execution_mode",
+  "probe_bundle_ref",
+  "goal_kind"
+];
+const ACTION_TYPES = new Set([
+  "navigate",
+  "locate",
+  "click",
+  "extract",
+  "wait_settled",
+  "type",
+  "submit",
+  "confirm",
+  "publish",
+  "purchase",
+  "dispatch",
+  "bind"
+]);
+const READ_SAFE_ACTION_TYPES = new Set([
+  "navigate",
+  "locate",
+  "click",
+  "extract",
+  "wait_settled"
+]);
+const CLICK_KINDS = new Set([
+  "expand_or_collapse",
+  "switch_content_tab",
+  "open_detail_view",
+  "load_more_or_paginate"
+]);
+
+const asRecord = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+
+const hasPresentField = (record, key) =>
+  Object.prototype.hasOwnProperty.call(record, key) && record[key] !== undefined;
+
+const asString = (value) => (typeof value === "string" && value.trim().length > 0 ? value.trim() : null);
+
+const asNumber = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+
+const asIsoTimestamp = (value) => {
+  const timestamp = asString(value);
+  if (!timestamp) {
+    return null;
+  }
+  return Number.isNaN(Date.parse(timestamp)) ? null : timestamp;
+};
+
+const asStringArray = (value) =>
+  Array.isArray(value)
+    ? value.filter((item) => typeof item === "string" && item.trim().length > 0)
+    : null;
+
+const pushReason = (target, reason) => {
+  if (reason && !target.includes(reason)) {
+    target.push(reason);
+  }
+};
+
+const resolveRawAssessment = (record) => {
+  if (hasPresentField(record, "platformBehaviorAssessment")) {
+    return record.platformBehaviorAssessment;
+  }
+  return record.platform_behavior_assessment;
+};
+
+const resolveRawContext = (record) => {
+  if (hasPresentField(record, "platformBehaviorAssessmentContext")) {
+    return record.platformBehaviorAssessmentContext;
+  }
+  if (hasPresentField(record, "platform_behavior_assessment_context")) {
+    return record.platform_behavior_assessment_context;
+  }
+  if (hasPresentField(record, "platformBehaviorContext")) {
+    return record.platformBehaviorContext;
+  }
+  return record.platform_behavior_context;
+};
+
+const resolveExpectedScope = (record) => {
+  if (hasPresentField(record, "expectedPlatformBehaviorScope")) {
+    return record.expectedPlatformBehaviorScope;
+  }
+  return record.expected_platform_behavior_scope;
+};
+
+const isRequired = (record) =>
+  record.required === true ||
+  record.platformBehaviorAssessmentRequired === true ||
+  record.platform_behavior_assessment_required === true ||
+  hasPresentField(record, "platformBehaviorAssessment") ||
+  hasPresentField(record, "platform_behavior_assessment");
+
+const normalizeContext = (value, reasons) => {
+  const context = asRecord(value);
+  if (!context) {
+    pushReason(reasons, "platform_behavior_context_missing");
+    return {
+      target_fr_ref: null,
+      validation_scope: null
+    };
+  }
+
+  const targetFrRef = asString(context.target_fr_ref);
+  const validationScope = asString(context.validation_scope);
+  if (targetFrRef !== PLATFORM_BEHAVIOR_TARGET_FR_REF) {
+    pushReason(reasons, "platform_behavior_target_fr_mismatch");
+  }
+  if (validationScope !== PLATFORM_BEHAVIOR_VALIDATION_SCOPE) {
+    pushReason(reasons, "platform_behavior_validation_scope_mismatch");
+  }
+  if (hasPresentField(context, "issue_scope")) {
+    pushReason(reasons, "platform_behavior_issue_scope_not_allowed");
+  }
+
+  return {
+    target_fr_ref: targetFrRef,
+    validation_scope: validationScope
+  };
+};
+
+const normalizeAssessment = (value, reasons) => {
+  const assessment = asRecord(value);
+  if (!assessment) {
+    pushReason(reasons, "platform_behavior_assessment_missing");
+    return null;
+  }
+
+  if (hasPresentField(assessment, "issue_scope")) {
+    pushReason(reasons, "platform_behavior_issue_scope_not_allowed");
+  }
+
+  const normalized = {
+    assessment_id: asString(assessment.assessment_id),
+    profile_ref: asString(assessment.profile_ref),
+    platform: asString(assessment.platform),
+    target_domain: asString(assessment.target_domain),
+    browser_channel: asString(assessment.browser_channel),
+    execution_surface: asString(assessment.execution_surface),
+    effective_execution_mode: asString(assessment.effective_execution_mode),
+    requested_execution_mode: asString(assessment.requested_execution_mode),
+    probe_bundle_ref: asString(assessment.probe_bundle_ref),
+    goal_kind: asString(assessment.goal_kind),
+    runtime_context_id: asString(assessment.runtime_context_id),
+    baseline_ref: asString(assessment.baseline_ref),
+    baseline_state: asString(assessment.baseline_state),
+    drift_level: asString(assessment.drift_level),
+    action_type: asString(assessment.action_type),
+    interaction_semantics: asString(assessment.interaction_semantics),
+    click_kind: asString(assessment.click_kind),
+    threshold_config_snapshot_ref: asString(assessment.threshold_config_snapshot_ref),
+    decision_hint: asString(assessment.decision_hint),
+    confidence: asNumber(assessment.confidence),
+    evidence_refs: asStringArray(assessment.evidence_refs),
+    assessed_at: asIsoTimestamp(assessment.assessed_at ?? assessment.assessedAt),
+    model_version: asString(assessment.model_version),
+    reseed_required: assessment.reseed_required === true
+  };
+
+  const requiredStringFields = [
+    "assessment_id",
+    "profile_ref",
+    "platform",
+    "target_domain",
+    "browser_channel",
+    "execution_surface",
+    "effective_execution_mode",
+    "requested_execution_mode",
+    "probe_bundle_ref",
+    "goal_kind",
+    "runtime_context_id",
+    "baseline_state",
+    "drift_level",
+    "action_type",
+    "threshold_config_snapshot_ref",
+    "decision_hint",
+    "assessed_at",
+    "model_version"
+  ];
+  for (const field of requiredStringFields) {
+    if (!normalized[field]) {
+      pushReason(reasons, "platform_behavior_assessment_malformed");
+    }
+  }
+
+  if (normalized.browser_channel !== BROWSER_CHANNEL) {
+    pushReason(reasons, "platform_behavior_browser_channel_mismatch");
+  }
+  if (normalized.execution_surface !== EXECUTION_SURFACE) {
+    pushReason(reasons, "platform_behavior_execution_surface_mismatch");
+  }
+  if (!EXECUTION_MODES.has(normalized.effective_execution_mode)) {
+    pushReason(reasons, "platform_behavior_execution_mode_mismatch");
+  }
+  if (!EXECUTION_MODES.has(normalized.requested_execution_mode)) {
+    pushReason(reasons, "platform_behavior_execution_mode_mismatch");
+  }
+  if (!GOAL_KINDS.has(normalized.goal_kind)) {
+    pushReason(reasons, "platform_behavior_goal_kind_mismatch");
+  }
+  if (!BASELINE_STATES.has(normalized.baseline_state)) {
+    pushReason(reasons, "platform_behavior_baseline_state_unclassified");
+  }
+  if (!DRIFT_LEVELS.has(normalized.drift_level)) {
+    pushReason(reasons, "platform_behavior_drift_level_unclassified");
+  }
+  if (!DECISION_HINTS.has(normalized.decision_hint)) {
+    pushReason(reasons, "platform_behavior_decision_hint_unclassified");
+  }
+  if (!ACTION_TYPES.has(normalized.action_type)) {
+    pushReason(reasons, "platform_behavior_action_type_unclassified");
+  }
+  if (normalized.confidence === null || normalized.confidence < 0 || normalized.confidence > 1) {
+    pushReason(reasons, "platform_behavior_assessment_malformed");
+  }
+  if (!Array.isArray(normalized.evidence_refs) || normalized.evidence_refs.length === 0) {
+    pushReason(reasons, "platform_behavior_evidence_refs_missing");
+  }
+  if (normalized.action_type === "click") {
+    if (normalized.interaction_semantics !== "reveal_only_click") {
+      pushReason(reasons, "platform_behavior_click_semantics_missing");
+    }
+    if (!CLICK_KINDS.has(normalized.click_kind)) {
+      pushReason(reasons, "platform_behavior_click_kind_missing");
+    }
+  }
+  if (
+    normalized.decision_hint === "no_additional_restriction" &&
+    (normalized.goal_kind !== "write" ||
+      normalized.baseline_state !== "ready" ||
+      normalized.reseed_required ||
+      !["none", "low"].includes(normalized.drift_level))
+  ) {
+    pushReason(reasons, "platform_behavior_non_restriction_hint_invalid");
+  }
+  if (
+    !normalized.baseline_ref &&
+    !isBaselineRefOptionalColdStartOrLearningAssessment(normalized)
+  ) {
+    pushReason(reasons, "platform_behavior_baseline_ref_missing");
+  }
+
+  return normalized;
+};
+
+const isBaselineRefOptionalColdStartOrLearningAssessment = (assessment) => {
+  if (!["unseeded", "learning"].includes(assessment.baseline_state)) {
+    return false;
+  }
+  if (assessment.decision_hint === "no_additional_restriction") {
+    return false;
+  }
+  if (assessment.reseed_required || ["high", "critical"].includes(assessment.drift_level)) {
+    return false;
+  }
+  if (assessment.goal_kind === "read") {
+    return ["allow_read_only", "require_manual_review"].includes(assessment.decision_hint);
+  }
+  if (assessment.goal_kind === "write") {
+    return ["hold_live_write", "require_manual_review"].includes(assessment.decision_hint);
+  }
+  return false;
+};
+
+const normalizeExpectedScope = (value, reasons) => {
+  const scope = asRecord(value);
+  if (!scope) {
+    pushReason(reasons, "platform_behavior_expected_scope_missing");
+  }
+  const expectedScope = scope ?? {};
+  return {
+    profile_ref: asString(expectedScope.profile_ref),
+    platform: asString(expectedScope.platform),
+    target_domain: asString(expectedScope.target_domain),
+    browser_channel: asString(expectedScope.browser_channel),
+    execution_surface: asString(expectedScope.execution_surface),
+    effective_execution_mode: asString(expectedScope.effective_execution_mode),
+    requested_execution_mode: asString(expectedScope.requested_execution_mode),
+    probe_bundle_ref: asString(expectedScope.probe_bundle_ref),
+    goal_kind: asString(expectedScope.goal_kind)
+  };
+};
+
+const collectScopeReasons = (assessment, expectedScope) => {
+  const reasons = [];
+  for (const key of REQUIRED_EXPECTED_SCOPE_KEYS) {
+    if (!expectedScope[key]) {
+      pushReason(reasons, `platform_behavior_expected_${key}_missing`);
+    }
+  }
+  if (!assessment) {
+    return reasons;
+  }
+  for (const [key, expected] of Object.entries(expectedScope)) {
+    if (expected && assessment[key] !== expected) {
+      pushReason(reasons, `platform_behavior_${key}_mismatch`);
+    }
+  }
+  return reasons;
+};
+
+const collectFreshnessReasons = (assessment, record) => {
+  const reasons = [];
+  const rawAsOf = record.asOf ?? record.as_of;
+  const rawWindowMs = record.freshnessWindowMs ?? record.freshness_window_ms;
+  const hasAsOf = hasPresentField(record, "asOf") || hasPresentField(record, "as_of");
+  const hasWindowMs =
+    hasPresentField(record, "freshnessWindowMs") || hasPresentField(record, "freshness_window_ms");
+  const asOf = asIsoTimestamp(rawAsOf);
+  const windowMs = asNumber(rawWindowMs);
+  if (!hasAsOf) {
+    pushReason(reasons, "platform_behavior_as_of_missing");
+  } else if (!asOf) {
+    pushReason(reasons, "platform_behavior_as_of_invalid");
+  }
+  if (!hasWindowMs) {
+    pushReason(reasons, "platform_behavior_freshness_window_missing");
+  } else if (windowMs === null || windowMs < 0) {
+    pushReason(reasons, "platform_behavior_freshness_window_invalid");
+  }
+  if (assessment && asOf && windowMs !== null && windowMs >= 0) {
+    const assessedAtMs = Date.parse(assessment.assessed_at);
+    const asOfMs = Date.parse(asOf);
+    const ageMs = asOfMs - assessedAtMs;
+    if (Number.isNaN(assessedAtMs) || Number.isNaN(asOfMs)) {
+      pushReason(reasons, "platform_behavior_assessment_stale");
+    } else if (ageMs < 0) {
+      pushReason(reasons, "platform_behavior_assessment_future_dated");
+    } else if (ageMs > windowMs) {
+      pushReason(reasons, "platform_behavior_assessment_stale");
+    }
+  }
+  return reasons;
+};
+
+const collectDecisionHintReasons = (assessment) => {
+  const reasons = [];
+  if (!assessment) {
+    return reasons;
+  }
+  if (assessment.goal_kind === "read" && !READ_SAFE_ACTION_TYPES.has(assessment.action_type)) {
+    pushReason(reasons, "platform_behavior_read_goal_action_type_invalid");
+  }
+  if (assessment.reseed_required && assessment.baseline_state === "ready") {
+    pushReason(reasons, "platform_behavior_reseed_ready_baseline_invalid");
+  }
+  if (assessment.reseed_required && !RESEED_DECISION_HINTS.has(assessment.decision_hint)) {
+    pushReason(reasons, "platform_behavior_reseed_hint_invalid");
+  }
+  if (["high", "critical"].includes(assessment.drift_level)) {
+    if (!HIGH_DRIFT_DECISION_HINTS.has(assessment.decision_hint)) {
+      pushReason(reasons, "platform_behavior_high_drift_hint_invalid");
+    }
+  }
+  if (assessment.goal_kind === "write" && assessment.decision_hint === "allow_read_only") {
+    pushReason(reasons, "platform_behavior_read_only_hint_for_write");
+  }
+  return reasons;
+};
+
+const buildBlockedResult = (input) => ({
+  required: input.required,
+  accepted_risk_hint: false,
+  read_write_allow_proof: false,
+  account_safety_clearance: false,
+  gate_override_proof: false,
+  decision: "blocked",
+  gate_reasons: input.gateReasons,
+  schema_version: PLATFORM_BEHAVIOR_RISK_HINT_SCHEMA_VERSION,
+  target_fr_ref: input.context.target_fr_ref,
+  validation_scope: input.context.validation_scope,
+  assessment_id: input.assessment?.assessment_id ?? null,
+  decision_hint: input.assessment?.decision_hint ?? null,
+  baseline_state: input.assessment?.baseline_state ?? null,
+  drift_level: input.assessment?.drift_level ?? null,
+  reseed_required: input.assessment?.reseed_required ?? false,
+  evidence_refs_consumed: input.assessment?.evidence_refs ?? [],
+  assessed_at: input.assessment?.assessed_at ?? null
+});
+
+const isPlatformBehaviorAssessmentGateRequired = (input = {}) => {
+  const record = asRecord(input);
+  return record ? isRequired(record) : false;
+};
+
+const evaluatePlatformBehaviorAssessmentGate = (input = {}) => {
+  const record = asRecord(input) ?? {};
+  const required = isRequired(record);
+  if (!required) {
+    return {
+      required: false,
+      accepted_risk_hint: false,
+      read_write_allow_proof: false,
+      account_safety_clearance: false,
+      gate_override_proof: false,
+      decision: "not_required",
+      gate_reasons: [],
+      schema_version: PLATFORM_BEHAVIOR_RISK_HINT_SCHEMA_VERSION,
+      target_fr_ref: null,
+      validation_scope: null,
+      assessment_id: null,
+      decision_hint: null,
+      baseline_state: null,
+      drift_level: null,
+      reseed_required: false,
+      evidence_refs_consumed: [],
+      assessed_at: null
+    };
+  }
+
+  const gateReasons = [];
+  const context = normalizeContext(resolveRawContext(record), gateReasons);
+  const assessment = normalizeAssessment(resolveRawAssessment(record), gateReasons);
+  const expectedScope = normalizeExpectedScope(resolveExpectedScope(record), gateReasons);
+  for (const reason of collectScopeReasons(assessment, expectedScope)) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of collectFreshnessReasons(assessment, record)) {
+    pushReason(gateReasons, reason);
+  }
+  const decisionHintReasons = collectDecisionHintReasons(assessment);
+  for (const reason of decisionHintReasons) {
+    pushReason(gateReasons, reason);
+  }
+  if (gateReasons.length > 0) {
+    return buildBlockedResult({ required, context, assessment, gateReasons });
+  }
+
+  return {
+    required,
+    accepted_risk_hint: true,
+    read_write_allow_proof: false,
+    account_safety_clearance: false,
+    gate_override_proof: false,
+    decision: "allow_input_to_provider_runtime_decision",
+    gate_reasons: [],
+    schema_version: PLATFORM_BEHAVIOR_RISK_HINT_SCHEMA_VERSION,
+    target_fr_ref: context.target_fr_ref,
+    validation_scope: context.validation_scope,
+    assessment_id: assessment.assessment_id,
+    decision_hint: assessment.decision_hint,
+    baseline_state: assessment.baseline_state,
+    drift_level: assessment.drift_level,
+    reseed_required: assessment.reseed_required,
+    evidence_refs_consumed: assessment.evidence_refs,
+    assessed_at: assessment.assessed_at
+  };
+};
+return { evaluatePlatformBehaviorAssessmentGate };
+})();
 const __webenvoy_module_fingerprint_profile = (() => {
 const REQUIRED_PATCHES = [
   "audio_context",
@@ -2496,6 +3767,10 @@ const {
   isIssue209LiveReadGateRequest,
   resolveIssue209LiveReadApprovalId
 } = __webenvoy_module_issue209_identity;
+const { evaluateRiskEvidenceConsumerGate } = __webenvoy_module_risk_evidence_gate;
+const {
+  evaluatePlatformBehaviorAssessmentGate
+} = __webenvoy_module_platform_behavior_assessment_gate;
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
 const XHS_UPSTREAM_RESOURCE_KINDS = new Set(["anonymous_context", "profile_session"]);
@@ -2566,6 +3841,36 @@ const asStringArray = (value) => {
 };
 
 const normalizeGrantRefs = (value) => asStringArray(value) ?? [];
+
+const resolveBehaviorBaselineGoalKind = (input, state) => {
+  const action = state.actionType ?? asString(input.abilityAction ?? input.abilityActionType);
+  if (action === "write" || action === "irreversible_write") {
+    return "write";
+  }
+  if (action === "read") {
+    return "read";
+  }
+  return null;
+};
+
+const resolveBehaviorBaselineProbeBundleRef = (input, goalKind) => {
+  const explicit = asString(
+    input.behaviorBaselineProbeBundleRef ??
+      input.behavior_baseline_probe_bundle_ref ??
+      input.probeBundleRef ??
+      input.probe_bundle_ref
+  );
+  if (explicit) {
+    return explicit;
+  }
+  if (goalKind === "write") {
+    return "probe-bundle://fr-0022/xhs-write";
+  }
+  if (goalKind === "read") {
+    return "probe-bundle://fr-0022/xhs-read";
+  }
+  return null;
+};
 
 const normalizeUpstreamAuthorizationRequest = (value) => {
   const record = asRecord(value);
@@ -3213,6 +4518,135 @@ const resolveXhsExecutionMode = (value) =>
 const resolveXhsRiskState = (value) => resolveSharedRiskState(value);
 
 const resolveXhsIssueScope = (value) => resolveSharedIssueScope(value);
+
+const deriveXhsPlatformBehaviorGoalKind = (actionType) => {
+  if (actionType === "read") {
+    return "read";
+  }
+  if (actionType === "write" || actionType === "irreversible_write") {
+    return "write";
+  }
+  return null;
+};
+
+const resolveXhsRuntimeProfileRef = (input, state) =>
+  asString(input.runtimeProfileRef ?? input.__runtime_profile_ref) ??
+  state.upstreamAuthorizationRequest?.resource_binding?.profile_ref ??
+  null;
+
+const resolveXhsPlatformBehaviorProbeBundleRef = (input) =>
+  asString(
+    input.platformBehaviorProbeBundleRef ??
+      input.platform_behavior_probe_bundle_ref ??
+      input.probeBundleRef ??
+      input.probe_bundle_ref
+  );
+
+const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
+  const providedScope =
+    asRecord(input.expectedPlatformBehaviorScope) ??
+    asRecord(input.expected_platform_behavior_scope);
+  const providedScopeForBinding = providedScope ? { ...providedScope } : null;
+  if (providedScopeForBinding) {
+    delete providedScopeForBinding.profile_ref;
+    delete providedScopeForBinding.probe_bundle_ref;
+  }
+  const assessment =
+    asRecord(input.platformBehaviorAssessment) ??
+    asRecord(input.platform_behavior_assessment);
+  const currentProfileRef = resolveXhsRuntimeProfileRef(input, state);
+  const currentProbeBundleRef = resolveXhsPlatformBehaviorProbeBundleRef(input);
+  const targetDomain =
+    state.upstreamAuthorizationRequest?.runtime_target?.domain ?? asString(input.targetDomain);
+  const targetPage =
+    state.upstreamAuthorizationRequest?.runtime_target?.page ?? asString(input.targetPage);
+  const goalKind = deriveXhsPlatformBehaviorGoalKind(state.actionType);
+  const bindingReasons = [];
+
+  if (!providedScope) {
+    pushReason(bindingReasons, "platform_behavior_expected_scope_missing");
+  }
+  if (
+    !currentProfileRef &&
+    (asString(providedScope?.profile_ref) || asString(assessment?.profile_ref))
+  ) {
+    pushReason(bindingReasons, "platform_behavior_xhs_runtime_profile_ref_missing");
+  }
+  if (
+    !currentProbeBundleRef &&
+    (asString(providedScope?.probe_bundle_ref) || asString(assessment?.probe_bundle_ref))
+  ) {
+    pushReason(bindingReasons, "platform_behavior_xhs_probe_bundle_ref_missing");
+  }
+  if (!targetDomain) {
+    pushReason(bindingReasons, "platform_behavior_xhs_target_domain_missing");
+  }
+  if (!targetPage) {
+    pushReason(bindingReasons, "platform_behavior_xhs_target_page_missing");
+  }
+  if (!state.actionType) {
+    pushReason(bindingReasons, "platform_behavior_xhs_action_type_missing");
+  }
+  if (!state.requestedExecutionMode) {
+    pushReason(bindingReasons, "platform_behavior_xhs_execution_mode_missing");
+  }
+
+  return {
+    expectedScope: {
+      ...(providedScopeForBinding ?? {}),
+      ...(currentProfileRef ? { profile_ref: currentProfileRef } : {}),
+      platform: "xhs",
+      ...(targetDomain ? { target_domain: targetDomain } : {}),
+      ...(currentProbeBundleRef ? { probe_bundle_ref: currentProbeBundleRef } : {}),
+      ...(state.requestedExecutionMode
+        ? {
+            requested_execution_mode: state.requestedExecutionMode,
+            effective_execution_mode: state.requestedExecutionMode
+          }
+        : {}),
+      ...(goalKind ? { goal_kind: goalKind } : {})
+    },
+    bindingReasons
+  };
+};
+
+const applyPlatformBehaviorScopeBindingReasons = (gate, bindingReasons) => {
+  if (!gate.required || bindingReasons.length === 0) {
+    return gate;
+  }
+  const gateReasons = [...gate.gate_reasons];
+  for (const reason of bindingReasons) {
+    pushReason(gateReasons, reason);
+  }
+  return {
+    ...gate,
+    accepted_risk_hint: false,
+    decision: "blocked",
+    gate_reasons: gateReasons
+  };
+};
+
+const collectXhsPlatformBehaviorDecisionHintGateReasons = (gate, state) => {
+  if (!gate.required || gate.accepted_risk_hint !== true) {
+    return [];
+  }
+  const reasons = [];
+  if (
+    gate.decision_hint === "hold_live_write" &&
+    (state.requestedExecutionMode === "live_write" ||
+      state.actionType === "write" ||
+      state.actionType === "irreversible_write")
+  ) {
+    pushReason(reasons, "platform_behavior_hold_live_write");
+  }
+  if (gate.decision_hint === "require_manual_review") {
+    pushReason(reasons, "platform_behavior_manual_review_required");
+  }
+  if (gate.decision_hint === "require_reseed" || gate.reseed_required === true) {
+    pushReason(reasons, "platform_behavior_reseed_required");
+  }
+  return reasons;
+};
 
 const normalizeXhsApprovalRecord = (value) => {
   const record = asRecord(value);
@@ -4183,6 +5617,62 @@ const evaluateXhsGate = (input) => {
   const gateReasons = Array.isArray(input.additionalGateReasons)
     ? input.additionalGateReasons.filter((reason) => typeof reason === "string")
     : [];
+  const behaviorBaselineGoalKind = resolveBehaviorBaselineGoalKind(input, state);
+  const riskEvidenceConsumerGate = evaluateRiskEvidenceConsumerGate({
+    riskEvidenceRequired: input.riskEvidenceRequired,
+    risk_evidence_required: input.risk_evidence_required,
+    riskEvidenceGateResult: input.riskEvidenceGateResult,
+    risk_evidence_gate_result: input.risk_evidence_gate_result,
+    behaviorBaselineHintRequired: input.behaviorBaselineHintRequired,
+    behavior_baseline_hint_required: input.behavior_baseline_hint_required,
+    behaviorBaselineHint: input.behaviorBaselineHint,
+    behavior_baseline_hint: input.behavior_baseline_hint,
+    behavior_baseline_scope: {
+      profile_ref: asString(input.runtimeProfileRef ?? input.__runtime_profile_ref),
+      target_domain:
+        asString(input.actualTargetDomain) ??
+        state.upstreamAuthorizationRequest?.runtime_target?.domain ??
+        asString(input.targetDomain),
+      requested_execution_mode: state.requestedExecutionMode,
+      effective_execution_mode: state.requestedExecutionMode,
+      probe_bundle_ref: resolveBehaviorBaselineProbeBundleRef(input, behaviorBaselineGoalKind),
+      goal_kind: behaviorBaselineGoalKind
+    },
+    nonProofsObserved: input.nonProofsObserved,
+    non_proofs_observed: input.non_proofs_observed,
+    nonProofs: input.nonProofs,
+    non_proofs: input.non_proofs
+  });
+  const platformBehaviorScopeBinding = deriveXhsPlatformBehaviorExpectedScope(input, state);
+  const platformBehaviorAssessmentGate = applyPlatformBehaviorScopeBindingReasons(
+    evaluatePlatformBehaviorAssessmentGate({
+      required: input.platformBehaviorAssessmentRequired,
+      platform_behavior_assessment_required: input.platform_behavior_assessment_required,
+      platformBehaviorAssessment: input.platformBehaviorAssessment,
+      platform_behavior_assessment: input.platform_behavior_assessment,
+      platformBehaviorAssessmentContext: input.platformBehaviorAssessmentContext,
+      platform_behavior_assessment_context: input.platform_behavior_assessment_context,
+      platformBehaviorContext: input.platformBehaviorContext,
+      platform_behavior_context: input.platform_behavior_context,
+      expected_platform_behavior_scope: platformBehaviorScopeBinding.expectedScope,
+      asOf: input.platformBehaviorAsOf ?? input.platform_behavior_as_of,
+      freshnessWindowMs:
+        input.platformBehaviorFreshnessWindowMs ?? input.platform_behavior_freshness_window_ms
+    }),
+    platformBehaviorScopeBinding.bindingReasons
+  );
+  for (const reason of riskEvidenceConsumerGate.gate_reasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of platformBehaviorAssessmentGate.gate_reasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of collectXhsPlatformBehaviorDecisionHintGateReasons(
+    platformBehaviorAssessmentGate,
+    state
+  )) {
+    pushReason(gateReasons, reason);
+  }
   const expectedApprovalId = deriveApprovalId(input, decisionId);
   collectXhsCommandGateReasons({
     gateReasons,
@@ -4304,7 +5794,13 @@ const evaluateXhsGate = (input) => {
       risk_state: state.riskState,
       session_rhythm_window_id: asString(input.sessionRhythmWindowId ?? input.__session_rhythm_window_id),
       session_rhythm_decision_id: asString(input.sessionRhythmDecisionId ?? input.__session_rhythm_decision_id),
-      admission_context: admissionContext
+      admission_context: admissionContext,
+      ...(riskEvidenceConsumerGate.required
+        ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {}),
+      ...(platformBehaviorAssessmentGate.required
+        ? { platform_behavior_assessment_gate: platformBehaviorAssessmentGate }
+        : {})
     },
     gate_outcome: {
       decision_id: decisionId,
@@ -4329,7 +5825,13 @@ const evaluateXhsGate = (input) => {
       effective_execution_mode: outcome.effectiveExecutionMode,
       gate_decision: outcome.gateDecision,
       gate_reasons: outcome.gateReasons,
-      write_interaction_tier: state.writeActionMatrixDecisions?.write_interaction_tier ?? null
+      write_interaction_tier: state.writeActionMatrixDecisions?.write_interaction_tier ?? null,
+      ...(riskEvidenceConsumerGate.required
+        ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {}),
+      ...(platformBehaviorAssessmentGate.required
+        ? { platform_behavior_assessment_gate: platformBehaviorAssessmentGate }
+        : {})
     },
     request_admission_result: requestAdmissionResult,
     approval_record: approvalRecord,
@@ -5055,6 +6557,7 @@ const { resolveRiskStateOutput } = __webenvoy_module_xhs_search_telemetry;
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
+const hasOwn = (record, key) => record !== null && record !== undefined && Object.prototype.hasOwnProperty.call(record, key);
 const asNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 const asStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 const asRecordArray = (value) => Array.isArray(value)
@@ -5141,6 +6644,18 @@ const resolveGate = (options, context, actualTargetUrl) => {
         auditRecord: options.audit_record,
         admissionContext: options.admission_context,
         limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
+        risk_evidence_required: options.risk_evidence_required === true,
+        risk_evidence_gate_result: options.risk_evidence_gate_result,
+        behavior_baseline_hint_required: options.behavior_baseline_hint_required === true,
+        behavior_baseline_hint: options.behavior_baseline_hint,
+        non_proofs_observed: options.non_proofs_observed,
+        platform_behavior_assessment_required: options.platform_behavior_assessment_required === true,
+        platform_behavior_assessment: options.platform_behavior_assessment,
+        platform_behavior_assessment_context: options.platform_behavior_assessment_context,
+        expected_platform_behavior_scope: options.expected_platform_behavior_scope,
+        platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref,
+        platform_behavior_as_of: options.platform_behavior_as_of,
+        platform_behavior_freshness_window_ms: options.platform_behavior_freshness_window_ms,
         additionalGateReasons: Array.isArray(options.admission_gate_reasons)
             ? options.admission_gate_reasons.filter((reason) => typeof reason === "string")
             : [],
@@ -5258,6 +6773,7 @@ const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                         target_page: gate.consumer_gate_result.target_page,
                         profile_readiness: asRecord(input.options?.profile_readiness),
                         account_readiness: asRecord(input.options?.account_readiness),
+                        account_safety_gate_result: asRecord(input.options?.account_safety_gate_result),
                         provider_requirement_refs: Array.isArray(input.options?.provider_requirement_refs)
                             ? input.options.provider_requirement_refs
                             : [],
@@ -5297,6 +6813,44 @@ const createGateOnlySuccess = (input, gate, auditRecord, env) => ({
                 : {}),
             ...(asStringArray(input.options?.downstream_slice_refs).length > 0
                 ? { downstream_slice_refs: asStringArray(input.options?.downstream_slice_refs) }
+                : {}),
+            ...(input.options?.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
+            ...(hasOwn(input.options, "risk_evidence_gate_result")
+                ? { risk_evidence_gate_result: input.options?.risk_evidence_gate_result }
+                : {}),
+            ...(input.options?.behavior_baseline_hint_required === true
+                ? { behavior_baseline_hint_required: true }
+                : {}),
+            ...(hasOwn(input.options, "behavior_baseline_hint")
+                ? { behavior_baseline_hint: input.options?.behavior_baseline_hint }
+                : {}),
+            ...(hasOwn(input.options, "non_proofs_observed")
+                ? { non_proofs_observed: input.options?.non_proofs_observed }
+                : {}),
+            ...(input.options?.platform_behavior_assessment_required === true
+                ? { platform_behavior_assessment_required: true }
+                : {}),
+            ...(hasOwn(input.options, "platform_behavior_assessment")
+                ? { platform_behavior_assessment: input.options?.platform_behavior_assessment }
+                : {}),
+            ...(hasOwn(input.options, "platform_behavior_assessment_context")
+                ? {
+                    platform_behavior_assessment_context: input.options?.platform_behavior_assessment_context
+                }
+                : {}),
+            ...(hasOwn(input.options, "expected_platform_behavior_scope")
+                ? { expected_platform_behavior_scope: input.options?.expected_platform_behavior_scope }
+                : {}),
+            ...(hasOwn(input.options, "platform_behavior_probe_bundle_ref")
+                ? { platform_behavior_probe_bundle_ref: input.options?.platform_behavior_probe_bundle_ref }
+                : {}),
+            ...(asNonEmptyString(input.options?.platform_behavior_as_of)
+                ? { platform_behavior_as_of: asNonEmptyString(input.options?.platform_behavior_as_of) }
+                : {}),
+            ...(typeof input.options?.platform_behavior_freshness_window_ms === "number"
+                ? {
+                    platform_behavior_freshness_window_ms: input.options.platform_behavior_freshness_window_ms
+                }
                 : {}),
             ...(asStringArray(input.options?.non_proofs).length > 0
                 ? { non_proofs: asStringArray(input.options?.non_proofs) }
@@ -12370,7 +13924,12 @@ const executeXhsSearch = async (input, env) => {
         return withLayer2InteractionInPayload(withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", "执行模式门禁阻断了当前 xhs.search 请求", {
             ability_id: input.abilityId,
             stage: "execution",
-            reason: "EXECUTION_MODE_GATE_BLOCKED"
+            reason: "EXECUTION_MODE_GATE_BLOCKED",
+            ...(asRecord(input.options.account_safety_gate_result)
+                ? {
+                    account_safety_gate_result: asRecord(input.options.account_safety_gate_result) ?? {}
+                }
+                : {})
         }, createObservability({
             href: env.getLocationHref(),
             title: env.getDocumentTitle(),
@@ -16557,7 +18116,12 @@ const executeXhsRead = async (input, spec, env) => {
         return withExecutionAuditInFailurePayload(createFailure("ERR_EXECUTION_FAILED", `执行模式门禁阻断了当前 ${spec.command} 请求`, {
             ability_id: input.abilityId,
             stage: "execution",
-            reason: "EXECUTION_MODE_GATE_BLOCKED"
+            reason: "EXECUTION_MODE_GATE_BLOCKED",
+            ...(asRecord(input.options.account_safety_gate_result)
+                ? {
+                    account_safety_gate_result: asRecord(input.options.account_safety_gate_result) ?? {}
+                }
+                : {})
         }, createReadObservability({
             spec,
             href: env.getLocationHref(),
@@ -18924,6 +20488,7 @@ const {
 const asRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
     ? value
     : null;
+const hasOwn = (record, key) => record !== null && record !== undefined && Object.prototype.hasOwnProperty.call(record, key);
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
 const XHS_PAGE_COMMANDS = new Set([
     "xhs.search",
@@ -21136,6 +22701,44 @@ class ContentScriptHandler {
                             downstream_slice_refs: options.downstream_slice_refs.filter((ref) => typeof ref === "string")
                         }
                         : {}),
+                    ...(options.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
+                    ...(hasOwn(options, "risk_evidence_gate_result")
+                        ? { risk_evidence_gate_result: options.risk_evidence_gate_result }
+                        : {}),
+                    ...(options.behavior_baseline_hint_required === true
+                        ? { behavior_baseline_hint_required: true }
+                        : {}),
+                    ...(hasOwn(options, "behavior_baseline_hint")
+                        ? { behavior_baseline_hint: options.behavior_baseline_hint }
+                        : {}),
+                    ...(hasOwn(options, "non_proofs_observed")
+                        ? { non_proofs_observed: options.non_proofs_observed }
+                        : {}),
+                    ...(options.platform_behavior_assessment_required === true
+                        ? { platform_behavior_assessment_required: true }
+                        : {}),
+                    ...(hasOwn(options, "platform_behavior_assessment")
+                        ? { platform_behavior_assessment: options.platform_behavior_assessment }
+                        : {}),
+                    ...(hasOwn(options, "platform_behavior_assessment_context")
+                        ? {
+                            platform_behavior_assessment_context: options.platform_behavior_assessment_context
+                        }
+                        : {}),
+                    ...(hasOwn(options, "expected_platform_behavior_scope")
+                        ? { expected_platform_behavior_scope: options.expected_platform_behavior_scope }
+                        : {}),
+                    ...(hasOwn(options, "platform_behavior_probe_bundle_ref")
+                        ? { platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref }
+                        : {}),
+                    ...(typeof options.platform_behavior_as_of === "string"
+                        ? { platform_behavior_as_of: options.platform_behavior_as_of }
+                        : {}),
+                    ...(typeof options.platform_behavior_freshness_window_ms === "number"
+                        ? {
+                            platform_behavior_freshness_window_ms: options.platform_behavior_freshness_window_ms
+                        }
+                        : {}),
                     ...(Array.isArray(options.non_proofs)
                         ? {
                             non_proofs: options.non_proofs.filter((proof) => typeof proof === "string")
@@ -21146,6 +22749,9 @@ class ContentScriptHandler {
                         : {}),
                     ...(asRecord(options.xhs_page_runtime_readiness)
                         ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) ?? {} }
+                        : {}),
+                    ...(asRecord(options.account_safety_gate_result)
+                        ? { account_safety_gate_result: asRecord(options.account_safety_gate_result) ?? {} }
                         : {}),
                     ...(typeof options.page_runtime_readiness_decision === "string"
                         ? { page_runtime_readiness_decision: options.page_runtime_readiness_decision }

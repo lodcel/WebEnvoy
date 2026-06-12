@@ -2705,6 +2705,33 @@ export class ContentScriptHandler {
           ...(hasOwn(options, "non_proofs_observed")
             ? { non_proofs_observed: options.non_proofs_observed }
             : {}),
+          ...(options.platform_behavior_assessment_required === true
+            ? { platform_behavior_assessment_required: true }
+            : {}),
+          ...(hasOwn(options, "platform_behavior_assessment")
+            ? { platform_behavior_assessment: options.platform_behavior_assessment }
+            : {}),
+          ...(hasOwn(options, "platform_behavior_assessment_context")
+            ? {
+                platform_behavior_assessment_context:
+                  options.platform_behavior_assessment_context
+              }
+            : {}),
+          ...(hasOwn(options, "expected_platform_behavior_scope")
+            ? { expected_platform_behavior_scope: options.expected_platform_behavior_scope }
+            : {}),
+          ...(hasOwn(options, "platform_behavior_probe_bundle_ref")
+            ? { platform_behavior_probe_bundle_ref: options.platform_behavior_probe_bundle_ref }
+            : {}),
+          ...(typeof options.platform_behavior_as_of === "string"
+            ? { platform_behavior_as_of: options.platform_behavior_as_of }
+            : {}),
+          ...(typeof options.platform_behavior_freshness_window_ms === "number"
+            ? {
+                platform_behavior_freshness_window_ms:
+                  options.platform_behavior_freshness_window_ms
+              }
+            : {}),
           ...(Array.isArray(options.non_proofs)
             ? {
                 non_proofs: options.non_proofs.filter(

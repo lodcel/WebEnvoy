@@ -12,6 +12,10 @@ import type {
   RiskEvidenceConsumerInput,
   RiskEvidenceConsumerResult
 } from "./risk-evidence-gate.js";
+import type {
+  PlatformBehaviorAssessmentGateInput,
+  PlatformBehaviorAssessmentGateResult
+} from "./platform-behavior-assessment-gate.js";
 
 export interface XhsApprovalRecord {
   approval_id: string | null;
@@ -236,12 +240,28 @@ export interface XhsGateCoreInput {
   behavior_baseline_hint?: RiskEvidenceConsumerInput["behavior_baseline_hint"];
   behaviorBaselineProbeBundleRef?: unknown;
   behavior_baseline_probe_bundle_ref?: unknown;
+  platformBehaviorProbeBundleRef?: unknown;
+  platform_behavior_probe_bundle_ref?: unknown;
   probeBundleRef?: unknown;
   probe_bundle_ref?: unknown;
   nonProofsObserved?: unknown;
   non_proofs_observed?: unknown;
   nonProofs?: unknown;
   non_proofs?: unknown;
+  platformBehaviorAssessmentRequired?: boolean;
+  platform_behavior_assessment_required?: boolean;
+  platformBehaviorAssessment?: PlatformBehaviorAssessmentGateInput["platformBehaviorAssessment"];
+  platform_behavior_assessment?: PlatformBehaviorAssessmentGateInput["platform_behavior_assessment"];
+  platformBehaviorAssessmentContext?: PlatformBehaviorAssessmentGateInput["platformBehaviorAssessmentContext"];
+  platform_behavior_assessment_context?: PlatformBehaviorAssessmentGateInput["platform_behavior_assessment_context"];
+  platformBehaviorContext?: PlatformBehaviorAssessmentGateInput["platformBehaviorContext"];
+  platform_behavior_context?: PlatformBehaviorAssessmentGateInput["platform_behavior_context"];
+  expectedPlatformBehaviorScope?: PlatformBehaviorAssessmentGateInput["expectedPlatformBehaviorScope"];
+  expected_platform_behavior_scope?: PlatformBehaviorAssessmentGateInput["expected_platform_behavior_scope"];
+  platformBehaviorAsOf?: unknown;
+  platform_behavior_as_of?: unknown;
+  platformBehaviorFreshnessWindowMs?: unknown;
+  platform_behavior_freshness_window_ms?: unknown;
 }
 
 export interface XhsGateCoreResult {
@@ -477,6 +497,7 @@ export declare const evaluateXhsGate: (input: XhsGateCoreInput & {
     risk_state: RiskState;
     admission_context: XhsAdmissionContext;
     risk_evidence_consumer_gate?: RiskEvidenceConsumerResult;
+    platform_behavior_assessment_gate?: PlatformBehaviorAssessmentGateResult;
   };
   gate_outcome: {
     decision_id: string;
@@ -497,6 +518,7 @@ export declare const evaluateXhsGate: (input: XhsGateCoreInput & {
     gate_reasons: string[];
     write_interaction_tier: string | null;
     risk_evidence_consumer_gate?: RiskEvidenceConsumerResult;
+    platform_behavior_assessment_gate?: PlatformBehaviorAssessmentGateResult;
   };
   request_admission_result: XhsRequestAdmissionResult;
   approval_record: XhsApprovalRecord;
