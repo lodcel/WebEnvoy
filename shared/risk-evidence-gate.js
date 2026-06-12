@@ -1,0 +1,400 @@
+const RISK_EVIDENCE_STATES = new Set([
+  "accepted",
+  "blocked",
+  "unclassified",
+  "missing",
+  "stale",
+  "scope_mismatch",
+  "redaction_invalid",
+  "provider_private_boundary_violation"
+]);
+
+const RISK_EVIDENCE_DECISIONS = new Set(["allow_input_to_1188", "deny", "defer"]);
+const RISK_EVIDENCE_SCHEMA_VERSION = "webenvoy-risk-evidence-boundary.v1";
+const RISK_EVIDENCE_DOWNSTREAM_OWNER = "#1188";
+
+const RISK_EVIDENCE_NON_PROOFS = new Set([
+  "provider_stealth_declared",
+  "provider_contract_present",
+  "provider_descriptor_present",
+  "provider_capability_matrix_present",
+  "provider_registry_row_present",
+  "provider_doctor_pass",
+  "provider_health_pass",
+  "runtime_ping",
+  "runtime_bootstrap_ack",
+  "fingerprint_seed_ref_present",
+  "private_patch_ref_present",
+  "account_safety_issue_closed",
+  "operator_unlock_present",
+  "default_lock_present",
+  "live_evidence_gate_present",
+  "historical_artifact",
+  "same_head_historical_artifact",
+  "post_merge_evidence",
+  "stub_or_fake_host",
+  "control_plane_only_signal",
+  "dry_run_only_output",
+  "spec_sample_or_fixture",
+  "manual_disposition_present"
+]);
+
+const RISK_EVIDENCE_BLOCKING_REASONS = new Set([
+  "risk_evidence_missing",
+  "risk_evidence_unclassified",
+  "risk_evidence_stale",
+  "risk_evidence_scope_mismatch",
+  "risk_evidence_head_mismatch",
+  "risk_evidence_run_mismatch",
+  "risk_evidence_profile_mismatch",
+  "risk_evidence_page_mismatch",
+  "risk_evidence_provider_mismatch",
+  "risk_evidence_redaction_invalid",
+  "provider_stealth_boundary_missing",
+  "provider_stealth_boundary_unresolved",
+  "provider_stealth_non_proof",
+  "provider_private_patch_disclosed",
+  "provider_private_patch_required_but_unverified",
+  "account_safety_required",
+  "account_safety_not_clear",
+  "runtime_target_binding_required",
+  "runtime_target_binding_not_accepted",
+  "extension_native_bridge_required",
+  "default_lock_required",
+  "operator_unlock_required",
+  "live_evidence_required",
+  "behavior_baseline_required",
+  "route_evidence_required",
+  "closeout_audit_required",
+  "stub_or_fake_host_evidence",
+  "control_plane_only_signal",
+  "historical_or_stale_evidence",
+  "manual_disposition_required",
+  "manual_disposition_not_accepted",
+  "risk_hint_consumer_required",
+  "downstream_owner_required"
+]);
+
+const STATE_REASON_MAP = {
+  blocked: "risk_hint_consumer_required",
+  unclassified: "risk_evidence_unclassified",
+  missing: "risk_evidence_missing",
+  stale: "risk_evidence_stale",
+  scope_mismatch: "risk_evidence_scope_mismatch",
+  redaction_invalid: "risk_evidence_redaction_invalid",
+  provider_private_boundary_violation: "provider_private_patch_disclosed"
+};
+
+const NON_PROOF_REASON_MAP = {
+  provider_stealth_declared: "provider_stealth_non_proof",
+  provider_contract_present: "provider_stealth_non_proof",
+  provider_descriptor_present: "provider_stealth_non_proof",
+  provider_capability_matrix_present: "provider_stealth_non_proof",
+  provider_registry_row_present: "provider_stealth_non_proof",
+  provider_doctor_pass: "provider_stealth_non_proof",
+  provider_health_pass: "provider_stealth_non_proof",
+  runtime_ping: "control_plane_only_signal",
+  runtime_bootstrap_ack: "control_plane_only_signal",
+  fingerprint_seed_ref_present: "provider_stealth_non_proof",
+  private_patch_ref_present: "provider_stealth_non_proof",
+  account_safety_issue_closed: "account_safety_required",
+  operator_unlock_present: "operator_unlock_required",
+  default_lock_present: "default_lock_required",
+  live_evidence_gate_present: "live_evidence_required",
+  historical_artifact: "historical_or_stale_evidence",
+  same_head_historical_artifact: "historical_or_stale_evidence",
+  post_merge_evidence: "historical_or_stale_evidence",
+  stub_or_fake_host: "stub_or_fake_host_evidence",
+  control_plane_only_signal: "control_plane_only_signal",
+  dry_run_only_output: "control_plane_only_signal",
+  spec_sample_or_fixture: "historical_or_stale_evidence",
+  manual_disposition_present: "manual_disposition_not_accepted"
+};
+
+const asRecord = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+
+const hasPresentField = (record, key) =>
+  Object.prototype.hasOwnProperty.call(record, key) && record[key] !== undefined;
+
+const asString = (value) => (typeof value === "string" && value.trim().length > 0 ? value.trim() : null);
+
+const asIsoTimestamp = (value) => {
+  const timestamp = asString(value);
+  if (!timestamp) {
+    return null;
+  }
+  const parsed = Date.parse(timestamp);
+  return Number.isNaN(parsed) ? null : timestamp;
+};
+
+const classifyStringArray = (value) => {
+  if (!Array.isArray(value)) {
+    return {
+      values: [],
+      malformed: value !== undefined && value !== null
+    };
+  }
+
+  const values = [];
+  let malformed = false;
+  for (const item of value) {
+    const normalized = asString(item);
+    if (normalized) {
+      values.push(normalized);
+    } else {
+      malformed = true;
+    }
+  }
+  return { values, malformed };
+};
+
+const asStringArray = (value) => classifyStringArray(value).values;
+
+const pushReason = (target, reason) => {
+  if (reason && !target.includes(reason)) {
+    target.push(reason);
+  }
+};
+
+const classifyNonProofs = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  for (const item of classified.values) {
+    if (!RISK_EVIDENCE_NON_PROOFS.has(item)) {
+      pushReason(reasons, "risk_evidence_unclassified");
+    }
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    present: Array.isArray(value) || classified.malformed
+  };
+};
+
+const classifyBlockingReasons = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  if (!Array.isArray(value)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  for (const reason of classified.values) {
+    pushReason(
+      reasons,
+      RISK_EVIDENCE_BLOCKING_REASONS.has(reason) ? reason : "risk_evidence_unclassified"
+    );
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    malformed: reasons.includes("risk_evidence_unclassified")
+  };
+};
+
+const collectNonProofBlockingReasons = (nonProofs) => {
+  const reasons = [];
+  for (const nonProof of nonProofs) {
+    pushReason(reasons, NON_PROOF_REASON_MAP[nonProof] ?? "risk_evidence_unclassified");
+  }
+  return reasons;
+};
+
+const buildBlockedResult = (input) => ({
+  required: input.required,
+  accepted_risk_input: false,
+  read_write_allow_proof: false,
+  decision: "blocked",
+  gate_reasons: input.gateReasons,
+  risk_evidence_state: input.riskEvidenceState,
+  risk_evidence_decision: input.riskEvidenceDecision,
+  non_proofs_observed: input.nonProofsObserved,
+  risk_evidence_ref: input.riskEvidenceRef,
+  evidence_refs_consumed: input.evidenceRefsConsumed,
+  schema_version: input.schemaVersion,
+  evaluated_at: input.evaluatedAt,
+  downstream_owner: input.downstreamOwner
+});
+
+export const isRiskEvidenceGateRequired = (input = {}) => {
+  const record = asRecord(input);
+  if (!record) {
+    return false;
+  }
+  return (
+    record.required === true ||
+    record.riskEvidenceRequired === true ||
+    record.risk_evidence_required === true ||
+    hasPresentField(record, "riskEvidenceGateResult") ||
+    hasPresentField(record, "risk_evidence_gate_result") ||
+    classifyNonProofs(record.nonProofsObserved).present ||
+    classifyNonProofs(record.non_proofs_observed).present ||
+    classifyNonProofs(record.nonProofs).present ||
+    classifyNonProofs(record.non_proofs).present
+  );
+};
+
+export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
+  const record = asRecord(input) ?? {};
+  const rawRiskEvidenceGateResult = hasPresentField(record, "riskEvidenceGateResult")
+    ? record.riskEvidenceGateResult
+    : record.risk_evidence_gate_result;
+  const riskEvidenceGateResult = asRecord(rawRiskEvidenceGateResult);
+  const nonProofClassifications = [
+    classifyNonProofs(record.nonProofsObserved),
+    classifyNonProofs(record.non_proofs_observed),
+    classifyNonProofs(record.nonProofs),
+    classifyNonProofs(record.non_proofs)
+  ];
+  const nonProofsObserved = [
+    ...nonProofClassifications.flatMap((classification) => classification.values)
+  ].filter((item, index, items) => items.indexOf(item) === index);
+  const nonProofGateReasons = nonProofClassifications.flatMap(
+    (classification) => classification.reasons
+  );
+  const required = isRiskEvidenceGateRequired(record);
+  const riskEvidenceGateResultProvided =
+    hasPresentField(record, "riskEvidenceGateResult") ||
+    hasPresentField(record, "risk_evidence_gate_result");
+
+  if (!required) {
+    return {
+      required: false,
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "not_required",
+      gate_reasons: [],
+      risk_evidence_state: null,
+      risk_evidence_decision: null,
+      non_proofs_observed: nonProofsObserved,
+      risk_evidence_ref: null,
+      evidence_refs_consumed: [],
+      downstream_owner: "none"
+    };
+  }
+
+  if (!riskEvidenceGateResult) {
+    return buildBlockedResult({
+      required,
+      gateReasons:
+        riskEvidenceGateResultProvided && rawRiskEvidenceGateResult !== null
+          ? ["risk_evidence_unclassified"]
+          : nonProofsObserved.length > 0 || nonProofGateReasons.length > 0
+          ? [...collectNonProofBlockingReasons(nonProofsObserved), ...nonProofGateReasons].filter(
+              (reason, index, reasons) => reasons.indexOf(reason) === index
+            )
+          : ["risk_evidence_missing"],
+      riskEvidenceState: "missing",
+      riskEvidenceDecision: null,
+      nonProofsObserved,
+      riskEvidenceRef: null,
+      evidenceRefsConsumed: [],
+      downstreamOwner: "none"
+    });
+  }
+
+  const riskEvidenceState = asString(riskEvidenceGateResult.risk_state);
+  const riskEvidenceDecision = asString(riskEvidenceGateResult.decision);
+  const schemaVersion = asString(riskEvidenceGateResult.schema_version);
+  const riskEvidenceRef = asString(riskEvidenceGateResult.risk_evidence_ref);
+  const evidenceRefsConsumed = asStringArray(riskEvidenceGateResult.evidence_refs_consumed);
+  const evidenceRefsConsumedShape = classifyStringArray(
+    riskEvidenceGateResult.evidence_refs_consumed
+  );
+  const evaluatedAt = asIsoTimestamp(riskEvidenceGateResult.evaluated_at);
+  const downstreamOwner = asString(riskEvidenceGateResult.downstream_owner) ?? "none";
+  const blockingReasonsShape = classifyBlockingReasons(riskEvidenceGateResult.blocking_reasons);
+  const blockingReasons = blockingReasonsShape.values;
+  const gateReasons = [];
+
+  for (const reason of nonProofGateReasons) {
+    pushReason(gateReasons, reason);
+  }
+  if (schemaVersion !== RISK_EVIDENCE_SCHEMA_VERSION) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (!RISK_EVIDENCE_STATES.has(riskEvidenceState)) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (!RISK_EVIDENCE_DECISIONS.has(riskEvidenceDecision)) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (!evaluatedAt) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  if (downstreamOwner === "none") {
+    pushReason(gateReasons, "downstream_owner_required");
+  }
+  if (evidenceRefsConsumedShape.malformed) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  for (const reason of blockingReasonsShape.reasons) {
+    pushReason(gateReasons, reason);
+  }
+
+  if (riskEvidenceState && riskEvidenceState !== "accepted") {
+    pushReason(gateReasons, STATE_REASON_MAP[riskEvidenceState] ?? "risk_evidence_unclassified");
+  }
+  if (riskEvidenceDecision !== "allow_input_to_1188") {
+    pushReason(gateReasons, blockingReasons.length > 0 ? null : "risk_evidence_unclassified");
+  }
+  if (riskEvidenceState === "accepted" && riskEvidenceDecision === "allow_input_to_1188") {
+    if (blockingReasonsShape.malformed) {
+      pushReason(gateReasons, "risk_evidence_unclassified");
+    }
+    if (downstreamOwner !== RISK_EVIDENCE_DOWNSTREAM_OWNER) {
+      pushReason(gateReasons, "downstream_owner_required");
+    }
+    if (blockingReasons.length > 0) {
+      pushReason(gateReasons, "risk_evidence_unclassified");
+    }
+    if (!riskEvidenceRef || evidenceRefsConsumed.length === 0) {
+      pushReason(gateReasons, "risk_evidence_missing");
+    }
+  }
+
+  if (gateReasons.length > 0) {
+    return buildBlockedResult({
+      required,
+      gateReasons,
+      riskEvidenceState: riskEvidenceState ?? "unclassified",
+      riskEvidenceDecision,
+      nonProofsObserved,
+      riskEvidenceRef,
+      evidenceRefsConsumed,
+      schemaVersion,
+      evaluatedAt,
+      downstreamOwner
+    });
+  }
+
+  return {
+    required,
+    accepted_risk_input: true,
+    read_write_allow_proof: false,
+    decision: "allow_input_to_consumer_gate",
+    gate_reasons: [],
+    risk_evidence_state: "accepted",
+    risk_evidence_decision: "allow_input_to_1188",
+    non_proofs_observed: nonProofsObserved,
+    risk_evidence_ref: riskEvidenceRef,
+    evidence_refs_consumed: evidenceRefsConsumed,
+    schema_version: schemaVersion,
+    evaluated_at: evaluatedAt,
+    downstream_owner: downstreamOwner
+  };
+};
+
+export {
+  RISK_EVIDENCE_BLOCKING_REASONS,
+  RISK_EVIDENCE_DECISIONS,
+  RISK_EVIDENCE_DOWNSTREAM_OWNER,
+  RISK_EVIDENCE_SCHEMA_VERSION,
+  RISK_EVIDENCE_NON_PROOFS,
+  RISK_EVIDENCE_STATES
+};

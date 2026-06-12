@@ -46,6 +46,7 @@ const readSource = async (path) =>
 const buildContentScriptBundle = async () => {
   const fingerprintSource = await readSource(join(sharedRoot, "fingerprint-profile.js"));
   const riskStateSource = await readSource(join(sharedRoot, "risk-state.js"));
+  const riskEvidenceGateSource = await readSource(join(sharedRoot, "risk-evidence-gate.js"));
   const issue209AdmissionSource = await readSource(
     join(sharedRoot, "issue209-live-read", "admission.js")
   );
@@ -113,6 +114,12 @@ const buildContentScriptBundle = async () => {
       "DEFAULT_PLUGIN_DESCRIPTORS",
       "ensureFingerprintRuntimeContext"
     ]
+  });
+
+  const riskEvidenceGateModule = renderClassicModule({
+    moduleVar: "__webenvoy_module_risk_evidence_gate",
+    sourceBody: riskEvidenceGateSource,
+    exports: ["evaluateRiskEvidenceConsumerGate"]
   });
 
   const issue209AdmissionModule = renderClassicModule({
@@ -223,7 +230,8 @@ const buildContentScriptBundle = async () => {
       "const {",
       "  isIssue209LiveReadGateRequest,",
       "  resolveIssue209LiveReadApprovalId",
-      "} = __webenvoy_module_issue209_identity;"
+      "} = __webenvoy_module_issue209_identity;",
+      "const { evaluateRiskEvidenceConsumerGate } = __webenvoy_module_risk_evidence_gate;"
     ].join("\n"),
     sourceBody: sharedXhsGateSource,
     exports: [
@@ -564,6 +572,7 @@ const buildContentScriptBundle = async () => {
     "/* WebEnvoy classic content script bundle for Chrome MV3 content_scripts. */",
     "",
     riskStateModule,
+    riskEvidenceGateModule,
     fingerprintModule,
     issue209AdmissionModule,
     issue209IdentityModule,

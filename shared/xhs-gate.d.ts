@@ -8,6 +8,10 @@ import type {
   WriteActionMatrixDecisionsOutput,
   WriteInteractionTier
 } from "./risk-state.js";
+import type {
+  RiskEvidenceConsumerInput,
+  RiskEvidenceConsumerResult
+} from "./risk-evidence-gate.js";
 
 export interface XhsApprovalRecord {
   approval_id: string | null;
@@ -222,6 +226,14 @@ export interface XhsGateCoreInput {
   __anonymous_isolation_verified?: boolean;
   targetSiteLoggedIn?: boolean;
   target_site_logged_in?: boolean;
+  riskEvidenceRequired?: boolean;
+  risk_evidence_required?: boolean;
+  riskEvidenceGateResult?: RiskEvidenceConsumerInput["riskEvidenceGateResult"];
+  risk_evidence_gate_result?: RiskEvidenceConsumerInput["risk_evidence_gate_result"];
+  nonProofsObserved?: unknown;
+  non_proofs_observed?: unknown;
+  nonProofs?: unknown;
+  non_proofs?: unknown;
 }
 
 export interface XhsGateCoreResult {
@@ -456,6 +468,7 @@ export declare const evaluateXhsGate: (input: XhsGateCoreInput & {
     requested_execution_mode: ExecutionMode | null;
     risk_state: RiskState;
     admission_context: XhsAdmissionContext;
+    risk_evidence_consumer_gate?: RiskEvidenceConsumerResult;
   };
   gate_outcome: {
     decision_id: string;
@@ -475,6 +488,7 @@ export declare const evaluateXhsGate: (input: XhsGateCoreInput & {
     gate_decision: "allowed" | "blocked";
     gate_reasons: string[];
     write_interaction_tier: string | null;
+    risk_evidence_consumer_gate?: RiskEvidenceConsumerResult;
   };
   request_admission_result: XhsRequestAdmissionResult;
   approval_record: XhsApprovalRecord;

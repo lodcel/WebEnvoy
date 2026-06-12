@@ -20,6 +20,9 @@ import {
   isIssue209LiveReadGateRequest,
   resolveIssue209LiveReadApprovalId
 } from "./issue209-live-read/identity.js";
+import {
+  evaluateRiskEvidenceConsumerGate
+} from "./risk-evidence-gate.js";
 
 const XHS_READ_DOMAIN = "www.xiaohongshu.com";
 const XHS_WRITE_DOMAIN = "creator.xiaohongshu.com";
@@ -1708,6 +1711,19 @@ const evaluateXhsGate = (input) => {
   const gateReasons = Array.isArray(input.additionalGateReasons)
     ? input.additionalGateReasons.filter((reason) => typeof reason === "string")
     : [];
+  const riskEvidenceConsumerGate = evaluateRiskEvidenceConsumerGate({
+    riskEvidenceRequired: input.riskEvidenceRequired,
+    risk_evidence_required: input.risk_evidence_required,
+    riskEvidenceGateResult: input.riskEvidenceGateResult,
+    risk_evidence_gate_result: input.risk_evidence_gate_result,
+    nonProofsObserved: input.nonProofsObserved,
+    non_proofs_observed: input.non_proofs_observed,
+    nonProofs: input.nonProofs,
+    non_proofs: input.non_proofs
+  });
+  for (const reason of riskEvidenceConsumerGate.gate_reasons) {
+    pushReason(gateReasons, reason);
+  }
   const expectedApprovalId = deriveApprovalId(input, decisionId);
   collectXhsCommandGateReasons({
     gateReasons,
@@ -1829,7 +1845,10 @@ const evaluateXhsGate = (input) => {
       risk_state: state.riskState,
       session_rhythm_window_id: asString(input.sessionRhythmWindowId ?? input.__session_rhythm_window_id),
       session_rhythm_decision_id: asString(input.sessionRhythmDecisionId ?? input.__session_rhythm_decision_id),
-      admission_context: admissionContext
+      admission_context: admissionContext,
+      ...(riskEvidenceConsumerGate.required
+        ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {})
     },
     gate_outcome: {
       decision_id: decisionId,
@@ -1854,7 +1873,10 @@ const evaluateXhsGate = (input) => {
       effective_execution_mode: outcome.effectiveExecutionMode,
       gate_decision: outcome.gateDecision,
       gate_reasons: outcome.gateReasons,
-      write_interaction_tier: state.writeActionMatrixDecisions?.write_interaction_tier ?? null
+      write_interaction_tier: state.writeActionMatrixDecisions?.write_interaction_tier ?? null,
+      ...(riskEvidenceConsumerGate.required
+        ? { risk_evidence_consumer_gate: riskEvidenceConsumerGate }
+        : {})
     },
     request_admission_result: requestAdmissionResult,
     approval_record: approvalRecord,

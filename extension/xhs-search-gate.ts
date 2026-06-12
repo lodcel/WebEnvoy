@@ -42,6 +42,9 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
+const hasOwn = (record: object | null | undefined, key: string): boolean =>
+  record !== null && record !== undefined && Object.prototype.hasOwnProperty.call(record, key);
+
 const asNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
@@ -161,6 +164,9 @@ export const resolveGate = (
     auditRecord: options.audit_record,
     admissionContext: options.admission_context,
     limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
+    risk_evidence_required: options.risk_evidence_required === true,
+    risk_evidence_gate_result: options.risk_evidence_gate_result,
+    non_proofs_observed: options.non_proofs_observed,
     additionalGateReasons: Array.isArray(options.admission_gate_reasons)
       ? options.admission_gate_reasons.filter((reason): reason is string => typeof reason === "string")
       : [],
@@ -349,6 +355,13 @@ export const createGateOnlySuccess = (input: {
         : {}),
       ...(asStringArray(input.options?.downstream_slice_refs).length > 0
         ? { downstream_slice_refs: asStringArray(input.options?.downstream_slice_refs) }
+        : {}),
+      ...(input.options?.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
+      ...(hasOwn(input.options, "risk_evidence_gate_result")
+        ? { risk_evidence_gate_result: input.options?.risk_evidence_gate_result }
+        : {}),
+      ...(hasOwn(input.options, "non_proofs_observed")
+        ? { non_proofs_observed: input.options?.non_proofs_observed }
         : {}),
       ...(asStringArray(input.options?.non_proofs).length > 0
         ? { non_proofs: asStringArray(input.options?.non_proofs) }
