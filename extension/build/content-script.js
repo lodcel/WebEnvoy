@@ -4131,6 +4131,76 @@ const resolveXhsRiskState = (value) => resolveSharedRiskState(value);
 
 const resolveXhsIssueScope = (value) => resolveSharedIssueScope(value);
 
+const deriveXhsPlatformBehaviorGoalKind = (actionType) => {
+  if (actionType === "read") {
+    return "read";
+  }
+  if (actionType === "write" || actionType === "irreversible_write") {
+    return "write";
+  }
+  return null;
+};
+
+const deriveXhsPlatformBehaviorExpectedScope = (input, state) => {
+  const providedScope =
+    asRecord(input.expectedPlatformBehaviorScope) ??
+    asRecord(input.expected_platform_behavior_scope);
+  const targetDomain =
+    state.upstreamAuthorizationRequest?.runtime_target?.domain ?? asString(input.targetDomain);
+  const targetPage =
+    state.upstreamAuthorizationRequest?.runtime_target?.page ?? asString(input.targetPage);
+  const goalKind = deriveXhsPlatformBehaviorGoalKind(state.actionType);
+  const bindingReasons = [];
+
+  if (!providedScope) {
+    pushReason(bindingReasons, "platform_behavior_expected_scope_missing");
+  }
+  if (!targetDomain) {
+    pushReason(bindingReasons, "platform_behavior_xhs_target_domain_missing");
+  }
+  if (!targetPage) {
+    pushReason(bindingReasons, "platform_behavior_xhs_target_page_missing");
+  }
+  if (!state.actionType) {
+    pushReason(bindingReasons, "platform_behavior_xhs_action_type_missing");
+  }
+  if (!state.requestedExecutionMode) {
+    pushReason(bindingReasons, "platform_behavior_xhs_execution_mode_missing");
+  }
+
+  return {
+    expectedScope: {
+      ...(providedScope ?? {}),
+      platform: "xhs",
+      ...(targetDomain ? { target_domain: targetDomain } : {}),
+      ...(state.requestedExecutionMode
+        ? {
+            requested_execution_mode: state.requestedExecutionMode,
+            effective_execution_mode: state.requestedExecutionMode
+          }
+        : {}),
+      ...(goalKind ? { goal_kind: goalKind } : {})
+    },
+    bindingReasons
+  };
+};
+
+const applyPlatformBehaviorScopeBindingReasons = (gate, bindingReasons) => {
+  if (!gate.required || bindingReasons.length === 0) {
+    return gate;
+  }
+  const gateReasons = [...gate.gate_reasons];
+  for (const reason of bindingReasons) {
+    pushReason(gateReasons, reason);
+  }
+  return {
+    ...gate,
+    accepted_risk_hint: false,
+    decision: "blocked",
+    gate_reasons: gateReasons
+  };
+};
+
 const normalizeXhsApprovalRecord = (value) => {
   const record = asRecord(value);
   const checksRecord = asRecord(record?.checks);
@@ -5110,21 +5180,24 @@ const evaluateXhsGate = (input) => {
     nonProofs: input.nonProofs,
     non_proofs: input.non_proofs
   });
-  const platformBehaviorAssessmentGate = evaluatePlatformBehaviorAssessmentGate({
-    required: input.platformBehaviorAssessmentRequired,
-    platform_behavior_assessment_required: input.platform_behavior_assessment_required,
-    platformBehaviorAssessment: input.platformBehaviorAssessment,
-    platform_behavior_assessment: input.platform_behavior_assessment,
-    platformBehaviorAssessmentContext: input.platformBehaviorAssessmentContext,
-    platform_behavior_assessment_context: input.platform_behavior_assessment_context,
-    platformBehaviorContext: input.platformBehaviorContext,
-    platform_behavior_context: input.platform_behavior_context,
-    expectedPlatformBehaviorScope: input.expectedPlatformBehaviorScope,
-    expected_platform_behavior_scope: input.expected_platform_behavior_scope,
-    asOf: input.platformBehaviorAsOf ?? input.platform_behavior_as_of,
-    freshnessWindowMs:
-      input.platformBehaviorFreshnessWindowMs ?? input.platform_behavior_freshness_window_ms
-  });
+  const platformBehaviorScopeBinding = deriveXhsPlatformBehaviorExpectedScope(input, state);
+  const platformBehaviorAssessmentGate = applyPlatformBehaviorScopeBindingReasons(
+    evaluatePlatformBehaviorAssessmentGate({
+      required: input.platformBehaviorAssessmentRequired,
+      platform_behavior_assessment_required: input.platform_behavior_assessment_required,
+      platformBehaviorAssessment: input.platformBehaviorAssessment,
+      platform_behavior_assessment: input.platform_behavior_assessment,
+      platformBehaviorAssessmentContext: input.platformBehaviorAssessmentContext,
+      platform_behavior_assessment_context: input.platform_behavior_assessment_context,
+      platformBehaviorContext: input.platformBehaviorContext,
+      platform_behavior_context: input.platform_behavior_context,
+      expected_platform_behavior_scope: platformBehaviorScopeBinding.expectedScope,
+      asOf: input.platformBehaviorAsOf ?? input.platform_behavior_as_of,
+      freshnessWindowMs:
+        input.platformBehaviorFreshnessWindowMs ?? input.platform_behavior_freshness_window_ms
+    }),
+    platformBehaviorScopeBinding.bindingReasons
+  );
   for (const reason of riskEvidenceConsumerGate.gate_reasons) {
     pushReason(gateReasons, reason);
   }
