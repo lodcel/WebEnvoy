@@ -1877,6 +1877,7 @@ export class ProfileRuntimeService {
     return {
       profile: input.profile,
       account_safety: toAccountSafetyStatus(accountSafety),
+      account_safety_record: accountSafety as unknown as JsonObject,
       xhs_closeout_rhythm: toXhsCloseoutRhythmStatus({
         rhythm: nextMeta.xhsCloseoutRhythm,
         accountSafety

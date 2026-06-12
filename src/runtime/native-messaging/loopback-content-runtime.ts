@@ -940,6 +940,7 @@ export class InMemoryContentScriptRuntime {
       });
       if (consumerGateResult.gate_decision === "blocked") {
         const isEditorInputValidation = options.validation_action === "editor_input";
+        const accountSafetyGateResult = asRecord(options.account_safety_gate_result);
         const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
           ? consumerGateResult.gate_reasons.map((reason) => String(reason))
           : ["EXECUTION_MODE_GATE_BLOCKED"];
@@ -974,6 +975,9 @@ export class InMemoryContentScriptRuntime {
               ability_id: String(ability.id ?? commandSpec.defaultAbilityId),
               stage: "execution",
               reason: "EXECUTION_MODE_GATE_BLOCKED",
+              ...(accountSafetyGateResult
+                ? { account_safety_gate_result: accountSafetyGateResult }
+                : {}),
               ...(isEditorInputValidation
                 ? {
                     validation_action: "editor_input",
@@ -1062,6 +1066,7 @@ export class InMemoryContentScriptRuntime {
                     target_page: options.target_page ?? null,
                     profile_readiness: asRecord(options.profile_readiness),
                     account_readiness: asRecord(options.account_readiness),
+                    account_safety_gate_result: asRecord(options.account_safety_gate_result),
                     provider_requirement_refs: Array.isArray(options.provider_requirement_refs)
                       ? options.provider_requirement_refs
                       : [],

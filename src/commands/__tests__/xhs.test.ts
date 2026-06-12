@@ -6,8 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  buildXhsDriverRuntimeBindingForContract,
   buildOfficialChromeRuntimeStatusParams,
   buildXhsCloseoutEvidenceTrustedBindingForContract,
+  declareXhsDriverProviderRequirementsForContract,
   ensureOfficialChromeRuntimeReady,
   evaluateXhsCloseoutEvidenceForContract,
   evaluateXhsSearchPrimaryPassiveApiReadinessForContract,
@@ -56,6 +58,12 @@ const ISSUE209_APPROVAL_CHECKS = {
   target_page_confirmed: true,
   risk_state_checked: true,
   action_type_confirmed: true
+};
+
+const ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS = {
+  operator_unlock_ref: "FR-0064.operator_unlock/redacted-current-scope",
+  default_commit_lock_ref: "FR-0068.default_commit_lock/redacted-current-scope",
+  live_evidence_gate_ref: "FR-0032.live_evidence_gate/redacted-current-scope"
 };
 
 let xhsCloseoutValidationSeedSequence = 0;
@@ -169,9 +177,120 @@ const createApprovedIssue835LiveWriteAdmissionContext = (input: {
   }
 });
 
+const resolveAccountSafetyHeadShaForTest = (): string =>
+  process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA ??
+  process.env.WEBENVOY_RUNTIME_LATEST_HEAD_SHA ??
+  spawnSync("git", ["rev-parse", "HEAD"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"]
+  }).stdout.trim() ??
+  "head:unknown";
+
+const resolveAccountSafetyCapabilityLevelForTest = (input: {
+  command: string;
+  requestedExecutionMode: "live_read_high_risk" | "live_read_limited" | "live_write";
+}): "write_admit" | "write_prepare" | "live_write_commit" =>
+  input.command === "xhs.creator_publish.controlled_live_write"
+    ? "live_write_commit"
+    : input.requestedExecutionMode === "live_write" &&
+        (input.command === "xhs.search" ||
+          input.command === "xhs.editor_input.validate" ||
+          input.command === "xhs.editor_text.write")
+      ? "write_prepare"
+      : "write_admit";
+
+const buildAccountSafetyStateRecordForTest = (input: {
+  profile: string;
+  runId: string;
+  command: string;
+  ability: {
+    id: string;
+    layer: "L3";
+    action: "read" | "write";
+  };
+  requestedExecutionMode: "live_read_high_risk" | "live_read_limited" | "live_write";
+  targetDomain: string;
+  targetPage: string;
+  targetTabId?: number;
+  accountSafetyCommitRefs?: typeof ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS;
+}) => {
+  const providerRequirements = declareXhsDriverProviderRequirementsForContract({
+    command: input.command,
+    ability: input.ability,
+    requestedExecutionMode: input.requestedExecutionMode
+  });
+  const runtimeBinding = buildXhsDriverRuntimeBindingForContract({
+    command: input.command,
+    ability: input.ability,
+    runId: input.runId,
+    operationId: input.runId,
+    targetDomain: input.targetDomain,
+    targetTabId: input.targetTabId ?? 32,
+    targetPage: input.targetPage,
+    requestedExecutionMode: input.requestedExecutionMode,
+    providerRequirements
+  });
+  const targetBindingRef =
+    runtimeBinding?.target_binding_snapshot_ref ??
+    `FR-0063.target_binding_snapshot.v1/${input.runId}/${input.command}`;
+  return {
+    schema_version: "account-safety-gate.v1",
+    safety_state_id: `account-safety-state/${input.profile}/${input.runId}`,
+    canonical_issue_ref: "#1176",
+    scope: {
+      schema_version: "account-safety-gate.v1",
+      capability_level: resolveAccountSafetyCapabilityLevelForTest({
+        command: input.command,
+        requestedExecutionMode: input.requestedExecutionMode
+      }),
+      workflow_ref:
+        input.command === "xhs.creator_publish.admit"
+          ? "xhs.creator_publish.admit"
+          : input.command,
+      target_domain: input.targetDomain,
+      target_page: input.targetPage,
+      profile_ref: input.profile,
+      browser_channel: "unknown",
+      execution_surface: "real_browser",
+      provider_requirement_ref: providerRequirements?.provider_requirement_ref ?? null,
+      runtime_target_binding_ref: targetBindingRef,
+      operator_unlock_ref: input.accountSafetyCommitRefs?.operator_unlock_ref ?? null,
+      head_sha: resolveAccountSafetyHeadShaForTest(),
+      run_id: input.runId,
+      evaluation_context_ref: `runtime-account-safety/${input.runId}/${input.command}`
+    },
+    state: "clear",
+    signal_classes: [],
+    evidence_refs: {
+      safety_check_ref: `runtime-account-safety/${input.runId}/profile-meta`,
+      profile_ref: input.profile,
+      runtime_status_ref: `runtime-status/${input.runId}`,
+      target_binding_ref: targetBindingRef,
+      signal_scan_ref: `runtime-account-safety/${input.runId}/signal-scan`,
+      redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
+      freshness_ref: `runtime-account-safety/${input.runId}/freshness`,
+      risk_disposition_ref: `runtime-account-safety/${input.runId}/risk-disposition`,
+      ...(input.accountSafetyCommitRefs ?? {})
+    },
+    checked_at: "2026-04-25T10:45:00.000Z",
+    expires_at: "2099-04-25T10:45:00.000Z",
+    redaction_state: "redacted"
+  };
+};
+
 const seedXhsCloseoutReady = async (input: {
   cwd: string;
   profile: string;
+  accountSafetyRunId?: string;
+  accountSafetyCommand?: string;
+  accountSafetyAbility?: {
+    id: string;
+    layer: "L3";
+    action: "read" | "write";
+  };
+  accountSafetyTargetDomain?: string;
+  accountSafetyTargetPage?: string;
+  accountSafetyTargetTabId?: number;
   effectiveExecutionMode?: "live_read_high_risk" | "live_read_limited" | "live_write";
   validationTargetDomain?: "www.xiaohongshu.com" | "creator.xiaohongshu.com";
   validationTargetPage?: "search_result_tab" | "creator_publish_tab";
@@ -179,6 +298,7 @@ const seedXhsCloseoutReady = async (input: {
   validationProbeBundleRef?:
     | "probe-bundle/xhs-closeout-min-v1"
     | "probe-bundle/xhs-creator-live-write-admission-v1";
+  accountSafetyCommitRefs?: typeof ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS;
 }) => {
   const effectiveExecutionMode = input.effectiveExecutionMode ?? "live_read_high_risk";
   const validationTargetDomain = input.validationTargetDomain ?? "www.xiaohongshu.com";
@@ -186,6 +306,63 @@ const seedXhsCloseoutReady = async (input: {
   const validationEvidenceMode = input.validationEvidenceMode ?? "live_read_high_risk";
   const validationProbeBundleRef =
     input.validationProbeBundleRef ?? "probe-bundle/xhs-closeout-min-v1";
+  const accountSafetyCommand = input.accountSafetyCommand ?? "xhs.search";
+  const accountSafetyAbility =
+    input.accountSafetyAbility ??
+    ({
+      id:
+        accountSafetyCommand === "xhs.detail"
+          ? "xhs.note.detail.v1"
+          : accountSafetyCommand === "xhs.user_home"
+            ? "xhs.user.home.v1"
+            : accountSafetyCommand === "xhs.editor_input.validate"
+              ? "xhs.editor.input.v1"
+              : accountSafetyCommand === "xhs.editor_text.write"
+                ? "xhs.editor.input.v1"
+              : accountSafetyCommand === "xhs.creator_publish.controlled_live_write"
+                ? "xhs.creator.publish.v1"
+                : "xhs.note.search.v1",
+      layer: "L3",
+      action:
+        effectiveExecutionMode === "live_write" ||
+        accountSafetyCommand === "xhs.editor_input.validate" ||
+        accountSafetyCommand === "xhs.editor_text.write" ||
+        accountSafetyCommand === "xhs.creator_publish.controlled_live_write"
+          ? "write"
+          : "read"
+    } as const);
+  const accountSafetyTargetDomain =
+    input.accountSafetyTargetDomain ?? validationTargetDomain;
+  const accountSafetyTargetPage =
+    input.accountSafetyTargetPage ?? validationTargetPage;
+  const accountSafetyProviderRequirements = input.accountSafetyRunId
+    ? declareXhsDriverProviderRequirementsForContract({
+        command: accountSafetyCommand,
+        ability: accountSafetyAbility,
+        requestedExecutionMode: effectiveExecutionMode
+      })
+    : null;
+  const accountSafetyRuntimeBinding = input.accountSafetyRunId
+    ? buildXhsDriverRuntimeBindingForContract({
+        command: accountSafetyCommand,
+        ability: accountSafetyAbility,
+        runId: input.accountSafetyRunId,
+        operationId: input.accountSafetyRunId,
+        targetDomain: accountSafetyTargetDomain,
+        targetTabId: input.accountSafetyTargetTabId ?? 32,
+        targetPage: accountSafetyTargetPage,
+        requestedExecutionMode: effectiveExecutionMode,
+        providerRequirements: accountSafetyProviderRequirements
+      })
+    : null;
+  const accountSafetyHeadSha =
+    process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA ??
+    process.env.WEBENVOY_RUNTIME_LATEST_HEAD_SHA ??
+    spawnSync("git", ["rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).stdout.trim() ??
+    "head:unknown";
   const profileStore = new ProfileStore(join(input.cwd, ".webenvoy", "profiles"));
   const meta =
     (await profileStore.readMeta(input.profile, { mode: "readonly" }).catch(() => null)) ??
@@ -208,6 +385,58 @@ const seedXhsCloseoutReady = async (input: {
       statusCode: null,
       platformCode: null
     },
+    ...(input.accountSafetyRunId
+      ? {
+          accountSafetyStateRecord: {
+            schema_version: "account-safety-gate.v1",
+            safety_state_id: `account-safety-state/${input.profile}/${input.accountSafetyRunId}`,
+            canonical_issue_ref: "#1176",
+            scope: {
+              schema_version: "account-safety-gate.v1",
+              capability_level: resolveAccountSafetyCapabilityLevelForTest({
+                command: accountSafetyCommand,
+                requestedExecutionMode: effectiveExecutionMode
+              }),
+              workflow_ref:
+                accountSafetyCommand === "xhs.creator_publish.admit"
+                  ? "xhs.creator_publish.admit"
+                  : accountSafetyCommand,
+              target_domain: accountSafetyTargetDomain,
+              target_page: accountSafetyTargetPage,
+              profile_ref: input.profile,
+              browser_channel: "unknown",
+              execution_surface: "real_browser",
+              provider_requirement_ref:
+                accountSafetyProviderRequirements?.provider_requirement_ref ?? null,
+              runtime_target_binding_ref:
+                accountSafetyRuntimeBinding?.target_binding_snapshot_ref ??
+                `FR-0063.target_binding_snapshot.v1/${input.accountSafetyRunId}/${accountSafetyCommand}`,
+              operator_unlock_ref: input.accountSafetyCommitRefs?.operator_unlock_ref ?? null,
+              head_sha: accountSafetyHeadSha || "head:unknown",
+              run_id: input.accountSafetyRunId,
+              evaluation_context_ref: `runtime-account-safety/${input.accountSafetyRunId}/${accountSafetyCommand}`
+            },
+            state: "clear",
+            signal_classes: [],
+            evidence_refs: {
+              safety_check_ref: `runtime-account-safety/${input.accountSafetyRunId}/profile-meta`,
+              profile_ref: input.profile,
+              runtime_status_ref: `runtime-status/${input.accountSafetyRunId}`,
+              target_binding_ref:
+                accountSafetyRuntimeBinding?.target_binding_snapshot_ref ??
+                `FR-0063.target_binding_snapshot.v1/${input.accountSafetyRunId}/${accountSafetyCommand}`,
+              signal_scan_ref: `runtime-account-safety/${input.accountSafetyRunId}/signal-scan`,
+              redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
+              freshness_ref: `runtime-account-safety/${input.accountSafetyRunId}/freshness`,
+              risk_disposition_ref: `runtime-account-safety/${input.accountSafetyRunId}/risk-disposition`,
+              ...(input.accountSafetyCommitRefs ?? {})
+            },
+            checked_at: "2026-04-25T10:45:00.000Z",
+            expires_at: "2099-04-25T10:45:00.000Z",
+            redaction_state: "redacted"
+          }
+        }
+      : {}),
     xhsCloseoutRhythm: {
       state: "single_probe_passed",
       cooldownUntil: "2000-01-01T00:30:00.000Z",
@@ -5712,6 +5941,15 @@ describe("normalizeGateOptionsForContract", () => {
             state: "account_risk_blocked",
             reason: "ACCOUNT_ABNORMAL",
             live_commands_blocked: true
+          }),
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ])
           })
         }
       });
@@ -5805,6 +6043,15 @@ describe("normalizeGateOptionsForContract", () => {
           account_safety: expect.objectContaining({
             state: "account_risk_blocked",
             live_commands_blocked: true
+          }),
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ])
           })
         }
       });
@@ -5842,7 +6089,11 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_account_signal_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_account_signal_profile",
+        accountSafetyRunId: runId
+      });
       await expect(
         executeCommand(
           {
@@ -5896,6 +6147,15 @@ describe("normalizeGateOptionsForContract", () => {
             target_tab_id: 32,
             status_code: 461,
             live_commands_blocked: true
+          }),
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ])
           }),
           runtime_stop: expect.objectContaining({
             attempted: true
@@ -5953,7 +6213,11 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_classifier_account_signal_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_classifier_account_signal_profile",
+        accountSafetyRunId: runId
+      });
       await expect(
         executeCommand(
           {
@@ -6062,7 +6326,11 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_humanized_action_diagnostics_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_humanized_action_diagnostics_profile",
+        accountSafetyRunId: runId
+      });
       await expect(
         executeCommand(
           {
@@ -6154,7 +6422,11 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_classifier_diagnosis_priority_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_classifier_diagnosis_priority_profile",
+        accountSafetyRunId: runId
+      });
       await expect(
         executeCommand(
           {
@@ -6263,7 +6535,11 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_stale_account_current_captcha_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_stale_account_current_captcha_profile",
+        accountSafetyRunId: runId
+      });
       await expect(
         executeCommand(
           {
@@ -6701,6 +6977,20 @@ describe("normalizeGateOptionsForContract", () => {
           statusCode: null,
           platformCode: null
         },
+        accountSafetyStateRecord: buildAccountSafetyStateRecordForTest({
+          profile: "xhs_rhythm_live_write_profile",
+          runId: "run-rhythm-live-write-001",
+          command: "xhs.search",
+          ability: {
+            id: "xhs.note.search.v1",
+            layer: "L3",
+            action: "write"
+          },
+          requestedExecutionMode: "live_write",
+          targetDomain: "creator.xiaohongshu.com",
+          targetPage: "creator_publish_tab",
+          targetTabId: 32
+        }),
         xhsCloseoutRhythm: {
           state: "single_probe_required",
           cooldownUntil: "2000-01-01T00:30:00.000Z",
@@ -6905,6 +7195,20 @@ describe("normalizeGateOptionsForContract", () => {
           statusCode: null,
           platformCode: null
         },
+        accountSafetyStateRecord: buildAccountSafetyStateRecordForTest({
+          profile: "xhs_rhythm_live_write_baseline_profile",
+          runId: "run-rhythm-live-write-baseline-001",
+          command: "xhs.search",
+          ability: {
+            id: "xhs.note.search.v1",
+            layer: "L3",
+            action: "write"
+          },
+          requestedExecutionMode: "live_write",
+          targetDomain: "creator.xiaohongshu.com",
+          targetPage: "creator_publish_tab",
+          targetTabId: 32
+        }),
         xhsCloseoutRhythm: {
           state: "single_probe_passed",
           cooldownUntil: "2000-01-01T00:30:00.000Z",
@@ -7517,7 +7821,19 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_validation_ready_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_validation_ready_profile",
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.user_home",
+        accountSafetyAbility: {
+          id: "xhs.user.home.v1",
+          layer: "L3",
+          action: "read"
+        },
+        accountSafetyTargetPage: "profile_tab",
+        accountSafetyTargetTabId: 34
+      });
 
       const result = await executeCommand(
         {
@@ -7624,7 +7940,19 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     process.env.WEBENVOY_CLOSEOUT_LATEST_HEAD_SHA = "head-user-home-explicit-closeout-001";
     try {
-      await seedXhsCloseoutReady({ cwd, profile });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.user_home",
+        accountSafetyAbility: {
+          id: "xhs.user.home.v1",
+          layer: "L3",
+          action: "read"
+        },
+        accountSafetyTargetPage: "profile_tab",
+        accountSafetyTargetTabId: 35
+      });
       const expected = {
         latest_head_sha: "head-user-home-explicit-closeout-001",
         run_id: runId,
@@ -7830,7 +8158,10 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_validation_ready_limited_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_validation_ready_limited_profile"
+      });
 
       const result = await executeCommand(
         {
@@ -7906,7 +8237,19 @@ describe("normalizeGateOptionsForContract", () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-persisted-cooldown-"));
     const profile = "xhs_persisted_cooldown_profile";
     try {
-      await seedXhsCloseoutReady({ cwd, profile });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: "run-persisted-cooldown-current",
+        accountSafetyCommand: "xhs.detail",
+        accountSafetyAbility: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        accountSafetyTargetPage: "explore_detail_tab",
+        accountSafetyTargetTabId: 33
+      });
       const store = new SQLiteRuntimeStore(resolveRuntimeStorePath(cwd));
       try {
         await store.recordSessionRhythmStatusView({
@@ -9086,7 +9429,11 @@ describe("normalizeGateOptionsForContract", () => {
     process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
     process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
     try {
-      await seedXhsCloseoutReady({ cwd, profile: "xhs_account_generic_profile" });
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "xhs_account_generic_profile",
+        accountSafetyRunId: runId
+      });
       await expect(
         executeCommand(
           {
@@ -9168,7 +9515,15 @@ describe("normalizeGateOptionsForContract", () => {
     try {
       await seedXhsCloseoutReady({
         cwd: "/tmp/webenvoy",
-        profile: "profile-anon-loopback-001"
+        profile: "profile-anon-loopback-001",
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.detail",
+        accountSafetyAbility: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        accountSafetyTargetPage: "explore_detail_tab"
       });
       const execution = await executeCommand(
         {
@@ -9548,7 +9903,8 @@ describe("normalizeGateOptionsForContract", () => {
     try {
       await seedXhsCloseoutReady({
         cwd: "/tmp/webenvoy",
-        profile: "profile-formal-source-loopback-001"
+        profile: "profile-formal-source-loopback-001",
+        accountSafetyRunId: runId
       });
       const execution = await executeCommand(
         {
@@ -9799,7 +10155,15 @@ describe("normalizeGateOptionsForContract", () => {
     try {
       await seedXhsCloseoutReady({
         cwd: "/tmp/webenvoy",
-        profile: "profile-anon-loopback-blocked-001"
+        profile: "profile-anon-loopback-blocked-001",
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.detail",
+        accountSafetyAbility: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        accountSafetyTargetPage: "explore_detail_tab"
       });
       await expect(
         executeCommand(
@@ -9935,7 +10299,15 @@ describe("normalizeGateOptionsForContract", () => {
     try {
       await seedXhsCloseoutReady({
         cwd: "/tmp/webenvoy",
-        profile: "profile-anon-loopback-unknown-001"
+        profile: "profile-anon-loopback-unknown-001",
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.detail",
+        accountSafetyAbility: {
+          id: "xhs.note.detail.v1",
+          layer: "L3",
+          action: "read"
+        },
+        accountSafetyTargetPage: "explore_detail_tab"
       });
       await expect(
         executeCommand(
@@ -10051,6 +10423,15 @@ describe("normalizeGateOptionsForContract", () => {
       await seedXhsCloseoutReady({
         cwd: "/tmp/webenvoy",
         profile: "profile-loopback-editor-input-001",
+        accountSafetyRunId: "run-loopback-editor-input-001",
+        accountSafetyCommand: "xhs.search",
+        accountSafetyAbility: {
+          id: "xhs.note.search.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
         effectiveExecutionMode: "live_write"
       });
       await expect(
@@ -10141,6 +10522,199 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
+  it("fails legacy xhs.search editor_input live_write closed without current account-safety state", async () => {
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd: "/tmp/webenvoy",
+        profile: "profile-loopback-editor-input-legacy-clear-001",
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+      await expect(
+        executeCommand(
+          {
+            cwd: "/tmp/webenvoy",
+            command: "xhs.search",
+            profile: "profile-loopback-editor-input-legacy-clear-001",
+            run_id: "run-loopback-editor-input-legacy-clear-001",
+            params: {
+              ability: {
+                id: "xhs.note.search.v1",
+                layer: "L3",
+                action: "write"
+              },
+              input: {
+                query: "露营装备"
+              },
+              options: {
+                issue_scope: "issue_208",
+                target_domain: "creator.xiaohongshu.com",
+                target_tab_id: 32,
+                target_page: "creator_publish_tab",
+                action_type: "write",
+                requested_execution_mode: "live_write",
+                validation_action: "editor_input",
+                risk_state: "allowed",
+                approval_record: {
+                  approved: true,
+                  approver: "qa-reviewer",
+                  approved_at: "2026-03-23T10:00:00Z",
+                  checks: {
+                    target_domain_confirmed: true,
+                    target_tab_confirmed: true,
+                    target_page_confirmed: true,
+                    risk_state_checked: true,
+                    action_type_confirmed: true
+                  }
+                }
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          reason: "ACCOUNT_SAFETY_NOT_READY",
+          account_safety_gate_result: expect.objectContaining({
+            gate_status: "unknown",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining(["historical_or_stale_evidence"])
+          })
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("fails legacy xhs.search editor_input live_write closed with write_admit scoped account-safety state", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-legacy-editor-write-admit-"));
+    const profile = "profile-loopback-editor-input-write-admit-001";
+    const runId = "run-loopback-editor-input-write-admit-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: runId,
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.readMeta(profile);
+      const accountSafetyStateRecord =
+        meta.accountSafetyStateRecord as Record<string, unknown>;
+      const scope = accountSafetyStateRecord.scope as Record<string, unknown>;
+      await profileStore.writeMeta(profile, {
+        ...meta,
+        accountSafetyStateRecord: {
+          ...accountSafetyStateRecord,
+          scope: {
+            ...scope,
+            capability_level: "write_admit"
+          }
+        }
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.search",
+            profile,
+            run_id: runId,
+            params: {
+              ability: {
+                id: "xhs.note.search.v1",
+                layer: "L3",
+                action: "write"
+              },
+              input: {
+                query: "露营装备"
+              },
+              options: {
+                issue_scope: "issue_208",
+                target_domain: "creator.xiaohongshu.com",
+                target_tab_id: 32,
+                target_page: "creator_publish_tab",
+                action_type: "write",
+                requested_execution_mode: "live_write",
+                validation_action: "editor_input",
+                risk_state: "allowed",
+                approval_record: {
+                  approved: true,
+                  approver: "qa-reviewer",
+                  approved_at: "2026-03-23T10:00:00Z",
+                  checks: {
+                    target_domain_confirmed: true,
+                    target_tab_confirmed: true,
+                    target_page_confirmed: true,
+                    risk_state_checked: true,
+                    action_type_confirmed: true
+                  }
+                }
+              }
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          reason: "ACCOUNT_SAFETY_NOT_READY",
+          account_safety_gate_result: expect.objectContaining({
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining(["account_safety_scope_mismatch"])
+          })
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("routes xhs.editor_input.validate through the issue_208 editor_input gate without requiring query", async () => {
     const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
     const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
@@ -10153,6 +10727,15 @@ describe("normalizeGateOptionsForContract", () => {
       await seedXhsCloseoutReady({
         cwd: "/tmp/webenvoy",
         profile: "profile-loopback-editor-input-alias-001",
+        accountSafetyRunId: "run-loopback-editor-input-alias-001",
+        accountSafetyCommand: "xhs.editor_input.validate",
+        accountSafetyAbility: {
+          id: "xhs.editor.input.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
         effectiveExecutionMode: "live_write"
       });
       await expect(
@@ -10222,6 +10805,87 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
+  it("fails issue_835 controlled live write closed without account-safety commit refs", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-controlled-live-write-account-safety-"));
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "profile-controlled-live-write-account-safety-001",
+        accountSafetyRunId: "run-controlled-live-write-account-safety-001",
+        accountSafetyCommand: "xhs.creator_publish.controlled_live_write",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.controlled_live_write",
+            profile: "profile-controlled-live-write-account-safety-001",
+            run_id: "run-controlled-live-write-account-safety-001",
+            params: {
+              input: {
+                live_write_attempt_id: "fr0032-attempt-account-safety-001",
+                source_media_ref: "media-ref/fr-0032/fixture-image-a",
+                source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
+                source_media_kind: "image"
+              },
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "live_write",
+              risk_state: "allowed",
+              issue_scope: "issue_835",
+              action_type: "write",
+              controlled_live_write: true
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          reason: "ACCOUNT_SAFETY_NOT_READY",
+          account_safety_gate_result: expect.objectContaining({
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining(["safety_evidence_missing"])
+          })
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("uses creator admission validation bundle for issue_835 controlled live write preflight", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-controlled-live-write-bundle-"));
     const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
@@ -10235,11 +10899,21 @@ describe("normalizeGateOptionsForContract", () => {
       await seedXhsCloseoutReady({
         cwd,
         profile: "profile-controlled-live-write-bundle-001",
+        accountSafetyRunId: "run-controlled-live-write-bundle-001",
+        accountSafetyCommand: "xhs.creator_publish.controlled_live_write",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
         effectiveExecutionMode: "live_write",
         validationTargetDomain: "creator.xiaohongshu.com",
         validationTargetPage: "creator_publish_tab",
         validationEvidenceMode: "live_write",
-        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1",
+        accountSafetyCommitRefs: ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS
       });
 
       await expect(
@@ -10260,7 +10934,8 @@ describe("normalizeGateOptionsForContract", () => {
               target_tab_id: 32,
               target_page: "creator_publish_tab",
               requested_execution_mode: "live_write",
-              risk_state: "allowed"
+              risk_state: "allowed",
+              ...ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS
             }
           } as RuntimeContext,
           createCommandRegistry()
@@ -10303,11 +10978,22 @@ describe("normalizeGateOptionsForContract", () => {
       await seedXhsCloseoutReady({
         cwd,
         profile: "profile-controlled-live-write-shorthand-001",
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.creator_publish.controlled_live_write",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
+        accountSafetyTargetTabId: targetTabId,
         effectiveExecutionMode: "live_write",
         validationTargetDomain: "creator.xiaohongshu.com",
         validationTargetPage: "creator_publish_tab",
         validationEvidenceMode: "live_write",
-        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1",
+        accountSafetyCommitRefs: ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS
       });
 
       await expect(
@@ -10335,6 +11021,7 @@ describe("normalizeGateOptionsForContract", () => {
               confirm_live_write: true,
               publish_visibility_scope: "private_or_self_visible",
               cleanup_policy_ref: "fr0032-cleanup-policy/manual-delete-or-residual",
+              ...ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS,
               admission_context: createApprovedIssue835LiveWriteAdmissionContext({
                 runId,
                 targetTabId
@@ -10559,6 +11246,291 @@ describe("normalizeGateOptionsForContract", () => {
         delete process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS;
       } else {
         process.env.WEBENVOY_ALLOW_FIXTURE_SUCCESS = previousFixtureSuccess;
+      }
+    }
+  });
+
+  it("fails creator publish admission closed for legacy clear account safety without current FR-0066 state", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-account-safety-admit-"));
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.initializeMeta(
+        "xhs_account_safety_admit_profile",
+        "2026-06-12T00:00:00.000Z",
+        { allowUnsupportedExtensionBrowser: true }
+      );
+      await profileStore.writeMeta("xhs_account_safety_admit_profile", {
+        ...meta,
+        profileState: "ready",
+        accountSafety: {
+          state: "clear",
+          platform: null,
+          reason: null,
+          observedAt: null,
+          cooldownUntil: null,
+          sourceRunId: null,
+          sourceCommand: null,
+          targetDomain: null,
+          targetTabId: null,
+          pageUrl: null,
+          statusCode: null,
+          platformCode: null
+        }
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.admit",
+            profile: "xhs_account_safety_admit_profile",
+            run_id: "run-account-safety-admit-001",
+            params: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "unknown",
+            decision: "deny",
+            blocking_reasons: ["historical_or_stale_evidence"],
+            downstream_owner: "#1179"
+          }),
+          consumer_gate_result: expect.objectContaining({
+            gate_decision: "blocked",
+            gate_reasons: expect.arrayContaining(["ACCOUNT_SAFETY_NOT_READY"])
+          })
+        })
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("fails creator publish admission closed when legacy account risk is blocked even with current clear state", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-account-safety-admit-blocked-"));
+    const profile = "xhs_account_safety_admit_blocked_profile";
+    const runId = "run-account-safety-admit-blocked-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.creator_publish.admit",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
+        accountSafetyTargetTabId: 32,
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+      const profileStore = new ProfileStore(join(cwd, ".webenvoy", "profiles"));
+      const meta = await profileStore.readMeta(profile);
+      await profileStore.writeMeta(profile, {
+        ...meta,
+        accountSafety: {
+          state: "account_risk_blocked",
+          platform: "xhs",
+          reason: "ACCOUNT_ABNORMAL",
+          observedAt: "2026-06-12T00:05:00.000Z",
+          cooldownUntil: "2026-06-12T00:35:00.000Z",
+          sourceRunId: "run-account-risk-active-before-admit-001",
+          sourceCommand: "xhs.search",
+          targetDomain: "creator.xiaohongshu.com",
+          targetTabId: 32,
+          pageUrl: "https://creator.xiaohongshu.com/publish/publish",
+          statusCode: 461,
+          platformCode: 300011
+        }
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.admit",
+            profile,
+            run_id: runId,
+            params: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "blocked",
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining([
+              "account_safety_blocked",
+              "account_restricted"
+            ]),
+            downstream_owner: "#1179"
+          }),
+          consumer_gate_result: expect.objectContaining({
+            gate_decision: "blocked",
+            gate_reasons: expect.arrayContaining(["ACCOUNT_SAFETY_NOT_READY"])
+          })
+        })
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+    }
+  });
+
+  it("keeps creator publish account-safety ready with current clear state and no legacy account risk blocker", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-account-safety-admit-clear-"));
+    const profile = "xhs_account_safety_admit_clear_profile";
+    const runId = "run-account-safety-admit-clear-001";
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile,
+        accountSafetyRunId: runId,
+        accountSafetyCommand: "xhs.creator_publish.admit",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
+        accountSafetyTargetTabId: 32,
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+
+      try {
+        await executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.admit",
+            profile,
+            run_id: runId,
+            params: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        );
+        throw new Error("expected loopback profile readiness to block while account safety stays clear");
+      } catch (error) {
+        expect(error).toMatchObject({
+          code: "ERR_EXECUTION_FAILED",
+          details: expect.objectContaining({
+            account_safety_gate_result: expect.objectContaining({
+              gate_status: "clear",
+              decision: "allow"
+            }),
+            consumer_gate_result: expect.objectContaining({
+              gate_decision: "blocked"
+            })
+          })
+        });
+        const details = (error as { details?: Record<string, unknown> }).details ?? {};
+        const consumerGateResult =
+          details.consumer_gate_result as Record<string, unknown> | undefined;
+        expect(consumerGateResult?.gate_reasons).not.toEqual(
+          expect.arrayContaining(["ACCOUNT_SAFETY_NOT_READY"])
+        );
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      if (previousTransport === undefined) {
+        delete process.env.WEBENVOY_NATIVE_TRANSPORT;
+      } else {
+        process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      }
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
       }
     }
   });

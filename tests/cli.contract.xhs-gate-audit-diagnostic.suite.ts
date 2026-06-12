@@ -947,6 +947,83 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     }
   };
 
+  const resolveAccountSafetyHeadShaForSuite = (): string =>
+    spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).stdout.trim() || "head:unknown";
+
+  const seedXhsAccountSafetyStateRecord = async (input: {
+    cwd: string;
+    profile: string;
+    runId: string;
+    command?: string;
+    targetDomain?: string;
+    targetPage?: string;
+  }): Promise<void> => {
+    const command = input.command ?? "xhs.search";
+    const targetDomain = input.targetDomain ?? "creator.xiaohongshu.com";
+    const targetPage = input.targetPage ?? "creator_publish_tab";
+    const profileDir = path.join(input.cwd, ".webenvoy", "profiles", input.profile);
+    const metaPath = path.join(profileDir, "__webenvoy_meta.json");
+    const existingMeta = await readFile(metaPath, "utf8")
+      .then((value) => JSON.parse(value) as Record<string, unknown>)
+      .catch(() => ({} as Record<string, unknown>));
+    const targetBindingRef = `FR-0063.target_binding_snapshot.v1/${input.runId}/${command}`;
+    await mkdir(profileDir, { recursive: true });
+    await writeFile(
+      metaPath,
+      `${JSON.stringify(
+        {
+          ...existingMeta,
+          accountSafetyStateRecord: {
+            schema_version: "account-safety-gate.v1",
+            safety_state_id: `account-safety-state/${input.profile}/${input.runId}`,
+            canonical_issue_ref: "#1176",
+            scope: {
+              schema_version: "account-safety-gate.v1",
+              capability_level:
+                command === "xhs.creator_publish.controlled_live_write"
+                  ? "live_write_commit"
+                  : "write_prepare",
+              workflow_ref: command,
+              target_domain: targetDomain,
+              target_page: targetPage,
+              profile_ref: input.profile,
+              browser_channel:
+                asRecord(existingMeta.persistentExtensionBinding)?.browserChannel ?? "chrome",
+              execution_surface: "real_browser",
+              provider_requirement_ref: null,
+              runtime_target_binding_ref: targetBindingRef,
+              operator_unlock_ref: null,
+              head_sha: resolveAccountSafetyHeadShaForSuite(),
+              run_id: input.runId,
+              evaluation_context_ref: `runtime-account-safety/${input.runId}/${command}`
+            },
+            state: "clear",
+            signal_classes: [],
+            evidence_refs: {
+              safety_check_ref: `runtime-account-safety/${input.runId}/profile-meta`,
+              profile_ref: input.profile,
+              runtime_status_ref: `runtime-status/${input.runId}`,
+              target_binding_ref: targetBindingRef,
+              signal_scan_ref: `runtime-account-safety/${input.runId}/signal-scan`,
+              redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
+              freshness_ref: `runtime-account-safety/${input.runId}/freshness`,
+              risk_disposition_ref: `runtime-account-safety/${input.runId}/risk-disposition`
+            },
+            checked_at: "2026-04-25T10:45:00.000Z",
+            expires_at: "2099-04-25T10:45:00.000Z",
+            redaction_state: "redacted"
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+  };
+
   beforeEach(async () => {
     await seedXhsCloseoutReadyProfile({ cwd: repoRoot, profile: "xhs_account_001" });
     await seedXhsCloseoutReadyProfile({
@@ -2036,9 +2113,19 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     expect(resolveWriteInteractionTier(gateEnvelope)).toBe("irreversible_write");
   });
 
-  it("keeps issue_208 live_write as gate-only in loopback while exposing non-live effective mode", () => {
+  it("keeps issue_208 live_write as gate-only in loopback while exposing non-live effective mode", async () => {
+    const runId = "run-xhs-issue-208-live-write-gate-only-001";
+    await seedXhsAccountSafetyStateRecord({
+      cwd: repoRoot,
+      profile: "xhs_account_001",
+      runId,
+      command: "xhs.search"
+    });
+
     const result = runCli([
       "xhs.search",
+      "--run-id",
+      runId,
       "--profile",
       "xhs_account_001",
       "--params",
@@ -2099,9 +2186,19 @@ describe("webenvoy cli contract / xhs gate and audit", () => {
     expect(resolveWriteInteractionTier(gateEnvelope)).toBe("reversible_interaction");
   });
 
-  it("keeps issue_208 editor_input blocked on loopback because it lacks controlled execution attestation", () => {
+  it("keeps issue_208 editor_input blocked on loopback because it lacks controlled execution attestation", async () => {
+    const runId = "run-xhs-issue-208-editor-input-attestation-block-001";
+    await seedXhsAccountSafetyStateRecord({
+      cwd: repoRoot,
+      profile: "xhs_account_001",
+      runId,
+      command: "xhs.search"
+    });
+
     const result = runCli([
       "xhs.search",
+      "--run-id",
+      runId,
       "--profile",
       "xhs_account_001",
       "--params",
@@ -6598,6 +6695,12 @@ process.stdin.on("data", (chunk) => {
       cwd,
       profile: "loopback_profile",
       effectiveExecutionMode: "live_write"
+    });
+    await seedXhsAccountSafetyStateRecord({
+      cwd,
+      profile: "loopback_profile",
+      runId,
+      command: "xhs.search"
     });
 
     const executeResult = runCli([

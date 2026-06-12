@@ -39,6 +39,7 @@ import {
 import { verifyCloseoutCanonicalExecutionAudit } from "../runtime/closeout-canonical-execution-audit-verifier.js";
 import { ProfileStore } from "../runtime/profile-store.js";
 import {
+  buildAccountSafetyGateResult,
   isAccountSafetyReason,
   toAccountSafetyStatus,
   type AccountSafetyRecord,
@@ -183,7 +184,10 @@ const DEDICATED_XHS_SHORTHAND_OPTION_KEYS = new Set([
   "controlled_live_write",
   "confirm_live_write",
   "publish_visibility_scope",
-  "cleanup_policy_ref"
+  "cleanup_policy_ref",
+  "operator_unlock_ref",
+  "default_commit_lock_ref",
+  "live_evidence_gate_ref"
 ]);
 
 const DEDICATED_XHS_SHORTHAND_PASSTHROUGH_KEYS = new Set([
@@ -746,6 +750,38 @@ const isLegacyXhsSearchEditorInputValidation = (input: {
   input.ability.action === "write" &&
   asString(input.options.issue_scope) === "issue_208" &&
   asString(input.options.validation_action) === "editor_input";
+
+const isXhsEditorWritePreparePath = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+  requestedExecutionMode: XhsExecutionMode;
+}): boolean =>
+  input.requestedExecutionMode === "live_write" &&
+  (input.command === XHS_EDITOR_INPUT_VALIDATE_COMMAND ||
+    input.command === XHS_EDITOR_TEXT_WRITE_COMMAND ||
+    isLegacyXhsSearchEditorInputValidation(input));
+
+const resolveAccountSafetyGateCapabilityLevelForXhs = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+  requestedExecutionMode: XhsExecutionMode;
+}): "write_admit" | "write_prepare" | "live_write_commit" =>
+  input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+    ? "live_write_commit"
+    : isXhsEditorWritePreparePath(input)
+      ? "write_prepare"
+      : "write_admit";
+
+const requiresAccountSafetyPreflightForXhs = (input: {
+  command: string;
+  ability: AbilityRef;
+  options: JsonObject;
+  requestedExecutionMode: XhsExecutionMode;
+}): boolean =>
+  input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ||
+  resolveAccountSafetyGateCapabilityLevelForXhs(input) !== "write_admit";
 
 const buildXhsCommandAliasDiagnostics = (input: {
   command: string;
@@ -2422,6 +2458,7 @@ const pickGateErrorDetails = (
     "audit_record",
     "risk_state_output",
     "account_safety",
+    "account_safety_gate_result",
     "xhs_closeout_rhythm",
     "anti_detection_validation_view",
     "runtime_stop",
@@ -2915,7 +2952,8 @@ const mergeAccountSafetyIntoFailurePayload = (
   payload: Record<string, unknown>,
   accountSafety: JsonObject,
   xhsCloseoutRhythm?: JsonObject | null,
-  runtimeStop?: JsonObject | null
+  runtimeStop?: JsonObject | null,
+  accountSafetyGateResult?: JsonObject | null
 ): void => {
   const details = asObject(payload.details) ?? {};
   const accountSafetyReason = asString(accountSafety.reason);
@@ -2923,10 +2961,14 @@ const mergeAccountSafetyIntoFailurePayload = (
     ...details,
     ...(!asString(details.reason) && accountSafetyReason ? { reason: accountSafetyReason } : {}),
     account_safety: accountSafety,
+    ...(accountSafetyGateResult ? { account_safety_gate_result: accountSafetyGateResult } : {}),
     ...(xhsCloseoutRhythm ? { xhs_closeout_rhythm: xhsCloseoutRhythm } : {}),
     ...(runtimeStop ? { runtime_stop: runtimeStop } : {})
   };
   payload.account_safety = accountSafety;
+  if (accountSafetyGateResult) {
+    payload.account_safety_gate_result = accountSafetyGateResult;
+  }
   if (xhsCloseoutRhythm) {
     payload.xhs_closeout_rhythm = xhsCloseoutRhythm;
   }
@@ -3166,6 +3208,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   command: string;
   ability: AbilityRef;
   accountSafety: JsonObject;
+  accountSafetyGateResult: JsonObject;
   xhsCloseoutRhythm: JsonObject;
   antiDetectionValidationView?: XhsCloseoutValidationGateView | null;
   options: JsonObject;
@@ -3177,13 +3220,17 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   const fullBundleBlocked = input.xhsCloseoutRhythm.full_bundle_blocked === true;
   const singleProbeRequired = input.xhsCloseoutRhythm.single_probe_required === true;
   const probeRunId = asString(input.xhsCloseoutRhythm.probe_run_id);
-  const accountSafetyClear = input.accountSafety.state === "clear";
+  const accountSafetyClear = asString(input.accountSafetyGateResult.decision) === "allow";
+  const accountRiskBlocked = input.accountSafety.state === "account_risk_blocked";
+  const accountSafetyRequiredForPreflight = requiresAccountSafetyPreflightForXhs(input);
+  const accountSafetyAllowsPreflight =
+    !accountRiskBlocked && (!accountSafetyRequiredForPreflight || accountSafetyClear);
 
   if (
     recoveryProbe &&
     input.requestedExecutionMode === "recon" &&
     rhythmState === "single_probe_required" &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     probeRunId === null
   ) {
     return;
@@ -3192,7 +3239,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   if (
     !recoveryProbe &&
     xhsLiveReadBaselineGate &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     rhythmState === "single_probe_passed" &&
     input.antiDetectionValidationView?.all_required_ready === true
   ) {
@@ -3202,7 +3249,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   if (
     !recoveryProbe &&
     isLiveXhsExecutionMode(input.requestedExecutionMode) &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     rhythmState === "not_required"
   ) {
     return;
@@ -3212,7 +3259,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
     !recoveryProbe &&
     !xhsLiveReadBaselineGate &&
     isLiveXhsExecutionMode(input.requestedExecutionMode) &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     rhythmState === "single_probe_passed" &&
     input.antiDetectionValidationView?.all_required_ready === true
   ) {
@@ -3220,8 +3267,10 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   }
 
   const blockReason =
-    input.accountSafety.state === "account_risk_blocked"
+    accountRiskBlocked
       ? "ACCOUNT_RISK_BLOCKED"
+      : !accountSafetyAllowsPreflight
+        ? "ACCOUNT_SAFETY_NOT_READY"
       : recoveryProbe && input.requestedExecutionMode !== "recon"
         ? "XHS_RECOVERY_PROBE_MODE_INVALID"
       : !recoveryProbe && isLiveXhsExecutionMode(input.requestedExecutionMode) && rhythmState === "single_probe_passed"
@@ -3263,6 +3312,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
         risk_state: asString(input.options.risk_state) ?? "paused"
       },
       account_safety: input.accountSafety,
+      account_safety_gate_result: input.accountSafetyGateResult,
       xhs_closeout_rhythm: input.xhsCloseoutRhythm,
       ...(preflightHardStopRisk.hard_stop
         ? { closeout_hard_stop_risk: preflightHardStopRisk }
@@ -3668,7 +3718,81 @@ const xhsReadCommand = async (
 
   const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
   let profileMeta = context.profile ? await profileStore.readMeta(context.profile) : null;
+  const profileMetaRecord = asObject(profileMeta);
   const accountSafetyStatus = toAccountSafetyStatus(profileMeta?.accountSafety);
+  const accountSafetyGateCapabilityLevel = resolveAccountSafetyGateCapabilityLevelForXhs({
+    command: context.command,
+    ability: envelope.ability,
+    options: gate.options,
+    requestedExecutionMode: gate.requestedExecutionMode
+  });
+  const accountSafetyTargetBindingRef =
+    runtimeBindingBoundary?.target_binding_snapshot_ref ??
+    `FR-0063.target_binding_snapshot.v1/${context.run_id}/${context.command}`;
+  const liveWriteCommitRefs =
+    accountSafetyGateCapabilityLevel === "live_write_commit"
+      ? {
+          operatorUnlockRef: asString(gate.options.operator_unlock_ref),
+          defaultCommitLockRef: asString(gate.options.default_commit_lock_ref),
+          liveEvidenceGateRef: asString(gate.options.live_evidence_gate_ref)
+        }
+      : null;
+  const buildCurrentAccountSafetyGateResult = (accountSafetyRecord: unknown) =>
+    buildAccountSafetyGateResult({
+      requestedCapabilityLevel: accountSafetyGateCapabilityLevel,
+      requestedScope: {
+        schema_version: "account-safety-gate.v1",
+        capability_level: accountSafetyGateCapabilityLevel,
+        workflow_ref:
+          context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
+            ? "xhs.creator_publish.admit"
+            : context.command,
+        target_domain: gate.targetDomain ?? "unknown",
+        target_page: gate.targetPage ?? "unknown",
+        profile_ref: context.profile ?? "profile:unknown",
+        browser_channel:
+          asString(profileMeta?.persistentExtensionBinding?.browserChannel) ?? "unknown",
+        execution_surface: "real_browser",
+        provider_requirement_ref: providerRequirements?.provider_requirement_ref ?? null,
+        runtime_target_binding_ref: accountSafetyTargetBindingRef,
+        operator_unlock_ref: liveWriteCommitRefs?.operatorUnlockRef ?? null,
+        head_sha: resolveXhsCloseoutRuntimeLatestHeadShaForContract(context.cwd) ?? "head:unknown",
+        run_id: context.run_id,
+        evaluation_context_ref: `runtime-account-safety/${context.run_id}/${context.command}`
+      },
+      accountSafetyRecord,
+      evaluatedAt: new Date().toISOString(),
+      evidenceRefs: {
+        safety_check_ref: `runtime-account-safety/${context.run_id}/profile-meta`,
+        profile_ref: context.profile ?? "profile:unknown",
+        runtime_status_ref: `runtime-status/${context.run_id}`,
+        target_binding_ref: accountSafetyTargetBindingRef,
+        signal_scan_ref: `runtime-account-safety/${context.run_id}/signal-scan`,
+        redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
+        freshness_ref: `runtime-account-safety/${context.run_id}/freshness`,
+        risk_disposition_ref: `runtime-account-safety/${context.run_id}/risk-disposition`,
+        ...(liveWriteCommitRefs
+          ? {
+              ...(liveWriteCommitRefs.operatorUnlockRef
+                ? { operator_unlock_ref: liveWriteCommitRefs.operatorUnlockRef }
+                : {}),
+              ...(liveWriteCommitRefs.defaultCommitLockRef
+                ? { default_commit_lock_ref: liveWriteCommitRefs.defaultCommitLockRef }
+                : {}),
+              ...(liveWriteCommitRefs.liveEvidenceGateRef
+                ? { live_evidence_gate_ref: liveWriteCommitRefs.liveEvidenceGateRef }
+                : {})
+            }
+          : {})
+      },
+      downstreamOwner: context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ? "#1179" : "none"
+  });
+  const legacyAccountSafetyBlocked =
+    accountSafetyStatus.state === "account_risk_blocked";
+  const accountSafetyGateInput = legacyAccountSafetyBlocked
+    ? profileMeta?.accountSafety
+    : profileMetaRecord?.accountSafetyStateRecord ?? profileMeta?.accountSafety;
+  const accountSafetyGateResult = buildCurrentAccountSafetyGateResult(accountSafetyGateInput);
   const profileReadiness = {
     profile: context.profile ?? null,
     profile_state: profileMeta?.profileState ?? "missing",
@@ -3676,7 +3800,7 @@ const xhsReadCommand = async (
   };
   const accountReadiness = {
     ...accountSafetyStatus,
-    ready: accountSafetyStatus.state === "clear" && accountSafetyStatus.live_commands_blocked !== true
+    ready: accountSafetyGateResult.decision === "allow" && !legacyAccountSafetyBlocked
   };
   const creatorPublishAdmissionGateReasons =
     context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND
@@ -3783,6 +3907,7 @@ const xhsReadCommand = async (
         command: context.command,
         ability: envelope.ability,
         accountSafety: accountSafetyStatus,
+        accountSafetyGateResult: accountSafetyGateResult as unknown as JsonObject,
         xhsCloseoutRhythm: xhsCloseoutRhythmStatus,
         antiDetectionValidationView: antiDetectionValidationGate,
         options: gate.options,
@@ -3973,6 +4098,7 @@ const xhsReadCommand = async (
         ? {
             profile_readiness: profileReadiness,
             account_readiness: accountReadiness,
+            account_safety_gate_result: accountSafetyGateResult,
             admission_gate_reasons: creatorPublishAdmissionGateReasons
           }
         : {}),
@@ -4076,6 +4202,10 @@ const xhsReadCommand = async (
           signal: accountSafetySignal
         });
         const accountSafety = asObject(accountSafetyResult.account_safety);
+        const persistedAccountSafetyRecord = asObject(accountSafetyResult.account_safety_record);
+        const persistedAccountSafetyGateResult = buildCurrentAccountSafetyGateResult(
+          persistedAccountSafetyRecord ?? accountSafetyResult.account_safety_record
+        );
         const xhsCloseoutRhythm = recoveryProbeRequested
           ? await recordXhsRecoveryProbeFailure({
               cwd: context.cwd,
@@ -4094,7 +4224,8 @@ const xhsReadCommand = async (
             bridgeResult.payload,
             accountSafety,
             xhsCloseoutRhythm,
-            runtimeStop
+            runtimeStop,
+            persistedAccountSafetyGateResult as unknown as JsonObject
           );
         }
       }
@@ -4138,6 +4269,10 @@ const xhsReadCommand = async (
         signal: recoveryProbeRiskSignal
       });
       const accountSafety = asObject(accountSafetyResult.account_safety);
+      const persistedAccountSafetyRecord = asObject(accountSafetyResult.account_safety_record);
+      const persistedAccountSafetyGateResult = buildCurrentAccountSafetyGateResult(
+        persistedAccountSafetyRecord ?? accountSafetyResult.account_safety_record
+      );
       const xhsCloseoutRhythm = await recordXhsRecoveryProbeFailure({
         cwd: context.cwd,
         profile: context.profile,
@@ -4154,7 +4289,8 @@ const xhsReadCommand = async (
           bridgeResult.payload,
           accountSafety,
           xhsCloseoutRhythm,
-          runtimeStop
+          runtimeStop,
+          persistedAccountSafetyGateResult as unknown as JsonObject
         );
       }
       markCloseoutAuditRequiredWhenCanonicalAuditExists(bridgeResult.payload);

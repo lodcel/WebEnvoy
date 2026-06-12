@@ -608,6 +608,7 @@ class InMemoryContentScriptRuntime {
       profile: message.profile
     });
     const consumerGateResult = gateBundle.consumerGateResult;
+    const accountSafetyGateResult = asRecord(options.account_safety_gate_result);
     const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
       ? consumerGateResult.gate_reasons.map((reason) => String(reason))
       : ["EXECUTION_MODE_GATE_BLOCKED"];
@@ -653,6 +654,9 @@ class InMemoryContentScriptRuntime {
             ability_id: String(ability.id ?? "xhs.editor.input.v1"),
             stage: "execution",
             reason: "EXECUTION_MODE_GATE_BLOCKED",
+            ...(accountSafetyGateResult
+              ? { account_safety_gate_result: accountSafetyGateResult }
+              : {}),
             ...interactionResult
           },
           ...gateBundle.payload,
@@ -791,6 +795,7 @@ class InMemoryContentScriptRuntime {
     });
 
     if (consumerGateResult.gate_decision === "blocked") {
+      const accountSafetyGateResult = asRecord(options.account_safety_gate_result);
       return {
         kind: "result",
         id: message.id,
@@ -804,6 +809,9 @@ class InMemoryContentScriptRuntime {
             ability_id: String(ability.id ?? "xhs.creator.publish.v1"),
             stage: "execution",
             reason: "EXECUTION_MODE_GATE_BLOCKED",
+            ...(accountSafetyGateResult
+              ? { account_safety_gate_result: accountSafetyGateResult }
+              : {}),
             discovery_action: "media_upload_path",
             target_page: "creator_publish_tab",
             failure_signals: consumerGateResult.gate_reasons
@@ -927,6 +935,7 @@ class InMemoryContentScriptRuntime {
     });
     if (consumerGateResult.gate_decision === "blocked") {
       const isEditorInputValidation = options.validation_action === "editor_input";
+      const accountSafetyGateResult = asRecord(options.account_safety_gate_result);
       const editorInputFailureSignals = Array.isArray(consumerGateResult.gate_reasons)
         ? consumerGateResult.gate_reasons.map((reason) => String(reason))
         : ["EXECUTION_MODE_GATE_BLOCKED"];
@@ -943,6 +952,9 @@ class InMemoryContentScriptRuntime {
             ability_id: String(ability.id ?? spec.abilityId),
             stage: "execution",
             reason: "EXECUTION_MODE_GATE_BLOCKED",
+            ...(accountSafetyGateResult
+              ? { account_safety_gate_result: accountSafetyGateResult }
+              : {}),
             ...(isEditorInputValidation
               ? {
                   validation_action: "editor_input",
@@ -1442,6 +1454,7 @@ class InMemoryBackgroundRelay {
         gatePayload = gateBundle.payload;
         if (gateBundle.consumerGateResult.gate_decision === "blocked") {
           const isEditorInputValidation = options.validation_action === "editor_input";
+          const accountSafetyGateResult = asRecord(options.account_safety_gate_result);
           const editorInputFailureSignals = Array.isArray(gateBundle.consumerGateResult.gate_reasons)
             ? gateBundle.consumerGateResult.gate_reasons.map((reason) => String(reason))
             : ["EXECUTION_MODE_GATE_BLOCKED"];
@@ -1484,6 +1497,9 @@ class InMemoryBackgroundRelay {
                   ),
                   stage: "execution",
                   reason: "EXECUTION_MODE_GATE_BLOCKED",
+                  ...(accountSafetyGateResult
+                    ? { account_safety_gate_result: accountSafetyGateResult }
+                    : {}),
                   ...(isEditorInputValidation
                     ? {
                         validation_action: "editor_input",
