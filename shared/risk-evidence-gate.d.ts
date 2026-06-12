@@ -9,6 +9,7 @@ export type RiskEvidenceState =
   | "provider_private_boundary_violation";
 
 export type RiskEvidenceDecision = "allow_input_to_1188" | "deny" | "defer";
+export type RiskHintInput = "session_rhythm_evidence";
 
 export type RiskEvidenceConsumerDecision =
   | "not_required"
@@ -22,6 +23,7 @@ export interface RiskEvidenceGateResultLike {
   blocking_reasons?: unknown;
   risk_evidence_ref?: unknown;
   evidence_refs_consumed?: unknown;
+  risk_hints_consumed?: unknown;
   evaluated_at?: unknown;
   downstream_owner?: unknown;
 }
@@ -49,6 +51,7 @@ export interface RiskEvidenceConsumerResult {
   non_proofs_observed: string[];
   risk_evidence_ref: string | null;
   evidence_refs_consumed: string[];
+  risk_hints_consumed: string[];
   schema_version?: string | null;
   evaluated_at?: string | null;
   downstream_owner: string;
@@ -56,6 +59,7 @@ export interface RiskEvidenceConsumerResult {
 
 export declare const RISK_EVIDENCE_SCHEMA_VERSION: "webenvoy-risk-evidence-boundary.v1";
 export declare const RISK_EVIDENCE_DOWNSTREAM_OWNER: "#1188";
+export declare const RISK_HINT_INPUTS: ReadonlySet<string>;
 export declare const RISK_EVIDENCE_STATES: ReadonlySet<string>;
 export declare const RISK_EVIDENCE_DECISIONS: ReadonlySet<string>;
 export declare const RISK_EVIDENCE_NON_PROOFS: ReadonlySet<string>;

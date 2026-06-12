@@ -12,6 +12,7 @@ const RISK_EVIDENCE_STATES = new Set([
 const RISK_EVIDENCE_DECISIONS = new Set(["allow_input_to_1188", "deny", "defer"]);
 const RISK_EVIDENCE_SCHEMA_VERSION = "webenvoy-risk-evidence-boundary.v1";
 const RISK_EVIDENCE_DOWNSTREAM_OWNER = "#1188";
+const RISK_HINT_INPUTS = new Set(["session_rhythm_evidence"]);
 
 const RISK_EVIDENCE_NON_PROOFS = new Set([
   "provider_stealth_declared",
@@ -36,7 +37,14 @@ const RISK_EVIDENCE_NON_PROOFS = new Set([
   "control_plane_only_signal",
   "dry_run_only_output",
   "spec_sample_or_fixture",
-  "manual_disposition_present"
+  "manual_disposition_present",
+  "session_rhythm_detector_specific_stealth",
+  "detector_specific_stealth",
+  "cloakbrowser_as_core",
+  "browser_patching",
+  "default_live_write_commit",
+  "account_operations",
+  "issue_835_recovery"
 ]);
 
 const RISK_EVIDENCE_BLOCKING_REASONS = new Set([
@@ -108,7 +116,14 @@ const NON_PROOF_REASON_MAP = {
   control_plane_only_signal: "control_plane_only_signal",
   dry_run_only_output: "control_plane_only_signal",
   spec_sample_or_fixture: "historical_or_stale_evidence",
-  manual_disposition_present: "manual_disposition_not_accepted"
+  manual_disposition_present: "manual_disposition_not_accepted",
+  session_rhythm_detector_specific_stealth: "provider_stealth_non_proof",
+  detector_specific_stealth: "provider_stealth_non_proof",
+  cloakbrowser_as_core: "provider_stealth_non_proof",
+  browser_patching: "provider_stealth_non_proof",
+  default_live_write_commit: "default_lock_required",
+  account_operations: "account_safety_required",
+  issue_835_recovery: "risk_evidence_scope_mismatch"
 };
 
 const asRecord = (value) =>
@@ -197,6 +212,24 @@ const classifyBlockingReasons = (value) => {
   };
 };
 
+const classifyRiskHints = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  for (const hint of classified.values) {
+    if (!RISK_HINT_INPUTS.has(hint)) {
+      pushReason(reasons, "risk_evidence_unclassified");
+    }
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    malformed: reasons.includes("risk_evidence_unclassified")
+  };
+};
+
 const collectNonProofBlockingReasons = (nonProofs) => {
   const reasons = [];
   for (const nonProof of nonProofs) {
@@ -216,6 +249,7 @@ const buildBlockedResult = (input) => ({
   non_proofs_observed: input.nonProofsObserved,
   risk_evidence_ref: input.riskEvidenceRef,
   evidence_refs_consumed: input.evidenceRefsConsumed,
+  risk_hints_consumed: input.riskHintsConsumed,
   schema_version: input.schemaVersion,
   evaluated_at: input.evaluatedAt,
   downstream_owner: input.downstreamOwner
@@ -274,6 +308,7 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       non_proofs_observed: nonProofsObserved,
       risk_evidence_ref: null,
       evidence_refs_consumed: [],
+      risk_hints_consumed: [],
       downstream_owner: "none"
     };
   }
@@ -294,6 +329,7 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       nonProofsObserved,
       riskEvidenceRef: null,
       evidenceRefsConsumed: [],
+      riskHintsConsumed: [],
       downstreamOwner: "none"
     });
   }
@@ -306,6 +342,8 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
   const evidenceRefsConsumedShape = classifyStringArray(
     riskEvidenceGateResult.evidence_refs_consumed
   );
+  const riskHintsConsumedShape = classifyRiskHints(riskEvidenceGateResult.risk_hints_consumed);
+  const riskHintsConsumed = riskHintsConsumedShape.values;
   const evaluatedAt = asIsoTimestamp(riskEvidenceGateResult.evaluated_at);
   const downstreamOwner = asString(riskEvidenceGateResult.downstream_owner) ?? "none";
   const blockingReasonsShape = classifyBlockingReasons(riskEvidenceGateResult.blocking_reasons);
@@ -332,6 +370,9 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
   }
   if (evidenceRefsConsumedShape.malformed) {
     pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  for (const reason of riskHintsConsumedShape.reasons) {
+    pushReason(gateReasons, reason);
   }
   for (const reason of blockingReasonsShape.reasons) {
     pushReason(gateReasons, reason);
@@ -367,6 +408,7 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
       nonProofsObserved,
       riskEvidenceRef,
       evidenceRefsConsumed,
+      riskHintsConsumed,
       schemaVersion,
       evaluatedAt,
       downstreamOwner
@@ -384,6 +426,7 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
     non_proofs_observed: nonProofsObserved,
     risk_evidence_ref: riskEvidenceRef,
     evidence_refs_consumed: evidenceRefsConsumed,
+    risk_hints_consumed: riskHintsConsumed,
     schema_version: schemaVersion,
     evaluated_at: evaluatedAt,
     downstream_owner: downstreamOwner
@@ -395,6 +438,7 @@ export {
   RISK_EVIDENCE_DECISIONS,
   RISK_EVIDENCE_DOWNSTREAM_OWNER,
   RISK_EVIDENCE_SCHEMA_VERSION,
+  RISK_HINT_INPUTS,
   RISK_EVIDENCE_NON_PROOFS,
   RISK_EVIDENCE_STATES
 };
