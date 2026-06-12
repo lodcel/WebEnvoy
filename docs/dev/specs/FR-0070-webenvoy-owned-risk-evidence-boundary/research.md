@@ -56,6 +56,17 @@ Design consequence:
 - `account_safety_not_clear` is a blocker.
 - This FR does not change FR-0066 field shape or account safety state semantics.
 
+## 结论 5：manual disposition is governance context, not a machine-evidence override
+
+Manual risk disposition can be useful when an operator or governance owner needs to classify, explain or explicitly accept residual risk context. It is still not provider stealth proof, account safety clear, runtime target binding, live evidence, closeout evidence or #1188 read/write allow.
+
+Design consequence:
+
+- `manual_risk_disposition_ref` must be a locator with producer owner, consumer refs, allowed effect, exact scope/freshness/redaction/artifact binding.
+- Manual disposition may be `context_only`, `blocker_explanation` or `accepted_supporting_input`.
+- `accepted_supporting_input` is valid only after required machine evidence lanes are accepted and blockers are empty.
+- Manual-only, unknown-owner, stale, out-of-scope, redaction-invalid or free-form manual evidence fails closed with `manual_disposition_required`, `manual_disposition_not_accepted` or a more specific stale/scope/redaction blocker.
+
 ## Future extension triggers
 
 Open a new formal spec or #1188 implementation PR if any future work needs to:

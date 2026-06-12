@@ -107,6 +107,30 @@
 - `redaction_required|policy_missing|invalid` 命中 required evidence 时必须 fail-closed。
 - Real evaluation 必须提供 freshness 证据；formal sample 可使用 synthetic context。
 
+### `ManualRiskDispositionRef`
+
+职责：表达 human/operator/governance owner 对特定 risk context 的人工处置 locator。它是 `manual_risk_disposition_ref` evidence lane 的机器可审计边界，不是 free-form approval text。
+
+关键字段：
+
+- `evidence_class`: 固定为 `manual_risk_disposition_ref`。
+- `producer_owner`: `human_operator`、`operator_governance` 或 `risk_governance_owner`。
+- `consumer_refs`: `#1183` 与后续 `#1188`。
+- `allowed_effect`: `context_only`、`blocker_explanation` 或 `accepted_supporting_input`。
+- `required_bindings`: manual disposition 绑定的 workflow/capability/target/profile/provider/head/run/page/artifact 字段。
+- `freshness_ref`
+- `collected_at`
+- `expires_at`
+- `redaction_state`
+- `artifact_identity`
+
+约束：
+
+- `manual_risk_disposition_ref` 只能作为 exact-scope manual context、blocker explanation 或 accepted-supporting input。
+- `accepted_supporting_input` 只有在所有 required machine evidence lane 已 accepted、blockers 为空、manual ref fresh、scope matched、owner-known 且 redacted 时才允许。
+- Manual-only、unknown owner、missing binding、stale、scope mismatch、redaction invalid 或 free-form manual text 必须 fail-closed，并产生 `manual_disposition_required`、`manual_disposition_not_accepted` 或更具体的 stale/scope/redaction blocker。
+- Manual disposition 不得独立清除 provider stealth、account safety、runtime binding、extension/native bridge、default lock、operator unlock、live evidence、behavior baseline、route evidence、closeout audit 或 #1188 blockers。
+
 ### `RiskEvidenceGateResult`
 
 职责：表达 #1183-owned risk evidence evaluation 的输出，并交给 #1188 或 blocker owner。

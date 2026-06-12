@@ -51,6 +51,7 @@ type WebEnvoyRiskEvidenceClass =
 - Provider-related classes must remain opaque/redacted refs under `FR-0069`, `FR-0040`, and `FR-0041`.
 - `account_safety_ref` consumes `FR-0066` / #1176 account safety gate semantics; #1187 account safety signal integration may provide a sibling input later, but this contract does not redefine account safety clear.
 - `operator_unlock_ref`, `default_lock_ref`, and `live_evidence_gate_ref` are sibling/downstream refs, not gate allow.
+- `manual_risk_disposition_ref` is owned by a human/operator/governance producer and may only provide exact-scope manual context, blocker explanation, or accepted-supporting input; it must not independently clear required machine evidence blockers.
 
 ## 3. Risk evidence state
 
@@ -164,6 +165,47 @@ Rules:
 - `redaction_state=redaction_required|policy_missing|invalid` blocks required evidence.
 - `collected_at` and either `freshness_ref` or `expires_at` are required for real evaluations.
 
+### 6.1 Manual risk disposition refs
+
+```ts
+type ManualRiskDispositionProducer =
+  | "human_operator"
+  | "operator_governance"
+  | "risk_governance_owner"
+
+type ManualRiskDispositionEffect =
+  | "context_only"
+  | "blocker_explanation"
+  | "accepted_supporting_input"
+
+interface ManualRiskDispositionRefV1 {
+  schema_version: "webenvoy-risk-evidence-boundary.v1"
+  evidence_class: "manual_risk_disposition_ref"
+  producer_owner: ManualRiskDispositionProducer
+  consumer_refs: ("#1183" | "#1188")[]
+  ref: string
+  allowed_effect: ManualRiskDispositionEffect
+  required_bindings: WebEnvoyRiskBindingField[]
+  freshness_ref: string
+  collected_at: string
+  expires_at: string | null
+  redaction_state:
+    | "redacted"
+    | "redaction_required"
+    | "not_required"
+    | "policy_missing"
+    | "invalid"
+  artifact_identity: string
+}
+```
+
+Rules:
+
+- Manual disposition refs are operator/governance-owned locators, not embedded approvals or free-form proof text.
+- `accepted_supporting_input` is valid only when every required machine evidence lane is accepted, blockers are empty, and the manual ref is fresh, exact-scope, redacted and owner-known.
+- Manual-only, unknown-owner, stale, out-of-scope, missing binding, redaction-invalid or free-form manual disposition must fail closed with `manual_disposition_not_accepted`, `manual_disposition_required`, or a more specific binding/redaction blocker.
+- Manual disposition must not independently clear provider stealth, account safety, runtime target binding, extension/native bridge, default lock, operator unlock, live evidence, behavior baseline, route evidence, closeout audit or #1188 blockers.
+
 ## 7. Gate input
 
 ```ts
@@ -194,7 +236,14 @@ interface RiskEvidenceGateResultV1 {
   risk_evidence_ref: string | null
   evidence_refs_consumed: string[]
   evaluated_at: string
-  downstream_owner: "#1188" | "account_safety_owner" | "runtime_owner" | "provider_owner" | "live_evidence_owner" | "none"
+  downstream_owner:
+    | "#1188"
+    | "account_safety_owner"
+    | "runtime_owner"
+    | "provider_owner"
+    | "live_evidence_owner"
+    | "manual_disposition_owner"
+    | "none"
 }
 ```
 
@@ -231,11 +280,13 @@ type WebEnvoyRiskNonProof =
   | "control_plane_only_signal"
   | "dry_run_only_output"
   | "spec_sample_or_fixture"
+  | "manual_disposition_present"
 ```
 
 Rules:
 
 - Non-proof may explain context or blocker classification but cannot produce `risk_state=accepted`.
+- `manual_disposition_present` is non-proof unless represented by a valid `ManualRiskDispositionRefV1` and used only under its allowed effect.
 
 ## 10. Blocking reasons
 
@@ -270,6 +321,8 @@ type WebEnvoyRiskBlockingReason =
   | "stub_or_fake_host_evidence"
   | "control_plane_only_signal"
   | "historical_or_stale_evidence"
+  | "manual_disposition_required"
+  | "manual_disposition_not_accepted"
   | "risk_hint_consumer_required"
   | "downstream_owner_required"
 ```
@@ -277,6 +330,7 @@ type WebEnvoyRiskBlockingReason =
 Rules:
 
 - `risk_hint_consumer_required` is a handoff blocker to #1188, not a #1183-defined read/write gate result.
+- `manual_disposition_required` and `manual_disposition_not_accepted` are manual lane blockers, not permission to override machine evidence blockers.
 - `provider_private_patch_disclosed` and `risk_evidence_redaction_invalid` are hard blockers.
 - Unknown blocking reasons must fail closed.
 

@@ -118,3 +118,23 @@
 剩余风险：
 
 - Hosted checks 或 PR metadata 仍可能暴露 scope drift；进入 scheduler gate 前必须 read back PR diff/body。
+
+## 风险 7：manual disposition 被误用为独立放行
+
+触发条件：
+
+- Consumer 看到 `manual_risk_disposition_ref`、operator unlock、人工说明或 governance comment，就直接清除 provider/account/runtime/live/closeout/#1188 blocker。
+
+影响：
+
+- 高风险 evidence lane 被人工上下文绕过，#1188 parser/gate 可能无法安全区分 manual context、blocker explanation 与 accepted-supporting input。
+
+缓解：
+
+- 本 FR 定义 `ManualRiskDispositionRefV1`，要求 producer owner、consumer refs、allowed effect、scope/freshness/redaction/artifact binding。
+- `manual_risk_disposition_ref` 只能作为 exact-scope context、blocker explanation 或 accepted-supporting input；manual-only 或 stale/out-of-scope/unknown-owner/redaction-invalid input 必须 fail-closed。
+- blocking reasons 包含 `manual_disposition_required` 与 `manual_disposition_not_accepted`，并允许 defer to `manual_disposition_owner`。
+
+剩余风险：
+
+- #1188 后续实现必须测试 manual-only proof、manual plus missing provider/account/runtime/live lane、manual stale/scope drift 和 manual accepted-supporting valid path。

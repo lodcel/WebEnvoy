@@ -81,6 +81,26 @@ WebEnvoy-owned risk evidence 至少支持以下 accepted evidence classes：
 - Provider-owned inputs 只能以 `FR-0069` 允许的 declarations、limitations、redacted refs、freshness/scope 与 blocking reasons 形式进入；不得内联 private patch payload、raw fingerprint seed、stealth raw parameters 或 provider internals。
 - `account_safety_ref` 必须消费 `FR-0066` / #1176 的 account safety gate result；若后续 #1187 产出 account safety signal integration result，本 FR 只把它作为 sibling input，不重定义账号安全状态机。
 - `extension_native_bridge_ref`、`default_lock_ref`、`operator_unlock_ref` 和 `live_evidence_gate_ref` 只作为 sibling/downstream evidence lanes 的引用，不由本 FR 重写各自 contract。
+- `manual_risk_disposition_ref` 由 human/operator/governance owner 产生，只能作为 exact-scope manual disposition locator、blocker explanation 或 accepted-supporting context；它不得单独清除 provider、account safety、runtime binding、lock、live evidence、closeout 或 #1188 blockers。
+- Manual disposition 只有在 owner、scope、freshness、redaction、artifact identity 与当前 request 完全匹配，且所有 required machine evidence lanes 已 accepted 且 blockers 为空时，才可作为 `risk_state=accepted` 的 supporting input；manual-only、stale、unknown-owner、out-of-scope 或 redaction-invalid manual input 必须 fail-closed。
+
+Evidence lane owner/effect/admission matrix:
+
+| evidence class | authoritative owner / producer | allowed effect in FR-0070 | fail-closed stance |
+|---|---|---|---|
+| `provider_stealth_boundary_ref` | #1182 / FR-0069 provider-owned stealth boundary | Provider-owned context and required provider boundary locator. | Missing/unresolved provider boundary blocks if target capability depends on provider stealth. |
+| `provider_limitation_ref` | #1182 / FR-0069 provider owner | Limitation/context/blocker input only. | Unknown or stale limitation cannot prove accepted risk. |
+| `provider_redacted_evidence_ref` | #1182 / FR-0069 plus FR-0040/FR-0041 redaction policy | Redacted provider locator only. | Raw/private provider disclosure blocks. |
+| `runtime_target_binding_ref` | Runtime target binding owner / later implementation owner | Exact browser/page/profile binding locator. | Missing or mismatch blocks runtime-dependent risk evidence. |
+| `account_safety_ref` | FR-0066 / #1176 account safety gate; #1187 may provide sibling signal later | Necessary sibling input for write_prepare/live_write_commit. | Missing or non-clear account safety blocks affected capability. |
+| `extension_native_bridge_ref` | FR-0067 extension/native bridge owner | Required bridge readiness locator where runtime path depends on it. | Presence-only bridge text is non-proof; missing accepted bridge blocks dependent path. |
+| `default_lock_ref` | FR-0068 default lock owner | Lock/readiness locator only. | Lock presence or release request cannot replace accepted risk evidence. |
+| `operator_unlock_ref` | Operator/governance unlock owner | Manual unlock locator only. | Unlock presence cannot clear risk, live, account or #1188 blockers. |
+| `live_evidence_gate_ref` | Live evidence gate / closeout owner | Fresh live evidence locator when live/account-touching proof is required. | Historical/stub/control-plane-only live evidence blocks. |
+| `behavior_baseline_ref` | #1184/#1185/#1186 behavior baseline owners | Behavior baseline locator only. | Missing required baseline blocks; this FR does not implement baseline behavior. |
+| `route_evidence_ref` | Route evidence evaluator owner | Route evidence locator only. | Missing required route evidence blocks closeout/gate path. |
+| `closeout_audit_ref` | Closeout/audit owner | Closeout evidence locator and blocker split context. | Cannot close #1183 or live closeout without current accepted evidence. |
+| `manual_risk_disposition_ref` | Human/operator/governance manual disposition owner | Exact-scope manual context, blocker explanation, or accepted-supporting input. | Manual-only, unknown-owner, stale, out-of-scope or redaction-invalid manual input blocks or defers to `manual_disposition_owner`. |
 
 ### 3. Evidence classification states
 
@@ -159,6 +179,7 @@ WebEnvoy-owned risk evidence 必须冻结 freshness 规则。
 - Historical artifact、old run、same-head historical artifact、post-merge补证据或 non-current evidence。
 - Stub/fake host、control-plane-only signal、dry-run-only output、spec sample 或 fixture-only output。
 - Browser channel label、headless policy forbidden、managed browser runtime、CDP/Playwright support 或 OS input support。
+- Manual disposition ref 存在但缺少 exact-scope owner/freshness/redaction/artifact binding，或只有 manual disposition 而 required machine evidence lane 未 accepted。
 
 约束：
 
@@ -198,12 +219,15 @@ WebEnvoy-owned risk evidence 必须冻结 freshness 规则。
 - `stub_or_fake_host_evidence`
 - `control_plane_only_signal`
 - `historical_or_stale_evidence`
+- `manual_disposition_required`
+- `manual_disposition_not_accepted`
 - `risk_hint_consumer_required`
 - `downstream_owner_required`
 
 约束：
 
 - Unknown blocking reason 或 required evidence lane 的 unclassified result 必须 fail-closed。
+- Manual disposition 缺失、unknown owner、scope drift、freshness drift、redaction invalid、manual-only proof 或未达到 accepted-supporting 条件时，必须使用 `manual_disposition_required`、`manual_disposition_not_accepted` 或更具体的 stale/scope/redaction blocker fail-closed。
 - `risk_hint_consumer_required` 表示必须交给 #1188，不表示 #1183 已定义 read/write gate allow。
 - `downstream_owner_required` 只允许在本 FR 能明确指出 downstream owner 且当前 PR 不允许实施时使用；不得作为绕过 blocker 的 allow。
 
@@ -299,6 +323,14 @@ Given read/write gate 需要消费 runtime risk hints
 When provider boundary、account safety 或 live evidence lane 独立存在
 Then #1188 必须消费 #1183 输出的 risk evidence / hint semantics
 And 不得从单一 lane presence 直接推导 read/write allow
+
+### 场景 6：manual disposition 不能单独清除 blocker
+
+Given 一个 `manual_risk_disposition_ref` 声称 operator 已接受当前风险
+When provider boundary、account safety、runtime target binding 或 live evidence required lane 缺失、过期或 scope 不匹配
+Then manual disposition 只能作为 manual context 或 blocker explanation
+And risk evidence state 必须为 `blocked`、`stale`、`scope_mismatch` 或 `unclassified`
+And blocking reasons 必须包含 `manual_disposition_not_accepted` 或对应的 required lane blocker
 
 ## 异常与边界场景
 
