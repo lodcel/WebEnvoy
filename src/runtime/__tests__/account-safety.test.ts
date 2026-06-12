@@ -37,6 +37,19 @@ const evidenceRefs: AccountSafetyEvidenceRefsV1 = {
   risk_disposition_ref: "artifact/account-safety/risk-disposition"
 };
 
+const liveWriteCommitScope: AccountSafetyGateScopeV1 = {
+  ...scope,
+  capability_level: "live_write_commit",
+  operator_unlock_ref: "FR-0064.operator_unlock/redacted-current-scope"
+};
+
+const liveWriteCommitEvidenceRefs: AccountSafetyEvidenceRefsV1 = {
+  ...evidenceRefs,
+  operator_unlock_ref: "FR-0064.operator_unlock/redacted-current-scope",
+  default_commit_lock_ref: "FR-0068.default_commit_lock/redacted-current-scope",
+  live_evidence_gate_ref: "FR-0032.live_evidence_gate/redacted-current-scope"
+};
+
 const clearStateRecord = (
   overrides: Partial<Omit<AccountSafetyStateRecordV1, "scope" | "evidence_refs">> & {
     scope?: Partial<AccountSafetyGateScopeV1>;
@@ -133,6 +146,112 @@ describe("account safety gate result", () => {
         evidenceRefs.target_binding_ref,
         evidenceRefs.risk_disposition_ref
       ])
+    });
+  });
+
+  it("allows live_write_commit only with current exact-scope commit refs", () => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "live_write_commit",
+        requestedScope: liveWriteCommitScope,
+        accountSafetyRecord: clearStateRecord({
+          scope: liveWriteCommitScope,
+          evidence_refs: liveWriteCommitEvidenceRefs
+        }),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs: liveWriteCommitEvidenceRefs
+      })
+    ).toMatchObject({
+      gate_status: "clear",
+      decision: "allow",
+      blocking_reasons: [],
+      evidence_refs_consumed: expect.arrayContaining([
+        liveWriteCommitEvidenceRefs.operator_unlock_ref,
+        liveWriteCommitEvidenceRefs.default_commit_lock_ref,
+        liveWriteCommitEvidenceRefs.live_evidence_gate_ref
+      ])
+    });
+  });
+
+  it.each([
+    {
+      name: "requested operator unlock ref",
+      requestedScope: { ...liveWriteCommitScope, operator_unlock_ref: null },
+      evidenceRefs: liveWriteCommitEvidenceRefs,
+      record: clearStateRecord({
+        scope: liveWriteCommitScope,
+        evidence_refs: liveWriteCommitEvidenceRefs
+      })
+    },
+    {
+      name: "state record operator unlock ref",
+      requestedScope: liveWriteCommitScope,
+      evidenceRefs: liveWriteCommitEvidenceRefs,
+      record: clearStateRecord({
+        scope: { ...liveWriteCommitScope, operator_unlock_ref: null },
+        evidence_refs: liveWriteCommitEvidenceRefs
+      })
+    },
+    {
+      name: "default commit lock ref",
+      requestedScope: liveWriteCommitScope,
+      evidenceRefs: {
+        ...liveWriteCommitEvidenceRefs,
+        default_commit_lock_ref: undefined as unknown as string
+      },
+      record: clearStateRecord({
+        scope: liveWriteCommitScope,
+        evidence_refs: liveWriteCommitEvidenceRefs
+      })
+    },
+    {
+      name: "live evidence gate ref",
+      requestedScope: liveWriteCommitScope,
+      evidenceRefs: {
+        ...liveWriteCommitEvidenceRefs,
+        live_evidence_gate_ref: undefined as unknown as string
+      },
+      record: clearStateRecord({
+        scope: liveWriteCommitScope,
+        evidence_refs: liveWriteCommitEvidenceRefs
+      })
+    }
+  ] as const)("fails live_write_commit closed when $name is missing", ({ requestedScope, evidenceRefs, record }) => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "live_write_commit",
+        requestedScope,
+        accountSafetyRecord: record,
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs
+      })
+    ).toMatchObject({
+      decision: "deny",
+      blocking_reasons: expect.arrayContaining(["safety_evidence_missing"])
+    });
+  });
+
+  it("fails live_write_commit closed when commit refs drift", () => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "live_write_commit",
+        requestedScope: liveWriteCommitScope,
+        accountSafetyRecord: clearStateRecord({
+          scope: {
+            ...liveWriteCommitScope,
+            operator_unlock_ref: "FR-0064.operator_unlock/other-scope"
+          },
+          evidence_refs: {
+            ...liveWriteCommitEvidenceRefs,
+            default_commit_lock_ref: "FR-0068.default_commit_lock/other-scope"
+          }
+        }),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs: liveWriteCommitEvidenceRefs
+      })
+    ).toMatchObject({
+      decision: "deny",
+      blocking_reasons: expect.arrayContaining(["account_safety_scope_mismatch"])
     });
   });
 

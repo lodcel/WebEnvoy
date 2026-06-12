@@ -60,6 +60,12 @@ const ISSUE209_APPROVAL_CHECKS = {
   action_type_confirmed: true
 };
 
+const ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS = {
+  operator_unlock_ref: "FR-0064.operator_unlock/redacted-current-scope",
+  default_commit_lock_ref: "FR-0068.default_commit_lock/redacted-current-scope",
+  live_evidence_gate_ref: "FR-0032.live_evidence_gate/redacted-current-scope"
+};
+
 let xhsCloseoutValidationSeedSequence = 0;
 
 const createApprovedAnonymousReadAdmissionContext = (runId: string, requestId: string) => ({
@@ -206,6 +212,7 @@ const buildAccountSafetyStateRecordForTest = (input: {
   targetDomain: string;
   targetPage: string;
   targetTabId?: number;
+  accountSafetyCommitRefs?: typeof ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS;
 }) => {
   const providerRequirements = declareXhsDriverProviderRequirementsForContract({
     command: input.command,
@@ -247,7 +254,7 @@ const buildAccountSafetyStateRecordForTest = (input: {
       execution_surface: "real_browser",
       provider_requirement_ref: providerRequirements?.provider_requirement_ref ?? null,
       runtime_target_binding_ref: targetBindingRef,
-      operator_unlock_ref: null,
+      operator_unlock_ref: input.accountSafetyCommitRefs?.operator_unlock_ref ?? null,
       head_sha: resolveAccountSafetyHeadShaForTest(),
       run_id: input.runId,
       evaluation_context_ref: `runtime-account-safety/${input.runId}/${input.command}`
@@ -262,7 +269,8 @@ const buildAccountSafetyStateRecordForTest = (input: {
       signal_scan_ref: `runtime-account-safety/${input.runId}/signal-scan`,
       redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
       freshness_ref: `runtime-account-safety/${input.runId}/freshness`,
-      risk_disposition_ref: `runtime-account-safety/${input.runId}/risk-disposition`
+      risk_disposition_ref: `runtime-account-safety/${input.runId}/risk-disposition`,
+      ...(input.accountSafetyCommitRefs ?? {})
     },
     checked_at: "2026-04-25T10:45:00.000Z",
     expires_at: "2099-04-25T10:45:00.000Z",
@@ -290,6 +298,7 @@ const seedXhsCloseoutReady = async (input: {
   validationProbeBundleRef?:
     | "probe-bundle/xhs-closeout-min-v1"
     | "probe-bundle/xhs-creator-live-write-admission-v1";
+  accountSafetyCommitRefs?: typeof ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS;
 }) => {
   const effectiveExecutionMode = input.effectiveExecutionMode ?? "live_read_high_risk";
   const validationTargetDomain = input.validationTargetDomain ?? "www.xiaohongshu.com";
@@ -402,7 +411,7 @@ const seedXhsCloseoutReady = async (input: {
               runtime_target_binding_ref:
                 accountSafetyRuntimeBinding?.target_binding_snapshot_ref ??
                 `FR-0063.target_binding_snapshot.v1/${input.accountSafetyRunId}/${accountSafetyCommand}`,
-              operator_unlock_ref: null,
+              operator_unlock_ref: input.accountSafetyCommitRefs?.operator_unlock_ref ?? null,
               head_sha: accountSafetyHeadSha || "head:unknown",
               run_id: input.accountSafetyRunId,
               evaluation_context_ref: `runtime-account-safety/${input.accountSafetyRunId}/${accountSafetyCommand}`
@@ -419,7 +428,8 @@ const seedXhsCloseoutReady = async (input: {
               signal_scan_ref: `runtime-account-safety/${input.accountSafetyRunId}/signal-scan`,
               redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
               freshness_ref: `runtime-account-safety/${input.accountSafetyRunId}/freshness`,
-              risk_disposition_ref: `runtime-account-safety/${input.accountSafetyRunId}/risk-disposition`
+              risk_disposition_ref: `runtime-account-safety/${input.accountSafetyRunId}/risk-disposition`,
+              ...(input.accountSafetyCommitRefs ?? {})
             },
             checked_at: "2026-04-25T10:45:00.000Z",
             expires_at: "2099-04-25T10:45:00.000Z",
@@ -10795,6 +10805,87 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
+  it("fails issue_835 controlled live write closed without account-safety commit refs", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-controlled-live-write-account-safety-"));
+    const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
+    const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
+    const previousBrowserMockVersion = process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+    process.env.WEBENVOY_NATIVE_TRANSPORT = "loopback";
+    process.env.WEBENVOY_BROWSER_PATH = join(process.cwd(), "tests", "fixtures", "mock-browser.sh");
+    process.env.WEBENVOY_BROWSER_MOCK_VERSION = "Chromium 146.0.0.0";
+
+    try {
+      await seedXhsCloseoutReady({
+        cwd,
+        profile: "profile-controlled-live-write-account-safety-001",
+        accountSafetyRunId: "run-controlled-live-write-account-safety-001",
+        accountSafetyCommand: "xhs.creator_publish.controlled_live_write",
+        accountSafetyAbility: {
+          id: "xhs.creator.publish.v1",
+          layer: "L3",
+          action: "write"
+        },
+        accountSafetyTargetDomain: "creator.xiaohongshu.com",
+        accountSafetyTargetPage: "creator_publish_tab",
+        effectiveExecutionMode: "live_write",
+        validationTargetDomain: "creator.xiaohongshu.com",
+        validationTargetPage: "creator_publish_tab",
+        validationEvidenceMode: "live_write",
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+      });
+
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.controlled_live_write",
+            profile: "profile-controlled-live-write-account-safety-001",
+            run_id: "run-controlled-live-write-account-safety-001",
+            params: {
+              input: {
+                live_write_attempt_id: "fr0032-attempt-account-safety-001",
+                source_media_ref: "media-ref/fr-0032/fixture-image-a",
+                source_media_digest: FR0032_APPROVED_FIXTURE_IMAGE_A_DIGEST,
+                source_media_kind: "image"
+              },
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "live_write",
+              risk_state: "allowed",
+              issue_scope: "issue_835",
+              action_type: "write",
+              controlled_live_write: true
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          reason: "ACCOUNT_SAFETY_NOT_READY",
+          account_safety_gate_result: expect.objectContaining({
+            decision: "deny",
+            blocking_reasons: expect.arrayContaining(["safety_evidence_missing"])
+          })
+        })
+      });
+    } finally {
+      process.env.WEBENVOY_NATIVE_TRANSPORT = previousTransport;
+      if (previousBrowserPath === undefined) {
+        delete process.env.WEBENVOY_BROWSER_PATH;
+      } else {
+        process.env.WEBENVOY_BROWSER_PATH = previousBrowserPath;
+      }
+      if (previousBrowserMockVersion === undefined) {
+        delete process.env.WEBENVOY_BROWSER_MOCK_VERSION;
+      } else {
+        process.env.WEBENVOY_BROWSER_MOCK_VERSION = previousBrowserMockVersion;
+      }
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("uses creator admission validation bundle for issue_835 controlled live write preflight", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-controlled-live-write-bundle-"));
     const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
@@ -10821,7 +10912,8 @@ describe("normalizeGateOptionsForContract", () => {
         validationTargetDomain: "creator.xiaohongshu.com",
         validationTargetPage: "creator_publish_tab",
         validationEvidenceMode: "live_write",
-        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1",
+        accountSafetyCommitRefs: ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS
       });
 
       await expect(
@@ -10842,7 +10934,8 @@ describe("normalizeGateOptionsForContract", () => {
               target_tab_id: 32,
               target_page: "creator_publish_tab",
               requested_execution_mode: "live_write",
-              risk_state: "allowed"
+              risk_state: "allowed",
+              ...ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS
             }
           } as RuntimeContext,
           createCommandRegistry()
@@ -10899,7 +10992,8 @@ describe("normalizeGateOptionsForContract", () => {
         validationTargetDomain: "creator.xiaohongshu.com",
         validationTargetPage: "creator_publish_tab",
         validationEvidenceMode: "live_write",
-        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1"
+        validationProbeBundleRef: "probe-bundle/xhs-creator-live-write-admission-v1",
+        accountSafetyCommitRefs: ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS
       });
 
       await expect(
@@ -10927,6 +11021,7 @@ describe("normalizeGateOptionsForContract", () => {
               confirm_live_write: true,
               publish_visibility_scope: "private_or_self_visible",
               cleanup_policy_ref: "fr0032-cleanup-policy/manual-delete-or-residual",
+              ...ISSUE835_ACCOUNT_SAFETY_COMMIT_REFS,
               admission_context: createApprovedIssue835LiveWriteAdmissionContext({
                 runId,
                 targetTabId

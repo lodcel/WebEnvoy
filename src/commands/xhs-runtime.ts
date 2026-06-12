@@ -184,7 +184,10 @@ const DEDICATED_XHS_SHORTHAND_OPTION_KEYS = new Set([
   "controlled_live_write",
   "confirm_live_write",
   "publish_visibility_scope",
-  "cleanup_policy_ref"
+  "cleanup_policy_ref",
+  "operator_unlock_ref",
+  "default_commit_lock_ref",
+  "live_evidence_gate_ref"
 ]);
 
 const DEDICATED_XHS_SHORTHAND_PASSTHROUGH_KEYS = new Set([
@@ -3726,6 +3729,14 @@ const xhsReadCommand = async (
   const accountSafetyTargetBindingRef =
     runtimeBindingBoundary?.target_binding_snapshot_ref ??
     `FR-0063.target_binding_snapshot.v1/${context.run_id}/${context.command}`;
+  const liveWriteCommitRefs =
+    accountSafetyGateCapabilityLevel === "live_write_commit"
+      ? {
+          operatorUnlockRef: asString(gate.options.operator_unlock_ref),
+          defaultCommitLockRef: asString(gate.options.default_commit_lock_ref),
+          liveEvidenceGateRef: asString(gate.options.live_evidence_gate_ref)
+        }
+      : null;
   const buildCurrentAccountSafetyGateResult = (accountSafetyRecord: unknown) =>
     buildAccountSafetyGateResult({
       requestedCapabilityLevel: accountSafetyGateCapabilityLevel,
@@ -3744,7 +3755,7 @@ const xhsReadCommand = async (
         execution_surface: "real_browser",
         provider_requirement_ref: providerRequirements?.provider_requirement_ref ?? null,
         runtime_target_binding_ref: accountSafetyTargetBindingRef,
-        operator_unlock_ref: null,
+        operator_unlock_ref: liveWriteCommitRefs?.operatorUnlockRef ?? null,
         head_sha: resolveXhsCloseoutRuntimeLatestHeadShaForContract(context.cwd) ?? "head:unknown",
         run_id: context.run_id,
         evaluation_context_ref: `runtime-account-safety/${context.run_id}/${context.command}`
@@ -3760,11 +3771,17 @@ const xhsReadCommand = async (
         redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
         freshness_ref: `runtime-account-safety/${context.run_id}/freshness`,
         risk_disposition_ref: `runtime-account-safety/${context.run_id}/risk-disposition`,
-        ...(context.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
+        ...(liveWriteCommitRefs
           ? {
-              operator_unlock_ref: "FR-0064.operator_unlock.v1/current-scope-required",
-              default_commit_lock_ref: "#1180.default_commit_lock/current-scope-required",
-              live_evidence_gate_ref: "FR-0032.live_write_evidence.v1/current-scope-required"
+              ...(liveWriteCommitRefs.operatorUnlockRef
+                ? { operator_unlock_ref: liveWriteCommitRefs.operatorUnlockRef }
+                : {}),
+              ...(liveWriteCommitRefs.defaultCommitLockRef
+                ? { default_commit_lock_ref: liveWriteCommitRefs.defaultCommitLockRef }
+                : {}),
+              ...(liveWriteCommitRefs.liveEvidenceGateRef
+                ? { live_evidence_gate_ref: liveWriteCommitRefs.liveEvidenceGateRef }
+                : {})
             }
           : {})
       },

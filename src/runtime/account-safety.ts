@@ -400,6 +400,12 @@ const REQUIRED_EVIDENCE_REF_KEYS: readonly (keyof AccountSafetyEvidenceRefsV1)[]
   "risk_disposition_ref"
 ];
 
+const LIVE_WRITE_COMMIT_EVIDENCE_REF_KEYS: readonly (keyof AccountSafetyEvidenceRefsV1)[] = [
+  "operator_unlock_ref",
+  "default_commit_lock_ref",
+  "live_evidence_gate_ref"
+];
+
 const hasRequiredEvidenceRefs = (refs: unknown): refs is AccountSafetyEvidenceRefsV1 => {
   const record = asObjectRecord(refs);
   if (!record) {
@@ -477,6 +483,38 @@ const scopeMismatchReasons = (
     recordScope.evaluation_context_ref !== requestedScope.evaluation_context_ref
   ) {
     pushUnique(reasons, "account_safety_run_mismatch");
+  }
+  return reasons;
+};
+
+const liveWriteCommitBindingReasons = (input: {
+  requestedScope: AccountSafetyGateScopeV1;
+  requestedEvidenceRefs: AccountSafetyEvidenceRefsV1;
+  recordScope: AccountSafetyGateScopeV1;
+  recordEvidenceRefs: AccountSafetyEvidenceRefsV1;
+}): AccountSafetyBlockingReasonV1[] => {
+  if (input.requestedScope.capability_level !== "live_write_commit") {
+    return [];
+  }
+  const reasons: AccountSafetyBlockingReasonV1[] = [];
+  const requestedOperatorUnlockRef = input.requestedScope.operator_unlock_ref;
+  const recordOperatorUnlockRef = input.recordScope.operator_unlock_ref;
+  if (!isNonEmptyString(requestedOperatorUnlockRef) || !isNonEmptyString(recordOperatorUnlockRef)) {
+    pushUnique(reasons, "safety_evidence_missing");
+  } else if (recordOperatorUnlockRef !== requestedOperatorUnlockRef) {
+    pushUnique(reasons, "account_safety_scope_mismatch");
+  }
+
+  for (const key of LIVE_WRITE_COMMIT_EVIDENCE_REF_KEYS) {
+    const requestedRef = input.requestedEvidenceRefs[key];
+    const recordRef = input.recordEvidenceRefs[key];
+    if (!isNonEmptyString(requestedRef) || !isNonEmptyString(recordRef)) {
+      pushUnique(reasons, "safety_evidence_missing");
+      continue;
+    }
+    if (recordRef !== requestedRef) {
+      pushUnique(reasons, "account_safety_scope_mismatch");
+    }
   }
   return reasons;
 };
@@ -605,6 +643,14 @@ export const buildAccountSafetyGateResult = (
     const record = candidate as unknown as AccountSafetyStateRecordV1;
     const consumedRefs = evidenceRefsConsumed(record.evidence_refs);
     for (const reason of scopeMismatchReasons(input.requestedScope, record.scope)) {
+      pushUnique(blockingReasons, reason);
+    }
+    for (const reason of liveWriteCommitBindingReasons({
+      requestedScope: input.requestedScope,
+      requestedEvidenceRefs: input.evidenceRefs,
+      recordScope: record.scope,
+      recordEvidenceRefs: record.evidence_refs
+    })) {
       pushUnique(blockingReasons, reason);
     }
 
