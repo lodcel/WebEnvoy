@@ -95,6 +95,36 @@ const asStringArray = (value) => {
 
 const normalizeGrantRefs = (value) => asStringArray(value) ?? [];
 
+const resolveBehaviorBaselineGoalKind = (input, state) => {
+  const action = state.actionType ?? asString(input.abilityAction ?? input.abilityActionType);
+  if (action === "write" || action === "irreversible_write") {
+    return "write";
+  }
+  if (action === "read") {
+    return "read";
+  }
+  return null;
+};
+
+const resolveBehaviorBaselineProbeBundleRef = (input, goalKind) => {
+  const explicit = asString(
+    input.behaviorBaselineProbeBundleRef ??
+      input.behavior_baseline_probe_bundle_ref ??
+      input.probeBundleRef ??
+      input.probe_bundle_ref
+  );
+  if (explicit) {
+    return explicit;
+  }
+  if (goalKind === "write") {
+    return "probe-bundle://fr-0022/xhs-write";
+  }
+  if (goalKind === "read") {
+    return "probe-bundle://fr-0022/xhs-read";
+  }
+  return null;
+};
+
 const normalizeUpstreamAuthorizationRequest = (value) => {
   const record = asRecord(value);
   const actionRequest = asRecord(record?.action_request);
@@ -1711,11 +1741,27 @@ const evaluateXhsGate = (input) => {
   const gateReasons = Array.isArray(input.additionalGateReasons)
     ? input.additionalGateReasons.filter((reason) => typeof reason === "string")
     : [];
+  const behaviorBaselineGoalKind = resolveBehaviorBaselineGoalKind(input, state);
   const riskEvidenceConsumerGate = evaluateRiskEvidenceConsumerGate({
     riskEvidenceRequired: input.riskEvidenceRequired,
     risk_evidence_required: input.risk_evidence_required,
     riskEvidenceGateResult: input.riskEvidenceGateResult,
     risk_evidence_gate_result: input.risk_evidence_gate_result,
+    behaviorBaselineHintRequired: input.behaviorBaselineHintRequired,
+    behavior_baseline_hint_required: input.behavior_baseline_hint_required,
+    behaviorBaselineHint: input.behaviorBaselineHint,
+    behavior_baseline_hint: input.behavior_baseline_hint,
+    behavior_baseline_scope: {
+      profile_ref: asString(input.runtimeProfileRef ?? input.__runtime_profile_ref),
+      target_domain:
+        asString(input.actualTargetDomain) ??
+        state.upstreamAuthorizationRequest?.runtime_target?.domain ??
+        asString(input.targetDomain),
+      requested_execution_mode: state.requestedExecutionMode,
+      effective_execution_mode: state.requestedExecutionMode,
+      probe_bundle_ref: resolveBehaviorBaselineProbeBundleRef(input, behaviorBaselineGoalKind),
+      goal_kind: behaviorBaselineGoalKind
+    },
     nonProofsObserved: input.nonProofsObserved,
     non_proofs_observed: input.non_proofs_observed,
     nonProofs: input.nonProofs,

@@ -92,6 +92,36 @@ const acceptedRiskEvidenceGateResult = () => ({
   downstream_owner: "#1188"
 });
 
+const acceptedBehaviorBaselineHint = () => ({
+  schema_version: "webenvoy-behavior-baseline-hint.v1",
+  target_fr_ref: "FR-0022",
+  validation_scope: "cross_layer_baseline",
+  assessment_ref: "behavior-assessment://closeout/current-head/run-001",
+  baseline_ref: "platform-behavior-baseline://xhs/www/read/v1",
+  baseline_state: "ready",
+  drift_level: "low",
+  decision_hint: "allow_read_only",
+  confidence: 0.82,
+  profile_ref: "xhs_001",
+  target_domain: "www.xiaohongshu.com",
+  browser_channel: "Google Chrome stable",
+  execution_surface: "real_browser",
+  effective_execution_mode: "live_read_high_risk",
+  probe_bundle_ref: "probe-bundle://fr-0022/xhs-read",
+  goal_kind: "read",
+  reseed_required: false,
+  evidence_refs_consumed: ["platform-behavior-signal-batch://run-001"],
+  assessed_at: "2026-06-12T09:51:00.000Z"
+});
+
+const acceptedWriteBehaviorBaselineHint = () => ({
+  ...acceptedBehaviorBaselineHint(),
+  baseline_ref: "platform-behavior-baseline://xhs/www/write/v1",
+  decision_hint: "no_additional_restriction",
+  effective_execution_mode: "live_write",
+  goal_kind: "write"
+});
+
 describe("closeout gate aggregator", () => {
   it("returns GO when profile, account, rhythm, target, runtime, and validation gates are ready", () => {
     expect(buildGate()).toMatchObject({
@@ -126,6 +156,198 @@ describe("closeout gate aggregator", () => {
           accepted_risk_input: true,
           read_write_allow_proof: false,
           decision: "allow_input_to_consumer_gate"
+        }
+      }
+    });
+  });
+
+  it("passes closeout behavior baseline hint through as bounded risk evidence input", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          goal_kind: "read",
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: acceptedBehaviorBaselineHint()
+        }
+      })
+    ).toMatchObject({
+      decision: "GO",
+      blocker: null,
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: true,
+          read_write_allow_proof: false,
+          behavior_baseline_hint_accepted: true,
+          behavior_baseline_hint: {
+            decision_hint: "allow_read_only",
+            target_fr_ref: "FR-0022"
+          }
+        }
+      }
+    });
+  });
+
+  it("blocks closeout behavior baseline hint when current goal or action scope is missing", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: acceptedBehaviorBaselineHint()
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "risk_evidence_scope_mismatch",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          read_write_allow_proof: false,
+          behavior_baseline_hint_accepted: false,
+          behavior_baseline_hint: null
+        }
+      }
+    });
+  });
+
+  it.each([
+    ["profile_ref", { hint: { profile_ref: "xhs_other" } }],
+    ["target_domain", { hint: { target_domain: "creator.xiaohongshu.com" } }],
+    ["effective_execution_mode", { hint: { effective_execution_mode: "dry_run" } }],
+    ["probe_bundle_ref", { hint: { probe_bundle_ref: "probe-bundle://fr-0022/xhs-write" } }],
+    [
+      "goal_kind",
+      {
+        hint: {
+          ...acceptedWriteBehaviorBaselineHint(),
+          decision_hint: "hold_live_write",
+          effective_execution_mode: "live_read_high_risk"
+        }
+      }
+    ]
+  ])("blocks closeout when behavior baseline hint mismatches current %s", (_field, scenario) => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          goal_kind: "read",
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: {
+            ...acceptedBehaviorBaselineHint(),
+            ...scenario.hint
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "risk_evidence_scope_mismatch",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          behavior_baseline_hint_accepted: false,
+          behavior_baseline_hint: null
+        }
+      }
+    });
+  });
+
+  it("blocks closeout when behavior baseline hint is explicitly required but missing", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult()
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "behavior_baseline_required",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          behavior_baseline_hint_accepted: false
+        }
+      }
+    });
+  });
+
+  it("blocks closeout when required behavior baseline hint lacks ready write baseline locator evidence", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          goal_kind: "write",
+          requested_execution_mode: "live_write",
+          effective_execution_mode: "live_write",
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: {
+            ...acceptedWriteBehaviorBaselineHint(),
+            baseline_ref: null
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "behavior_baseline_required",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          behavior_baseline_hint_accepted: false,
+          behavior_baseline_hint: null
+        }
+      }
+    });
+  });
+
+  it("blocks closeout when behavior baseline hint violates the FR-0022 decision matrix", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          closeout_behavior_baseline_hint_required: true,
+          goal_kind: "read",
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint: {
+            ...acceptedBehaviorBaselineHint(),
+            drift_level: "critical",
+            decision_hint: "allow_read_only"
+          }
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "risk_evidence_scope_mismatch",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          behavior_baseline_hint_accepted: false,
+          behavior_baseline_hint: null
         }
       }
     });

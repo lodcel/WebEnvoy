@@ -22,6 +22,28 @@ const acceptedRiskEvidenceGateResult = () => ({
   evidence_refs_consumed: ["risk-evidence://fr-0070/evidence/run-sw-risk-evidence-top-level"]
 });
 
+const acceptedBehaviorBaselineHint = () => ({
+  schema_version: "webenvoy-behavior-baseline-hint.v1",
+  target_fr_ref: "FR-0022",
+  validation_scope: "cross_layer_baseline",
+  assessment_ref: "behavior-assessment://service-worker/current-head/run-001",
+  baseline_ref: "platform-behavior-baseline://xhs/www/read/v1",
+  baseline_state: "ready",
+  drift_level: "low",
+  decision_hint: "allow_read_only",
+  confidence: 0.82,
+  profile_ref: "profile-a",
+  target_domain: "www.xiaohongshu.com",
+  browser_channel: "Google Chrome stable",
+  execution_surface: "real_browser",
+  effective_execution_mode: "dry_run",
+  probe_bundle_ref: "probe-bundle://fr-0022/xhs-read",
+  goal_kind: "read",
+  reseed_required: false,
+  evidence_refs_consumed: ["platform-behavior-signal-batch://run-001"],
+  assessed_at: "2026-06-12T09:51:00.000Z"
+});
+
 describe("extension service worker / background command dispatch", () => {
   it("handles runtime.readiness in background without content-script forwarding", async () => {
     const firstPort = createMockPort();
@@ -195,6 +217,63 @@ describe("extension service worker / background command dispatch", () => {
               risk_evidence_required: true,
               risk_evidence_gate_result: riskEvidenceGateResult,
               non_proofs_observed: []
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("forwards top-level behavior baseline hint command params through background XHS options", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 32,
+        url: "https://www.xiaohongshu.com/search_result?keyword=露营",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    const riskEvidenceGateResult = acceptedRiskEvidenceGateResult();
+    const behaviorBaselineHint = acceptedBehaviorBaselineHint();
+    firstPort.onMessageListeners[0]?.({
+      id: "run-command-dispatch-behavior-baseline-top-level-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-command-dispatch-behavior-baseline-top-level-001",
+        command: "xhs.search",
+        command_params: createXhsCommandParams({
+          run_id: "run-command-dispatch-behavior-baseline-top-level-001",
+          risk_state: "allowed",
+          risk_evidence_required: true,
+          risk_evidence_gate_result: riskEvidenceGateResult,
+          behavior_baseline_hint_required: true,
+          behavior_baseline_hint: behaviorBaselineHint
+        }),
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+
+    await vi.waitFor(() => {
+      expect(chromeApi.tabs.sendMessage).toHaveBeenCalledWith(
+        32,
+        expect.objectContaining({
+          id: "run-command-dispatch-behavior-baseline-top-level-001",
+          command: "xhs.search",
+          commandParams: expect.objectContaining({
+            behavior_baseline_hint_required: true,
+            behavior_baseline_hint: behaviorBaselineHint,
+            options: expect.objectContaining({
+              behavior_baseline_hint_required: true,
+              behavior_baseline_hint: behaviorBaselineHint
             })
           })
         })

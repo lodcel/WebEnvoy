@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,6 +17,8 @@ import {
   DEFAULT_PLUGIN_DESCRIPTORS,
   ensureFingerprintRuntimeContext
 } from "../extension/shared/fingerprint-profile.js";
+
+const repoRoot = process.cwd();
 
 describe("extension shared module contract", () => {
   it("exports risk-state helpers from the extension root", () => {
@@ -44,5 +49,15 @@ describe("extension shared module contract", () => {
 
     expect(gate.consumer_gate_result.gate_decision).toBe("allowed");
     expect(gate.approval_record.approval_id).toBeNull();
+  });
+
+  it("keeps the extension risk evidence gate copy synced from shared", () => {
+    const sharedSource = readFileSync(join(repoRoot, "shared/risk-evidence-gate.js"), "utf8");
+    const extensionSource = readFileSync(
+      join(repoRoot, "extension/shared/risk-evidence-gate.js"),
+      "utf8"
+    );
+
+    expect(extensionSource).toBe(sharedSource);
   });
 });

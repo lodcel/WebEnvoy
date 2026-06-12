@@ -129,6 +129,39 @@ const createActiveFallbackRuntimeAttestation = () => ({
   observed_at: "2026-04-29T00:00:00.000Z"
 });
 
+const acceptedRiskEvidenceGateResult = () => ({
+  schema_version: "webenvoy-risk-evidence-boundary.v1",
+  risk_state: "accepted",
+  decision: "allow_input_to_1188",
+  blocking_reasons: [],
+  risk_evidence_ref: "risk-evidence://content-script/current-head/run-001",
+  evidence_refs_consumed: ["provider-boundary://fr-0069", "runtime-binding://run-001"],
+  evaluated_at: "2026-06-12T09:50:00.000Z",
+  downstream_owner: "#1188"
+});
+
+const acceptedBehaviorBaselineHint = () => ({
+  schema_version: "webenvoy-behavior-baseline-hint.v1",
+  target_fr_ref: "FR-0022",
+  validation_scope: "cross_layer_baseline",
+  assessment_ref: "behavior-assessment://content-script/current-head/run-001",
+  baseline_ref: "platform-behavior-baseline://xhs/www/read/v1",
+  baseline_state: "ready",
+  drift_level: "low",
+  decision_hint: "allow_read_only",
+  confidence: 0.82,
+  profile_ref: "xhs_001",
+  target_domain: "www.xiaohongshu.com",
+  browser_channel: "Google Chrome stable",
+  execution_surface: "real_browser",
+  effective_execution_mode: "live_read_high_risk",
+  probe_bundle_ref: "probe-bundle://fr-0022/xhs-read",
+  goal_kind: "read",
+  reseed_required: false,
+  evidence_refs_consumed: ["platform-behavior-signal-batch://run-001"],
+  assessed_at: "2026-06-12T09:51:00.000Z"
+});
+
 const anonymousReadOptions = {
   target_domain: "www.xiaohongshu.com",
   target_tab_id: 32,
@@ -364,10 +397,26 @@ const waitForSingleResult = (handler: ContentScriptHandler) =>
     });
   });
 
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const resolveConsumerGateResult = (result: Record<string, unknown>): Record<string, unknown> | null => {
+  const payload = asRecord(result.payload);
+  const summary = asRecord(payload?.summary);
+  const details = asRecord(payload?.details);
+  return (
+    asRecord(payload?.consumer_gate_result) ??
+    asRecord(summary?.consumer_gate_result) ??
+    asRecord(details?.consumer_gate_result)
+  );
+};
+
 const createMessage = (input: {
-  command: "xhs.detail" | "xhs.user_home";
+  command: "xhs.search" | "xhs.detail" | "xhs.user_home";
   abilityId: string;
-  targetPage: "explore_detail_tab" | "profile_tab";
+  targetPage: "search_result_tab" | "explore_detail_tab" | "profile_tab";
   href: string;
   payload: Record<string, unknown>;
   cookie?: string;
@@ -460,6 +509,112 @@ const createMessage = (input: {
 };
 
 describe("content-script handler xhs read commands", () => {
+  const readCommandCases = [
+    {
+      command: "xhs.search" as const,
+      abilityId: "xhs.note.search.v1",
+      targetPage: "search_result_tab" as const,
+      href: "https://www.xiaohongshu.com/search_result?keyword=camping",
+      payload: { query: "camping" }
+    },
+    {
+      command: "xhs.detail" as const,
+      abilityId: "xhs.note.detail.v1",
+      targetPage: "explore_detail_tab" as const,
+      href: "https://www.xiaohongshu.com/explore/abc123",
+      payload: { note_id: "abc123" }
+    },
+    {
+      command: "xhs.user_home" as const,
+      abilityId: "xhs.user.home.v1",
+      targetPage: "profile_tab" as const,
+      href: "https://www.xiaohongshu.com/user/profile/user-001",
+      payload: { user_id: "user-001" }
+    }
+  ];
+
+  it.each(readCommandCases)(
+    "forwards behavior baseline hint requirements for $command and fails closed when the hint is missing",
+    async (commandCase) => {
+      const { handler, message } = createMessage({
+        ...commandCase,
+        options: {
+          risk_evidence_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint_required: true
+        }
+      });
+
+      const resultPromise = waitForSingleResult(handler);
+      expect(handler.onBackgroundMessage(message)).toBe(true);
+      const result = await resultPromise;
+      const consumerGateResult = resolveConsumerGateResult(result);
+      const riskEvidenceConsumerGate = asRecord(
+        consumerGateResult?.risk_evidence_consumer_gate
+      );
+
+      expect(result.ok).toBe(false);
+      expect(consumerGateResult).toMatchObject({
+        gate_decision: "blocked",
+        gate_reasons: expect.arrayContaining(["behavior_baseline_required"])
+      });
+      expect(riskEvidenceConsumerGate).toMatchObject({
+        accepted_risk_input: false,
+        decision: "blocked",
+        gate_reasons: expect.arrayContaining(["behavior_baseline_required"]),
+        behavior_baseline_hint_accepted: false
+      });
+    }
+  );
+
+  it.each(readCommandCases)(
+    "forwards valid behavior baseline hints for $command as bounded non-proof input",
+    async (commandCase) => {
+      const { handler, message } = createMessage({
+        ...commandCase,
+        options: {
+          risk_evidence_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+          behavior_baseline_hint_required: true,
+          behavior_baseline_hint: acceptedBehaviorBaselineHint()
+        }
+      });
+
+      const resultPromise = waitForSingleResult(handler);
+      expect(handler.onBackgroundMessage(message)).toBe(true);
+      const result = await resultPromise;
+      const consumerGateResult = resolveConsumerGateResult(result);
+      const riskEvidenceConsumerGate = asRecord(
+        consumerGateResult?.risk_evidence_consumer_gate
+      );
+
+      if (commandCase.command === "xhs.search") {
+        expect(result.ok).toBe(false);
+        expect(consumerGateResult).toMatchObject({
+          gate_reasons: expect.arrayContaining(["PROVIDER_AWARE_READINESS_DENIED"])
+        });
+      } else {
+        expect(result.ok).toBe(true);
+      }
+      expect(riskEvidenceConsumerGate).toMatchObject({
+        accepted_risk_input: true,
+        read_write_allow_proof: false,
+        behavior_baseline_hint_accepted: true,
+        behavior_baseline_hint: {
+          profile_ref: "xhs_001",
+          target_domain: "www.xiaohongshu.com",
+          effective_execution_mode: "live_read_high_risk",
+          goal_kind: "read"
+        }
+      });
+      expect(riskEvidenceConsumerGate?.behavior_baseline_hint).not.toMatchObject({
+        account_health_score: expect.anything(),
+        account_pool_ref: expect.anything(),
+        long_term_profile_score: expect.anything()
+      });
+    }
+  );
+
   it("routes xhs.detail through the unified xhs read execution path", async () => {
     const { handler, message } = createMessage({
       command: "xhs.detail",
