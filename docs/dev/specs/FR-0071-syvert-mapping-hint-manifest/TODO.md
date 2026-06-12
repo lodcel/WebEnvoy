@@ -6,6 +6,8 @@
 - [ ] 确认 manifest 不包含 Syvert normalized result、Syvert resource taxonomy、Syvert error taxonomy、Syvert workflow 或 Syvert project state。
 - [ ] 确认 hint classes 只提供 downstream mapping context、source refs、gaps、consumer actions and non-proof signals。
 - [ ] 确认 every hint item has source binding, freshness, scope and redaction state。
+- [ ] 确认 consumable hint 的 `source_binding_state=bound` 且 `source_ref` 非空、`source_section` / `source_owner` 可机器核查。
+- [ ] 确认 `source_section=unknown|null`、`source_owner=unknown|downstream_owner_required` 或 `source_ref=null` 只能用于 blocker-only hint，且不得与 `allowed_effect=downstream_mapping_input` 共存。
 - [ ] 确认 `mapping_gaps` 使用 downstream owner，并且 `webenvoy_default_allowed=false`。
 - [ ] 确认 forbidden fields 覆盖 `normalized`、Syvert taxonomy、JSON-RPC wrapper、provider adapter、live_write_commit 和 sensitive raw payload。
 - [ ] 确认 integration classification remains local-only: `integration_applicable=no`、`integration_ref=none`、`merge_gate=local_only`。
@@ -19,6 +21,7 @@
 - [ ] #1205, if still needed, requests separate integration metadata decision instead of reusing #1199 local-only status.
 - [ ] Future parser rejects unknown manifest version, unknown hint class and forbidden fields.
 - [ ] Future parser rejects stale, scope-mismatched or redaction-invalid source bindings.
+- [ ] Future parser rejects untraceable/null/unknown source binding when `allowed_effect=downstream_mapping_input`.
 - [ ] Future Syvert consumer tests verify hints do not produce normalized result without Syvert-owned mapping contract.
 
 ## Current PR scope

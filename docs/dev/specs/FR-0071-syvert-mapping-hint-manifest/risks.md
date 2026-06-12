@@ -64,17 +64,19 @@
 
 触发条件：
 
-- Hint item 缺少 source contract、scope、freshness 或 redaction state。
+- Hint item 缺少 source contract、source section、source owner、source ref、scope、freshness 或 redaction state。
+- Hint item 使用 `source_section=unknown`、`source_owner=unknown|downstream_owner_required` 或 `source_ref=null`，却仍声明 `allowed_effect=downstream_mapping_input`。
 - Example 内联 raw payload、private URL、credential header 或 provider private patch details。
 
 影响：
 
-- Consumer 可能消费历史证据、跨 scope 证据或敏感数据。
+- Consumer 可能消费无来源证据、历史证据、跨 scope 证据或敏感数据。
 
 缓解：
 
-- `MappingHintSourceBindingV1` 是每个 hint item 的必填字段。
-- Contract rules 要求 stale、scope mismatch、redaction invalid fail closed。
+- Consumable hint 必须使用 `MappingHintConsumableSourceBindingV1`，并提供非空 source ref、明确 source section 与 owner。
+- Unknown/null/untraceable source 只能使用 blocker-only item，且 `allowed_effect=blocker_explanation`。
+- Contract rules 要求 missing source、stale、scope mismatch、redaction invalid fail closed。
 - Synthetic example 只使用 redacted refs。
 
 剩余风险：

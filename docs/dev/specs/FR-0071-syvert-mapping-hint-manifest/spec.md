@@ -114,8 +114,10 @@ Manifest 至少支持以下 hint classes：
 约束：
 
 - `source_contract_ref` 可以引用 WebEnvoy formal contracts，例如 `FR-0061.xhs_driver_contract.v1`、`FR-0063.target_binding_state_machine.v1`、`FR-0070.webenvoy_owned_risk_evidence_boundary.v1` 或 later compatible refs。
-- `source_section` 只能指向 WebEnvoy-owned section，例如 `raw`、`operational`、`evidence`、`runtime_binding`、`risk_evidence`、`provider_boundary`。
-- `source_owner` 必须是 WebEnvoy-owned owner 或 provider-owned boundary ref；不得写成 Syvert-owned normalized schema owner。
+- Consumable hint 必须设置 `source_binding_state=bound`，并提供非空 `source_ref`、可机器核查的 `source_contract_ref`、明确的 WebEnvoy-owned `source_section` 与 `source_owner`。
+- `source_section` 只能指向 WebEnvoy-owned section，例如 `raw`、`operational`、`evidence`、`runtime_binding`、`risk_evidence`、`provider_boundary`；consumable hint 不得使用 `unknown` 或 `null`。
+- `source_owner` 必须是 WebEnvoy-owned owner 或 provider-owned boundary ref；consumable hint 不得写成 Syvert-owned normalized schema owner、`unknown` 或 `downstream_owner_required`。
+- `source_ref` 缺失、未知或不可追踪时，hint 必须设置 `source_binding_state=untraceable`，`allowed_effect=blocker_explanation`，并提供 fail-closed blocker；这类 hint 不得作为 `downstream_mapping_input`。
 - `freshness=historical_background` 或 `unknown` 只能用于 context，不得驱动 current downstream accepted mapping。
 - `redaction_state=redaction_required|policy_missing|invalid` 命中 required hint 时必须 block downstream consumption。
 
@@ -188,6 +190,7 @@ joint_acceptance_needed: no
 ## 异常与边界场景
 
 - 未知 `manifest_version`、未知 `hint_class` 或缺失 required `source_ref`：必须 fail closed，并记录 `unknown_manifest_version`、`unknown_hint_class` 或 `missing_source_ref`。
+- `source_section=unknown`、`source_owner=unknown|downstream_owner_required` 或 `source_ref=null`：只能出现在 `source_binding_state=untraceable` 的 blocker-only hint 中；若同时出现 `allowed_effect=downstream_mapping_input`，必须视为 contract violation。
 - `freshness=historical_background|unknown` 被用于 current downstream accepted mapping：必须 fail closed，并记录 `historical_or_stale_source`。
 - `redaction_state=redaction_required|policy_missing|invalid` 命中 required hint：必须 fail closed，并记录 `redaction_invalid`。
 - Manifest、example、PR metadata 或 future artifact 出现 forbidden fields：必须 fail closed，并记录 `forbidden_field_present` 或 `syvert_boundary_violation`。
@@ -225,6 +228,15 @@ And `redaction_state=invalid`
 When downstream consumer 要求 current accepted mapping input
 Then 该 hint 必须被拒绝
 And blocker 必须记录 stale 或 redaction invalid
+
+### 场景 4a：未知来源 hint 只能作为 blocker
+
+Given manifest item 的 `source_binding_state=untraceable`
+And `source_ref=null`
+When downstream consumer 要求 `allowed_effect=downstream_mapping_input`
+Then 必须判定为 contract violation
+And 该 hint 只能以 `allowed_effect=blocker_explanation` 暴露
+And blocker 必须包含 `missing_source_ref` 或等价 fail-closed 原因
 
 ### 场景 5：local-only integration 元数据
 

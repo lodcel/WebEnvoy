@@ -86,11 +86,14 @@ interface SyvertMappingHintManifestV1 {
   blockers: MappingHintBlockerV1[];
 }
 
-interface MappingHintItemV1 {
+type MappingHintItemV1 =
+  | ConsumableMappingHintItemV1
+  | BlockerOnlyMappingHintItemV1;
+
+interface MappingHintItemBaseV1 {
   hint_id: string;
   hint_class: MappingHintClassV1;
   hint_value_ref: string | null;
-  source_binding: MappingHintSourceBindingV1;
   mapping_intent:
     | "identify_source"
     | "classify_route"
@@ -98,11 +101,6 @@ interface MappingHintItemV1 {
     | "explain_gap"
     | "suggest_downstream_action"
     | "diagnostic_context";
-  allowed_effect:
-    | "downstream_context_only"
-    | "downstream_mapping_input"
-    | "blocker_explanation"
-    | "manual_review_input";
   forbidden_effects: Array<
     | "syvert_normalized_result_complete"
     | "resource_taxonomy_complete"
@@ -114,7 +112,23 @@ interface MappingHintItemV1 {
   >;
 }
 
-interface MappingHintSourceBindingV1 {
+interface ConsumableMappingHintItemV1 extends MappingHintItemBaseV1 {
+  source_binding_state: "bound";
+  source_binding: MappingHintConsumableSourceBindingV1;
+  allowed_effect:
+    | "downstream_context_only"
+    | "downstream_mapping_input"
+    | "manual_review_input";
+}
+
+interface BlockerOnlyMappingHintItemV1 extends MappingHintItemBaseV1 {
+  source_binding_state: "untraceable";
+  source_binding: MappingHintBlockerOnlySourceBindingV1;
+  allowed_effect: "blocker_explanation";
+  blockers: MappingHintBlockerV1[];
+}
+
+interface MappingHintConsumableSourceBindingV1 {
   source_contract_ref: string;
   source_section:
     | "raw"
@@ -122,15 +136,12 @@ interface MappingHintSourceBindingV1 {
     | "evidence"
     | "runtime_binding"
     | "risk_evidence"
-    | "provider_boundary"
-    | "unknown";
-  source_ref: string | null;
+    | "provider_boundary";
+  source_ref: string;
   source_owner:
     | "webenvoy_core"
     | "webenvoy_formal_contract"
-    | "provider_owned_boundary"
-    | "downstream_owner_required"
-    | "unknown";
+    | "provider_owned_boundary";
   scope: {
     ability_id: string | null;
     route_bucket: string | null;
@@ -141,6 +152,20 @@ interface MappingHintSourceBindingV1 {
   };
   freshness: MappingHintFreshnessV1;
   redaction_state: MappingHintRedactionStateV1;
+}
+
+interface MappingHintBlockerOnlySourceBindingV1 {
+  source_contract_ref: string | null;
+  source_section: "unknown" | null;
+  source_ref: null;
+  source_owner: "downstream_owner_required" | "unknown";
+  blocker_reason:
+    | "missing_source_ref"
+    | "unknown_hint_class"
+    | "source_scope_mismatch"
+    | "historical_or_stale_source"
+    | "redaction_invalid"
+    | "downstream_mapping_owner_required";
 }
 
 interface MappingGapHintV1 {
@@ -163,9 +188,12 @@ interface MappingGapHintV1 {
 2. `non_proofs` is mandatory and must include every `MappingHintNonProofV1` value.
 3. `MappingHintItemV1.allowed_effect` must never imply Syvert normalized result, resource taxonomy, error taxonomy, provider adapter readiness, JSON-RPC wrapper readiness, live evidence acceptance or active integration gate.
 4. `MappingGapHintV1.webenvoy_default_allowed` must be `false`.
-5. Unknown `manifest_version`, unknown `hint_class`, missing required `source_ref`, stale source, scope mismatch or redaction invalid must fail closed for required downstream mapping input.
-6. Source refs must be opaque refs, contract refs, redacted locators, checksums or synthetic examples. Sensitive raw payloads and private implementation details must not be inlined.
-7. Future Syvert-owned normalization, taxonomy, wrapper, provider adapter or joint acceptance contracts must be created outside #1199.
+5. `allowed_effect=downstream_mapping_input` is valid only for `source_binding_state=bound` with `MappingHintConsumableSourceBindingV1`.
+6. `MappingHintConsumableSourceBindingV1` must provide non-null `source_ref`, machine-checkable `source_contract_ref`, explicit WebEnvoy-owned `source_section`, and source owner `webenvoy_core|webenvoy_formal_contract|provider_owned_boundary`.
+7. Unknown, null or untraceable source cases must use `BlockerOnlyMappingHintItemV1`, `source_binding_state=untraceable`, `allowed_effect=blocker_explanation`, and a concrete blocker. They must not be consumed as downstream mapping input.
+8. Unknown `manifest_version`, unknown `hint_class`, missing required `source_ref`, stale source, scope mismatch or redaction invalid must fail closed for required downstream mapping input.
+9. Source refs must be opaque refs, contract refs, redacted locators, checksums or synthetic examples. Sensitive raw payloads and private implementation details must not be inlined.
+10. Future Syvert-owned normalization, taxonomy, wrapper, provider adapter or joint acceptance contracts must be created outside #1199.
 
 ## Synthetic example
 
@@ -200,8 +228,32 @@ syvert_mapping_hint_manifest:
           head_sha: null
         freshness: not_applicable
         redaction_state: redacted
+      source_binding_state: bound
       mapping_intent: classify_route
       allowed_effect: downstream_mapping_input
+      forbidden_effects:
+        - syvert_normalized_result_complete
+        - resource_taxonomy_complete
+        - error_taxonomy_complete
+        - provider_adapter_ready
+        - jsonrpc_wrapper_ready
+        - live_evidence_accepted
+        - integration_gate_active
+    - hint_id: hint.synthetic.untraceable-source
+      hint_class: mapping_gap_hint
+      hint_value_ref: null
+      source_binding:
+        source_contract_ref: null
+        source_section: null
+        source_ref: null
+        source_owner: downstream_owner_required
+        blocker_reason: missing_source_ref
+      source_binding_state: untraceable
+      mapping_intent: explain_gap
+      allowed_effect: blocker_explanation
+      blockers:
+        - missing_source_ref
+        - downstream_mapping_owner_required
       forbidden_effects:
         - syvert_normalized_result_complete
         - resource_taxonomy_complete
