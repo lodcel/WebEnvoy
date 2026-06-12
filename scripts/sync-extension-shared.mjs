@@ -7,6 +7,7 @@ const repoRoot = join(scriptDir, "..");
 
 const copies = [
   { source: "shared/risk-state.js", target: "extension/shared/risk-state.js" },
+  { source: "shared/risk-evidence-gate.js", target: "extension/shared/risk-evidence-gate.js" },
   { source: "shared/fingerprint-profile.js", target: "extension/shared/fingerprint-profile.js" },
   { source: "shared/xhs-gate.js", target: "extension/shared/xhs-gate.js" },
   {

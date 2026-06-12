@@ -63,6 +63,7 @@ const buildGate = (overrides: {
   status?: Record<string, unknown>;
   runtimePreflight?: CloseoutRuntimeReadinessPreflight;
   antiDetectionValidationView?: Record<string, unknown> | null;
+  params?: Record<string, unknown>;
 } = {}): CloseoutGateAggregator =>
   buildCloseoutGateAggregator({
     status: {
@@ -75,9 +76,21 @@ const buildGate = (overrides: {
         ? readyValidationView()
         : overrides.antiDetectionValidationView,
     params: {
-      requested_execution_mode: "live_read_high_risk"
+      requested_execution_mode: "live_read_high_risk",
+      ...(overrides.params ?? {})
     }
   });
+
+const acceptedRiskEvidenceGateResult = () => ({
+  schema_version: "webenvoy-risk-evidence-boundary.v1",
+  risk_state: "accepted",
+  decision: "allow_input_to_1188",
+  blocking_reasons: [],
+  risk_evidence_ref: "risk-evidence://closeout/current-head/run-001",
+  evidence_refs_consumed: ["provider-boundary://fr-0069", "runtime-binding://run-001"],
+  evaluated_at: "2026-06-12T09:50:00.000Z",
+  downstream_owner: "#1188"
+});
 
 describe("closeout gate aggregator", () => {
   it("returns GO when profile, account, rhythm, target, runtime, and validation gates are ready", () => {
@@ -93,6 +106,51 @@ describe("closeout gate aggregator", () => {
         target_binding_state: "verified",
         execution_surface: "real_browser",
         headless: false
+      }
+    });
+  });
+
+  it("requires accepted FR-0070 risk evidence when closeout risk evidence is requested", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          risk_evidence_gate_result: acceptedRiskEvidenceGateResult()
+        }
+      })
+    ).toMatchObject({
+      decision: "GO",
+      blocker: null,
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: true,
+          read_write_allow_proof: false,
+          decision: "allow_input_to_consumer_gate"
+        }
+      }
+    });
+  });
+
+  it("blocks closeout when risk evidence is missing or only non-proof signals are present", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          non_proofs_observed: ["historical_artifact", "control_plane_only_signal"]
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "historical_or_stale_evidence",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          read_write_allow_proof: false
+        }
       }
     });
   });

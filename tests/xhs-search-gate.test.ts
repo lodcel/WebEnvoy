@@ -233,7 +233,116 @@ const createUpstreamAuthorizationRequest = (input?: {
   };
 };
 
+const acceptedRiskEvidenceGateResult = () => ({
+  schema_version: "webenvoy-risk-evidence-boundary.v1",
+  risk_state: "accepted",
+  decision: "allow_input_to_1188",
+  blocking_reasons: [],
+  risk_evidence_ref: "risk-evidence://xhs/current-head/run-001",
+  evidence_refs_consumed: ["provider-boundary://fr-0069", "runtime-binding://run-001"],
+  evaluated_at: "2026-06-12T09:50:00.000Z",
+  downstream_owner: "#1188"
+});
+
 describe("xhs-search gate helpers", () => {
+  it("consumes accepted FR-0070 risk evidence as necessary input without making it standalone allow proof", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "allowed",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: true,
+        read_write_allow_proof: false,
+        decision: "allow_input_to_consumer_gate"
+      }
+    });
+  });
+
+  it("still blocks invalid target context even when FR-0070 input is accepted", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked"
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["TARGET_PAGE_NOT_EXPLICIT"])
+    );
+    expect(gate.consumer_gate_result.risk_evidence_consumer_gate).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false
+    });
+  });
+
+  it("fails closed when read/write gate receives only provider or control-plane non-proofs", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      non_proofs_observed: ["provider_doctor_pass", "runtime_bootstrap_ack"],
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: false,
+        read_write_allow_proof: false
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["provider_stealth_non_proof", "control_plane_only_signal"])
+    );
+  });
+
+  it("fails closed on stale or scope-mismatched risk evidence blockers", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      risk_evidence_gate_result: {
+        ...acceptedRiskEvidenceGateResult(),
+        risk_state: "stale",
+        decision: "deny",
+        blocking_reasons: ["risk_evidence_run_mismatch"]
+      },
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked"
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["risk_evidence_run_mismatch"])
+    );
+  });
+
   it("flags mismatched actual target context", () => {
     expect(
       resolveActualTargetGateReasons({

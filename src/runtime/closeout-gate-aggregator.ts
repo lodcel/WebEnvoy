@@ -1,4 +1,8 @@
 import type { JsonObject } from "../core/types.js";
+import {
+  evaluateRiskEvidenceConsumerGate,
+  type RiskEvidenceConsumerResult
+} from "../../shared/risk-evidence-gate.js";
 import type {
   CloseoutRuntimeBlockerCode,
   CloseoutRuntimeReadinessPreflight
@@ -12,7 +16,8 @@ export type CloseoutGateBlockerLayer =
   | "rhythm"
   | "target_binding"
   | "runtime_readiness"
-  | "anti_detection_validation";
+  | "anti_detection_validation"
+  | "risk_evidence";
 
 export type CloseoutGateBlockerCode =
   | "managed_profile_mismatch"
@@ -45,6 +50,7 @@ export interface CloseoutGateAggregator {
     target_binding_state: CloseoutRuntimeReadinessPreflight["target_binding"]["state"];
     execution_surface: string | null;
     headless: boolean | null;
+    risk_evidence_consumer_gate: RiskEvidenceConsumerResult | null;
   };
 }
 
@@ -84,6 +90,16 @@ export const buildCloseoutGateAggregator = (input: {
   const accountSafety = asObject(status.account_safety);
   const closeoutRhythm = asObject(status.xhs_closeout_rhythm);
   const validationView = input.antiDetectionValidationView ?? null;
+  const riskEvidenceConsumerGate = evaluateRiskEvidenceConsumerGate({
+    riskEvidenceRequired:
+      params.risk_evidence_required === true || params.closeout_risk_evidence_required === true,
+    risk_evidence_gate_result:
+      asObject(params.risk_evidence_gate_result) ??
+      asObject(status.risk_evidence_gate_result) ??
+      asObject(status.riskEvidenceGateResult),
+    non_proofs_observed:
+      params.non_proofs_observed ?? status.non_proofs_observed ?? status.non_proofs
+  });
   const identityPreflightMode = asString(identityPreflight?.mode);
   const accountSafetyState = asString(accountSafety?.state);
   const rhythmState = asString(closeoutRhythm?.state);
@@ -103,7 +119,10 @@ export const buildCloseoutGateAggregator = (input: {
     runtime_recovery_mode: input.runtimePreflight.recovery_mode,
     target_binding_state: input.runtimePreflight.target_binding.state,
     execution_surface: input.runtimePreflight.runtime_status.execution_surface,
-    headless: input.runtimePreflight.runtime_status.headless
+    headless: input.runtimePreflight.runtime_status.headless,
+    risk_evidence_consumer_gate: riskEvidenceConsumerGate.required
+      ? riskEvidenceConsumerGate
+      : null
   };
 
   if (identityPreflightMode !== "official_chrome_persistent_extension") {
@@ -202,6 +221,19 @@ export const buildCloseoutGateAggregator = (input: {
         "anti_detection_validation",
         "anti_detection_validation_baseline_blocked",
         "complete_fr_0012_fr_0013_fr_0014_validation_baseline"
+      ),
+      gate_state: gateState
+    };
+  }
+
+  if (riskEvidenceConsumerGate.decision === "blocked") {
+    return {
+      decision: "NO_GO",
+      blocker: blocker(
+        "risk_evidence",
+        (riskEvidenceConsumerGate.gate_reasons[0] ??
+          "risk_evidence_unclassified") as CloseoutGateBlockerCode,
+        "provide_current_scope_fr_0070_risk_evidence_for_1188"
       ),
       gate_state: gateState
     };
