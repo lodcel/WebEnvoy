@@ -148,9 +148,9 @@ Live evidence / route evidence / behavior baseline owners
 WebEnvoy-Owned Risk Evidence Boundary (#1183)
 ```
 
-## 状态与失效条件
+## Risk evidence state 与 handoff blockers
 
-后续 consumer 至少必须处理：
+后续 consumer 至少必须处理以下 `WebEnvoyRiskEvidenceState` 值：
 
 - `missing`: required evidence 不存在。
 - `unclassified`: evidence 存在但无法归类为 accepted or blocked。
@@ -158,7 +158,10 @@ WebEnvoy-Owned Risk Evidence Boundary (#1183)
 - `scope_mismatch`: workflow/capability/target/profile/provider/head/run/page/artifact 不匹配。
 - `redaction_invalid`: evidence 或 ref 暴露 forbidden data。
 - `provider_private_boundary_violation`: provider private internals 被展开或作为 proof。
-- `requires_risk_hint_consumer`: 必须交给 #1188。
-- `downstream_owner_required`: 必须交给 account safety / runtime / provider / live evidence owner。
 
-未分类状态、未知 enum 或影响目标 capability 的 missing state 必须 fail-closed。
+以下不是 risk evidence state，只能作为 blocking reasons 或 handoff blockers：
+
+- `risk_hint_consumer_required`: risk evidence 已到达 #1188 需要消费的边界；它不是 #1183 定义的 read/write gate allow，也不是 risk state。
+- `downstream_owner_required`: 当前阻断必须交给 account safety / runtime / provider / live evidence owner；它不是 risk state。
+
+未分类状态、未知 state enum、未知 blocking reason 或影响目标 capability 的 missing state 必须 fail-closed。
