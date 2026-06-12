@@ -19,7 +19,7 @@ Canonical Issue: #1183
 
 ## 目标
 
-1. 冻结 `webenvoy_risk_evidence_boundary` 的 owner、scope、accepted evidence classes 与 non-proof signals。
+1. 冻结 `webenvoy_owned_risk_evidence_boundary` 的 owner、scope、accepted evidence classes 与 non-proof signals。
 2. 冻结 WebEnvoy-owned risk evidence 对 provider declaration、account safety、runtime target binding、live evidence、behavior baseline 与 closeout evidence 的消费边界。
 3. 冻结 freshness / scope / head / run / profile / page / provider binding 的最低要求。
 4. 冻结 fail-closed blockers、unclassified evidence 处理、redaction invalid 处理与 closeout/audit responsibility。
@@ -38,7 +38,7 @@ Canonical Issue: #1183
 
 ### 1. Boundary ownership
 
-系统必须冻结一个稳定的 `webenvoy_risk_evidence_boundary` formal boundary。
+系统必须冻结一个稳定的 `webenvoy_owned_risk_evidence_boundary` formal boundary。
 
 约束：
 
