@@ -865,6 +865,28 @@ const applyPlatformBehaviorScopeBindingReasons = (gate, bindingReasons) => {
   };
 };
 
+const collectXhsPlatformBehaviorDecisionHintGateReasons = (gate, state) => {
+  if (!gate.required || gate.accepted_risk_hint !== true) {
+    return [];
+  }
+  const reasons = [];
+  if (
+    gate.decision_hint === "hold_live_write" &&
+    (state.requestedExecutionMode === "live_write" ||
+      state.actionType === "write" ||
+      state.actionType === "irreversible_write")
+  ) {
+    pushReason(reasons, "platform_behavior_hold_live_write");
+  }
+  if (gate.decision_hint === "require_manual_review") {
+    pushReason(reasons, "platform_behavior_manual_review_required");
+  }
+  if (gate.decision_hint === "require_reseed" || gate.reseed_required === true) {
+    pushReason(reasons, "platform_behavior_reseed_required");
+  }
+  return reasons;
+};
+
 const normalizeXhsApprovalRecord = (value) => {
   const record = asRecord(value);
   const checksRecord = asRecord(record?.checks);
@@ -1882,6 +1904,12 @@ const evaluateXhsGate = (input) => {
     pushReason(gateReasons, reason);
   }
   for (const reason of platformBehaviorAssessmentGate.gate_reasons) {
+    pushReason(gateReasons, reason);
+  }
+  for (const reason of collectXhsPlatformBehaviorDecisionHintGateReasons(
+    platformBehaviorAssessmentGate,
+    state
+  )) {
     pushReason(gateReasons, reason);
   }
   const expectedApprovalId = deriveApprovalId(input, decisionId);

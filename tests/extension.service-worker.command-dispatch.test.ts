@@ -447,6 +447,106 @@ describe("extension service worker / background command dispatch", () => {
     expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("fails closed before content dispatch when FR-0022 hold_live_write targets live_write", async () => {
+    const firstPort = createMockPort();
+    const { chromeApi } = createChromeApi([firstPort]);
+    chromeApi.tabs.query.mockImplementation(async () => [
+      {
+        id: 32,
+        url: "https://creator.xiaohongshu.com/publish/publish?source=tab",
+        active: true
+      }
+    ]);
+
+    startChromeBackgroundBridge(chromeApi);
+    respondHandshake(firstPort);
+    await waitForBridgeTurn();
+
+    const approvalRecord = {
+      approved: true,
+      approver: "qa-reviewer",
+      approved_at: "2026-03-23T10:00:00.000Z",
+      checks: {
+        target_domain_confirmed: true,
+        target_tab_confirmed: true,
+        target_page_confirmed: true,
+        risk_state_checked: true,
+        action_type_confirmed: true
+      }
+    };
+    firstPort.onMessageListeners[0]?.({
+      id: "run-command-dispatch-platform-behavior-hold-live-write-001",
+      method: "bridge.forward",
+      profile: "profile-a",
+      params: {
+        session_id: "nm-session-001",
+        run_id: "run-command-dispatch-platform-behavior-hold-live-write-001",
+        command: "xhs.creator_publish.controlled_live_write",
+        command_params: createXhsCommandParams({
+          issue_scope: "issue_835",
+          target_domain: "creator.xiaohongshu.com",
+          target_tab_id: 32,
+          target_page: "creator_publish_tab",
+          actual_target_domain: "creator.xiaohongshu.com",
+          actual_target_tab_id: 32,
+          actual_target_page: "creator_publish_tab",
+          action_type: "write",
+          requested_execution_mode: "live_write",
+          risk_state: "allowed",
+          controlled_live_write: true,
+          approval_record: approvalRecord,
+          platform_behavior_assessment_required: true,
+          platform_behavior_assessment: {
+            ...platformBehaviorAssessment(),
+            target_domain: "creator.xiaohongshu.com",
+            requested_execution_mode: "live_write",
+            effective_execution_mode: "live_write",
+            probe_bundle_ref: "probe-bundle-fr0022-sw-live-write-001",
+            goal_kind: "write",
+            baseline_ref: "l4-baseline-xhs-live-write-001",
+            baseline_state: "ready",
+            drift_level: "high",
+            action_type: "type",
+            interaction_semantics: undefined,
+            click_kind: undefined,
+            decision_hint: "hold_live_write"
+          },
+          platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+          expected_platform_behavior_scope: {
+            ...expectedPlatformBehaviorScope(),
+            target_domain: "creator.xiaohongshu.com",
+            requested_execution_mode: "live_write",
+            effective_execution_mode: "live_write",
+            probe_bundle_ref: "probe-bundle-fr0022-sw-live-write-001",
+            goal_kind: "write"
+          },
+          platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+          platform_behavior_freshness_window_ms: 5 * 60 * 1000
+        }),
+        cwd: "/workspace/WebEnvoy"
+      },
+      timeout_ms: 100
+    });
+
+    await waitForPostedMessage(firstPort.postMessage, {
+      id: "run-command-dispatch-platform-behavior-hold-live-write-001",
+      status: "error",
+      payload: expect.objectContaining({
+        consumer_gate_result: expect.objectContaining({
+          gate_decision: "blocked",
+          effective_execution_mode: "dry_run",
+          gate_reasons: expect.arrayContaining(["platform_behavior_hold_live_write"]),
+          platform_behavior_assessment_gate: expect.objectContaining({
+            accepted_risk_hint: true,
+            read_write_allow_proof: false,
+            decision_hint: "hold_live_write"
+          })
+        })
+      })
+    });
+    expect(chromeApi.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("fails closed when top-level #1188 non-proof command params are unknown", async () => {
     const firstPort = createMockPort();
     const { chromeApi } = createChromeApi([firstPort]);

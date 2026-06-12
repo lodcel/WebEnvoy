@@ -324,6 +324,47 @@ const expectedPlatformBehaviorScope = (overrides?: Record<string, unknown>) => (
   ...overrides
 });
 
+const approvedWriteApprovalRecord = () => ({
+  approved: true,
+  approver: "qa-reviewer",
+  approved_at: "2026-03-23T10:00:00.000Z",
+  checks: {
+    target_domain_confirmed: true,
+    target_tab_confirmed: true,
+    target_page_confirmed: true,
+    risk_state_checked: true,
+    action_type_confirmed: true
+  }
+});
+
+const liveWritePlatformBehaviorAssessment = (overrides?: Record<string, unknown>) =>
+  platformBehaviorAssessment({
+    assessment_id: "platform-assess-xhs-live-write-001",
+    target_domain: "creator.xiaohongshu.com",
+    requested_execution_mode: "live_write",
+    effective_execution_mode: "live_write",
+    goal_kind: "write",
+    probe_bundle_ref: "probe-bundle-fr0022-xhs-live-write-001",
+    baseline_ref: "l4-baseline-xhs-live-write-001",
+    baseline_state: "ready",
+    drift_level: "low",
+    action_type: "type",
+    interaction_semantics: undefined,
+    click_kind: undefined,
+    decision_hint: "no_additional_restriction",
+    ...overrides
+  });
+
+const expectedLiveWritePlatformBehaviorScope = (overrides?: Record<string, unknown>) =>
+  expectedPlatformBehaviorScope({
+    target_domain: "creator.xiaohongshu.com",
+    requested_execution_mode: "live_write",
+    effective_execution_mode: "live_write",
+    probe_bundle_ref: "probe-bundle-fr0022-xhs-live-write-001",
+    goal_kind: "write",
+    ...overrides
+  });
+
 describe("xhs-search gate helpers", () => {
   it("consumes accepted FR-0070 risk evidence as necessary input without making it standalone allow proof", () => {
     const gate = evaluateXhsGate({
@@ -875,7 +916,7 @@ describe("xhs-search gate helpers", () => {
     );
   });
 
-  it("consumes FR-0022 high write drift only with conservative hint as non-proof risk input", () => {
+  it("accepts FR-0022 high write drift as non-proof risk input but blocks write path on hold_live_write", () => {
     const gate = evaluateXhsGate({
       issueScope: "issue_835",
       riskState: "allowed",
@@ -922,10 +963,179 @@ describe("xhs-search gate helpers", () => {
         decision_hint: "hold_live_write"
       }
     });
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked"
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toContain(
+      "platform_behavior_hold_live_write"
+    );
     expect(gate.consumer_gate_result.gate_reasons).not.toContain(
       "platform_behavior_high_drift_hint_invalid"
     );
   });
+
+  it("allows same-scope live_write only when FR-0022 decision hint is non-conservative", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_835",
+      riskState: "allowed",
+      targetDomain: "creator.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "creator_publish_tab",
+      actionType: "write",
+      requestedExecutionMode: "live_write",
+      controlledLiveWrite: true,
+      runtimeProfileRef: "profile-risk-evidence-ingress-001",
+      platform_behavior_assessment: liveWritePlatformBehaviorAssessment(),
+      platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+      expected_platform_behavior_scope: expectedLiveWritePlatformBehaviorScope(),
+      platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+      platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+      approvalRecord: approvedWriteApprovalRecord()
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "allowed",
+      requested_execution_mode: "live_write",
+      effective_execution_mode: "live_write",
+      platform_behavior_assessment_gate: {
+        accepted_risk_hint: true,
+        read_write_allow_proof: false,
+        account_safety_clearance: false,
+        gate_override_proof: false,
+        decision_hint: "no_additional_restriction"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).not.toEqual(
+      expect.arrayContaining([
+        "platform_behavior_hold_live_write",
+        "platform_behavior_manual_review_required",
+        "platform_behavior_reseed_required"
+      ])
+    );
+  });
+
+  it.each([
+    ["hold_live_write", "platform_behavior_hold_live_write"],
+    ["require_manual_review", "platform_behavior_manual_review_required"],
+    ["require_reseed", "platform_behavior_reseed_required"]
+  ])(
+    "blocks live_write when accepted FR-0022 decision hint is %s",
+    (decisionHint, expectedReason) => {
+      const gate = evaluateXhsGate({
+        issueScope: "issue_835",
+        riskState: "allowed",
+        targetDomain: "creator.xiaohongshu.com",
+        targetTabId: 12,
+        targetPage: "creator_publish_tab",
+        actionType: "write",
+        requestedExecutionMode: "live_write",
+        controlledLiveWrite: true,
+        runtimeProfileRef: "profile-risk-evidence-ingress-001",
+        platform_behavior_assessment: liveWritePlatformBehaviorAssessment({
+          decision_hint: decisionHint,
+          ...(decisionHint === "require_reseed" ? { reseed_required: true } : {})
+        }),
+        platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+        expected_platform_behavior_scope: expectedLiveWritePlatformBehaviorScope(),
+        platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+        platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+        approvalRecord: approvedWriteApprovalRecord()
+      });
+
+      expect(gate.consumer_gate_result).toMatchObject({
+        gate_decision: "blocked",
+        requested_execution_mode: "live_write",
+        effective_execution_mode: "dry_run",
+        platform_behavior_assessment_gate: {
+          accepted_risk_hint: true,
+          read_write_allow_proof: false,
+          account_safety_clearance: false,
+          gate_override_proof: false,
+          decision_hint: decisionHint
+        }
+      });
+      expect(gate.consumer_gate_result.gate_reasons).toContain(expectedReason);
+      expect(gate.approval_record.approval_id).toBeNull();
+    }
+  );
+
+  it("allows read/search dry_run to consume hold_live_write as a non-proof hint because no live write is requested", () => {
+    const gate = evaluateXhsGate({
+      issueScope: "issue_209",
+      riskState: "allowed",
+      targetDomain: "www.xiaohongshu.com",
+      targetTabId: 12,
+      targetPage: "search_result_tab",
+      actionType: "read",
+      requestedExecutionMode: "dry_run",
+      runtimeProfileRef: "profile-risk-evidence-ingress-001",
+      platform_behavior_assessment: platformBehaviorAssessment({
+        baseline_ref: "l4-baseline-xhs-read-001",
+        baseline_state: "ready",
+        drift_level: "high",
+        decision_hint: "hold_live_write"
+      }),
+      platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+      expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+      platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+      platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+      approvalRecord: {}
+    });
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "allowed",
+      platform_behavior_assessment_gate: {
+        accepted_risk_hint: true,
+        read_write_allow_proof: false,
+        decision_hint: "hold_live_write"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).not.toContain(
+      "platform_behavior_hold_live_write"
+    );
+  });
+
+  it.each([
+    ["require_manual_review", "platform_behavior_manual_review_required"],
+    ["require_reseed", "platform_behavior_reseed_required"]
+  ])(
+    "blocks read/search dry_run when accepted FR-0022 decision hint is %s",
+    (decisionHint, expectedReason) => {
+      const gate = evaluateXhsGate({
+        issueScope: "issue_209",
+        riskState: "allowed",
+        targetDomain: "www.xiaohongshu.com",
+        targetTabId: 12,
+        targetPage: "search_result_tab",
+        actionType: "read",
+        requestedExecutionMode: "dry_run",
+        runtimeProfileRef: "profile-risk-evidence-ingress-001",
+        platform_behavior_assessment: platformBehaviorAssessment({
+          baseline_ref: "l4-baseline-xhs-read-001",
+          baseline_state: "ready",
+          drift_level: "high",
+          decision_hint: decisionHint,
+          ...(decisionHint === "require_reseed" ? { reseed_required: true } : {})
+        }),
+        platform_behavior_assessment_context: platformBehaviorAssessmentContext(),
+        expected_platform_behavior_scope: expectedPlatformBehaviorScope(),
+        platform_behavior_as_of: "2026-06-12T10:03:00.000Z",
+        platform_behavior_freshness_window_ms: 5 * 60 * 1000,
+        approvalRecord: {}
+      });
+
+      expect(gate.consumer_gate_result).toMatchObject({
+        gate_decision: "blocked",
+        effective_execution_mode: "dry_run",
+        platform_behavior_assessment_gate: {
+          accepted_risk_hint: true,
+          read_write_allow_proof: false,
+          decision_hint: decisionHint
+        }
+      });
+      expect(gate.consumer_gate_result.gate_reasons).toContain(expectedReason);
+    }
+  );
 
   it("forwards FR-0070 risk evidence fields from runtime options through resolveGate", () => {
     const gate = resolveGate(
