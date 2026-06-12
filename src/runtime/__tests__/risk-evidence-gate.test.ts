@@ -45,6 +45,15 @@ const acceptedWriteBehaviorBaselineHint = () => ({
   goal_kind: "write"
 });
 
+const acceptedBehaviorBaselineScope = () => ({
+  profile_ref: "xhs_001",
+  target_domain: "www.xiaohongshu.com",
+  requested_execution_mode: "live_read_high_risk",
+  effective_execution_mode: "live_read_high_risk",
+  probe_bundle_ref: "probe-bundle://fr-0022/xhs-read",
+  goal_kind: "read"
+});
+
 const learningConservativeBehaviorBaselineHint = () => ({
   ...acceptedBehaviorBaselineHint(),
   baseline_ref: null,
@@ -140,6 +149,54 @@ describe("FR-0070 risk evidence consumer gate", () => {
         profile_ref: "xhs_001",
         target_domain: "www.xiaohongshu.com"
       }
+    });
+  });
+
+  it("accepts a behavior baseline hint only when it matches the current gate scope", () => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: acceptedBehaviorBaselineHint(),
+        behavior_baseline_scope: acceptedBehaviorBaselineScope()
+      })
+    ).toMatchObject({
+      accepted_risk_input: true,
+      read_write_allow_proof: false,
+      decision: "allow_input_to_consumer_gate",
+      behavior_baseline_hint_accepted: true,
+      behavior_baseline_hint: {
+        profile_ref: "xhs_001",
+        target_domain: "www.xiaohongshu.com",
+        effective_execution_mode: "live_read_high_risk",
+        probe_bundle_ref: "probe-bundle://fr-0022/xhs-read",
+        goal_kind: "read"
+      }
+    });
+  });
+
+  it.each([
+    ["profile_ref", { profile_ref: "xhs_other" }],
+    ["target_domain", { target_domain: "creator.xiaohongshu.com" }],
+    ["effective_execution_mode", { effective_execution_mode: "dry_run" }],
+    ["probe_bundle_ref", { probe_bundle_ref: "probe-bundle://fr-0022/xhs-write" }],
+    ["goal_kind", { goal_kind: "write" }]
+  ])("fails closed when behavior baseline hint mismatches current %s", (_field, scopeOverride) => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: acceptedRiskEvidence(),
+        behavior_baseline_hint: acceptedBehaviorBaselineHint(),
+        behavior_baseline_scope: {
+          ...acceptedBehaviorBaselineScope(),
+          ...scopeOverride
+        }
+      })
+    ).toMatchObject({
+      accepted_risk_input: false,
+      read_write_allow_proof: false,
+      decision: "blocked",
+      gate_reasons: expect.arrayContaining(["risk_evidence_scope_mismatch"]),
+      behavior_baseline_hint_accepted: false,
+      behavior_baseline_hint: null
     });
   });
 

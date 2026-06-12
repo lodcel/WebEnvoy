@@ -335,7 +335,42 @@ const buildBlockedResult = (input) => ({
   downstream_owner: input.downstreamOwner
 });
 
-const evaluateBehaviorBaselineHint = (value) => {
+const normalizeBehaviorBaselineScope = (value) => {
+  const record = asRecord(value);
+  if (!record) {
+    return {
+      profile_ref: null,
+      target_domain: null,
+      requested_execution_mode: null,
+      effective_execution_mode: null,
+      probe_bundle_ref: null,
+      goal_kind: null
+    };
+  }
+  return {
+    profile_ref: asString(record.profile_ref ?? record.profileRef),
+    target_domain: asString(record.target_domain ?? record.targetDomain),
+    requested_execution_mode: asString(
+      record.requested_execution_mode ?? record.requestedExecutionMode
+    ),
+    effective_execution_mode: asString(
+      record.effective_execution_mode ?? record.effectiveExecutionMode
+    ),
+    probe_bundle_ref: asString(record.probe_bundle_ref ?? record.probeBundleRef),
+    goal_kind: asString(record.goal_kind ?? record.goalKind)
+  };
+};
+
+const pushBehaviorBaselineScopeMismatch = (input) => {
+  if (input.expected === null || input.expected === undefined) {
+    return;
+  }
+  if (input.actual !== input.expected) {
+    pushReason(input.reasons, "risk_evidence_scope_mismatch");
+  }
+};
+
+const evaluateBehaviorBaselineHint = (value, expectedScopeInput = null) => {
   if (value === undefined) {
     return {
       present: false,
@@ -472,6 +507,34 @@ const evaluateBehaviorBaselineHint = (value) => {
   ) {
     pushReason(reasons, "behavior_baseline_required");
   }
+  const expectedScope = normalizeBehaviorBaselineScope(expectedScopeInput);
+  const expectedExecutionMode =
+    expectedScope.effective_execution_mode ?? expectedScope.requested_execution_mode;
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: profileRef,
+    expected: expectedScope.profile_ref
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: targetDomain,
+    expected: expectedScope.target_domain
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: effectiveExecutionMode,
+    expected: expectedExecutionMode
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: probeBundleRef,
+    expected: expectedScope.probe_bundle_ref
+  });
+  pushBehaviorBaselineScopeMismatch({
+    reasons,
+    actual: goalKind,
+    expected: expectedScope.goal_kind
+  });
 
   const hint = {
     schema_version: schemaVersion,
@@ -546,7 +609,13 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
   const rawBehaviorBaselineHint = hasPresentField(record, "behaviorBaselineHint")
     ? record.behaviorBaselineHint
     : record.behavior_baseline_hint;
-  const behaviorBaselineHint = evaluateBehaviorBaselineHint(rawBehaviorBaselineHint);
+  const rawBehaviorBaselineScope = hasPresentField(record, "behaviorBaselineScope")
+    ? record.behaviorBaselineScope
+    : record.behavior_baseline_scope;
+  const behaviorBaselineHint = evaluateBehaviorBaselineHint(
+    rawBehaviorBaselineHint,
+    rawBehaviorBaselineScope
+  );
   const behaviorBaselineHintRequired =
     record.behaviorBaselineHintRequired === true || record.behavior_baseline_hint_required === true;
   const required = isRiskEvidenceGateRequired(record);

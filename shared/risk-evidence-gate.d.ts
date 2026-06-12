@@ -66,6 +66,21 @@ export interface RiskEvidenceGateResultLike {
   downstream_owner?: unknown;
 }
 
+export interface BehaviorBaselineScopeBinding {
+  profile_ref?: unknown;
+  profileRef?: unknown;
+  target_domain?: unknown;
+  targetDomain?: unknown;
+  requested_execution_mode?: unknown;
+  requestedExecutionMode?: unknown;
+  effective_execution_mode?: unknown;
+  effectiveExecutionMode?: unknown;
+  probe_bundle_ref?: unknown;
+  probeBundleRef?: unknown;
+  goal_kind?: unknown;
+  goalKind?: unknown;
+}
+
 export interface RiskEvidenceConsumerInput {
   required?: boolean;
   riskEvidenceRequired?: boolean;
@@ -76,6 +91,8 @@ export interface RiskEvidenceConsumerInput {
   risk_evidence_gate_result?: unknown;
   behaviorBaselineHint?: unknown;
   behavior_baseline_hint?: unknown;
+  behaviorBaselineScope?: BehaviorBaselineScopeBinding | unknown;
+  behavior_baseline_scope?: BehaviorBaselineScopeBinding | unknown;
   nonProofsObserved?: unknown;
   non_proofs_observed?: unknown;
   nonProofs?: unknown;

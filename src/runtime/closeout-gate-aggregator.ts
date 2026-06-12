@@ -81,6 +81,39 @@ const blocker = (
 const isCloseoutRhythmAllowed = (rhythmState: string | null): boolean =>
   rhythmState === "not_required" || rhythmState === "single_probe_passed";
 
+const resolveBehaviorBaselineGoalKind = (params: JsonObject): "read" | "write" | null => {
+  const explicitGoalKind = asString(params.goal_kind);
+  if (explicitGoalKind === "read" || explicitGoalKind === "write") {
+    return explicitGoalKind;
+  }
+  const actionType = asString(params.action_type);
+  if (actionType === "write" || actionType === "irreversible_write") {
+    return "write";
+  }
+  if (actionType === "read") {
+    return "read";
+  }
+  return asString(params.requested_execution_mode) === "live_write" ? "write" : "read";
+};
+
+const resolveBehaviorBaselineProbeBundleRef = (
+  params: JsonObject,
+  goalKind: "read" | "write" | null
+): string | null => {
+  const explicit =
+    asString(params.behavior_baseline_probe_bundle_ref) ?? asString(params.probe_bundle_ref);
+  if (explicit) {
+    return explicit;
+  }
+  if (goalKind === "write") {
+    return "probe-bundle://fr-0022/xhs-write";
+  }
+  if (goalKind === "read") {
+    return "probe-bundle://fr-0022/xhs-read";
+  }
+  return null;
+};
+
 export const buildCloseoutGateAggregator = (input: {
   status: JsonObject;
   runtimePreflight: CloseoutRuntimeReadinessPreflight;
@@ -108,6 +141,12 @@ export const buildCloseoutGateAggregator = (input: {
     : hasOwn(status, "behavior_baseline_hint")
       ? status.behavior_baseline_hint
       : status.behaviorBaselineHint;
+  const behaviorBaselineGoalKind = resolveBehaviorBaselineGoalKind(params);
+  const closeoutTargetDomain =
+    asString(params.target_domain) ??
+    asString(params.requested_target_domain) ??
+    input.runtimePreflight.target_binding.managed_target_domain ??
+    input.runtimePreflight.target_binding.requested_target_domain;
   const riskEvidenceConsumerGate = evaluateRiskEvidenceConsumerGate({
     riskEvidenceRequired:
       params.risk_evidence_required === true || params.closeout_risk_evidence_required === true,
@@ -116,6 +155,15 @@ export const buildCloseoutGateAggregator = (input: {
       params.behavior_baseline_hint_required === true ||
       params.closeout_behavior_baseline_hint_required === true,
     behavior_baseline_hint: rawBehaviorBaselineHint,
+    behavior_baseline_scope: {
+      profile_ref: asString(status.profile),
+      target_domain: closeoutTargetDomain,
+      requested_execution_mode: asString(params.requested_execution_mode),
+      effective_execution_mode:
+        asString(params.effective_execution_mode) ?? asString(params.requested_execution_mode),
+      probe_bundle_ref: resolveBehaviorBaselineProbeBundleRef(params, behaviorBaselineGoalKind),
+      goal_kind: behaviorBaselineGoalKind
+    },
     non_proofs_observed: rawNonProofsObserved
   });
   const identityPreflightMode = asString(identityPreflight?.mode);
