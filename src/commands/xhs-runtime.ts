@@ -3186,12 +3186,19 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   const singleProbeRequired = input.xhsCloseoutRhythm.single_probe_required === true;
   const probeRunId = asString(input.xhsCloseoutRhythm.probe_run_id);
   const accountSafetyClear = asString(input.accountSafetyGateResult.decision) === "allow";
+  const accountRiskBlocked = input.accountSafety.state === "account_risk_blocked";
+  const accountSafetyRequiredForPreflight =
+    input.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ||
+    input.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND ||
+    input.requestedExecutionMode === "live_write";
+  const accountSafetyAllowsPreflight =
+    !accountRiskBlocked && (!accountSafetyRequiredForPreflight || accountSafetyClear);
 
   if (
     recoveryProbe &&
     input.requestedExecutionMode === "recon" &&
     rhythmState === "single_probe_required" &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     probeRunId === null
   ) {
     return;
@@ -3200,7 +3207,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   if (
     !recoveryProbe &&
     xhsLiveReadBaselineGate &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     rhythmState === "single_probe_passed" &&
     input.antiDetectionValidationView?.all_required_ready === true
   ) {
@@ -3210,7 +3217,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   if (
     !recoveryProbe &&
     isLiveXhsExecutionMode(input.requestedExecutionMode) &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     rhythmState === "not_required"
   ) {
     return;
@@ -3220,7 +3227,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
     !recoveryProbe &&
     !xhsLiveReadBaselineGate &&
     isLiveXhsExecutionMode(input.requestedExecutionMode) &&
-    accountSafetyClear &&
+    accountSafetyAllowsPreflight &&
     rhythmState === "single_probe_passed" &&
     input.antiDetectionValidationView?.all_required_ready === true
   ) {
@@ -3228,9 +3235,9 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   }
 
   const blockReason =
-    input.accountSafety.state === "account_risk_blocked"
+    accountRiskBlocked
       ? "ACCOUNT_RISK_BLOCKED"
-      : !accountSafetyClear
+      : !accountSafetyAllowsPreflight
         ? "ACCOUNT_SAFETY_NOT_READY"
       : recoveryProbe && input.requestedExecutionMode !== "recon"
         ? "XHS_RECOVERY_PROBE_MODE_INVALID"
