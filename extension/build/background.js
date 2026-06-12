@@ -7566,7 +7566,10 @@ class ChromeBackgroundBridge {
             (canonicalRequestedExecutionMode === "live_read_limited" ||
                 canonicalRequestedExecutionMode === "live_read_high_risk")
             ? canonicalRequestedExecutionMode
-            : resolvedEffectiveExecutionMode;
+            : shouldAdoptCanonicalHintGateBlock
+                ? (parseRequestedExecutionMode(canonicalConsumerGateResult?.effective_execution_mode) ??
+                    resolvedEffectiveExecutionMode)
+                : resolvedEffectiveExecutionMode;
         const adoptedGateReasons = canAdoptCanonicalLiveAdmission
             ? canonicalConsumerGateReasons
             : shouldAdoptCanonicalHintGateBlock

@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createChromeApi,
+  createFingerprintRuntimeContext,
   createMockPort,
   createXhsCommandParams,
   asRecord,
+  primeTrustedFingerprintContext,
   respondHandshake,
   startChromeBackgroundBridge,
   waitForBridgeTurn,
@@ -453,11 +455,12 @@ describe("extension service worker / background command dispatch", () => {
 
   it("fails closed before content dispatch when FR-0022 hold_live_write targets live_write", async () => {
     const firstPort = createMockPort();
-    const { chromeApi } = createChromeApi([firstPort]);
+    const { chromeApi, runtimeMessageListeners } = createChromeApi([firstPort]);
+    const creatorUrl = "https://creator.xiaohongshu.com/publish/publish?source=tab";
     chromeApi.tabs.query.mockImplementation(async () => [
       {
         id: 32,
-        url: "https://creator.xiaohongshu.com/publish/publish?source=tab",
+        url: creatorUrl,
         active: true
       }
     ]);
@@ -465,6 +468,27 @@ describe("extension service worker / background command dispatch", () => {
     startChromeBackgroundBridge(chromeApi);
     respondHandshake(firstPort);
     await waitForBridgeTurn();
+
+    const runId = "run-command-dispatch-platform-behavior-hold-live-write-001";
+    const fingerprintContext = createFingerprintRuntimeContext({
+      live_allowed: true,
+      live_decision: "allowed",
+      allowed_execution_modes: [
+        "dry_run",
+        "recon",
+        "live_read_limited",
+        "live_read_high_risk",
+        "live_write"
+      ]
+    });
+    await primeTrustedFingerprintContext({
+      runtimeMessageListeners,
+      runId,
+      profile: "profile-a",
+      fingerprintContext,
+      tabId: 32,
+      tabUrl: creatorUrl
+    });
 
     const approvalRecord = {
       approved: true,
@@ -479,12 +503,12 @@ describe("extension service worker / background command dispatch", () => {
       }
     };
     firstPort.onMessageListeners[0]?.({
-      id: "run-command-dispatch-platform-behavior-hold-live-write-001",
+      id: runId,
       method: "bridge.forward",
       profile: "profile-a",
       params: {
         session_id: "nm-session-001",
-        run_id: "run-command-dispatch-platform-behavior-hold-live-write-001",
+        run_id: runId,
         command: "xhs.creator_publish.controlled_live_write",
         command_params: createXhsCommandParams({
           issue_scope: "issue_835",
@@ -499,6 +523,7 @@ describe("extension service worker / background command dispatch", () => {
           risk_state: "allowed",
           controlled_live_write: true,
           approval_record: approvalRecord,
+          fingerprint_context: fingerprintContext,
           platform_behavior_assessment_required: true,
           platform_behavior_assessment: {
             ...platformBehaviorAssessment(),
@@ -534,7 +559,7 @@ describe("extension service worker / background command dispatch", () => {
     });
 
     await waitForPostedMessage(firstPort.postMessage, {
-      id: "run-command-dispatch-platform-behavior-hold-live-write-001",
+      id: runId,
       status: "error",
       payload: expect.objectContaining({
         consumer_gate_result: expect.objectContaining({
