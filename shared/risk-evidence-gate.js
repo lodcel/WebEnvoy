@@ -114,6 +114,9 @@ const NON_PROOF_REASON_MAP = {
 const asRecord = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
 
+const hasPresentField = (record, key) =>
+  Object.prototype.hasOwnProperty.call(record, key) && record[key] !== undefined;
+
 const asString = (value) => (typeof value === "string" && value.trim().length > 0 ? value.trim() : null);
 
 const asIsoTimestamp = (value) => {
@@ -125,10 +128,28 @@ const asIsoTimestamp = (value) => {
   return Number.isNaN(parsed) ? null : timestamp;
 };
 
-const asStringArray = (value) =>
-  Array.isArray(value)
-    ? value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
-    : [];
+const classifyStringArray = (value) => {
+  if (!Array.isArray(value)) {
+    return {
+      values: [],
+      malformed: value !== undefined && value !== null
+    };
+  }
+
+  const values = [];
+  let malformed = false;
+  for (const item of value) {
+    const normalized = asString(item);
+    if (normalized) {
+      values.push(normalized);
+    } else {
+      malformed = true;
+    }
+  }
+  return { values, malformed };
+};
+
+const asStringArray = (value) => classifyStringArray(value).values;
 
 const pushReason = (target, reason) => {
   if (reason && !target.includes(reason)) {
@@ -136,10 +157,45 @@ const pushReason = (target, reason) => {
   }
 };
 
-const normalizeNonProofs = (value) =>
-  asStringArray(value).filter((item) => RISK_EVIDENCE_NON_PROOFS.has(item));
+const classifyNonProofs = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  for (const item of classified.values) {
+    if (!RISK_EVIDENCE_NON_PROOFS.has(item)) {
+      pushReason(reasons, "risk_evidence_unclassified");
+    }
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    present: Array.isArray(value) || classified.malformed
+  };
+};
 
-const normalizeBlockingReasons = (value) => asStringArray(value);
+const classifyBlockingReasons = (value) => {
+  const classified = classifyStringArray(value);
+  const reasons = [];
+  if (!Array.isArray(value)) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  for (const reason of classified.values) {
+    pushReason(
+      reasons,
+      RISK_EVIDENCE_BLOCKING_REASONS.has(reason) ? reason : "risk_evidence_unclassified"
+    );
+  }
+  if (classified.malformed) {
+    pushReason(reasons, "risk_evidence_unclassified");
+  }
+  return {
+    values: classified.values,
+    reasons,
+    malformed: reasons.includes("risk_evidence_unclassified")
+  };
+};
 
 const collectNonProofBlockingReasons = (nonProofs) => {
   const reasons = [];
@@ -174,26 +230,37 @@ export const isRiskEvidenceGateRequired = (input = {}) => {
     record.required === true ||
     record.riskEvidenceRequired === true ||
     record.risk_evidence_required === true ||
-    asRecord(record.riskEvidenceGateResult) !== null ||
-    asRecord(record.risk_evidence_gate_result) !== null ||
-    normalizeNonProofs(record.nonProofsObserved).length > 0 ||
-    normalizeNonProofs(record.non_proofs_observed).length > 0 ||
-    normalizeNonProofs(record.nonProofs).length > 0 ||
-    normalizeNonProofs(record.non_proofs).length > 0
+    hasPresentField(record, "riskEvidenceGateResult") ||
+    hasPresentField(record, "risk_evidence_gate_result") ||
+    classifyNonProofs(record.nonProofsObserved).present ||
+    classifyNonProofs(record.non_proofs_observed).present ||
+    classifyNonProofs(record.nonProofs).present ||
+    classifyNonProofs(record.non_proofs).present
   );
 };
 
 export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
   const record = asRecord(input) ?? {};
-  const riskEvidenceGateResult =
-    asRecord(record.riskEvidenceGateResult) ?? asRecord(record.risk_evidence_gate_result);
+  const rawRiskEvidenceGateResult = hasPresentField(record, "riskEvidenceGateResult")
+    ? record.riskEvidenceGateResult
+    : record.risk_evidence_gate_result;
+  const riskEvidenceGateResult = asRecord(rawRiskEvidenceGateResult);
+  const nonProofClassifications = [
+    classifyNonProofs(record.nonProofsObserved),
+    classifyNonProofs(record.non_proofs_observed),
+    classifyNonProofs(record.nonProofs),
+    classifyNonProofs(record.non_proofs)
+  ];
   const nonProofsObserved = [
-    ...normalizeNonProofs(record.nonProofsObserved),
-    ...normalizeNonProofs(record.non_proofs_observed),
-    ...normalizeNonProofs(record.nonProofs),
-    ...normalizeNonProofs(record.non_proofs)
+    ...nonProofClassifications.flatMap((classification) => classification.values)
   ].filter((item, index, items) => items.indexOf(item) === index);
+  const nonProofGateReasons = nonProofClassifications.flatMap(
+    (classification) => classification.reasons
+  );
   const required = isRiskEvidenceGateRequired(record);
+  const riskEvidenceGateResultProvided =
+    hasPresentField(record, "riskEvidenceGateResult") ||
+    hasPresentField(record, "risk_evidence_gate_result");
 
   if (!required) {
     return {
@@ -215,8 +282,12 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
     return buildBlockedResult({
       required,
       gateReasons:
-        nonProofsObserved.length > 0
-          ? collectNonProofBlockingReasons(nonProofsObserved)
+        riskEvidenceGateResultProvided && rawRiskEvidenceGateResult !== null
+          ? ["risk_evidence_unclassified"]
+          : nonProofsObserved.length > 0 || nonProofGateReasons.length > 0
+          ? [...collectNonProofBlockingReasons(nonProofsObserved), ...nonProofGateReasons].filter(
+              (reason, index, reasons) => reasons.indexOf(reason) === index
+            )
           : ["risk_evidence_missing"],
       riskEvidenceState: "missing",
       riskEvidenceDecision: null,
@@ -232,11 +303,18 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
   const schemaVersion = asString(riskEvidenceGateResult.schema_version);
   const riskEvidenceRef = asString(riskEvidenceGateResult.risk_evidence_ref);
   const evidenceRefsConsumed = asStringArray(riskEvidenceGateResult.evidence_refs_consumed);
+  const evidenceRefsConsumedShape = classifyStringArray(
+    riskEvidenceGateResult.evidence_refs_consumed
+  );
   const evaluatedAt = asIsoTimestamp(riskEvidenceGateResult.evaluated_at);
   const downstreamOwner = asString(riskEvidenceGateResult.downstream_owner) ?? "none";
-  const blockingReasons = normalizeBlockingReasons(riskEvidenceGateResult.blocking_reasons);
+  const blockingReasonsShape = classifyBlockingReasons(riskEvidenceGateResult.blocking_reasons);
+  const blockingReasons = blockingReasonsShape.values;
   const gateReasons = [];
 
+  for (const reason of nonProofGateReasons) {
+    pushReason(gateReasons, reason);
+  }
   if (schemaVersion !== RISK_EVIDENCE_SCHEMA_VERSION) {
     pushReason(gateReasons, "risk_evidence_unclassified");
   }
@@ -252,11 +330,11 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
   if (downstreamOwner === "none") {
     pushReason(gateReasons, "downstream_owner_required");
   }
-  for (const reason of blockingReasons) {
-    pushReason(
-      gateReasons,
-      RISK_EVIDENCE_BLOCKING_REASONS.has(reason) ? reason : "risk_evidence_unclassified"
-    );
+  if (evidenceRefsConsumedShape.malformed) {
+    pushReason(gateReasons, "risk_evidence_unclassified");
+  }
+  for (const reason of blockingReasonsShape.reasons) {
+    pushReason(gateReasons, reason);
   }
 
   if (riskEvidenceState && riskEvidenceState !== "accepted") {
@@ -266,6 +344,9 @@ export const evaluateRiskEvidenceConsumerGate = (input = {}) => {
     pushReason(gateReasons, blockingReasons.length > 0 ? null : "risk_evidence_unclassified");
   }
   if (riskEvidenceState === "accepted" && riskEvidenceDecision === "allow_input_to_1188") {
+    if (blockingReasonsShape.malformed) {
+      pushReason(gateReasons, "risk_evidence_unclassified");
+    }
     if (downstreamOwner !== RISK_EVIDENCE_DOWNSTREAM_OWNER) {
       pushReason(gateReasons, "downstream_owner_required");
     }

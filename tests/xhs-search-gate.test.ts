@@ -421,6 +421,46 @@ describe("xhs-search gate helpers", () => {
     );
   });
 
+  it("fails closed through resolveGate when runtime non-proof signals are unknown", () => {
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        non_proofs_observed: ["runtime_bootstrap_ack_typo", { source: "runtime_ping" }],
+        approval_record: {}
+      },
+      {
+        runId: "run-risk-evidence-unknown-non-proof-001",
+        requestId: "dispatch-risk-evidence-unknown-non-proof-001",
+        commandRequestId: "cmd-risk-evidence-unknown-non-proof-001",
+        sessionId: "session-risk-evidence-unknown-non-proof-001",
+        profile: "profile-risk-evidence-unknown-non-proof-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      risk_evidence_consumer_gate: {
+        required: true,
+        accepted_risk_input: false,
+        decision: "blocked"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["risk_evidence_unclassified"])
+    );
+  });
+
   it("fails closed through resolveGate when runtime options carry malformed accepted risk evidence", () => {
     const gate = resolveGate(
       {
@@ -461,6 +501,49 @@ describe("xhs-search gate helpers", () => {
     });
     expect(gate.consumer_gate_result.gate_reasons).toEqual(
       expect.arrayContaining(["downstream_owner_required"])
+    );
+  });
+
+  it("fails closed through resolveGate when accepted risk evidence omits blocking_reasons", () => {
+    const malformedRiskEvidence = acceptedRiskEvidenceGateResult() as Record<string, unknown>;
+    delete malformedRiskEvidence.blocking_reasons;
+
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        risk_evidence_required: true,
+        risk_evidence_gate_result: malformedRiskEvidence,
+        approval_record: {}
+      },
+      {
+        runId: "run-risk-evidence-missing-blockers-001",
+        requestId: "dispatch-risk-evidence-missing-blockers-001",
+        commandRequestId: "cmd-risk-evidence-missing-blockers-001",
+        sessionId: "session-risk-evidence-missing-blockers-001",
+        profile: "profile-risk-evidence-missing-blockers-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: false,
+        decision: "blocked"
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["risk_evidence_unclassified"])
     );
   });
 

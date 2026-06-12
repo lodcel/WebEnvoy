@@ -30,8 +30,8 @@ export interface RiskEvidenceConsumerInput {
   required?: boolean;
   riskEvidenceRequired?: boolean;
   risk_evidence_required?: boolean;
-  riskEvidenceGateResult?: RiskEvidenceGateResultLike | null;
-  risk_evidence_gate_result?: RiskEvidenceGateResultLike | null;
+  riskEvidenceGateResult?: unknown;
+  risk_evidence_gate_result?: unknown;
   nonProofsObserved?: unknown;
   non_proofs_observed?: unknown;
   nonProofs?: unknown;

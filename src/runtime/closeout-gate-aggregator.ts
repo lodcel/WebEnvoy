@@ -65,6 +65,9 @@ const asString = (value: unknown): string | null =>
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
+const hasOwn = (record: JsonObject, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(record, key);
+
 const blocker = (
   blockerLayer: CloseoutGateBlockerLayer,
   blockerCode: CloseoutGateBlockerCode,
@@ -90,15 +93,21 @@ export const buildCloseoutGateAggregator = (input: {
   const accountSafety = asObject(status.account_safety);
   const closeoutRhythm = asObject(status.xhs_closeout_rhythm);
   const validationView = input.antiDetectionValidationView ?? null;
+  const rawRiskEvidenceGateResult = hasOwn(params, "risk_evidence_gate_result")
+    ? params.risk_evidence_gate_result
+    : hasOwn(status, "risk_evidence_gate_result")
+      ? status.risk_evidence_gate_result
+      : status.riskEvidenceGateResult;
+  const rawNonProofsObserved = hasOwn(params, "non_proofs_observed")
+    ? params.non_proofs_observed
+    : hasOwn(status, "non_proofs_observed")
+      ? status.non_proofs_observed
+      : status.non_proofs;
   const riskEvidenceConsumerGate = evaluateRiskEvidenceConsumerGate({
     riskEvidenceRequired:
       params.risk_evidence_required === true || params.closeout_risk_evidence_required === true,
-    risk_evidence_gate_result:
-      asObject(params.risk_evidence_gate_result) ??
-      asObject(status.risk_evidence_gate_result) ??
-      asObject(status.riskEvidenceGateResult),
-    non_proofs_observed:
-      params.non_proofs_observed ?? status.non_proofs_observed ?? status.non_proofs
+    risk_evidence_gate_result: rawRiskEvidenceGateResult,
+    non_proofs_observed: rawNonProofsObserved
   });
   const identityPreflightMode = asString(identityPreflight?.mode);
   const accountSafetyState = asString(accountSafety?.state);

@@ -122,6 +122,9 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
+const hasOwn = (record: object | null | undefined, key: string): boolean =>
+  record !== null && record !== undefined && Object.prototype.hasOwnProperty.call(record, key);
+
 const LIVE_EXECUTION_MODES = new Set(["live_read_limited", "live_read_high_risk", "live_write"]);
 const XHS_PAGE_COMMANDS = new Set([
   "xhs.search",
@@ -2690,15 +2693,11 @@ export class ContentScriptHandler {
               }
             : {}),
           ...(options.risk_evidence_required === true ? { risk_evidence_required: true } : {}),
-          ...(asRecord(options.risk_evidence_gate_result)
-            ? { risk_evidence_gate_result: asRecord(options.risk_evidence_gate_result) ?? {} }
+          ...(hasOwn(options, "risk_evidence_gate_result")
+            ? { risk_evidence_gate_result: options.risk_evidence_gate_result }
             : {}),
-          ...(Array.isArray(options.non_proofs_observed)
-            ? {
-                non_proofs_observed: options.non_proofs_observed.filter(
-                  (proof): proof is string => typeof proof === "string"
-                )
-              }
+          ...(hasOwn(options, "non_proofs_observed")
+            ? { non_proofs_observed: options.non_proofs_observed }
             : {}),
           ...(Array.isArray(options.non_proofs)
             ? {

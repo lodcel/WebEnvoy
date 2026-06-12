@@ -61,8 +61,8 @@ export interface XhsSearchOptions {
   target_binding_transition_evidence?: Record<string, unknown>[];
   downstream_slice_refs?: string[];
   risk_evidence_required?: boolean;
-  risk_evidence_gate_result?: Record<string, unknown>;
-  non_proofs_observed?: string[];
+  risk_evidence_gate_result?: unknown;
+  non_proofs_observed?: unknown;
   non_proofs?: string[];
   page_runtime_readiness_ref?: string;
   xhs_page_runtime_readiness?: Record<string, unknown>;

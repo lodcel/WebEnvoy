@@ -155,6 +155,31 @@ describe("closeout gate aggregator", () => {
     });
   });
 
+  it("blocks closeout when risk evidence non-proof signals are unknown or malformed", () => {
+    expect(
+      buildGate({
+        params: {
+          closeout_risk_evidence_required: true,
+          non_proofs_observed: ["runtime_ping_typo", { source: "runtime_ping" }]
+        }
+      })
+    ).toMatchObject({
+      decision: "NO_GO",
+      blocker: {
+        blocker_layer: "risk_evidence",
+        blocker_code: "risk_evidence_unclassified",
+        required_recovery_action: "provide_current_scope_fr_0070_risk_evidence_for_1188"
+      },
+      gate_state: {
+        risk_evidence_consumer_gate: {
+          accepted_risk_input: false,
+          read_write_allow_proof: false,
+          gate_reasons: ["risk_evidence_unclassified"]
+        }
+      }
+    });
+  });
+
   it("blocks when account safety is not clear", () => {
     expect(
       buildGate({

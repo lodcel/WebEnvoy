@@ -108,6 +108,23 @@ describe("FR-0070 risk evidence consumer gate", () => {
     });
   });
 
+  it.each([
+    ["unknown string", ["runtime_bootstrap_ack_typo"]],
+    ["malformed array entry", [{ source: "runtime_ping" }]],
+    ["non-array value", "runtime_bootstrap_ack_typo"]
+  ])("fails closed for %s in non_proofs_observed", (_caseName, nonProofsObserved) => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        non_proofs_observed: nonProofsObserved
+      })
+    ).toMatchObject({
+      required: true,
+      accepted_risk_input: false,
+      decision: "blocked",
+      gate_reasons: ["risk_evidence_unclassified"]
+    });
+  });
+
   it("does not accept allow_input_to_1188 when evidence refs are absent", () => {
     expect(
       evaluateRiskEvidenceConsumerGate({
@@ -162,5 +179,51 @@ describe("FR-0070 risk evidence consumer gate", () => {
         risk_evidence_gate_result: payload
       }).gate_reasons
     ).toEqual(expect.arrayContaining([expectedReason]));
+  });
+
+  it.each([
+    ["missing blocking_reasons", { blocking_reasons: undefined }],
+    ["non-array blocking_reasons", { blocking_reasons: "risk_evidence_run_mismatch" }],
+    ["malformed blocking_reasons entry", { blocking_reasons: [{}] }],
+    ["unknown blocking_reasons entry", { blocking_reasons: ["unknown_reason"] }]
+  ])("fails closed when accepted payload has %s", (_caseName, override) => {
+    const payload = {
+      ...acceptedRiskEvidence(),
+      ...override
+    };
+    for (const [key, value] of Object.entries(override)) {
+      if (value === undefined) {
+        delete (payload as Record<string, unknown>)[key];
+      }
+    }
+
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result: payload
+      })
+    ).toMatchObject({
+      required: true,
+      accepted_risk_input: false,
+      decision: "blocked",
+      gate_reasons: expect.arrayContaining(["risk_evidence_unclassified"])
+    });
+  });
+
+  it.each([
+    ["non-array evidence refs", { evidence_refs_consumed: "runtime-binding://run-001" }],
+    ["malformed evidence refs entry", { evidence_refs_consumed: [{}] }],
+    ["malformed risk evidence result", "risk-evidence://current-head/run-001"]
+  ])("fails closed for malformed accepted evidence shape: %s", (_caseName, payload) => {
+    expect(
+      evaluateRiskEvidenceConsumerGate({
+        risk_evidence_gate_result:
+          typeof payload === "string"
+            ? payload
+            : {
+                ...acceptedRiskEvidence(),
+                ...payload
+              }
+      }).gate_reasons
+    ).toEqual(expect.arrayContaining(["risk_evidence_unclassified"]));
   });
 });
