@@ -260,12 +260,10 @@ describe("FR-0022 platform behavior assessment gate", () => {
     [
       "write high drift non-restrictive hint",
       readyWriteAssessment({ drift_level: "high", decision_hint: "no_additional_restriction" }),
-      ["platform_behavior_non_restriction_hint_invalid"]
-    ],
-    [
-      "write high drift hold hint",
-      readyWriteAssessment({ drift_level: "high", decision_hint: "hold_live_write" }),
-      ["platform_behavior_hold_live_write", "platform_behavior_high_drift_write_hold"]
+      [
+        "platform_behavior_non_restriction_hint_invalid",
+        "platform_behavior_high_drift_hint_invalid"
+      ]
     ],
     [
       "missing evidence refs",
@@ -281,6 +279,113 @@ describe("FR-0022 platform behavior assessment gate", () => {
         ...freshInputs()
       }).gate_reasons
     ).toEqual(expect.arrayContaining(expectedReasons));
+  });
+
+  it.each([
+    ["read high drift allow_read_only", "read", "allow_read_only"],
+    ["write high drift no_additional_restriction", "write", "no_additional_restriction"]
+  ])("fails closed when %s does not converge to a conservative decision hint", (_name, goalKind, decisionHint) => {
+    const result = evaluatePlatformBehaviorAssessmentGate({
+      platform_behavior_assessment: readyWriteAssessment({
+        target_domain: goalKind === "read" ? "www.xiaohongshu.com" : "creator.xiaohongshu.com",
+        requested_execution_mode: goalKind === "read" ? "dry_run" : "live_write",
+        effective_execution_mode: goalKind === "read" ? "dry_run" : "live_write",
+        goal_kind: goalKind,
+        drift_level: "high",
+        action_type: goalKind === "read" ? "click" : "type",
+        interaction_semantics: goalKind === "read" ? "reveal_only_click" : undefined,
+        click_kind: goalKind === "read" ? "open_detail_view" : undefined,
+        decision_hint: decisionHint
+      }),
+      platform_behavior_assessment_context: context(),
+      expected_platform_behavior_scope: {
+        ...expectedScope(),
+        target_domain: goalKind === "read" ? "www.xiaohongshu.com" : "creator.xiaohongshu.com",
+        requested_execution_mode: goalKind === "read" ? "dry_run" : "live_write",
+        effective_execution_mode: goalKind === "read" ? "dry_run" : "live_write",
+        goal_kind: goalKind
+      },
+      ...freshInputs()
+    });
+
+    expect(result).toMatchObject({
+      accepted_risk_hint: false,
+      decision: "blocked",
+      read_write_allow_proof: false
+    });
+    expect(result.gate_reasons).toContain("platform_behavior_high_drift_hint_invalid");
+  });
+
+  it.each([
+    ["high drift hold_live_write", "high", "hold_live_write"],
+    ["high drift require_manual_review", "high", "require_manual_review"],
+    ["critical drift require_reseed", "critical", "require_reseed"]
+  ])("accepts %s only as bounded non-proof risk input", (_name, driftLevel, decisionHint) => {
+    const result = evaluatePlatformBehaviorAssessmentGate({
+      platform_behavior_assessment: readyWriteAssessment({
+        drift_level: driftLevel,
+        decision_hint: decisionHint,
+        reseed_required: decisionHint === "require_reseed"
+      }),
+      platform_behavior_assessment_context: context(),
+      expected_platform_behavior_scope: expectedScope(),
+      ...freshInputs()
+    });
+
+    expect(result).toMatchObject({
+      accepted_risk_hint: true,
+      decision: "allow_input_to_provider_runtime_decision",
+      read_write_allow_proof: false,
+      account_safety_clearance: false,
+      gate_override_proof: false,
+      drift_level: driftLevel,
+      decision_hint: decisionHint
+    });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["empty", " "]
+  ])("fails closed when ready no_additional_restriction assessment has %s baseline_ref", (_name, baselineRef) => {
+    const result = evaluatePlatformBehaviorAssessmentGate({
+      platform_behavior_assessment: readyWriteAssessment({ baseline_ref: baselineRef }),
+      platform_behavior_assessment_context: context(),
+      expected_platform_behavior_scope: expectedScope(),
+      ...freshInputs()
+    });
+
+    expect(result).toMatchObject({
+      accepted_risk_hint: false,
+      decision: "blocked",
+      read_write_allow_proof: false
+    });
+    expect(result.gate_reasons).toContain("platform_behavior_baseline_ref_missing");
+  });
+
+  it("fails closed when a learning assessment without baseline_ref claims no additional restriction", () => {
+    const result = evaluatePlatformBehaviorAssessmentGate({
+      platform_behavior_assessment: readyWriteAssessment({
+        baseline_ref: undefined,
+        baseline_state: "learning",
+        decision_hint: "no_additional_restriction"
+      }),
+      platform_behavior_assessment_context: context(),
+      expected_platform_behavior_scope: expectedScope(),
+      ...freshInputs()
+    });
+
+    expect(result).toMatchObject({
+      accepted_risk_hint: false,
+      decision: "blocked",
+      read_write_allow_proof: false
+    });
+    expect(result.gate_reasons).toEqual(
+      expect.arrayContaining([
+        "platform_behavior_non_restriction_hint_invalid",
+        "platform_behavior_baseline_ref_missing"
+      ])
+    );
   });
 
   it("keeps read cold-start hints non-proof and does not require session/live evidence", () => {

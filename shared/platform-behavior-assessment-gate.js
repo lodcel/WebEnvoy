@@ -15,6 +15,12 @@ const DECISION_HINTS = new Set([
   "require_manual_review",
   "require_reseed"
 ]);
+const HIGH_DRIFT_DECISION_HINTS = new Set([
+  "hold_live_write",
+  "require_manual_review",
+  "require_reseed"
+]);
+const RESEED_DECISION_HINTS = new Set(["require_manual_review", "require_reseed"]);
 const EXECUTION_MODES = new Set([
   "dry_run",
   "recon",
@@ -258,8 +264,33 @@ const normalizeAssessment = (value, reasons) => {
   ) {
     pushReason(reasons, "platform_behavior_non_restriction_hint_invalid");
   }
+  if (
+    !normalized.baseline_ref &&
+    !isBaselineRefOptionalColdStartOrLearningAssessment(normalized)
+  ) {
+    pushReason(reasons, "platform_behavior_baseline_ref_missing");
+  }
 
   return normalized;
+};
+
+const isBaselineRefOptionalColdStartOrLearningAssessment = (assessment) => {
+  if (!["unseeded", "learning"].includes(assessment.baseline_state)) {
+    return false;
+  }
+  if (assessment.decision_hint === "no_additional_restriction") {
+    return false;
+  }
+  if (assessment.reseed_required || ["high", "critical"].includes(assessment.drift_level)) {
+    return false;
+  }
+  if (assessment.goal_kind === "read") {
+    return ["allow_read_only", "require_manual_review"].includes(assessment.decision_hint);
+  }
+  if (assessment.goal_kind === "write") {
+    return ["hold_live_write", "require_manual_review"].includes(assessment.decision_hint);
+  }
+  return false;
 };
 
 const normalizeExpectedScope = (value, reasons) => {
@@ -338,20 +369,13 @@ const collectDecisionHintReasons = (assessment) => {
   if (!assessment) {
     return reasons;
   }
-  if (assessment.reseed_required || assessment.decision_hint === "require_reseed") {
-    pushReason(reasons, "platform_behavior_reseed_required");
+  if (assessment.reseed_required && !RESEED_DECISION_HINTS.has(assessment.decision_hint)) {
+    pushReason(reasons, "platform_behavior_reseed_hint_invalid");
   }
-  if (assessment.decision_hint === "require_manual_review") {
-    pushReason(reasons, "platform_behavior_manual_review_required");
-  }
-  if (assessment.decision_hint === "hold_live_write") {
-    pushReason(reasons, "platform_behavior_hold_live_write");
-  }
-  if (
-    assessment.goal_kind === "write" &&
-    (assessment.drift_level === "high" || assessment.drift_level === "critical")
-  ) {
-    pushReason(reasons, "platform_behavior_high_drift_write_hold");
+  if (["high", "critical"].includes(assessment.drift_level)) {
+    if (!HIGH_DRIFT_DECISION_HINTS.has(assessment.decision_hint)) {
+      pushReason(reasons, "platform_behavior_high_drift_hint_invalid");
+    }
   }
   if (assessment.goal_kind === "write" && assessment.decision_hint === "allow_read_only") {
     pushReason(reasons, "platform_behavior_read_only_hint_for_write");
@@ -419,18 +443,12 @@ export const evaluatePlatformBehaviorAssessmentGate = (input = {}) => {
   for (const reason of collectFreshnessReasons(assessment, record)) {
     pushReason(gateReasons, reason);
   }
+  const decisionHintReasons = collectDecisionHintReasons(assessment);
+  for (const reason of decisionHintReasons) {
+    pushReason(gateReasons, reason);
+  }
   if (gateReasons.length > 0) {
     return buildBlockedResult({ required, context, assessment, gateReasons });
-  }
-
-  const decisionHintReasons = collectDecisionHintReasons(assessment);
-  if (decisionHintReasons.length > 0) {
-    return buildBlockedResult({
-      required,
-      context,
-      assessment,
-      gateReasons: decisionHintReasons
-    });
   }
 
   return {
