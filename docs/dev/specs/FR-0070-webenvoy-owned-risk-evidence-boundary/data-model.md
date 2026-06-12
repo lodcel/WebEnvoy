@@ -23,6 +23,16 @@
 - `closeout_audit_boundary`: closeout evidence 与 audit 的最低边界。
 - `handoff_refs`: #1182/#1183/#1176/#1187/#1188/#1118 owners。
 
+`provider_consumption_boundary` 的集合字段：
+
+- `allowed_provider_refs`: `ProviderStealthAllowedRiskRef[]`，只列出 WebEnvoy-owned risk evidence 可消费的 provider-owned field/ref kinds，取值必须与 `spec.md` 的 provider consumption list 对齐。
+- `forbidden_provider_inputs`: `ProviderStealthForbiddenRiskInput[]`，只列出不得进入 WebEnvoy-owned risk evidence 的 provider private inputs。
+
+约束：
+
+- `allowed_provider_refs` 和 `forbidden_provider_inputs` 必须是显式 collection，不得写成单个 union-valued field。
+- Provider-owned private input 命中 `forbidden_provider_inputs` 时，必须产生 blocker，不得被降级为 accepted evidence。
+
 生命周期：
 
 - Created by this formal spec suite.

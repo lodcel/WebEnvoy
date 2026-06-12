@@ -283,33 +283,39 @@ Rules:
 ## 11. Provider consumption boundary
 
 ```ts
+type ProviderStealthAllowedRiskRef =
+  | "provider_owned_stealth_boundary_ref"
+  | "provider_contract_ref"
+  | "provider_id"
+  | "provider_mode"
+  | "owned_domains"
+  | "limitation_refs"
+  | "redacted_evidence_refs"
+  | "freshness_ref"
+  | "scope_binding"
+  | "blocking_reasons"
+  | "handoff_refs"
+
+type ProviderStealthForbiddenRiskInput =
+  | "private_patch_payload"
+  | "raw_fingerprint_seed"
+  | "stealth_raw_value"
+  | "browser_binary_diff"
+  | "driver_internal_state"
+  | "fingerprint_internals_snapshot"
+  | "worker_or_kernel_patch_detail"
+
 interface ProviderStealthRiskConsumptionBoundary {
   provider_stealth_owner: "#1182" | "FR-0069"
-  allowed_provider_refs:
-    | "provider_owned_stealth_boundary_ref"
-    | "provider_contract_ref"
-    | "provider_id"
-    | "provider_mode"
-    | "owned_domain"
-    | "limitation_ref"
-    | "redacted_evidence_ref"
-    | "freshness_ref"
-    | "scope_binding"
-    | "blocking_reason"
-  forbidden_provider_inputs:
-    | "private_patch_payload"
-    | "raw_fingerprint_seed"
-    | "stealth_raw_value"
-    | "browser_binary_diff"
-    | "driver_internal_state"
-    | "fingerprint_internals_snapshot"
-    | "worker_or_kernel_patch_detail"
+  allowed_provider_refs: ProviderStealthAllowedRiskRef[]
+  forbidden_provider_inputs: ProviderStealthForbiddenRiskInput[]
 }
 ```
 
 Rules:
 
 - Any forbidden provider input invalidates the evidence and must produce a blocker.
+- `allowed_provider_refs` and `forbidden_provider_inputs` are explicit sets; consumers must not collapse them into a single selected union value.
 - Allowed provider refs are context/blocker inputs, not proof of risk acceptance.
 
 ## 12. Closeout audit boundary
