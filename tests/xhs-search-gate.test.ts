@@ -244,6 +244,36 @@ const acceptedRiskEvidenceGateResult = () => ({
   downstream_owner: "#1188"
 });
 
+const acceptedBehaviorBaselineHint = () => ({
+  schema_version: "webenvoy-behavior-baseline-hint.v1",
+  target_fr_ref: "FR-0022",
+  validation_scope: "cross_layer_baseline",
+  assessment_ref: "behavior-assessment://xhs/current-head/run-001",
+  baseline_ref: "platform-behavior-baseline://xhs/www/read/v1",
+  baseline_state: "ready",
+  drift_level: "low",
+  decision_hint: "allow_read_only",
+  confidence: 0.82,
+  profile_ref: "xhs_001",
+  target_domain: "www.xiaohongshu.com",
+  browser_channel: "Google Chrome stable",
+  execution_surface: "real_browser",
+  effective_execution_mode: "live_read_high_risk",
+  probe_bundle_ref: "probe-bundle://fr-0022/xhs-read",
+  goal_kind: "read",
+  reseed_required: false,
+  evidence_refs_consumed: ["platform-behavior-signal-batch://run-001"],
+  assessed_at: "2026-06-12T09:51:00.000Z"
+});
+
+const acceptedWriteBehaviorBaselineHint = () => ({
+  ...acceptedBehaviorBaselineHint(),
+  baseline_ref: "platform-behavior-baseline://xhs/www/write/v1",
+  decision_hint: "no_additional_restriction",
+  effective_execution_mode: "live_write",
+  goal_kind: "write"
+});
+
 describe("xhs-search gate helpers", () => {
   it("consumes accepted FR-0070 risk evidence as necessary input without making it standalone allow proof", () => {
     const gate = evaluateXhsGate({
@@ -418,6 +448,150 @@ describe("xhs-search gate helpers", () => {
       downstream_owner: "#1188"
     });
     expect(gate.consumer_gate_result.gate_decision).toBe("allowed");
+  });
+
+  it("fails closed through resolveGate when behavior baseline hint is required but missing", () => {
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        risk_evidence_required: true,
+        risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+        behavior_baseline_hint_required: true,
+        approval_record: {}
+      },
+      {
+        runId: "run-behavior-baseline-required-001",
+        requestId: "dispatch-behavior-baseline-required-001",
+        commandRequestId: "cmd-behavior-baseline-required-001",
+        sessionId: "session-behavior-baseline-required-001",
+        profile: "profile-behavior-baseline-required-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: false,
+        read_write_allow_proof: false,
+        decision: "blocked",
+        gate_reasons: ["behavior_baseline_required"],
+        behavior_baseline_hint_accepted: false,
+        behavior_baseline_hint: null
+      }
+    });
+    expect(gate.consumer_gate_result.gate_reasons).toEqual(
+      expect.arrayContaining(["behavior_baseline_required"])
+    );
+  });
+
+  it("forwards valid behavior baseline hint through resolveGate only as bounded risk input", () => {
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        risk_evidence_required: true,
+        risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+        behavior_baseline_hint_required: true,
+        behavior_baseline_hint: acceptedBehaviorBaselineHint(),
+        approval_record: {}
+      },
+      {
+        runId: "run-behavior-baseline-valid-001",
+        requestId: "dispatch-behavior-baseline-valid-001",
+        commandRequestId: "cmd-behavior-baseline-valid-001",
+        sessionId: "session-behavior-baseline-valid-001",
+        profile: "profile-behavior-baseline-valid-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "allowed",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: true,
+        read_write_allow_proof: false,
+        decision: "allow_input_to_consumer_gate",
+        behavior_baseline_hint_accepted: true,
+        behavior_baseline_hint: {
+          target_fr_ref: "FR-0022",
+          validation_scope: "cross_layer_baseline",
+          decision_hint: "allow_read_only",
+          profile_ref: "xhs_001",
+          target_domain: "www.xiaohongshu.com"
+        }
+      }
+    });
+    expect(gate.consumer_gate_result.risk_evidence_consumer_gate?.behavior_baseline_hint).not.toMatchObject({
+      account_health_score: expect.anything(),
+      account_pool_ref: expect.anything(),
+      long_term_profile_score: expect.anything()
+    });
+  });
+
+  it("preserves baseline_ref fail-closed behavior through resolveGate", () => {
+    const gate = resolveGate(
+      {
+        issue_scope: "issue_209",
+        risk_state: "allowed",
+        target_domain: "www.xiaohongshu.com",
+        target_tab_id: 12,
+        target_page: "search_result_tab",
+        actual_target_domain: "www.xiaohongshu.com",
+        actual_target_tab_id: 12,
+        actual_target_page: "search_result_tab",
+        action_type: "read",
+        ability_action: "read",
+        requested_execution_mode: "dry_run",
+        risk_evidence_required: true,
+        risk_evidence_gate_result: acceptedRiskEvidenceGateResult(),
+        behavior_baseline_hint_required: true,
+        behavior_baseline_hint: {
+          ...acceptedWriteBehaviorBaselineHint(),
+          baseline_ref: null
+        },
+        approval_record: {}
+      },
+      {
+        runId: "run-behavior-baseline-baseline-ref-001",
+        requestId: "dispatch-behavior-baseline-baseline-ref-001",
+        commandRequestId: "cmd-behavior-baseline-baseline-ref-001",
+        sessionId: "session-behavior-baseline-baseline-ref-001",
+        profile: "profile-behavior-baseline-baseline-ref-001"
+      },
+      "https://www.xiaohongshu.com/search_result?keyword=camping"
+    );
+
+    expect(gate.consumer_gate_result).toMatchObject({
+      gate_decision: "blocked",
+      risk_evidence_consumer_gate: {
+        accepted_risk_input: false,
+        read_write_allow_proof: false,
+        decision: "blocked",
+        gate_reasons: expect.arrayContaining(["behavior_baseline_required"]),
+        behavior_baseline_hint_accepted: false,
+        behavior_baseline_hint: null
+      }
+    });
   });
 
   it("forwards runtime non-proof signals through resolveGate as fail-closed risk evidence input", () => {

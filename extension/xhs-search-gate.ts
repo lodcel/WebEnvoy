@@ -166,6 +166,8 @@ export const resolveGate = (
     limitedReadRolloutReadyTrue: options.limited_read_rollout_ready_true === true,
     risk_evidence_required: options.risk_evidence_required === true,
     risk_evidence_gate_result: options.risk_evidence_gate_result,
+    behavior_baseline_hint_required: options.behavior_baseline_hint_required === true,
+    behavior_baseline_hint: options.behavior_baseline_hint,
     non_proofs_observed: options.non_proofs_observed,
     additionalGateReasons: Array.isArray(options.admission_gate_reasons)
       ? options.admission_gate_reasons.filter((reason): reason is string => typeof reason === "string")
