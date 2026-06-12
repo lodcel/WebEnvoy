@@ -4126,7 +4126,13 @@ const executeXhsRead = async (
         {
           ability_id: input.abilityId,
           stage: "execution",
-          reason: "EXECUTION_MODE_GATE_BLOCKED"
+          reason: "EXECUTION_MODE_GATE_BLOCKED",
+          ...(asRecord(input.options.account_safety_gate_result)
+            ? {
+                account_safety_gate_result:
+                  asRecord(input.options.account_safety_gate_result) ?? {}
+              }
+            : {})
         },
         createReadObservability({
           spec,

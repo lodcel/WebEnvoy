@@ -3185,7 +3185,7 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   const fullBundleBlocked = input.xhsCloseoutRhythm.full_bundle_blocked === true;
   const singleProbeRequired = input.xhsCloseoutRhythm.single_probe_required === true;
   const probeRunId = asString(input.xhsCloseoutRhythm.probe_run_id);
-  const accountSafetyClear = input.accountSafety.state === "clear";
+  const accountSafetyClear = asString(input.accountSafetyGateResult.decision) === "allow";
 
   if (
     recoveryProbe &&
@@ -3230,6 +3230,8 @@ const assertXhsLivePreflightAllowsCommand = (input: {
   const blockReason =
     input.accountSafety.state === "account_risk_blocked"
       ? "ACCOUNT_RISK_BLOCKED"
+      : !accountSafetyClear
+        ? "ACCOUNT_SAFETY_NOT_READY"
       : recoveryProbe && input.requestedExecutionMode !== "recon"
         ? "XHS_RECOVERY_PROBE_MODE_INVALID"
       : !recoveryProbe && isLiveXhsExecutionMode(input.requestedExecutionMode) && rhythmState === "single_probe_passed"
@@ -3677,6 +3679,7 @@ const xhsReadCommand = async (
 
   const profileStore = new ProfileStore(resolveRuntimeProfileRoot(context.cwd));
   let profileMeta = context.profile ? await profileStore.readMeta(context.profile) : null;
+  const profileMetaRecord = asObject(profileMeta);
   const accountSafetyStatus = toAccountSafetyStatus(profileMeta?.accountSafety);
   const accountSafetyGateCapabilityLevel =
     context.command === XHS_CONTROLLED_LIVE_WRITE_COMMAND
@@ -3731,7 +3734,9 @@ const xhsReadCommand = async (
       },
       downstreamOwner: context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND ? "#1179" : "none"
     });
-  const accountSafetyGateResult = buildCurrentAccountSafetyGateResult(profileMeta?.accountSafety);
+  const accountSafetyGateInput =
+    profileMetaRecord?.accountSafetyStateRecord ?? profileMeta?.accountSafety;
+  const accountSafetyGateResult = buildCurrentAccountSafetyGateResult(accountSafetyGateInput);
   const profileReadiness = {
     profile: context.profile ?? null,
     profile_state: profileMeta?.profileState ?? "missing",
@@ -3739,7 +3744,7 @@ const xhsReadCommand = async (
   };
   const accountReadiness = {
     ...accountSafetyStatus,
-    ready: accountSafetyStatus.state === "clear" && accountSafetyStatus.live_commands_blocked !== true
+    ready: accountSafetyGateResult.decision === "allow"
   };
   const creatorPublishAdmissionGateReasons =
     context.command === XHS_CREATOR_PUBLISH_ADMIT_COMMAND

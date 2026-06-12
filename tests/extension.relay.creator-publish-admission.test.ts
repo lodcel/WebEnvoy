@@ -56,6 +56,17 @@ const creatorPublishOptions = {
   ...readyProfileOptions
 } as const;
 
+const blockedAccountSafetyGateResult = {
+  schema_version: "account-safety-gate.v1",
+  gate_status: "unknown",
+  decision: "deny",
+  blocking_reasons: ["account_safety_state_missing"],
+  account_safety_ref: null,
+  evidence_refs_consumed: [],
+  evaluated_at: "2026-06-12T00:00:00.000Z",
+  downstream_owner: "#1179"
+} as const;
+
 const createRelay = () => {
   const contentScript = new ContentScriptHandler({
     xhsEnv: {
@@ -174,6 +185,7 @@ describe("extension background relay / creator publish admission", () => {
               live_commands_blocked: true,
               ready: false
             },
+            account_safety_gate_result: blockedAccountSafetyGateResult,
             admission_gate_reasons: ["PROFILE_NOT_READY", "ACCOUNT_SAFETY_NOT_READY"]
           }
         },
@@ -187,7 +199,9 @@ describe("extension background relay / creator publish admission", () => {
     expect(response.status).toBe("error");
     expect(response.error?.code).toBe("ERR_EXECUTION_FAILED");
     const payload = asRecord(response.payload) ?? {};
+    const details = asRecord(payload.details);
     const consumerGateResult = asRecord(payload.consumer_gate_result);
+    expect(details?.account_safety_gate_result).toMatchObject(blockedAccountSafetyGateResult);
     expect(consumerGateResult).toMatchObject({
       issue_scope: "issue_753",
       gate_decision: "blocked",

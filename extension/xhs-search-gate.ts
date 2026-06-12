@@ -300,6 +300,7 @@ export const createGateOnlySuccess = (input: {
               target_page: gate.consumer_gate_result.target_page,
               profile_readiness: asRecord(input.options?.profile_readiness),
               account_readiness: asRecord(input.options?.account_readiness),
+              account_safety_gate_result: asRecord(input.options?.account_safety_gate_result),
               provider_requirement_refs: Array.isArray(input.options?.provider_requirement_refs)
                 ? input.options.provider_requirement_refs
                 : [],

@@ -23,6 +23,19 @@ export type AccountSafetyGateStatus =
   | "redaction_invalid"
   | "requires_operator_attention";
 export type AccountSafetyGateDecision = "allow" | "deny" | "defer";
+export type AccountSafetyStateV1 =
+  | "clear"
+  | "unknown"
+  | "blocked"
+  | "stale"
+  | "redaction_invalid"
+  | "requires_operator_attention";
+export type AccountSafetyRedactionStateV1 =
+  | "redacted"
+  | "redaction_required"
+  | "not_required"
+  | "policy_missing"
+  | "invalid";
 export type AccountSafetyGateDownstreamOwner =
   | "#1179"
   | "#1180"
@@ -115,6 +128,19 @@ export interface AccountSafetyGateResultV1 {
   downstream_owner: AccountSafetyGateDownstreamOwner;
 }
 
+export interface AccountSafetyStateRecordV1 {
+  schema_version: "account-safety-gate.v1";
+  safety_state_id: string;
+  canonical_issue_ref: "#1176";
+  scope: AccountSafetyGateScopeV1;
+  state: AccountSafetyStateV1;
+  signal_classes: AccountSafetySignalClassV1[];
+  evidence_refs: AccountSafetyEvidenceRefsV1;
+  checked_at: string;
+  expires_at: string;
+  redaction_state: AccountSafetyRedactionStateV1;
+}
+
 export interface AccountSafetyRecord {
   state: AccountSafetyState;
   platform: AccountSafetyPlatform | null;
@@ -164,6 +190,43 @@ export const ACCOUNT_SAFETY_REASONS: readonly AccountSafetyReason[] = [
 ];
 
 const ACCOUNT_SAFETY_STATES: readonly AccountSafetyState[] = ["clear", "account_risk_blocked"];
+const ACCOUNT_SAFETY_STATE_RECORD_STATES: readonly AccountSafetyStateV1[] = [
+  "clear",
+  "unknown",
+  "blocked",
+  "stale",
+  "redaction_invalid",
+  "requires_operator_attention"
+];
+
+const ACCOUNT_SAFETY_SIGNAL_CLASSES: readonly AccountSafetySignalClassV1[] = [
+  "login_required",
+  "captcha_required",
+  "security_redirect",
+  "account_restricted",
+  "account_verification_required",
+  "rate_limited",
+  "browser_environment_abnormal",
+  "profile_concurrency_conflict",
+  "session_integrity_unknown",
+  "previous_residual_unresolved",
+  "cleanup_or_rollback_pending",
+  "account_identifier_redaction_invalid",
+  "safety_evidence_stale"
+];
+
+const ACCOUNT_SAFETY_REDACTION_STATES: readonly AccountSafetyRedactionStateV1[] = [
+  "redacted",
+  "redaction_required",
+  "not_required",
+  "policy_missing",
+  "invalid"
+];
+
+const ACCOUNT_SAFETY_CLEAR_REDACTION_STATES: readonly AccountSafetyRedactionStateV1[] = [
+  "redacted",
+  "not_required"
+];
 
 export const isAccountSafetyReason = (value: unknown): value is AccountSafetyReason =>
   typeof value === "string" && ACCOUNT_SAFETY_REASONS.includes(value as AccountSafetyReason);
@@ -171,14 +234,32 @@ export const isAccountSafetyReason = (value: unknown): value is AccountSafetyRea
 const isAccountSafetyState = (value: unknown): value is AccountSafetyState =>
   typeof value === "string" && ACCOUNT_SAFETY_STATES.includes(value as AccountSafetyState);
 
+const isAccountSafetyStateV1 = (value: unknown): value is AccountSafetyStateV1 =>
+  typeof value === "string" &&
+  ACCOUNT_SAFETY_STATE_RECORD_STATES.includes(value as AccountSafetyStateV1);
+
+const isAccountSafetySignalClassV1 = (value: unknown): value is AccountSafetySignalClassV1 =>
+  typeof value === "string" &&
+  ACCOUNT_SAFETY_SIGNAL_CLASSES.includes(value as AccountSafetySignalClassV1);
+
+const isAccountSafetyRedactionStateV1 = (value: unknown): value is AccountSafetyRedactionStateV1 =>
+  typeof value === "string" &&
+  ACCOUNT_SAFETY_REDACTION_STATES.includes(value as AccountSafetyRedactionStateV1);
+
 const isIsoTimestampOrNull = (value: unknown): value is string | null =>
   value === null || (typeof value === "string" && !Number.isNaN(Date.parse(value)));
+
+const isIsoTimestamp = (value: unknown): value is string =>
+  typeof value === "string" && !Number.isNaN(Date.parse(value));
 
 const isIntegerOrNull = (value: unknown): value is number | null =>
   value === null || (typeof value === "number" && Number.isInteger(value));
 
 const isStringOrNull = (value: unknown): value is string | null =>
   value === null || typeof value === "string";
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0;
 
 const asObjectRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -308,6 +389,158 @@ const ACCOUNT_SAFETY_REASON_TO_BLOCKING_REASON: Record<
 const evidenceRefsConsumed = (refs: AccountSafetyEvidenceRefsV1): string[] =>
   Object.values(refs).filter((value): value is string => typeof value === "string");
 
+const REQUIRED_EVIDENCE_REF_KEYS: readonly (keyof AccountSafetyEvidenceRefsV1)[] = [
+  "safety_check_ref",
+  "profile_ref",
+  "runtime_status_ref",
+  "target_binding_ref",
+  "signal_scan_ref",
+  "redaction_policy_ref",
+  "freshness_ref",
+  "risk_disposition_ref"
+];
+
+const hasRequiredEvidenceRefs = (refs: unknown): refs is AccountSafetyEvidenceRefsV1 => {
+  const record = asObjectRecord(refs);
+  if (!record) {
+    return false;
+  }
+  return REQUIRED_EVIDENCE_REF_KEYS.every((key) => isNonEmptyString(record[key]));
+};
+
+const isAccountSafetyStateRecordCandidate = (value: unknown): boolean => {
+  const record = asObjectRecord(value);
+  return !!record && (
+    record.schema_version === "account-safety-gate.v1" ||
+    record.safety_state_id !== undefined ||
+    record.canonical_issue_ref !== undefined ||
+    record.scope !== undefined ||
+    record.checked_at !== undefined ||
+    record.expires_at !== undefined ||
+    record.redaction_state !== undefined
+  );
+};
+
+const pushUnique = (
+  reasons: AccountSafetyBlockingReasonV1[],
+  reason: AccountSafetyBlockingReasonV1
+): void => {
+  if (!reasons.includes(reason)) {
+    reasons.push(reason);
+  }
+};
+
+const scopeMismatchReasons = (
+  requestedScope: AccountSafetyGateScopeV1,
+  recordScope: AccountSafetyGateScopeV1
+): AccountSafetyBlockingReasonV1[] => {
+  const reasons: AccountSafetyBlockingReasonV1[] = [];
+  const pushScopeMismatch = (): void => pushUnique(reasons, "account_safety_scope_mismatch");
+  if (recordScope.schema_version !== requestedScope.schema_version) {
+    pushScopeMismatch();
+  }
+  if (recordScope.capability_level !== requestedScope.capability_level) {
+    pushScopeMismatch();
+  }
+  if (recordScope.workflow_ref !== requestedScope.workflow_ref) {
+    pushScopeMismatch();
+  }
+  if (recordScope.target_domain !== requestedScope.target_domain) {
+    pushScopeMismatch();
+  }
+  if (recordScope.target_page !== requestedScope.target_page) {
+    pushScopeMismatch();
+  }
+  if (recordScope.profile_ref !== requestedScope.profile_ref) {
+    pushScopeMismatch();
+  }
+  if (recordScope.browser_channel !== requestedScope.browser_channel) {
+    pushScopeMismatch();
+  }
+  if (recordScope.execution_surface !== requestedScope.execution_surface) {
+    pushScopeMismatch();
+  }
+  if (recordScope.provider_requirement_ref !== requestedScope.provider_requirement_ref) {
+    pushScopeMismatch();
+  }
+  if (recordScope.runtime_target_binding_ref !== requestedScope.runtime_target_binding_ref) {
+    pushScopeMismatch();
+  }
+  if (recordScope.operator_unlock_ref !== requestedScope.operator_unlock_ref) {
+    pushScopeMismatch();
+  }
+  if (recordScope.head_sha !== requestedScope.head_sha) {
+    pushUnique(reasons, "account_safety_head_mismatch");
+  }
+  if (
+    recordScope.run_id !== requestedScope.run_id ||
+    recordScope.evaluation_context_ref !== requestedScope.evaluation_context_ref
+  ) {
+    pushUnique(reasons, "account_safety_run_mismatch");
+  }
+  return reasons;
+};
+
+const hasAccountSafetyGateScopeShape = (value: unknown): value is AccountSafetyGateScopeV1 => {
+  const scope = asObjectRecord(value);
+  if (!scope) {
+    return false;
+  }
+  return (
+    scope.schema_version === "account-safety-gate.v1" &&
+    typeof scope.capability_level === "string" &&
+    typeof scope.workflow_ref === "string" &&
+    typeof scope.target_domain === "string" &&
+    typeof scope.target_page === "string" &&
+    typeof scope.profile_ref === "string" &&
+    typeof scope.browser_channel === "string" &&
+    scope.execution_surface === "real_browser" &&
+    (scope.provider_requirement_ref === null || typeof scope.provider_requirement_ref === "string") &&
+    (scope.runtime_target_binding_ref === null || typeof scope.runtime_target_binding_ref === "string") &&
+    (scope.operator_unlock_ref === null || typeof scope.operator_unlock_ref === "string") &&
+    typeof scope.head_sha === "string" &&
+    (scope.run_id === null || typeof scope.run_id === "string") &&
+    typeof scope.evaluation_context_ref === "string"
+  );
+};
+
+const signalClassToBlockingReason = (
+  signalClass: AccountSafetySignalClassV1
+): AccountSafetyBlockingReasonV1 =>
+  signalClass === "account_identifier_redaction_invalid"
+    ? "safety_evidence_redaction_invalid"
+    : signalClass;
+
+const gateStatusForReasons = (
+  reasons: AccountSafetyBlockingReasonV1[]
+): AccountSafetyGateStatus => {
+  if (reasons.includes("safety_evidence_redaction_invalid")) {
+    return "redaction_invalid";
+  }
+  if (
+    reasons.includes("account_safety_stale") ||
+    reasons.includes("safety_evidence_stale") ||
+    reasons.includes("historical_or_stale_evidence")
+  ) {
+    return "stale";
+  }
+  if (
+    reasons.includes("operator_attention_required") ||
+    reasons.includes("downstream_owner_required")
+  ) {
+    return "requires_operator_attention";
+  }
+  if (
+    reasons.includes("account_safety_scope_mismatch") ||
+    reasons.includes("account_safety_head_mismatch") ||
+    reasons.includes("account_safety_run_mismatch") ||
+    reasons.includes("account_safety_blocked")
+  ) {
+    return "blocked";
+  }
+  return "unknown";
+};
+
 const accountSafetyRefForRecord = (
   record: AccountSafetyRecord,
   scope: AccountSafetyGateScopeV1
@@ -321,6 +554,9 @@ const accountSafetyRefForRecord = (
   ]
     .map((part) => part.replace(/[^A-Za-z0-9_.:-]+/g, "_"))
     .join("/");
+
+const accountSafetyRefForStateRecord = (record: AccountSafetyStateRecordV1): string =>
+  record.safety_state_id;
 
 export const buildAccountSafetyGateResult = (
   input: AccountSafetyGateEvaluationInput
@@ -339,6 +575,97 @@ export const buildAccountSafetyGateResult = (
       decision: "deny",
       blocking_reasons: ["account_safety_state_missing"],
       account_safety_ref: null
+    };
+  }
+
+  if (isAccountSafetyStateRecordCandidate(input.accountSafetyRecord)) {
+    const candidate = asObjectRecord(input.accountSafetyRecord);
+    const blockingReasons: AccountSafetyBlockingReasonV1[] = [];
+    if (
+      !candidate ||
+      candidate.schema_version !== "account-safety-gate.v1" ||
+      !isNonEmptyString(candidate.safety_state_id) ||
+      candidate.canonical_issue_ref !== "#1176" ||
+      !hasAccountSafetyGateScopeShape(candidate.scope) ||
+      !isAccountSafetyStateV1(candidate.state) ||
+      !Array.isArray(candidate.signal_classes) ||
+      !candidate.signal_classes.every(isAccountSafetySignalClassV1) ||
+      !hasRequiredEvidenceRefs(candidate.evidence_refs) ||
+      !isAccountSafetyRedactionStateV1(candidate.redaction_state)
+    ) {
+      return {
+        ...base,
+        gate_status: "unknown",
+        decision: "deny",
+        blocking_reasons: ["safety_evidence_missing"],
+        account_safety_ref: null
+      };
+    }
+
+    const record = candidate as unknown as AccountSafetyStateRecordV1;
+    const consumedRefs = evidenceRefsConsumed(record.evidence_refs);
+    for (const reason of scopeMismatchReasons(input.requestedScope, record.scope)) {
+      pushUnique(blockingReasons, reason);
+    }
+
+    if (!isIsoTimestamp(record.checked_at) || !isIsoTimestamp(record.expires_at)) {
+      pushUnique(blockingReasons, "safety_evidence_missing");
+    } else {
+      const checkedAt = Date.parse(record.checked_at);
+      const expiresAt = Date.parse(record.expires_at);
+      const evaluatedAt = Date.parse(input.evaluatedAt);
+      if (
+        Number.isNaN(evaluatedAt) ||
+        checkedAt > evaluatedAt ||
+        expiresAt <= evaluatedAt
+      ) {
+        pushUnique(blockingReasons, "account_safety_stale");
+        pushUnique(blockingReasons, "safety_evidence_stale");
+      }
+    }
+
+    if (!ACCOUNT_SAFETY_CLEAR_REDACTION_STATES.includes(record.redaction_state)) {
+      pushUnique(blockingReasons, "safety_evidence_redaction_invalid");
+    }
+
+    if (record.state === "unknown") {
+      pushUnique(blockingReasons, "account_safety_unknown");
+    } else if (record.state === "blocked") {
+      pushUnique(blockingReasons, "account_safety_blocked");
+    } else if (record.state === "stale") {
+      pushUnique(blockingReasons, "account_safety_stale");
+      pushUnique(blockingReasons, "safety_evidence_stale");
+    } else if (record.state === "redaction_invalid") {
+      pushUnique(blockingReasons, "safety_evidence_redaction_invalid");
+    } else if (record.state === "requires_operator_attention") {
+      pushUnique(blockingReasons, "operator_attention_required");
+    }
+
+    for (const signalClass of record.signal_classes) {
+      pushUnique(blockingReasons, signalClassToBlockingReason(signalClass));
+    }
+    if (record.state === "clear" && record.signal_classes.length > 0) {
+      pushUnique(blockingReasons, "account_safety_blocked");
+    }
+
+    if (record.state === "clear" && blockingReasons.length === 0) {
+      return {
+        ...base,
+        evidence_refs_consumed: consumedRefs,
+        gate_status: "clear",
+        decision: "allow",
+        blocking_reasons: [],
+        account_safety_ref: accountSafetyRefForStateRecord(record)
+      };
+    }
+
+    return {
+      ...base,
+      evidence_refs_consumed: consumedRefs,
+      gate_status: gateStatusForReasons(blockingReasons),
+      decision: "deny",
+      blocking_reasons: blockingReasons,
+      account_safety_ref: accountSafetyRefForStateRecord(record)
     };
   }
 
@@ -366,9 +693,12 @@ export const buildAccountSafetyGateResult = (
   if (record.state === "clear") {
     return {
       ...base,
-      gate_status: blockingReasons.length > 0 ? "blocked" : "clear",
-      decision: blockingReasons.length > 0 ? "deny" : "allow",
-      blocking_reasons: blockingReasons,
+      gate_status: blockingReasons.length > 0 ? "blocked" : "unknown",
+      decision: "deny",
+      blocking_reasons: [
+        ...blockingReasons,
+        "historical_or_stale_evidence"
+      ],
       account_safety_ref: accountSafetyRefForRecord(record, input.requestedScope)
     };
   }

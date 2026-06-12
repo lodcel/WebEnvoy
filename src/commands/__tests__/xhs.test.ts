@@ -10590,7 +10590,7 @@ describe("normalizeGateOptionsForContract", () => {
     }
   });
 
-  it("feeds account safety gate result into creator publish admission output", async () => {
+  it("fails creator publish admission closed for legacy clear account safety without current FR-0066 state", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "webenvoy-xhs-account-safety-admit-"));
     const previousTransport = process.env.WEBENVOY_NATIVE_TRANSPORT;
     const previousBrowserPath = process.env.WEBENVOY_BROWSER_PATH;
@@ -10625,35 +10625,39 @@ describe("normalizeGateOptionsForContract", () => {
         }
       });
 
-      const result = await executeCommand(
-        {
-          cwd,
-          command: "xhs.creator_publish.admit",
-          profile: "xhs_account_safety_admit_profile",
-          run_id: "run-account-safety-admit-001",
-          params: {
-            target_domain: "creator.xiaohongshu.com",
-            target_tab_id: 32,
-            target_page: "creator_publish_tab",
-            requested_execution_mode: "dry_run",
-            risk_state: "allowed"
-          }
-        } as RuntimeContext,
-        createCommandRegistry()
-      );
-
-      expect(result.summary.target_admission).toMatchObject({
-        account_safety_gate_result: {
-          schema_version: "account-safety-gate.v1",
-          gate_status: "clear",
-          decision: "allow",
-          blocking_reasons: [],
-          downstream_owner: "#1179"
-        }
+      await expect(
+        executeCommand(
+          {
+            cwd,
+            command: "xhs.creator_publish.admit",
+            profile: "xhs_account_safety_admit_profile",
+            run_id: "run-account-safety-admit-001",
+            params: {
+              target_domain: "creator.xiaohongshu.com",
+              target_tab_id: 32,
+              target_page: "creator_publish_tab",
+              requested_execution_mode: "dry_run",
+              risk_state: "allowed"
+            }
+          } as RuntimeContext,
+          createCommandRegistry()
+        )
+      ).rejects.toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        details: expect.objectContaining({
+          account_safety_gate_result: expect.objectContaining({
+            schema_version: "account-safety-gate.v1",
+            gate_status: "unknown",
+            decision: "deny",
+            blocking_reasons: ["historical_or_stale_evidence"],
+            downstream_owner: "#1179"
+          }),
+          consumer_gate_result: expect.objectContaining({
+            gate_decision: "blocked",
+            gate_reasons: expect.arrayContaining(["ACCOUNT_SAFETY_NOT_READY"])
+          })
+        })
       });
-      expect(result.summary.target_admission).not.toHaveProperty(
-        "live_write_capability_gate_result"
-      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
       if (previousTransport === undefined) {

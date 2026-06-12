@@ -2702,6 +2702,9 @@ export class ContentScriptHandler {
           ...(asRecord(options.xhs_page_runtime_readiness)
             ? { xhs_page_runtime_readiness: asRecord(options.xhs_page_runtime_readiness) ?? {} }
             : {}),
+          ...(asRecord(options.account_safety_gate_result)
+            ? { account_safety_gate_result: asRecord(options.account_safety_gate_result) ?? {} }
+            : {}),
           ...(typeof options.page_runtime_readiness_decision === "string"
             ? { page_runtime_readiness_decision: options.page_runtime_readiness_decision }
             : {}),

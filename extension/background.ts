@@ -1549,6 +1549,7 @@ const XHS_FORWARD_OPTION_KEYS = [
   "admission_context",
   "profile_readiness",
   "account_readiness",
+  "account_safety_gate_result",
   "admission_gate_reasons",
   "upstream_authorization_request",
   "__legacy_requested_execution_mode",

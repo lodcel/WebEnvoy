@@ -5,7 +5,8 @@ import {
   buildBlockedAccountSafetyRecord,
   buildClearAccountSafetyRecord,
   type AccountSafetyEvidenceRefsV1,
-  type AccountSafetyGateScopeV1
+  type AccountSafetyGateScopeV1,
+  type AccountSafetyStateRecordV1
 } from "../account-safety.js";
 
 const scope: AccountSafetyGateScopeV1 = {
@@ -34,6 +35,34 @@ const evidenceRefs: AccountSafetyEvidenceRefsV1 = {
   redaction_policy_ref: "FR-0041.evidence_redaction_policy.v1",
   freshness_ref: "artifact/account-safety/freshness",
   risk_disposition_ref: "artifact/account-safety/risk-disposition"
+};
+
+const clearStateRecord = (
+  overrides: Partial<Omit<AccountSafetyStateRecordV1, "scope" | "evidence_refs">> & {
+    scope?: Partial<AccountSafetyGateScopeV1>;
+    evidence_refs?: Partial<AccountSafetyEvidenceRefsV1>;
+  } = {}
+): AccountSafetyStateRecordV1 => {
+  const { scope: scopeOverrides, evidence_refs: evidenceRefOverrides, ...recordOverrides } = overrides;
+  return {
+    schema_version: "account-safety-gate.v1",
+    safety_state_id: "account-safety-state/current-clear",
+    canonical_issue_ref: "#1176",
+    scope: {
+      ...scope,
+      ...scopeOverrides
+    },
+    state: "clear",
+    signal_classes: [],
+    evidence_refs: {
+      ...evidenceRefs,
+      ...evidenceRefOverrides
+    },
+    checked_at: "2026-06-12T00:00:00.000Z",
+    expires_at: "2026-06-12T00:30:00.000Z",
+    redaction_state: "redacted",
+    ...recordOverrides
+  } as AccountSafetyStateRecordV1;
 };
 
 describe("account safety gate result", () => {
@@ -83,20 +112,176 @@ describe("account safety gate result", () => {
     });
   });
 
-  it("allows only the account safety lane for an exact-scope clear record", () => {
+  it("allows only the account safety lane for a current FR-0066 exact-scope clear state record", () => {
     expect(
       buildAccountSafetyGateResult({
         requestedCapabilityLevel: "write_prepare",
         requestedScope: scope,
-        accountSafetyRecord: buildClearAccountSafetyRecord(),
-        evaluatedAt: "2026-06-12T00:00:00.000Z",
+        accountSafetyRecord: clearStateRecord(),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
         evidenceRefs
       })
     ).toMatchObject({
       gate_status: "clear",
       decision: "allow",
       blocking_reasons: [],
-      downstream_owner: "none"
+      downstream_owner: "none",
+      account_safety_ref: "account-safety-state/current-clear",
+      evidence_refs_consumed: expect.arrayContaining([
+        evidenceRefs.safety_check_ref,
+        evidenceRefs.freshness_ref,
+        evidenceRefs.target_binding_ref,
+        evidenceRefs.risk_disposition_ref
+      ])
+    });
+  });
+
+  it("does not allow from a legacy clear profile record without a current FR-0066 state record", () => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "write_prepare",
+        requestedScope: scope,
+        accountSafetyRecord: buildClearAccountSafetyRecord(),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs
+      })
+    ).toMatchObject({
+      gate_status: "unknown",
+      decision: "deny",
+      blocking_reasons: ["historical_or_stale_evidence"]
+    });
+  });
+
+  it("fails closed when current state record freshness is missing", () => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "write_prepare",
+        requestedScope: scope,
+        accountSafetyRecord: clearStateRecord({
+          checked_at: undefined as unknown as string
+        }),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs
+      })
+    ).toMatchObject({
+      gate_status: "unknown",
+      decision: "deny",
+      blocking_reasons: ["safety_evidence_missing"]
+    });
+  });
+
+  it("fails closed when the current state record freshness ref is missing", () => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "write_prepare",
+        requestedScope: scope,
+        accountSafetyRecord: clearStateRecord({
+          evidence_refs: {
+            freshness_ref: undefined as unknown as string
+          }
+        }),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs
+      })
+    ).toMatchObject({
+      gate_status: "unknown",
+      decision: "deny",
+      blocking_reasons: ["safety_evidence_missing"]
+    });
+  });
+
+  it("fails closed when current state record freshness is stale", () => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "write_prepare",
+        requestedScope: scope,
+        accountSafetyRecord: clearStateRecord({
+          expires_at: "2026-06-12T00:05:00.000Z"
+        }),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs
+      })
+    ).toMatchObject({
+      gate_status: "stale",
+      decision: "deny",
+      blocking_reasons: expect.arrayContaining([
+        "account_safety_stale",
+        "safety_evidence_stale"
+      ])
+    });
+  });
+
+  it("fails closed when current state record redaction is invalid", () => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "write_prepare",
+        requestedScope: scope,
+        accountSafetyRecord: clearStateRecord({
+          redaction_state: "policy_missing"
+        }),
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs
+      })
+    ).toMatchObject({
+      gate_status: "redaction_invalid",
+      decision: "deny",
+      blocking_reasons: ["safety_evidence_redaction_invalid"]
+    });
+  });
+
+  it.each([
+    {
+      name: "head drift",
+      record: clearStateRecord({ scope: { head_sha: "head-drift" } }),
+      reason: "account_safety_head_mismatch"
+    },
+    {
+      name: "run drift",
+      record: clearStateRecord({ scope: { run_id: "run-drift" } }),
+      reason: "account_safety_run_mismatch"
+    },
+    {
+      name: "profile drift",
+      record: clearStateRecord({ scope: { profile_ref: "profile:other" } }),
+      reason: "account_safety_scope_mismatch"
+    },
+    {
+      name: "browser drift",
+      record: clearStateRecord({ scope: { browser_channel: "Chromium test channel" } }),
+      reason: "account_safety_scope_mismatch"
+    },
+    {
+      name: "target domain drift",
+      record: clearStateRecord({ scope: { target_domain: "www.xiaohongshu.com" } }),
+      reason: "account_safety_scope_mismatch"
+    },
+    {
+      name: "target page drift",
+      record: clearStateRecord({ scope: { target_page: "search_result_tab" } }),
+      reason: "account_safety_scope_mismatch"
+    },
+    {
+      name: "provider drift",
+      record: clearStateRecord({ scope: { provider_requirement_ref: "issue-1179/provider-drift" } }),
+      reason: "account_safety_scope_mismatch"
+    },
+    {
+      name: "runtime binding drift",
+      record: clearStateRecord({ scope: { runtime_target_binding_ref: "target-binding/drift" } }),
+      reason: "account_safety_scope_mismatch"
+    }
+  ] as const)("fails closed on current state record $name", ({ record, reason }) => {
+    expect(
+      buildAccountSafetyGateResult({
+        requestedCapabilityLevel: "write_prepare",
+        requestedScope: scope,
+        accountSafetyRecord: record,
+        evaluatedAt: "2026-06-12T00:10:00.000Z",
+        evidenceRefs
+      })
+    ).toMatchObject({
+      decision: "deny",
+      blocking_reasons: expect.arrayContaining([reason])
     });
   });
 
