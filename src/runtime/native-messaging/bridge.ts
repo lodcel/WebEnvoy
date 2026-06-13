@@ -11,9 +11,11 @@ import {
   createHeartbeatRequest,
   ensureBridgeRequestEnvelope,
   ensureBridgeSuccess,
+  withBridgeCommandEnvelopeV2,
   type BridgeRequestEnvelope,
   type BridgeResponseEnvelope
 } from "./protocol.js";
+import type { CommandEnvelopeV2 } from "../../core/command-envelope-v2.js";
 import { NativeHostBridgeTransport } from "./host.js";
 import {
   MAX_PENDING_DURING_RECOVERY,
@@ -259,7 +261,7 @@ export const createFakeNativeBridgeTransport = (
       await delay(options.forwardDelayMs);
     }
 
-    return {
+    return withBridgeCommandEnvelopeV2(request, {
       id: request.id,
       status: "success",
       summary: {
@@ -271,7 +273,7 @@ export const createFakeNativeBridgeTransport = (
         message: "pong"
       },
       error: null
-    };
+    });
   },
 
   async heartbeat(request: BridgeRequestEnvelope) {
@@ -330,6 +332,7 @@ export interface BridgeCommandInput {
 export interface BridgeCommandSuccess {
   ok: true;
   payload: Record<string, unknown>;
+  command_envelope_v2: CommandEnvelopeV2;
   relay_path: string;
 }
 
@@ -340,6 +343,7 @@ export interface BridgeCommandFailure {
     message: string;
   };
   payload: Record<string, unknown>;
+  command_envelope_v2: CommandEnvelopeV2;
   relay_path: string;
 }
 
@@ -489,12 +493,20 @@ export class NativeMessagingBridge {
   async runCommand(input: BridgeCommandInput): Promise<BridgeCommandResult> {
     const response = await this.#forwardCommand(input);
     const relayPath = String(response.summary.relay_path ?? "host>unknown");
+    const commandEnvelopeV2 = response.command_envelope_v2;
+    if (!commandEnvelopeV2) {
+      throw new NativeMessagingTransportError(
+        "ERR_TRANSPORT_FORWARD_FAILED",
+        "missing command envelope v2 parity sidecar"
+      );
+    }
 
     if (response.status === "error") {
       return {
         ok: false,
         error: response.error,
         payload: response.payload ?? {},
+        command_envelope_v2: commandEnvelopeV2,
         relay_path: relayPath
       };
     }
@@ -502,6 +514,7 @@ export class NativeMessagingBridge {
     return {
       ok: true,
       payload: response.payload ?? {},
+      command_envelope_v2: commandEnvelopeV2,
       relay_path: relayPath
     };
   }
@@ -568,7 +581,10 @@ export class NativeMessagingBridge {
 
     try {
       this.#session.beginForward();
-      const response = await runWithTimeout(this.#transport.forward(request), forwardTimeoutMs);
+      const response = withBridgeCommandEnvelopeV2(
+        request,
+        await runWithTimeout(this.#transport.forward(request), forwardTimeoutMs)
+      );
       this.#session.completeForward();
       return response;
     } catch (error) {
@@ -608,7 +624,10 @@ export class NativeMessagingBridge {
       });
 
       try {
-        const response = await runWithTimeout(this.#transport.forward(retryRequest), retryTimeoutMs);
+        const response = withBridgeCommandEnvelopeV2(
+          retryRequest,
+          await runWithTimeout(this.#transport.forward(retryRequest), retryTimeoutMs)
+        );
         return response;
       } catch (retryError) {
         throw this.#normalizeForwardFailure(retryError);

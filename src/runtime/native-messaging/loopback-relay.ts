@@ -1,4 +1,9 @@
-import { BRIDGE_PROTOCOL, ensureBridgeRequestEnvelope, type BridgeRequestEnvelope } from "./protocol.js";
+import {
+  BRIDGE_PROTOCOL,
+  ensureBridgeRequestEnvelope,
+  withBridgeCommandEnvelopeV2,
+  type BridgeRequestEnvelope
+} from "./protocol.js";
 import { RELAY_PATH, buildLoopbackGate } from "./loopback-gate.js";
 import { buildLoopbackAuditRecord } from "./loopback-gate-audit.js";
 import { buildLoopbackGatePayload } from "./loopback-gate-payload.js";
@@ -165,7 +170,7 @@ export class InMemoryBackgroundRelay {
             : ["EXECUTION_MODE_GATE_BLOCKED"];
           this.hostPort.postMessage({
             kind: "response",
-            envelope: {
+            envelope: withBridgeCommandEnvelopeV2(request, {
               id: request.id,
               status: "error",
               summary: {
@@ -201,7 +206,7 @@ export class InMemoryBackgroundRelay {
                 code: "ERR_EXECUTION_FAILED",
                 message: `执行模式门禁阻断了当前 ${command} 请求`
               }
-            }
+            })
           });
           return;
         }
@@ -210,7 +215,7 @@ export class InMemoryBackgroundRelay {
       if (command === "xhs.interact") {
         this.hostPort.postMessage({
           kind: "response",
-          envelope: {
+          envelope: withBridgeCommandEnvelopeV2(request, {
             id: request.id,
             status: "error",
             summary: {},
@@ -218,7 +223,7 @@ export class InMemoryBackgroundRelay {
               code: "ERR_TRANSPORT_FORWARD_FAILED",
               message: "unsupported command"
             }
-          }
+          })
         });
         return;
       }
@@ -284,7 +289,7 @@ export class InMemoryBackgroundRelay {
     if (!result.ok) {
       this.hostPort.postMessage({
         kind: "response",
-        envelope: {
+        envelope: withBridgeCommandEnvelopeV2(request, {
           id: request.id,
           status: "error",
           summary: {
@@ -295,14 +300,14 @@ export class InMemoryBackgroundRelay {
             code: "ERR_TRANSPORT_FORWARD_FAILED",
             message: "content script failed"
           }
-        }
+        })
       });
       return;
     }
 
     this.hostPort.postMessage({
       kind: "response",
-      envelope: {
+      envelope: withBridgeCommandEnvelopeV2(request, {
         id: request.id,
         status: "success",
         summary: {
@@ -313,7 +318,7 @@ export class InMemoryBackgroundRelay {
         },
         payload,
         error: null
-      }
+      })
     });
   }
 }

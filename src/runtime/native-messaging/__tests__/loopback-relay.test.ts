@@ -39,6 +39,7 @@ describe("native messaging loopback relay", () => {
         relay_path: "host>background>content-script>background>host"
       }
     });
+    await expect(open).resolves.not.toHaveProperty("command_envelope_v2");
   });
 
   it("evaluates xhs.editor_input.validate as a gated XHS command", async () => {
@@ -90,6 +91,22 @@ describe("native messaging loopback relay", () => {
       status: "error",
       error: {
         code: "ERR_EXECUTION_FAILED"
+      },
+      command_envelope_v2: {
+        ok: false,
+        command: "xhs.editor_input.validate",
+        run_id: "run-editor-input-validate-forward-001",
+        errors: [
+          expect.objectContaining({
+            code: "ERR_EXECUTION_FAILED",
+            category: "unknown"
+          })
+        ],
+        operational: {
+          diagnosis: expect.objectContaining({
+            availability: "unavailable"
+          })
+        }
       },
       payload: {
         details: expect.objectContaining({
