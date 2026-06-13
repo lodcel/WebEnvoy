@@ -73,6 +73,9 @@ const asString = (value: unknown): string | null =>
 
 const MAX_PARITY_VIEW_KEYS = 16;
 const MAX_PARITY_STRING_LENGTH = 256;
+const MAX_DIAGNOSIS_EVIDENCE_ITEMS = 4;
+const MAX_DIAGNOSIS_EVIDENCE_SUMMARY_LENGTH = 256;
+const REDACTED = "[REDACTED]";
 
 const resolveCommandRunId = (request: BridgeRequestEnvelope): string =>
   asString(request.params.run_id) ?? request.id;
@@ -123,8 +126,10 @@ const isProviderUnavailableFamilyErrorCode = (code: string): boolean =>
   code === "ERR_RUNTIME_IDENTITY_NOT_BOUND" ||
   code === "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED" ||
   code === "ERR_BROWSER_LAUNCH_FAILED" ||
-  code.startsWith("ERR_RUNTIME_BOOTSTRAP_") ||
-  code.startsWith("ERR_PROFILE_");
+  code.startsWith("ERR_RUNTIME_BOOTSTRAP_");
+
+const retryableForProfileErrorCode = (code: string): boolean =>
+  code === "ERR_PROFILE_LOCKED";
 
 const retryableForCliErrorCode = (code: string): boolean => {
   if (isNonRetryableIdentityErrorCode(code)) {
@@ -133,6 +138,10 @@ const retryableForCliErrorCode = (code: string): boolean => {
 
   if (isProviderUnavailableFamilyErrorCode(code)) {
     return true;
+  }
+
+  if (code.startsWith("ERR_PROFILE_")) {
+    return retryableForProfileErrorCode(code);
   }
 
   return false;
@@ -227,6 +236,45 @@ const boundedString = (value: string): string =>
   value.length > MAX_PARITY_STRING_LENGTH
     ? `${value.slice(0, MAX_PARITY_STRING_LENGTH)}...`
     : value;
+
+const sanitizeFreeText = (value: string): string =>
+  value
+    .replace(/\bauthorization\s*:\s*[^\n\r]+/gi, `authorization: ${REDACTED}`)
+    .replace(/\bcookie\s*:\s*[^\n\r]+/gi, `cookie: ${REDACTED}`)
+    .replace(
+      /([?&])(token|access_token|id_token|refresh_token|signature|sig|auth|code)=([^&#\s]+)/gi,
+      (_match, prefix: string, key: string) => `${prefix}${key}=${REDACTED}`
+    )
+    .replace(
+      /\b(token|access_token|id_token|refresh_token|signature|sig|auth|code)\s*=\s*([^&\s,;]+)/gi,
+      (_match, key: string) => `${key}=${REDACTED}`
+    )
+    .replace(
+      /\b(token|access_token|id_token|refresh_token|signature|sig|auth|code)\s*:\s*([^\s,;]+)/gi,
+      (_match, key: string) => `${key}: ${REDACTED}`
+    );
+
+const boundedDiagnosisEvidenceSummary = (
+  value: string
+): {
+  value: string;
+  redacted: boolean;
+  truncated: boolean;
+} => {
+  const sanitized = sanitizeFreeText(value.trim());
+  if (sanitized.length <= MAX_DIAGNOSIS_EVIDENCE_SUMMARY_LENGTH) {
+    return {
+      value: sanitized,
+      redacted: sanitized !== value.trim(),
+      truncated: false
+    };
+  }
+  return {
+    value: sanitized.slice(0, MAX_DIAGNOSIS_EVIDENCE_SUMMARY_LENGTH),
+    redacted: sanitized !== value.trim(),
+    truncated: true
+  };
+};
 
 const boundedParityValue = (value: unknown): unknown => {
   if (
@@ -352,8 +400,67 @@ const diagnosisFromBridgeErrorPayload = (
   );
 };
 
-const diagnosisEvidenceRefs = (runId: string, diagnosis: Diagnosis): string[] =>
-  diagnosis.evidence.map((_item, index) => `run:${runId}:bridge:diagnosis:${index + 1}`);
+const boundedDiagnosisForEnvelope = (
+  runId: string,
+  diagnosis: Diagnosis
+): {
+  diagnosis: Diagnosis;
+  evidenceRefs: string[];
+  evidence: CommandEnvelopeV2["evidence"];
+  limits: NonNullable<CommandEnvelopeV2["operational"]["limits"]>;
+} => {
+  const boundedEvidence = diagnosis.evidence
+    .slice(0, MAX_DIAGNOSIS_EVIDENCE_ITEMS)
+    .map((item) => boundedDiagnosisEvidenceSummary(item));
+  const evidenceRefs = boundedEvidence.map(
+    (_item, index) => `run:${runId}:bridge:diagnosis:${index + 1}`
+  );
+  const limits: NonNullable<CommandEnvelopeV2["operational"]["limits"]> = [];
+
+  if (diagnosis.evidence.length > MAX_DIAGNOSIS_EVIDENCE_ITEMS) {
+    limits.push({
+      limit_ref: "bridge.diagnosis.evidence.count",
+      kind: "truncation",
+      affected_path: "errors[0].diagnosis.evidence",
+      reason: "bridge diagnosis evidence exceeded the command envelope sidecar count bound"
+    });
+  }
+
+  boundedEvidence.forEach((item, index) => {
+    if (item.redacted) {
+      limits.push({
+        limit_ref: `bridge.diagnosis.evidence.${index + 1}.redaction`,
+        kind: "redaction",
+        affected_path: `evidence[${index}].summary`,
+        reason: "bridge diagnosis evidence contained sensitive text"
+      });
+    }
+    if (item.truncated) {
+      limits.push({
+        limit_ref: `bridge.diagnosis.evidence.${index + 1}.truncation`,
+        kind: "truncation",
+        affected_path: `evidence[${index}].summary`,
+        reason: "bridge diagnosis evidence exceeded the command envelope sidecar summary bound"
+      });
+    }
+  });
+
+  return {
+    diagnosis: {
+      ...diagnosis,
+      evidence: boundedEvidence.map((item) => item.value)
+    },
+    evidenceRefs,
+    evidence: boundedEvidence.map((item, index) => ({
+      kind: "runtime_diagnostic",
+      ref: evidenceRefs[index] ?? `run:${runId}:bridge:diagnosis:${index + 1}`,
+      status: "available",
+      produced_by_run_id: runId,
+      summary: item.value
+    })),
+    limits
+  };
+};
 
 const buildCommandEnvelopeV2ForBridgeResponse = (
   request: BridgeRequestEnvelope,
@@ -396,7 +503,23 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
 
   const cliError = bridgeErrorToCliError(response.error);
   const diagnosis = diagnosisFromBridgeErrorPayload(response);
-  const evidenceRefs = diagnosis ? diagnosisEvidenceRefs(runId, diagnosis) : [];
+  const boundedDiagnosis = diagnosis ? boundedDiagnosisForEnvelope(runId, diagnosis) : null;
+  const safeDiagnosis = boundedDiagnosis?.diagnosis ?? null;
+  const evidenceRefs = boundedDiagnosis?.evidenceRefs ?? [];
+  const limits = boundedDiagnosis?.limits ?? [];
+  const diagnosisIndex = boundedDiagnosis
+    ? {
+        availability: "available" as const,
+        primary_error_index: 0,
+        classification: boundedDiagnosis.diagnosis.category,
+        failure_site: boundedDiagnosis.diagnosis.failure_site,
+        ...(evidenceRefs.length > 0 ? { evidence_refs: evidenceRefs } : {}),
+        summary: boundedDiagnosis.diagnosis.failure_site.summary
+      }
+    : {
+        availability: "unavailable" as const,
+        summary: "diagnosis unavailable"
+      };
   return {
     ok: false,
     command,
@@ -414,42 +537,23 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
         }
       },
       observability,
-      diagnosis: diagnosis
-        ? {
-            availability: "available",
-            primary_error_index: 0,
-            classification: diagnosis.category,
-            failure_site: diagnosis.failure_site,
-            ...(evidenceRefs.length > 0 ? { evidence_refs: evidenceRefs } : {}),
-            summary: diagnosis.failure_site.summary
-          }
-        : {
-            availability: "unavailable",
-            summary: "diagnosis unavailable"
-          },
+      diagnosis: diagnosisIndex,
       timestamps: {
         completed_at: timestamp
-      }
+      },
+      ...(limits.length > 0 ? { limits } : {})
     },
-    evidence: diagnosis
-      ? diagnosis.evidence.map((item, index) => ({
-          kind: "runtime_diagnostic",
-          ref: evidenceRefs[index] ?? `run:${runId}:bridge:diagnosis:${index + 1}`,
-          status: "available",
-          produced_by_run_id: runId,
-          summary: item
-        }))
-      : [],
+    evidence: boundedDiagnosis?.evidence ?? [],
     warnings: [],
     errors: [
       {
         code: cliError.code,
         message: response.error.message,
         retryable: cliError.retryable,
-        category: categoryForCliError(cliError.code, diagnosis),
+        category: categoryForCliError(cliError.code, safeDiagnosis),
         family: familyForCliError(cliError.code),
         exit_code: CLI_ERROR_EXIT_CODE[cliError.code] ?? 5,
-        ...(diagnosis ? { diagnosis } : {}),
+        ...(safeDiagnosis ? { diagnosis: safeDiagnosis } : {}),
         ...(evidenceRefs.length > 0 ? { related_evidence_refs: evidenceRefs } : {})
       },
     ]

@@ -123,13 +123,13 @@ const expectedBridgeRetryableByCode: Record<(typeof supportedCliErrorCodes)[numb
   ERR_RUNTIME_IDENTITY_MISMATCH: false,
   ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED: true,
   ERR_EXECUTION_FAILED: false,
-  ERR_PROFILE_INVALID: true,
+  ERR_PROFILE_INVALID: false,
   ERR_PROFILE_LOCKED: true,
-  ERR_PROFILE_OWNER_CONFLICT: true,
-  ERR_PROFILE_META_CORRUPT: true,
-  ERR_PROFILE_PROXY_CONFLICT: true,
+  ERR_PROFILE_OWNER_CONFLICT: false,
+  ERR_PROFILE_META_CORRUPT: false,
+  ERR_PROFILE_PROXY_CONFLICT: false,
   ERR_BROWSER_LAUNCH_FAILED: true,
-  ERR_PROFILE_STATE_CONFLICT: true
+  ERR_PROFILE_STATE_CONFLICT: false
 };
 
 describe("native messaging protocol", () => {
@@ -436,6 +436,46 @@ describe("native messaging protocol", () => {
     });
   });
 
+  it("keeps profile retryability aligned with v1 compat semantics", () => {
+    const request = createForwardRequest({
+      id: "forward-profile-retryability-001",
+      runId: "run-forward-profile-retryability-001",
+      command: "runtime.start"
+    });
+    const cases = [
+      ["ERR_PROFILE_LOCKED", true],
+      ["ERR_PROFILE_INVALID", false],
+      ["ERR_PROFILE_META_CORRUPT", false],
+      ["ERR_PROFILE_PROXY_CONFLICT", false],
+      ["ERR_PROFILE_OWNER_CONFLICT", false],
+      ["ERR_PROFILE_STATE_CONFLICT", false]
+    ] as const;
+
+    for (const [code, retryable] of cases) {
+      const response = withBridgeCommandEnvelopeV2(request, {
+        id: `${request.id}-${code}`,
+        status: "error",
+        summary: {},
+        error: {
+          code,
+          message: `${code} profile failure`
+        }
+      });
+
+      expect(response.command_envelope_v2?.errors[0]).toMatchObject({
+        code,
+        retryable,
+        category: "account",
+        family: "provider_unavailable",
+        exit_code: 5
+      });
+      expect(response.command_envelope_v2?.operational.compat.v1_error).toMatchObject({
+        code,
+        retryable
+      });
+    }
+  });
+
   it("preserves existing command-level diagnosis instead of inventing transport evidence", () => {
     const request = createBridgeForwardRequest({
       id: "forward-diagnosis-error-001",
@@ -504,6 +544,78 @@ describe("native messaging protocol", () => {
         summary: "selector #search was not found"
       }
     ]);
+  });
+
+  it("redacts and bounds bridge diagnosis evidence before adding v2 evidence summaries", () => {
+    const request = createForwardRequest({
+      id: "forward-diagnosis-evidence-bounds-001",
+      runId: "run-forward-diagnosis-evidence-bounds-001"
+    });
+    const authorizationEvidence = "authorization: Bearer SECRET";
+    const cookieEvidence = "cookie: sid=raw";
+    const tokenEvidence = "token=abc123 signature=deadbeef";
+    const longEvidence = `long evidence ${"x".repeat(500)}`;
+    const response = withBridgeCommandEnvelopeV2(request, {
+      id: request.id,
+      status: "error",
+      summary: {},
+      payload: {
+        diagnosis: {
+          category: "request_failed",
+          stage: "request",
+          component: "network",
+          failure_site: {
+            stage: "request",
+            component: "network",
+            target: "/api/search",
+            summary: "request failed"
+          },
+          evidence: [
+            authorizationEvidence,
+            cookieEvidence,
+            tokenEvidence,
+            longEvidence,
+            "fifth evidence should be omitted"
+          ]
+        }
+      },
+      error: {
+        code: "ERR_EXECUTION_FAILED",
+        message: "request failed"
+      }
+    });
+    const envelope = response.command_envelope_v2;
+    const serialized = JSON.stringify(envelope);
+
+    expect(envelope?.evidence).toHaveLength(4);
+    expect(envelope?.errors[0].related_evidence_refs).toHaveLength(4);
+    expect(envelope?.errors[0].diagnosis?.evidence).toHaveLength(4);
+    expect(envelope?.evidence[0]?.summary).toContain("authorization: [REDACTED]");
+    expect(envelope?.evidence[1]?.summary).toContain("cookie: [REDACTED]");
+    expect(envelope?.evidence[2]?.summary).toContain("token=[REDACTED]");
+    expect(envelope?.evidence[2]?.summary).toContain("signature=[REDACTED]");
+    expect(envelope?.evidence[0]?.summary).not.toContain("SECRET");
+    expect(envelope?.evidence[1]?.summary).not.toContain("abc123");
+    expect(envelope?.evidence[2]?.summary).not.toContain("abc123");
+    expect(envelope?.evidence[2]?.summary).not.toContain("deadbeef");
+    expect(envelope?.evidence[3]?.summary.length).toBeLessThanOrEqual(256);
+    expect(envelope?.evidence.map((item) => item.summary)).not.toContain(
+      "fifth evidence should be omitted"
+    );
+    expect(envelope?.operational.limits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "redaction" }),
+        expect.objectContaining({ kind: "truncation" }),
+        expect.objectContaining({
+          limit_ref: "bridge.diagnosis.evidence.count",
+          affected_path: "errors[0].diagnosis.evidence"
+        })
+      ])
+    );
+    expect(serialized).not.toContain("Bearer SECRET");
+    expect(serialized).not.toContain("sid=raw");
+    expect(serialized).not.toContain("deadbeef");
+    expect(serialized).not.toContain("fifth evidence should be omitted");
   });
 
   it.each([
