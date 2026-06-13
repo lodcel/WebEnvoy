@@ -103,6 +103,35 @@ const supportedCliErrorCodes = [
   "ERR_PROFILE_STATE_CONFLICT"
 ] as const;
 
+const expectedBridgeRetryableByCode: Record<(typeof supportedCliErrorCodes)[number], boolean> = {
+  ERR_CLI_INVALID_ARGS: false,
+  ERR_CLI_UNKNOWN_COMMAND: false,
+  ERR_CLI_NOT_IMPLEMENTED: false,
+  ERR_PROVIDER_UNAVAILABLE: true,
+  ERR_RISK_GATE_DENIED: false,
+  ERR_CLOSEOUT_FAILED: false,
+  ERR_SCHEMA_EVIDENCE_FAILED: false,
+  ERR_RUNTIME_UNAVAILABLE: true,
+  ERR_RUNTIME_BOOTSTRAP_PENDING: true,
+  ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED: true,
+  ERR_RUNTIME_BOOTSTRAP_NOT_DELIVERED: true,
+  ERR_RUNTIME_BOOTSTRAP_ACK_TIMEOUT: true,
+  ERR_RUNTIME_BOOTSTRAP_ACK_STALE: true,
+  ERR_RUNTIME_BOOTSTRAP_IDENTITY_MISMATCH: false,
+  ERR_RUNTIME_READY_SIGNAL_CONFLICT: true,
+  ERR_RUNTIME_IDENTITY_NOT_BOUND: true,
+  ERR_RUNTIME_IDENTITY_MISMATCH: false,
+  ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED: true,
+  ERR_EXECUTION_FAILED: false,
+  ERR_PROFILE_INVALID: true,
+  ERR_PROFILE_LOCKED: true,
+  ERR_PROFILE_OWNER_CONFLICT: true,
+  ERR_PROFILE_META_CORRUPT: true,
+  ERR_PROFILE_PROXY_CONFLICT: true,
+  ERR_BROWSER_LAUNCH_FAILED: true,
+  ERR_PROFILE_STATE_CONFLICT: true
+};
+
 describe("native messaging protocol", () => {
   it("builds bridge.open with protocol version", () => {
     const request = createBridgeOpenRequest({
@@ -377,6 +406,36 @@ describe("native messaging protocol", () => {
     });
   });
 
+  it("marks provider unavailable taxonomy retryable in the sidecar and v1 compat view", () => {
+    const request = createForwardRequest({
+      id: "forward-provider-unavailable-retryable-001",
+      runId: "run-forward-provider-unavailable-retryable-001",
+      command: "runtime.status"
+    });
+    const response = withBridgeCommandEnvelopeV2(request, {
+      id: request.id,
+      status: "error",
+      summary: {},
+      error: {
+        code: "ERR_PROVIDER_UNAVAILABLE",
+        message: "provider is not ready"
+      }
+    });
+
+    expect(response.command_envelope_v2?.errors[0]).toMatchObject({
+      code: "ERR_PROVIDER_UNAVAILABLE",
+      retryable: true,
+      category: "environment",
+      family: "provider_unavailable",
+      exit_code: 5
+    });
+    expect(response.command_envelope_v2?.operational.compat.v1_error).toEqual({
+      code: "ERR_PROVIDER_UNAVAILABLE",
+      message: "provider is not ready",
+      retryable: true
+    });
+  });
+
   it("preserves existing command-level diagnosis instead of inventing transport evidence", () => {
     const request = createBridgeForwardRequest({
       id: "forward-diagnosis-error-001",
@@ -505,7 +564,7 @@ describe("native messaging protocol", () => {
   );
 
   it.each(supportedCliErrorCodes)(
-    "matches core CLI v2 category mapping for supported error code %s",
+    "matches core CLI v2 taxonomy mapping for supported error code %s",
     (code) => {
       const diagnosis = createDiagnosis("unknown");
       const request = createForwardRequest({
@@ -531,18 +590,26 @@ describe("native messaging protocol", () => {
         error: {
           code,
           message: `${code} failure`,
-          retryable:
-            bridgeResponse.command_envelope_v2?.operational.compat.v1_error?.retryable ??
-            false,
+          retryable: expectedBridgeRetryableByCode[code],
           diagnosis
         },
         observability: emptyObservability,
         timestamp: "2026-06-13T00:00:00.000Z"
       });
+      const bridgeError = bridgeResponse.command_envelope_v2?.errors[0];
+      const coreError = coreEnvelope.errors[0];
 
-      expect(bridgeResponse.command_envelope_v2?.errors[0].category).toBe(
-        coreEnvelope.errors[0]?.category
-      );
+      expect(bridgeError).toMatchObject({
+        code,
+        retryable: expectedBridgeRetryableByCode[code],
+        category: coreError?.category,
+        family: coreError?.family,
+        exit_code: coreError?.exit_code
+      });
+      expect(bridgeResponse.command_envelope_v2?.operational.compat.v1_error).toMatchObject({
+        code,
+        retryable: expectedBridgeRetryableByCode[code]
+      });
     }
   );
 

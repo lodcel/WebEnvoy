@@ -112,20 +112,30 @@ const CLI_ERROR_EXIT_CODE: Record<string, ErrorV2["exit_code"]> = {
 const isCliErrorCode = (value: string): boolean =>
   Object.prototype.hasOwnProperty.call(CLI_ERROR_EXIT_CODE, value);
 
-const isRecoverableRuntimeErrorCode = (code: string): boolean => {
-  if (
-    code === "ERR_RUNTIME_BOOTSTRAP_IDENTITY_MISMATCH" ||
-    code === "ERR_RUNTIME_IDENTITY_MISMATCH"
-  ) {
+const isNonRetryableIdentityErrorCode = (code: string): boolean =>
+  code === "ERR_RUNTIME_BOOTSTRAP_IDENTITY_MISMATCH" ||
+  code === "ERR_RUNTIME_IDENTITY_MISMATCH";
+
+const isProviderUnavailableFamilyErrorCode = (code: string): boolean =>
+  code === "ERR_PROVIDER_UNAVAILABLE" ||
+  code === "ERR_RUNTIME_UNAVAILABLE" ||
+  code === "ERR_RUNTIME_READY_SIGNAL_CONFLICT" ||
+  code === "ERR_RUNTIME_IDENTITY_NOT_BOUND" ||
+  code === "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED" ||
+  code === "ERR_BROWSER_LAUNCH_FAILED" ||
+  code.startsWith("ERR_RUNTIME_BOOTSTRAP_") ||
+  code.startsWith("ERR_PROFILE_");
+
+const retryableForCliErrorCode = (code: string): boolean => {
+  if (isNonRetryableIdentityErrorCode(code)) {
     return false;
   }
 
-  return (
-    code === "ERR_RUNTIME_UNAVAILABLE" ||
-    code === "ERR_RUNTIME_READY_SIGNAL_CONFLICT" ||
-    code === "ERR_RUNTIME_IDENTITY_NOT_BOUND" ||
-    code.startsWith("ERR_RUNTIME_BOOTSTRAP_")
-  );
+  if (isProviderUnavailableFamilyErrorCode(code)) {
+    return true;
+  }
+
+  return false;
 };
 
 const bridgeErrorToCliError = (
@@ -138,7 +148,7 @@ const bridgeErrorToCliError = (
   if (isCliErrorCode(error.code)) {
     return {
       code: error.code as ErrorCode,
-      retryable: isRecoverableRuntimeErrorCode(error.code),
+      retryable: retryableForCliErrorCode(error.code),
       originalCode: error.code
     };
   }
