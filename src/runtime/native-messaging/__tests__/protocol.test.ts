@@ -775,6 +775,82 @@ describe("native messaging protocol", () => {
     expect(serialized).not.toContain("fifth evidence should be omitted");
   });
 
+  it("sanitizes and bounds diagnosis failure_site before sidecar exposure", () => {
+    const request = createForwardRequest({
+      id: "forward-diagnosis-failure-site-bounds-001",
+      runId: "run-forward-diagnosis-failure-site-bounds-001"
+    });
+    const longTarget = `https://example.com/${"path/".repeat(60)}search?token=SECRET#fragment`;
+    const longSummary = `authorization: Bearer SECRET\ncookie: sid=raw\n${"summary ".repeat(80)}`;
+    const response = withBridgeCommandEnvelopeV2(request, {
+      id: request.id,
+      status: "error",
+      summary: {},
+      payload: {
+        diagnosis: {
+          category: "request_failed",
+          stage: "request",
+          component: "network",
+          failure_site: {
+            stage: "request",
+            component: "network",
+            target: longTarget,
+            summary: longSummary
+          },
+          evidence: ["request failed"]
+        }
+      },
+      error: {
+        code: "ERR_EXECUTION_FAILED",
+        message: "request failed"
+      }
+    });
+    const envelope = response.command_envelope_v2;
+    const failureSite = envelope?.errors[0].diagnosis?.failure_site;
+    const serialized = JSON.stringify(envelope);
+
+    expect(failureSite?.target).not.toContain("?");
+    expect(failureSite?.target).not.toContain("#fragment");
+    expect(failureSite?.target).not.toContain("SECRET");
+    expect(failureSite?.target.length).toBeLessThanOrEqual(160);
+    expect(failureSite?.target_truncated).toBe(true);
+    expect(failureSite?.summary).toContain("authorization: [REDACTED]");
+    expect(failureSite?.summary).toContain("cookie: [REDACTED]");
+    expect(failureSite?.summary).not.toContain("Bearer SECRET");
+    expect(failureSite?.summary).not.toContain("sid=raw");
+    expect(failureSite?.summary.length).toBeLessThanOrEqual(160);
+    expect(failureSite?.summary_truncated).toBe(true);
+    expect(envelope?.operational.diagnosis).toMatchObject({
+      availability: "available",
+      failure_site: failureSite,
+      summary: failureSite?.summary
+    });
+    expect(envelope?.operational.limits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          limit_ref: "bridge.diagnosis.failure_site.target.redaction",
+          affected_path: "errors[0].diagnosis.failure_site.target"
+        }),
+        expect.objectContaining({
+          limit_ref: "bridge.diagnosis.failure_site.target.truncation",
+          affected_path: "errors[0].diagnosis.failure_site.target"
+        }),
+        expect.objectContaining({
+          limit_ref: "bridge.diagnosis.failure_site.summary.redaction",
+          affected_path: "errors[0].diagnosis.failure_site.summary"
+        }),
+        expect.objectContaining({
+          limit_ref: "bridge.diagnosis.failure_site.summary.truncation",
+          affected_path: "errors[0].diagnosis.failure_site.summary"
+        })
+      ])
+    );
+    expect(serialized).not.toContain("Bearer SECRET");
+    expect(serialized).not.toContain("sid=raw");
+    expect(serialized).not.toContain("token=SECRET");
+    expect(serialized).not.toContain("#fragment");
+  });
+
   it.each([
     ["page_changed", "page"],
     ["request_failed", "request"],

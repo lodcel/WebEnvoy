@@ -353,6 +353,67 @@ const boundedDiagnosisEvidenceSummary = (
   };
 };
 
+const boundedDiagnosisFailureSite = (
+  failureSite: FailureSite
+): {
+  value: FailureSite;
+  limits: NonNullable<CommandEnvelopeV2["operational"]["limits"]>;
+} => {
+  const targetSanitized = sanitizeFailureTarget(failureSite.target);
+  const target = truncateString(targetSanitized, MAX_OBSERVABILITY_FAILURE_TARGET_LENGTH);
+  const summarySanitized = sanitizeFreeText(failureSite.summary.trim());
+  const summary = truncateString(summarySanitized, MAX_OBSERVABILITY_FAILURE_SUMMARY_LENGTH);
+  const limits: NonNullable<CommandEnvelopeV2["operational"]["limits"]> = [];
+
+  if (targetSanitized !== failureSite.target.trim()) {
+    limits.push({
+      limit_ref: "bridge.diagnosis.failure_site.target.redaction",
+      kind: "redaction",
+      affected_path: "errors[0].diagnosis.failure_site.target",
+      reason: "bridge diagnosis failure_site target contained query, fragment, or sensitive URL data"
+    });
+  }
+  if (target.truncated) {
+    limits.push({
+      limit_ref: "bridge.diagnosis.failure_site.target.truncation",
+      kind: "truncation",
+      affected_path: "errors[0].diagnosis.failure_site.target",
+      reason: "bridge diagnosis failure_site target exceeded the command envelope sidecar bound"
+    });
+  }
+  if (summarySanitized !== failureSite.summary.trim()) {
+    limits.push({
+      limit_ref: "bridge.diagnosis.failure_site.summary.redaction",
+      kind: "redaction",
+      affected_path: "errors[0].diagnosis.failure_site.summary",
+      reason: "bridge diagnosis failure_site summary contained sensitive text"
+    });
+  }
+  if (summary.truncated) {
+    limits.push({
+      limit_ref: "bridge.diagnosis.failure_site.summary.truncation",
+      kind: "truncation",
+      affected_path: "errors[0].diagnosis.failure_site.summary",
+      reason: "bridge diagnosis failure_site summary exceeded the command envelope sidecar bound"
+    });
+  }
+
+  return {
+    value: {
+      ...failureSite,
+      target: target.value,
+      ...(target.truncated || failureSite.target_truncated === true
+        ? { target_truncated: true }
+        : {}),
+      summary: summary.value,
+      ...(summary.truncated || failureSite.summary_truncated === true
+        ? { summary_truncated: true }
+        : {})
+    },
+    limits
+  };
+};
+
 const boundedParityValue = (value: unknown): unknown => {
   if (
     value === null ||
@@ -654,7 +715,9 @@ const boundedDiagnosisForEnvelope = (
   const evidenceRefs = boundedEvidence.map(
     (_item, index) => `run:${runId}:bridge:diagnosis:${index + 1}`
   );
+  const boundedFailureSite = boundedDiagnosisFailureSite(diagnosis.failure_site);
   const limits: NonNullable<CommandEnvelopeV2["operational"]["limits"]> = [];
+  limits.push(...boundedFailureSite.limits);
 
   if (diagnosis.evidence.length > MAX_DIAGNOSIS_EVIDENCE_ITEMS) {
     limits.push({
@@ -687,6 +750,7 @@ const boundedDiagnosisForEnvelope = (
   return {
     diagnosis: {
       ...diagnosis,
+      failure_site: boundedFailureSite.value,
       evidence: boundedEvidence.map((item) => item.value)
     },
     evidenceRefs,
