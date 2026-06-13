@@ -99,9 +99,14 @@ describe("native messaging loopback relay", () => {
         errors: [
           expect.objectContaining({
             code: "ERR_EXECUTION_FAILED",
-            category: "runtime"
+            category: "unknown"
           })
-        ]
+        ],
+        operational: {
+          diagnosis: expect.objectContaining({
+            availability: "unavailable"
+          })
+        }
       },
       payload: {
         details: expect.objectContaining({

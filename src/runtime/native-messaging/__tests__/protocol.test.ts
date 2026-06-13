@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { mapCurrentCliResponseToCommandEnvelopeV2 } from "../../../core/command-envelope-v2.js";
+import type { ErrorResponse } from "../../../core/types.js";
+import type { Diagnosis } from "../../diagnostics.js";
+import type { ObservabilityPayload } from "../../observability.js";
 import {
   BRIDGE_PROTOCOL,
   createBridgeForwardRequest,
@@ -8,6 +12,96 @@ import {
   ensureBridgeRequestEnvelope,
   withBridgeCommandEnvelopeV2
 } from "../protocol.js";
+
+const emptyObservability: ObservabilityPayload = {
+  coverage: "unavailable",
+  request_evidence: "none",
+  truncation: {
+    truncated: false,
+    fields: []
+  },
+  page_state: null,
+  key_requests: [],
+  failure_site: null
+};
+
+const createDiagnosis = (category: Diagnosis["category"]): Diagnosis => ({
+  category,
+  stage:
+    category === "page_changed"
+      ? "page"
+      : category === "request_failed"
+        ? "request"
+        : "runtime",
+  component:
+    category === "page_changed"
+      ? "dom"
+      : category === "request_failed"
+        ? "network"
+        : "runtime",
+  failure_site: {
+    stage:
+      category === "page_changed"
+        ? "page"
+        : category === "request_failed"
+          ? "request"
+          : "runtime",
+    component:
+      category === "page_changed"
+        ? "dom"
+        : category === "request_failed"
+          ? "network"
+          : "runtime",
+    target: `${category}-target`,
+    summary: `${category} summary`
+  },
+  evidence: [`${category} evidence`]
+});
+
+const createForwardRequest = (input?: {
+  id?: string;
+  runId?: string;
+  command?: string;
+}) =>
+  createBridgeForwardRequest({
+    id: input?.id ?? "forward-error-parity-001",
+    profile: "profile-a",
+    sessionId: "nm-session-001",
+    runId: input?.runId ?? "run-forward-error-parity-001",
+    command: input?.command ?? "xhs.search",
+    commandParams: {},
+    cwd: "/tmp",
+    timeoutMs: 1234
+  });
+
+const supportedCliErrorCodes = [
+  "ERR_CLI_INVALID_ARGS",
+  "ERR_CLI_UNKNOWN_COMMAND",
+  "ERR_CLI_NOT_IMPLEMENTED",
+  "ERR_PROVIDER_UNAVAILABLE",
+  "ERR_RISK_GATE_DENIED",
+  "ERR_CLOSEOUT_FAILED",
+  "ERR_SCHEMA_EVIDENCE_FAILED",
+  "ERR_RUNTIME_UNAVAILABLE",
+  "ERR_RUNTIME_BOOTSTRAP_PENDING",
+  "ERR_RUNTIME_BOOTSTRAP_TRANSPORT_NOT_CONNECTED",
+  "ERR_RUNTIME_BOOTSTRAP_NOT_DELIVERED",
+  "ERR_RUNTIME_BOOTSTRAP_ACK_TIMEOUT",
+  "ERR_RUNTIME_BOOTSTRAP_ACK_STALE",
+  "ERR_RUNTIME_BOOTSTRAP_IDENTITY_MISMATCH",
+  "ERR_RUNTIME_READY_SIGNAL_CONFLICT",
+  "ERR_RUNTIME_IDENTITY_NOT_BOUND",
+  "ERR_RUNTIME_IDENTITY_MISMATCH",
+  "ERR_EXTENSION_SERVICE_WORKER_REFRESH_REQUIRED",
+  "ERR_EXECUTION_FAILED",
+  "ERR_PROFILE_INVALID",
+  "ERR_PROFILE_LOCKED",
+  "ERR_PROFILE_OWNER_CONFLICT",
+  "ERR_PROFILE_META_CORRUPT",
+  "ERR_PROFILE_PROXY_CONFLICT",
+  "ERR_BROWSER_LAUNCH_FAILED",
+  "ERR_PROFILE_STATE_CONFLICT"
+] as const;
 
 describe("native messaging protocol", () => {
   it("builds bridge.open with protocol version", () => {
@@ -337,6 +431,7 @@ describe("native messaging protocol", () => {
       stage: "page",
       component: "dom"
     });
+    expect(response.command_envelope_v2?.errors[0].category).toBe("page");
     expect(response.command_envelope_v2?.errors[0].diagnosis?.failure_site).toMatchObject({
       stage: "page",
       component: "dom"
@@ -350,5 +445,170 @@ describe("native messaging protocol", () => {
         summary: "selector #search was not found"
       }
     ]);
+  });
+
+  it.each([
+    ["page_changed", "page"],
+    ["request_failed", "request"],
+    ["execution_interrupted", "runtime"],
+    ["runtime_unavailable", "runtime"],
+    ["unknown", "unknown"]
+  ] as const)(
+    "matches core CLI v2 category mapping for ERR_EXECUTION_FAILED with %s diagnosis",
+    (category, expectedCategory) => {
+      const diagnosis = createDiagnosis(category);
+      const request = createForwardRequest({
+        id: `forward-${category}-diagnosis-001`,
+        runId: `run-forward-${category}-diagnosis-001`
+      });
+      const bridgeResponse = withBridgeCommandEnvelopeV2(request, {
+        id: request.id,
+        status: "error",
+        summary: {},
+        payload: {
+          diagnosis
+        },
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          message: `${category} failure`
+        }
+      });
+      const coreResponse: ErrorResponse = {
+        run_id: String(request.params.run_id),
+        command: String(request.params.command),
+        status: "error",
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          message: `${category} failure`,
+          retryable: false,
+          diagnosis
+        },
+        observability: emptyObservability,
+        timestamp: "2026-06-13T00:00:00.000Z"
+      };
+      const coreEnvelope = mapCurrentCliResponseToCommandEnvelopeV2(coreResponse);
+
+      expect(bridgeResponse.command_envelope_v2?.errors[0]).toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        category: expectedCategory
+      });
+      expect(bridgeResponse.command_envelope_v2?.errors[0].category).toBe(
+        coreEnvelope.errors[0]?.category
+      );
+      expect(bridgeResponse.command_envelope_v2?.operational.diagnosis).toMatchObject({
+        availability: "available",
+        classification: category,
+        failure_site: diagnosis.failure_site
+      });
+      expect(bridgeResponse.command_envelope_v2?.errors[0].diagnosis).toEqual(diagnosis);
+    }
+  );
+
+  it.each(supportedCliErrorCodes)(
+    "matches core CLI v2 category mapping for supported error code %s",
+    (code) => {
+      const diagnosis = createDiagnosis("unknown");
+      const request = createForwardRequest({
+        id: `forward-${code.toLowerCase()}-category-001`,
+        runId: `run-forward-${code.toLowerCase()}-category-001`
+      });
+      const bridgeResponse = withBridgeCommandEnvelopeV2(request, {
+        id: request.id,
+        status: "error",
+        summary: {},
+        payload: {
+          diagnosis
+        },
+        error: {
+          code,
+          message: `${code} failure`
+        }
+      });
+      const coreEnvelope = mapCurrentCliResponseToCommandEnvelopeV2({
+        run_id: String(request.params.run_id),
+        command: String(request.params.command),
+        status: "error",
+        error: {
+          code,
+          message: `${code} failure`,
+          retryable:
+            bridgeResponse.command_envelope_v2?.operational.compat.v1_error?.retryable ??
+            false,
+          diagnosis
+        },
+        observability: emptyObservability,
+        timestamp: "2026-06-13T00:00:00.000Z"
+      });
+
+      expect(bridgeResponse.command_envelope_v2?.errors[0].category).toBe(
+        coreEnvelope.errors[0]?.category
+      );
+    }
+  );
+
+  it("fails closed when command-level diagnosis is missing, malformed, or unsupported", () => {
+    const request = createForwardRequest({
+      id: "forward-fail-closed-diagnosis-001",
+      runId: "run-forward-fail-closed-diagnosis-001"
+    });
+    const cases = [
+      { name: "missing", payload: undefined },
+      {
+        name: "malformed",
+        payload: {
+          diagnosis: {
+            category: "page_changed",
+            failure_site: {
+              stage: "page",
+              component: "dom",
+              summary: "missing target"
+            }
+          }
+        }
+      },
+      {
+        name: "unsupported",
+        payload: {
+          diagnosis: {
+            category: "auth_failed",
+            stage: "auth",
+            component: "account",
+            failure_site: {
+              stage: "auth",
+              component: "account",
+              target: "profile",
+              summary: "unsupported diagnosis category"
+            },
+            evidence: ["auth failed"]
+          }
+        }
+      }
+    ];
+
+    for (const item of cases) {
+      const response = withBridgeCommandEnvelopeV2(request, {
+        id: `${request.id}-${item.name}`,
+        status: "error",
+        summary: {},
+        ...(item.payload ? { payload: item.payload } : {}),
+        error: {
+          code: "ERR_EXECUTION_FAILED",
+          message: `${item.name} diagnosis`
+        }
+      });
+
+      expect(response.command_envelope_v2?.errors[0]).toMatchObject({
+        code: "ERR_EXECUTION_FAILED",
+        category: "unknown"
+      });
+      expect(response.command_envelope_v2?.errors[0]).not.toHaveProperty("diagnosis");
+      expect(response.command_envelope_v2?.errors[0]).not.toHaveProperty(
+        "related_evidence_refs"
+      );
+      expect(response.command_envelope_v2?.operational.diagnosis).toMatchObject({
+        availability: "unavailable"
+      });
+      expect(response.command_envelope_v2?.evidence).toEqual([]);
+    }
   });
 });

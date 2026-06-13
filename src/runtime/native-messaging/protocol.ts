@@ -150,15 +150,26 @@ const bridgeErrorToCliError = (
   };
 };
 
-const categoryForCliError = (code: ErrorCode): ErrorV2["category"] => {
+const bridgeErrorCategoryByDiagnosis: Record<Diagnosis["category"], ErrorV2["category"]> = {
+  execution_interrupted: "runtime",
+  page_changed: "page",
+  request_failed: "request",
+  runtime_unavailable: "runtime",
+  unknown: "unknown"
+};
+
+const categoryForCliError = (
+  code: ErrorCode,
+  diagnosis: Diagnosis | null
+): ErrorV2["category"] => {
+  if (code === "ERR_PROVIDER_UNAVAILABLE") {
+    return "environment";
+  }
   if (code === "ERR_RISK_GATE_DENIED") {
     return "risk";
   }
   if (code === "ERR_CLOSEOUT_FAILED" || code === "ERR_SCHEMA_EVIDENCE_FAILED") {
     return "evidence";
-  }
-  if (code === "ERR_PROVIDER_UNAVAILABLE") {
-    return "environment";
   }
   if (code.startsWith("ERR_CLI_")) {
     return "cli";
@@ -169,10 +180,12 @@ const categoryForCliError = (code: ErrorCode): ErrorV2["category"] => {
   if (
     code.startsWith("ERR_RUNTIME_") ||
     code.startsWith("ERR_BROWSER_") ||
-    code.startsWith("ERR_EXTENSION_") ||
-    code === "ERR_EXECUTION_FAILED"
+    code.startsWith("ERR_EXTENSION_")
   ) {
     return "runtime";
+  }
+  if (diagnosis) {
+    return bridgeErrorCategoryByDiagnosis[diagnosis.category];
   }
   return "unknown";
 };
@@ -423,7 +436,7 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
         code: cliError.code,
         message: response.error.message,
         retryable: cliError.retryable,
-        category: categoryForCliError(cliError.code),
+        category: categoryForCliError(cliError.code, diagnosis),
         family: familyForCliError(cliError.code),
         exit_code: CLI_ERROR_EXIT_CODE[cliError.code] ?? 5,
         ...(diagnosis ? { diagnosis } : {}),
