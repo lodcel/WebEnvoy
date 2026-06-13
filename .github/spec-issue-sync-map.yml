@@ -141,3 +141,5 @@ mappings:
     canonical_issue_number: 1183
   - spec_path: docs/dev/specs/FR-0071-syvert-mapping-hint-manifest/spec.md
     canonical_issue_number: 1199
+  - spec_path: docs/dev/specs/FR-0072-integration-check-metadata/spec.md
+    canonical_issue_number: 1205
