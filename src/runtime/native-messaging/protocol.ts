@@ -1,6 +1,8 @@
 import type { CommandEnvelopeV2, ErrorV2 } from "../../core/command-envelope-v2.js";
 import type { ErrorCode } from "../../core/errors.js";
 import type { JsonObject } from "../../core/types.js";
+import type { Diagnosis } from "../diagnostics.js";
+import type { FailureSite } from "../observability.js";
 import type { ObservabilityPayload } from "../observability.js";
 
 export const BRIDGE_PROTOCOL = "webenvoy.native-bridge.v1";
@@ -69,6 +71,9 @@ const asObject = (value: unknown): JsonObject | null =>
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
+const MAX_PARITY_VIEW_KEYS = 16;
+const MAX_PARITY_STRING_LENGTH = 256;
+
 const resolveCommandRunId = (request: BridgeRequestEnvelope): string =>
   asString(request.params.run_id) ?? request.id;
 
@@ -107,6 +112,22 @@ const CLI_ERROR_EXIT_CODE: Record<string, ErrorV2["exit_code"]> = {
 const isCliErrorCode = (value: string): boolean =>
   Object.prototype.hasOwnProperty.call(CLI_ERROR_EXIT_CODE, value);
 
+const isRecoverableRuntimeErrorCode = (code: string): boolean => {
+  if (
+    code === "ERR_RUNTIME_BOOTSTRAP_IDENTITY_MISMATCH" ||
+    code === "ERR_RUNTIME_IDENTITY_MISMATCH"
+  ) {
+    return false;
+  }
+
+  return (
+    code === "ERR_RUNTIME_UNAVAILABLE" ||
+    code === "ERR_RUNTIME_READY_SIGNAL_CONFLICT" ||
+    code === "ERR_RUNTIME_IDENTITY_NOT_BOUND" ||
+    code.startsWith("ERR_RUNTIME_BOOTSTRAP_")
+  );
+};
+
 const bridgeErrorToCliError = (
   error: BridgeResponseErrorEnvelope["error"]
 ): {
@@ -117,7 +138,7 @@ const bridgeErrorToCliError = (
   if (isCliErrorCode(error.code)) {
     return {
       code: error.code as ErrorCode,
-      retryable: error.code === "ERR_RUNTIME_UNAVAILABLE",
+      retryable: isRecoverableRuntimeErrorCode(error.code),
       originalCode: error.code
     };
   }
@@ -179,6 +200,138 @@ const familyForCliError = (code: ErrorCode): ErrorV2["family"] => {
   return "provider_unavailable";
 };
 
+const boundedString = (value: string): string =>
+  value.length > MAX_PARITY_STRING_LENGTH
+    ? `${value.slice(0, MAX_PARITY_STRING_LENGTH)}...`
+    : value;
+
+const boundedParityValue = (value: unknown): unknown => {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return boundedString(value);
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      item_count: value.length
+    };
+  }
+
+  const object = asObject(value);
+  if (object) {
+    const keys = Object.keys(object).sort();
+    return {
+      type: "object",
+      key_count: keys.length,
+      keys: keys.slice(0, MAX_PARITY_VIEW_KEYS),
+      keys_truncated: keys.length > MAX_PARITY_VIEW_KEYS
+    };
+  }
+
+  return String(value);
+};
+
+const boundedParityObject = (value: JsonObject): JsonObject => {
+  const entries = Object.entries(value);
+  const bounded: JsonObject = {};
+  for (const [key, item] of entries.slice(0, MAX_PARITY_VIEW_KEYS)) {
+    bounded[key] = boundedParityValue(item);
+  }
+  if (entries.length > MAX_PARITY_VIEW_KEYS) {
+    bounded.parity_view_truncated = true;
+    bounded.parity_view_original_key_count = entries.length;
+  }
+  return bounded;
+};
+
+const buildSuccessParityData = (response: BridgeResponseSuccessEnvelope): JsonObject => {
+  const data = boundedParityObject(response.summary);
+  const payload = asObject(response.payload);
+  if (!payload) {
+    return data;
+  }
+
+  const payloadKeys = Object.keys(payload).sort();
+  return {
+    ...data,
+    payload_present: true,
+    payload_key_count: payloadKeys.length,
+    payload_keys: payloadKeys.slice(0, MAX_PARITY_VIEW_KEYS),
+    payload_keys_truncated: payloadKeys.length > MAX_PARITY_VIEW_KEYS
+  };
+};
+
+const isFailureSite = (value: unknown): value is FailureSite => {
+  const site = asObject(value);
+  if (!site) {
+    return false;
+  }
+  return (
+    typeof site.stage === "string" &&
+    typeof site.component === "string" &&
+    typeof site.target === "string" &&
+    typeof site.summary === "string"
+  );
+};
+
+const isDiagnosisCategory = (value: unknown): value is Diagnosis["category"] =>
+  value === "page_changed" ||
+  value === "request_failed" ||
+  value === "execution_interrupted" ||
+  value === "runtime_unavailable" ||
+  value === "unknown";
+
+const asDiagnosis = (value: unknown): Diagnosis | null => {
+  const diagnosis = asObject(value);
+  const failureSite = isFailureSite(diagnosis?.failure_site)
+    ? diagnosis.failure_site
+    : null;
+  if (
+    !failureSite ||
+    !isDiagnosisCategory(diagnosis?.category) ||
+    typeof diagnosis.stage !== "string" ||
+    typeof diagnosis.component !== "string"
+  ) {
+    return null;
+  }
+
+  const evidence = Array.isArray(diagnosis.evidence)
+    ? diagnosis.evidence.filter((item): item is string => typeof item === "string")
+    : [];
+
+  return {
+    category: diagnosis.category,
+    stage: diagnosis.stage,
+    component: diagnosis.component,
+    failure_site: failureSite,
+    evidence
+  };
+};
+
+const diagnosisFromBridgeErrorPayload = (
+  response: BridgeResponseErrorEnvelope
+): Diagnosis | null => {
+  const payload = asObject(response.payload);
+  const details = asObject(payload?.details);
+  const nestedError = asObject(payload?.error);
+  return (
+    asDiagnosis(payload?.diagnosis) ??
+    asDiagnosis(details?.diagnosis) ??
+    asDiagnosis(nestedError?.diagnosis)
+  );
+};
+
+const diagnosisEvidenceRefs = (runId: string, diagnosis: Diagnosis): string[] =>
+  diagnosis.evidence.map((_item, index) => `run:${runId}:bridge:diagnosis:${index + 1}`);
+
 const buildCommandEnvelopeV2ForBridgeResponse = (
   request: BridgeRequestEnvelope,
   response: BridgeResponseEnvelope,
@@ -193,18 +346,19 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
   const observability = options?.observability ?? EMPTY_OBSERVABILITY;
 
   if (response.status === "success") {
-    const summary = asObject(response.payload) ?? response.summary;
+    const data = buildSuccessParityData(response);
+    const compatSummary = boundedParityObject(response.summary);
     return {
       ok: true,
       command,
       run_id: runId,
-      data: summary,
+      data,
       operational: {
         compat: {
           output_version: "v2",
           compatible_with: "fr-0001.v1",
           v1_status: "success",
-          v1_summary: summary
+          v1_summary: compatSummary
         },
         observability,
         timestamps: {
@@ -218,14 +372,8 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
   }
 
   const cliError = bridgeErrorToCliError(response.error);
-  const details = asObject(response.payload?.details);
-  const evidenceRef = `run:${runId}:bridge:error:${cliError.originalCode}`;
-  const failureSite = {
-    stage: "transport",
-    component: "native-messaging",
-    target: command,
-    summary: response.error.message
-  };
+  const diagnosis = diagnosisFromBridgeErrorPayload(response);
+  const evidenceRefs = diagnosis ? diagnosisEvidenceRefs(runId, diagnosis) : [];
   return {
     ok: false,
     command,
@@ -242,32 +390,33 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
           retryable: cliError.retryable
         }
       },
-      observability: {
-        ...observability,
-        coverage: observability.coverage === "complete" ? "complete" : "partial",
-        failure_site: observability.failure_site ?? failureSite
-      },
-      diagnosis: {
-        availability: "available",
-        primary_error_index: 0,
-        classification: "execution_interrupted",
-        failure_site: failureSite,
-        evidence_refs: [evidenceRef],
-        summary: response.error.message
-      },
+      observability,
+      diagnosis: diagnosis
+        ? {
+            availability: "available",
+            primary_error_index: 0,
+            classification: diagnosis.category,
+            failure_site: diagnosis.failure_site,
+            ...(evidenceRefs.length > 0 ? { evidence_refs: evidenceRefs } : {}),
+            summary: diagnosis.failure_site.summary
+          }
+        : {
+            availability: "unavailable",
+            summary: "diagnosis unavailable"
+          },
       timestamps: {
         completed_at: timestamp
       }
     },
-    evidence: [
-      {
-        kind: "runtime_diagnostic",
-        ref: evidenceRef,
-        status: "available",
-        produced_by_run_id: runId,
-        summary: `bridge_error_code=${cliError.originalCode}`
-      }
-    ],
+    evidence: diagnosis
+      ? diagnosis.evidence.map((item, index) => ({
+          kind: "runtime_diagnostic",
+          ref: evidenceRefs[index] ?? `run:${runId}:bridge:diagnosis:${index + 1}`,
+          status: "available",
+          produced_by_run_id: runId,
+          summary: item
+        }))
+      : [],
     warnings: [],
     errors: [
       {
@@ -277,17 +426,8 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
         category: categoryForCliError(cliError.code),
         family: familyForCliError(cliError.code),
         exit_code: CLI_ERROR_EXIT_CODE[cliError.code] ?? 5,
-        diagnosis: {
-          category: "execution_interrupted",
-          stage: "transport",
-          component: "native-messaging",
-          failure_site: failureSite,
-          evidence: [
-            `bridge_error_code=${cliError.originalCode}`,
-            ...(details ? [`bridge_response_details_keys=${Object.keys(details).sort().join(",")}`] : [])
-          ]
-        },
-        related_evidence_refs: [evidenceRef]
+        ...(diagnosis ? { diagnosis } : {}),
+        ...(evidenceRefs.length > 0 ? { related_evidence_refs: evidenceRefs } : {})
       },
     ]
   };

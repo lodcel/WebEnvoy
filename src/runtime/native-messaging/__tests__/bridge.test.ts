@@ -162,7 +162,12 @@ describe("native messaging bridge", () => {
         run_id: "run-command-envelope-parity-001",
         command: "runtime.ping",
         data: {
-          message: "pong"
+          session_id: "nm-session-001",
+          run_id: "run-command-envelope-parity-001",
+          command: "runtime.ping",
+          payload_present: true,
+          payload_key_count: 1,
+          payload_keys: ["message"]
         },
         errors: []
       }
