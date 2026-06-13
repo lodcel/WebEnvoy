@@ -75,6 +75,11 @@ const MAX_PARITY_VIEW_KEYS = 16;
 const MAX_PARITY_STRING_LENGTH = 256;
 const MAX_DIAGNOSIS_EVIDENCE_ITEMS = 4;
 const MAX_DIAGNOSIS_EVIDENCE_SUMMARY_LENGTH = 256;
+const MAX_OBSERVABILITY_REQUESTS = 10;
+const MAX_OBSERVABILITY_TITLE_LENGTH = 120;
+const MAX_OBSERVABILITY_FAILURE_SUMMARY_LENGTH = 160;
+const MAX_OBSERVABILITY_REQUEST_REASON_LENGTH = 120;
+const MAX_OBSERVABILITY_FAILURE_TARGET_LENGTH = 160;
 const REDACTED = "[REDACTED]";
 
 const resolveCommandRunId = (request: BridgeRequestEnvelope): string =>
@@ -254,6 +259,78 @@ const sanitizeFreeText = (value: string): string =>
       (_match, key: string) => `${key}: ${REDACTED}`
     );
 
+const truncateString = (
+  value: string,
+  maxLength: number
+): {
+  value: string;
+  truncated: boolean;
+} => {
+  if (value.length <= maxLength) {
+    return {
+      value,
+      truncated: false
+    };
+  }
+  return {
+    value: value.slice(0, maxLength),
+    truncated: true
+  };
+};
+
+const nonEmptyString = (value: unknown, fallback: string): string =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+
+const stripQueryAndFragment = (value: string): string => {
+  const noFragment = value.split("#", 1)[0];
+  return noFragment.split("?", 1)[0] ?? noFragment;
+};
+
+const sanitizeUrl = (value: unknown): string => {
+  const normalized = nonEmptyString(value, "");
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  const isAbsolute = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(normalized);
+  if (!isAbsolute) {
+    return stripQueryAndFragment(normalized);
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return stripQueryAndFragment(normalized);
+  }
+};
+
+const sanitizeFailureTarget = (value: unknown): string => {
+  const normalized = nonEmptyString(value, "unknown");
+  const isAbsolute = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(normalized);
+  const isPathLike =
+    normalized.startsWith("/") || normalized.startsWith("./") || normalized.startsWith("../");
+
+  if (isAbsolute || isPathLike) {
+    return sanitizeUrl(normalized) || "unknown";
+  }
+  if (normalized.includes("?")) {
+    return normalized.split("?", 1)[0] ?? normalized;
+  }
+  return normalized;
+};
+
+type ObservabilityTruncationField = ObservabilityPayload["truncation"]["fields"][number];
+
+const pushUniqueTruncationField = (
+  fields: ObservabilityTruncationField[],
+  field: ObservabilityTruncationField
+): void => {
+  if (!fields.includes(field)) {
+    fields.push(field);
+  }
+};
+
 const boundedDiagnosisEvidenceSummary = (
   value: string
 ): {
@@ -400,6 +477,168 @@ const diagnosisFromBridgeErrorPayload = (
   );
 };
 
+const normalizeObservabilityPageState = (
+  value: unknown
+): ObservabilityPayload["page_state"] => {
+  const pageState = asObject(value);
+  if (!pageState) {
+    return null;
+  }
+
+  const pageKind = nonEmptyString(pageState.page_kind, "");
+  const url = sanitizeUrl(pageState.url);
+  const titleRaw = nonEmptyString(pageState.title, "");
+  const readyState = nonEmptyString(pageState.ready_state, "");
+  const title = truncateString(
+    titleRaw.length > 0 ? titleRaw : "unknown",
+    MAX_OBSERVABILITY_TITLE_LENGTH
+  );
+  const partialObservable =
+    pageKind.length === 0 || url.length === 0 || titleRaw.length === 0 || readyState.length === 0;
+
+  return {
+    page_kind: pageKind.length > 0 ? pageKind : "unknown",
+    url: url.length > 0 ? url : "about:blank",
+    title: title.value,
+    ready_state: readyState.length > 0 ? readyState : "unknown",
+    observation_status: partialObservable ? "partial" : "complete",
+    ...(partialObservable ? { partial_observable: true } : {}),
+    ...((title.truncated || pageState.title_truncated === true) ? { title_truncated: true } : {})
+  };
+};
+
+const normalizeObservabilityKeyRequest = (
+  value: JsonObject
+): ObservabilityPayload["key_requests"][number] => {
+  const request: ObservabilityPayload["key_requests"][number] = {
+    request_id: nonEmptyString(value.request_id, "unknown"),
+    stage: nonEmptyString(value.stage, "unknown"),
+    method: nonEmptyString(value.method, "UNKNOWN").toUpperCase(),
+    url: sanitizeUrl(value.url) || "/",
+    outcome: nonEmptyString(value.outcome, "unknown")
+  };
+
+  if (typeof value.status_code === "number") {
+    request.status_code = value.status_code;
+  }
+
+  const failureReason = nonEmptyString(value.failure_reason, "");
+  if (failureReason.length > 0) {
+    const truncated = truncateString(
+      sanitizeFreeText(failureReason),
+      MAX_OBSERVABILITY_REQUEST_REASON_LENGTH
+    );
+    request.failure_reason = truncated.value;
+    if (truncated.truncated || value.failure_reason_truncated === true) {
+      request.failure_reason_truncated = true;
+    }
+  }
+
+  const requestClass = nonEmptyString(value.request_class, "");
+  if (requestClass.length > 0) {
+    request.request_class = requestClass;
+  }
+
+  return request;
+};
+
+const normalizeObservabilityKeyRequests = (
+  value: unknown
+): ObservabilityPayload["key_requests"] => {
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .map((item) => asObject(item))
+    .filter((item): item is JsonObject => item !== null)
+    .slice(0, MAX_OBSERVABILITY_REQUESTS)
+    .map((item) => normalizeObservabilityKeyRequest(item));
+};
+
+const normalizeObservabilityFailureSite = (
+  value: unknown
+): ObservabilityPayload["failure_site"] => {
+  const failureSite = asObject(value);
+  if (!failureSite) {
+    return null;
+  }
+
+  const target = truncateString(
+    sanitizeFailureTarget(failureSite.target),
+    MAX_OBSERVABILITY_FAILURE_TARGET_LENGTH
+  );
+  const summary = truncateString(
+    sanitizeFreeText(nonEmptyString(failureSite.summary, "unknown")),
+    MAX_OBSERVABILITY_FAILURE_SUMMARY_LENGTH
+  );
+
+  return {
+    stage: nonEmptyString(failureSite.stage, "unknown"),
+    component: nonEmptyString(failureSite.component, "unknown"),
+    target: target.value,
+    ...((target.truncated || failureSite.target_truncated === true)
+      ? { target_truncated: true }
+      : {}),
+    summary: summary.value,
+    ...((summary.truncated || failureSite.summary_truncated === true)
+      ? { summary_truncated: true }
+      : {})
+  };
+};
+
+const buildBridgeObservabilityPayload = (value: JsonObject): ObservabilityPayload => {
+  const truncationFields: ObservabilityTruncationField[] = [];
+  const originalRequests = Array.isArray(value.key_requests) ? value.key_requests : [];
+  const keyRequests = normalizeObservabilityKeyRequests(value.key_requests);
+  if (originalRequests.length > MAX_OBSERVABILITY_REQUESTS) {
+    pushUniqueTruncationField(truncationFields, "key_requests");
+  }
+  if (keyRequests.some((item) => item.failure_reason_truncated === true)) {
+    pushUniqueTruncationField(truncationFields, "key_requests[].failure_reason");
+  }
+
+  const pageState = normalizeObservabilityPageState(value.page_state);
+  if (pageState?.title_truncated) {
+    pushUniqueTruncationField(truncationFields, "page_state.title");
+  }
+
+  const failureSite = normalizeObservabilityFailureSite(value.failure_site);
+  if (failureSite?.target_truncated) {
+    pushUniqueTruncationField(truncationFields, "failure_site.target");
+  }
+  if (failureSite?.summary_truncated) {
+    pushUniqueTruncationField(truncationFields, "failure_site.summary");
+  }
+
+  const hasSupplementalEvidence = keyRequests.length > 0 || failureSite !== null;
+  const coverage: ObservabilityPayload["coverage"] =
+    pageState === null
+      ? hasSupplementalEvidence
+        ? "partial"
+        : "unavailable"
+      : pageState.partial_observable
+        ? "partial"
+        : "complete";
+
+  return {
+    coverage,
+    request_evidence: keyRequests.length > 0 ? "available" : "none",
+    truncation: {
+      truncated: truncationFields.length > 0,
+      fields: truncationFields
+    },
+    page_state: pageState,
+    key_requests: keyRequests,
+    failure_site: failureSite
+  };
+};
+
+const observabilityFromBridgePayload = (
+  response: BridgeResponseEnvelope
+): ObservabilityPayload => {
+  const payload = asObject(response.payload);
+  const observability = asObject(payload?.observability);
+  return observability ? buildBridgeObservabilityPayload(observability) : EMPTY_OBSERVABILITY;
+};
+
 const boundedDiagnosisForEnvelope = (
   runId: string,
   diagnosis: Diagnosis
@@ -473,7 +712,7 @@ const buildCommandEnvelopeV2ForBridgeResponse = (
   const runId = resolveCommandRunId(request);
   const command = resolveCommandName(request);
   const timestamp = options?.timestamp ?? isoNow();
-  const observability = options?.observability ?? EMPTY_OBSERVABILITY;
+  const observability = options?.observability ?? observabilityFromBridgePayload(response);
 
   if (response.status === "success") {
     const data = buildSuccessParityData(response);

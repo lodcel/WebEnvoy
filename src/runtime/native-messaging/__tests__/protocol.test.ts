@@ -302,6 +302,163 @@ describe("native messaging protocol", () => {
     );
   });
 
+  it("promotes bridge payload observability into command envelope v2 sidecar", () => {
+    const request = createBridgeForwardRequest({
+      id: "forward-observability-001",
+      profile: "profile-a",
+      sessionId: "nm-session-001",
+      runId: "run-forward-observability-001",
+      command: "xhs.search",
+      commandParams: {},
+      cwd: "/tmp",
+      timeoutMs: 1234
+    });
+    const payload = {
+      observability: {
+        page_state: {
+          page_kind: "search",
+          url: "https://example.com/search?q=secret",
+          title: "Search results",
+          ready_state: "complete"
+        },
+        key_requests: [
+          {
+            request_id: "search-api-1",
+            stage: "request",
+            method: "get",
+            url: "https://example.com/api/search?token=secret",
+            outcome: "failed",
+            status_code: 503,
+            failure_reason: "authorization: Bearer SECRET"
+          }
+        ],
+        failure_site: {
+          stage: "request",
+          component: "network",
+          target: "https://example.com/api/search?token=secret",
+          summary: "request failed with token=secret"
+        }
+      },
+      result_count: 0
+    };
+    const response = withBridgeCommandEnvelopeV2(request, {
+      id: request.id,
+      status: "success",
+      summary: {
+        run_id: "run-forward-observability-001",
+        command: "xhs.search"
+      },
+      payload,
+      error: null
+    });
+
+    expect(response.payload).toBe(payload);
+    expect(response.command_envelope_v2?.operational.observability).toMatchObject({
+      coverage: "complete",
+      request_evidence: "available",
+      page_state: {
+        url: "https://example.com/search",
+        title: "Search results"
+      },
+      key_requests: [
+        {
+          request_id: "search-api-1",
+          method: "GET",
+          url: "https://example.com/api/search",
+          failure_reason: "authorization: [REDACTED]"
+        }
+      ],
+      failure_site: {
+        stage: "request",
+        component: "network",
+        target: "https://example.com/api/search",
+        summary: "request failed with token=[REDACTED]"
+      }
+    });
+    expect(JSON.stringify(response.command_envelope_v2?.operational.observability)).not.toContain(
+      "SECRET"
+    );
+  });
+
+  it("fails closed when bridge payload observability is missing or malformed", () => {
+    const request = createForwardRequest({
+      id: "forward-observability-fail-closed-001",
+      runId: "run-forward-observability-fail-closed-001"
+    });
+    const cases = [
+      { name: "missing", payload: undefined },
+      {
+        name: "not-object",
+        payload: {
+          observability: "not an observability object"
+        }
+      },
+      {
+        name: "malformed-fields",
+        payload: {
+          observability: {
+            page_state: "bad page state",
+            key_requests: "bad key requests",
+            failure_site: "bad failure site"
+          }
+        }
+      }
+    ];
+
+    for (const item of cases) {
+      const response = withBridgeCommandEnvelopeV2(request, {
+        id: `${request.id}-${item.name}`,
+        status: "success",
+        summary: {},
+        ...(item.payload ? { payload: item.payload } : {}),
+        error: null
+      });
+
+      expect(response.command_envelope_v2?.operational.observability).toEqual(emptyObservability);
+    }
+  });
+
+  it("promotes bridge error payload observability without fabricating diagnosis", () => {
+    const request = createForwardRequest({
+      id: "forward-error-observability-001",
+      runId: "run-forward-error-observability-001"
+    });
+    const response = withBridgeCommandEnvelopeV2(request, {
+      id: request.id,
+      status: "error",
+      summary: {},
+      payload: {
+        observability: {
+          failure_site: {
+            stage: "request",
+            component: "network",
+            target: "/api/search?token=secret",
+            summary: "request failed with authorization: Bearer SECRET"
+          }
+        }
+      },
+      error: {
+        code: "ERR_EXECUTION_FAILED",
+        message: "request failed"
+      }
+    });
+
+    expect(response.command_envelope_v2?.operational.observability).toMatchObject({
+      coverage: "partial",
+      request_evidence: "none",
+      failure_site: {
+        stage: "request",
+        component: "network",
+        target: "/api/search",
+        summary: "request failed with authorization: [REDACTED]"
+      }
+    });
+    expect(response.command_envelope_v2?.operational.diagnosis).toMatchObject({
+      availability: "unavailable"
+    });
+    expect(response.command_envelope_v2?.errors[0]).not.toHaveProperty("diagnosis");
+  });
+
   it("maps bridge.forward transport errors to CLI-compatible command envelope errors", () => {
     const request = createBridgeForwardRequest({
       id: "forward-error-001",
